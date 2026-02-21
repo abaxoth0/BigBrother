@@ -17,7 +17,8 @@ char g_ErrBuf[PCAP_ERRBUF_SIZE];
 char g_FilterExpr[MAX_FILTER_LEN] = "";
 
 #define STATUS_OK 0
-#define STATUS_MISSING_WHITELIST_FILE 2
+#define STATUS_INITIALIZATION_FAILED 10
+#define STATUS_FAILED_TO_READ_WHITELIST 11
 
 // TODO Idealy need to get rid of this error and handle all the cases where it was used correctly
 #define STATUS_UNSPECIFIED_ERROR -1
@@ -28,7 +29,7 @@ int LoadWhiteList(char* path) {
     if (!path) path = DEFAULT_WHITELIST_PATH;
     FILE *f = fopen(path, "r");
     if (!f) {
-        return STATUS_MISSING_WHITELIST_FILE;
+        return STATUS_FAILED_TO_READ_WHITELIST;
     }
 
     char line[MAX_FILTER_LEN];
@@ -72,8 +73,12 @@ int InitPacketFilter(void) {
     pcap_freealldevs(alldevs);
     if (!g_Handle) return STATUS_UNSPECIFIED_ERROR;
 
+    int errc;
     // TODO pass path from args
-    LoadWhiteList(NULL);
+    if ((errc = LoadWhiteList(NULL)) != STATUS_OK) {
+        printf("[ ERROR ] Failed to load while list");
+        return errc;
+    }
 
     struct bpf_program fp;
     if (pcap_compile(g_Handle, &fp, g_FilterExpr, 1, PCAP_NETMASK_UNKNOWN) == -1) {
@@ -176,13 +181,18 @@ void WINAPI ServiceMain(DWORD argc, LPTSTR *argv) {
 }
 
 int main() {
+    if (pcap_init(PCAP_CHAR_ENC_UTF_8, g_ErrBuf) != 0) {
+        printf("[ ERROR ] Failed to initialize pcap librarly: %s\n", g_ErrBuf);
+        return STATUS_INITIALIZATION_FAILED;
+    };
     SERVICE_TABLE_ENTRY ServiceTable[] = {
         {SERVICE_NAME, (LPSERVICE_MAIN_FUNCTION)ServiceMain},
         {NULL, NULL}
     };
+    printf("Starting service\n");
     if (!StartServiceCtrlDispatcher(ServiceTable)) {
         return STATUS_UNSPECIFIED_ERROR;
     }
-    printf("Ayo\n");
+    printf("Stop\n");
     return 0;
 }
