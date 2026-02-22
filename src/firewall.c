@@ -1,3 +1,5 @@
+#include <assert.h>
+#include <stdlib.h>
 #include <pcap/pcap.h>
 #include <winsock2.h>
 #include <windows.h>
@@ -5,6 +7,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <errno.h>
+#include "../include/common.h"
 
 SERVICE_STATUS g_ServiceStatus = {0};
 SERVICE_STATUS_HANDLE g_StatusHandle = NULL;
@@ -38,7 +41,7 @@ int LoadWhiteList(char* path) {
         line[strcspn(line, "\n")] = 0;
         if (line[0] == '#' || line[0] == '\0') continue;
 
-        if (g_FilterExpr[0] != '\0') strcat(g_FilterExpr, " or");
+        if (g_FilterExpr[0] != '\0') strcat(g_FilterExpr, " or ");
 
         strcat(g_FilterExpr, "dst host ");
         strcat(g_FilterExpr, line);
@@ -181,6 +184,12 @@ void WINAPI ServiceMain(DWORD argc, LPTSTR *argv) {
 }
 
 int main() {
+    StringView str = {0};
+    int n = 128;
+    DA_GROW(&str, n);
+}
+
+int main2() {
     if (pcap_init(PCAP_CHAR_ENC_UTF_8, g_ErrBuf) != 0) {
         printf("[ ERROR ] Failed to initialize pcap librarly: %s\n", g_ErrBuf);
         return STATUS_INITIALIZATION_FAILED;
@@ -189,10 +198,15 @@ int main() {
         {SERVICE_NAME, (LPSERVICE_MAIN_FUNCTION)ServiceMain},
         {NULL, NULL}
     };
-    printf("Starting service\n");
-    if (!StartServiceCtrlDispatcher(ServiceTable)) {
-        return STATUS_UNSPECIFIED_ERROR;
+    if (LoadWhiteList("whitelist.txt") != STATUS_OK) {
+        printf("[ ERROR ] Failed to load whitelist\n");
+        return STATUS_FAILED_TO_READ_WHITELIST;
     }
+    printf("whitelist:\n%s\n", g_FilterExpr);
+    // printf("Starting service\n");
+    // if (!StartServiceCtrlDispatcher(ServiceTable)) {
+    //     return STATUS_UNSPECIFIED_ERROR;
+    // }
     printf("Stop\n");
     return 0;
 }
