@@ -1,12 +1,20 @@
 #include "../include/common.h"
 #include <string.h>
+#include <stdarg.h>
+
+#include <stdio.h>
 
 StringView NewStringView(char* from, size_t cap) {
     StringView str = {0};
     size_t from_size = from ? strlen(from) : 0;
     size_t str_cap = cap > from_size ? cap : from_size;
     DA_GROW(&str, str_cap ? str_cap : DEFAULT_DA_CAP);
-    if (from) strcpy(str.elems, from);
+    if (from) {
+        strcpy(str.elems, from);
+        str.len = from_size;
+    } else {
+        str.elems[0] = '\0';
+    }
     return str;
 }
 
@@ -25,6 +33,18 @@ void StringViewAppend(StringView *str, char* buf) {
     strcat(str->elems, buf);
     str->len = new_len;
 }
+
+void StringViewAppendV(StringView *str, ...) {
+    va_list args;
+    va_start(args, str);
+
+    char *buf;
+    while ((buf = va_arg(args, char*)) != NULL) {
+        StringViewAppend(str, buf);
+    }
+
+    va_end(args);
+};
 
 void StringViewClear(StringView *str) {
     assert(str);

@@ -23,8 +23,6 @@
 } while(0)
 
 
-// TODO: Now max string view size is restricted
-
 // Note: `len` doesn't count null terminator.
 typedef struct {
     size_t cap;
@@ -38,6 +36,9 @@ StringView NewStringView(char* from, size_t cap);
 void StringViewFree(StringView *str);
 // Appends specified char buffer to a string view.
 void StringViewAppend(StringView *str, char* buf);
+// Appends multiple NULL-terminated char* buffers to str.
+// Example: StringViewAppendV(&str, "Hello", ", ", "World!", NULL);
+void StringViewAppendV(StringView *str, ...);
 // Sets string view length to 0 and null terminates first char.
 void StringViewClear(StringView *str);
 
