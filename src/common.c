@@ -2,8 +2,6 @@
 #include <string.h>
 #include <stdarg.h>
 
-#include <stdio.h>
-
 StringView NewStringView(char* from, size_t cap) {
     StringView str = {0};
     size_t from_size = from ? strlen(from) : 0;

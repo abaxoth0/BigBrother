@@ -7,19 +7,22 @@
 
 #define DEFAULT_DA_CAP 32
 
-#define DA_GROW(da, n) do {                                             \
-    if ((n) <= 0 || (da)->len+(n) <= (da)->cap) break;                  \
-    size_t new_cap = (da)->cap;                                         \
-    if (new_cap <= 0) new_cap = DEFAULT_DA_CAP;                         \
-    while ((da)->len+n > new_cap) new_cap *= 2;                         \
-    void *tmp = realloc((da)->elems, new_cap * sizeof(*(da)->elems));   \
-    if (!tmp) {                                                         \
-        /* TODO Need to somehow properly handle this */                 \
-        assert(0 && "Memory reallocation failed (out of RAM?)");        \
-        break;                                                          \
-    }                                                                   \
-    (da)->elems = tmp;                                                  \
-    (da)->cap = new_cap;                                                \
+#define DA_GROW(da, n) do { \
+    if ((n) <= 0 || (da)->len+(n) <= (da)->cap) break; \
+    size_t _new_cap = (da)->cap; \
+    if (_new_cap <= 0) _new_cap = DEFAULT_DA_CAP; \
+    while ((da)->len+(n) > _new_cap) { \
+        assert(_new_cap && "size_t overflow"); \
+        _new_cap *= 2; \
+    } \
+    void *_tmp = realloc((da)->elems, _new_cap * sizeof(*(da)->elems)); \
+    if (!_tmp) { \
+        /* TODO Need to somehow properly handle this */ \
+        assert(0 && "Memory reallocation failed (out of RAM?)"); \
+        break; \
+    } \
+    (da)->elems = _tmp; \
+    (da)->cap = _new_cap; \
 } while(0)
 
 
