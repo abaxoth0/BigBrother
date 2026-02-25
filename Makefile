@@ -1,6 +1,6 @@
 CC = x86_64-w64-mingw32-gcc
-CFLAGS = -O2 -Wall -mwindows -I$(HOME)/proj/BigBrother/include/third-party/npcap-sdk/Include
-LDFLAGS = -L$(HOME)/proj/BigBrother/include/third-party/npcap-sdk/Lib/x64 -lwpcap -lpacket -lws2_32 -static
+CFLAGS = -O2 -Wall -mwindows -I$(HOME)/proj/BigBrother/include/third-party/WinDivert-2.2.2-A/include
+LDFLAGS = -L$(HOME)/proj/BigBrother/include/third-party/WinDivert-2.2.2-A/x64 -lWinDivert -lws2_32 -static
 t-units = src/firewall.c src/common.c
 
 all: firewall-service.exe
