@@ -1,10 +1,16 @@
 #include <assert.h>
+#include <errhandlingapi.h>
+#include <handleapi.h>
 #include <stdlib.h>
 #include <winsock2.h>
 #include <windows.h>
 #include <stdio.h>
 #include <string.h>
 #include <errno.h>
+#include <windivert.h>
+#include <winsvc.h>
+#include <inttypes.h>
+#include <ws2tcpip.h>
 #include "../include/common.h"
 
 SERVICE_STATUS g_ServiceStatus = {0};
@@ -48,34 +54,56 @@ int LoadWhiteList(char* path) {
     return STATUS_OK;
 }
 
-// StringView GetDevInfo(pcap_if_t *dev) {
-//     StringView str = NewStringView(NULL, 0);
-//
-//     StringViewAppendV(&str, dev->description, ": ", NULL);
-//     if (strlen(dev->addresses->addr->sa_data)){
-//         StringViewAppendV(&str, dev->addresses->addr->sa_data, str, " - ", NULL);
-//     }
-//     StringViewAppend(&str, dev->name);
-//
-//     return str;
-// }
+#define PACKET_SIZE WINDIVERT_MTU_MAX
 
+char* NewPacketBuffer() {
+    char* packet = malloc(PACKET_SIZE);
+    // TODO handle this properly somehow
+    if (!packet) {
+        assert(0 && "memory allocation failed");
+    }
+    return packet;
+}
 
-DWORD WINAPI ServiceWorkerThread(LPVOID lpParam) {
-    // if (InitPacketFilter() != 0) {
-    //     printf("[ ERROR ] Failed to initialize packet filter");
-    //     return STATUS_OK; // Service stays alive
-    // }
+int IsAllowed(const char* dest_ip) {
+    // TODO: Implement. Currently just blocks all
+    return 0;
+}
 
-    // Keep service alive, it is idle - filter is active in kernel
-    while(WaitForSingleObject(g_ServiceStopEvent, 0) != WAIT_OBJECT_0) {
-        Sleep(1000);
+// Main thread
+DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
+    WINDIVERT_ADDRESS addr;
+    UINT recv_len;
+    char* packet = NewPacketBuffer();
+    HANDLE handle = WinDivertOpen("ip", WINDIVERT_LAYER_NETWORK, 0, 0);
+
+    if (handle == INVALID_HANDLE_VALUE) {
+        printf("[ ERROR ] Failed to open WinDivert handle\n");
+        return STATUS_UNSPECIFIED_ERROR;
     }
 
-    // if (g_Handle) {
-    //     pcap_close(g_Handle);
-    //     g_Handle = NULL;
-    // }
+    UINT32 *d = addr.Socket.RemoteAddr;
+    StringView dest_ip = NewStringView(NULL, 0);
+
+    while(WaitForSingleObject(g_ServiceStopEvent, 0) != WAIT_OBJECT_0) {
+        if (!WinDivertRecv(handle, packet, PACKET_SIZE, &recv_len, &addr)) {
+            continue;
+        }
+
+        StringViewClear(&dest_ip);
+        dest_ip.len = (size_t)sprintf("%du.%du.%du.%du", dest_ip.elems, d[0], d[1], d[2], d[3]);
+
+        if (!IsAllowed(dest_ip.elems)) {
+            printf("Blocked packet to %s\n", dest_ip.elems);
+            continue;
+        }
+
+        WinDivertSend(handle, packet, recv_len, NULL, &addr);
+    }
+
+    free(packet);
+    StringViewFree(&dest_ip);
+    WinDivertClose(handle);
 
     return STATUS_OK;
 }
@@ -126,7 +154,7 @@ void WINAPI ServiceMain(DWORD argc, LPTSTR *argv) {
     g_ServiceStatus.dwWaitHint = 0;
     UpdateServiceStatus();
 
-    HANDLE hThread = CreateThread(NULL, 0, ServiceWorkerThread, NULL, 0, NULL);
+    HANDLE hThread = CreateThread(NULL, 0, FirewallServiceThread, NULL, 0, NULL);
     if (!hThread) {
         CloseHandle(g_ServiceStopEvent);
         g_ServiceStatus.dwCurrentState = SERVICE_STOPPED;
@@ -143,10 +171,61 @@ void WINAPI ServiceMain(DWORD argc, LPTSTR *argv) {
 }
 
 int main() {
-    // if (pcap_init(PCAP_CHAR_ENC_UTF_8, g_ErrBuf) != 0) {
-    //     printf("[ ERROR ] Failed to initialize pcap librarly: %s\n", g_ErrBuf);
-    //     return STATUS_INITIALIZATION_FAILED;
-    // };
+    printf("STARING\n");
+    WINDIVERT_ADDRESS addr;
+    UINT recv_len;
+    char* packet = NewPacketBuffer();
+    HANDLE handle = WinDivertOpen("udp.SrcPort == 53 or (outbound and ip)", WINDIVERT_LAYER_NETWORK, 0, 0);
+
+    if (handle == INVALID_HANDLE_VALUE) {
+        printf("[ ERROR ] Failed to open WinDivert handle. Error code: %lu\n", GetLastError());
+        return STATUS_UNSPECIFIED_ERROR;
+    }
+
+    PWINDIVERT_IPHDR ip_hdr;
+    PWINDIVERT_TCPHDR tcp_hdr;
+    void* payload = NULL;
+    UINT* payload_len = NULL;
+
+    printf("Firewall started\n");
+
+    while(1) {
+        if (!WinDivertRecv(handle, packet, PACKET_SIZE, &recv_len, &addr)) {
+            continue;
+        }
+        if (ip_hdr == NULL) {
+            WinDivertSend(handle, packet, recv_len, NULL, &addr);
+        }
+
+        WinDivertHelperParsePacket(
+            packet, PACKET_SIZE,
+            &ip_hdr,
+            NULL, // Ignore IPv6
+            NULL, // Ignore protocol
+            NULL, NULL, // Ignor ICMP (TODO: can be usefull for debug)
+            &tcp_hdr,
+            NULL, // Ignore UDP
+            payload, payload_len,
+            NULL, NULL // Ignore next package
+        );
+
+        char src[16], dst[16];
+        inet_ntop(AF_INET, &ip_hdr->SrcAddr, src, sizeof(src));
+        inet_ntop(AF_INET, &ip_hdr->DstAddr, dst, sizeof(dst));
+
+        printf("[IP] %s -> %s | protocol: %u\n", src, dst, ip_hdr->Protocol);
+
+        // if (!IsAllowed(dest_ip.elems)) {
+        //     printf("Blocked packet to %s\n", dest_ip.elems);
+        //     continue;
+        // }
+
+        WinDivertSend(handle, packet, recv_len, NULL, &addr);
+    }
+    printf("STARING\n");
+}
+
+int main2() {
     SERVICE_TABLE_ENTRY ServiceTable[] = {
         {SERVICE_NAME, (LPSERVICE_MAIN_FUNCTION)ServiceMain},
         {NULL, NULL}
@@ -158,13 +237,10 @@ int main() {
         return errc;
     }
     printf("whitelist:\n%s\n", g_FilterExpr.elems);
-    // if (InitPacketFilter() != STATUS_OK) {
-    //     return STATUS_UNSPECIFIED_ERROR;
-    // }
-    // printf("Starting service\n");
-    // if (!StartServiceCtrlDispatcher(ServiceTable)) {
-    //     return STATUS_UNSPECIFIED_ERROR;
-    // }
+    if (!StartServiceCtrlDispatcher(ServiceTable)) {
+        printf("[ ERROR ] Failed to start firewall service\n");
+        return STATUS_UNSPECIFIED_ERROR;
+    }
     printf("Stop\n");
     return 0;
 }
