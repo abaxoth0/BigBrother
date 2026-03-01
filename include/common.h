@@ -1,9 +1,20 @@
+/** @file common.h
+ * @brief Common data structures and utilities for BigBrother firewall.
+ */
+
 #ifndef COMMON_H
 #define COMMON_H
 
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#include <stdint.h>
+#include <time.h>
+
+#define DEFAULT_DA_CAP 32
+#define MAX_WHITELIST_DOMAINS 256
+#define MAX_DOMAIN_LEN 256
+#define MAX_ALLOWED_IPS 1024
 
 #define DEFAULT_DA_CAP 32
 
@@ -26,23 +37,45 @@
 } while(0)
 
 
-// Note: `len` doesn't count null terminator.
+/** @brief Dynamic string container.
+ *
+ * Note: `len` doesn't count null terminator.
+ */
 typedef struct {
-    size_t cap;
-    size_t len;
-    char* elems;
+    size_t cap;      ///< Buffer capacity.
+    size_t len;      ///< String length (excluding null terminator).
+    char* elems;     ///< Character buffer.
 } StringView;
 
-// Creates new string view. If `from` is not NULL then uses its copy for the initial string view value.
+/** @brief Creates new string view.
+ * @param[in] from Initial string (can be NULL).
+ * @param[in] cap  Initial capacity.
+ * @return Initialized StringView.
+ */
 StringView NewStringView(char* from, size_t cap);
-// Releases underlying char buffer (`elems`). Sets `cap`, `len` to 0 and `elems` to NULL.
+
+/** @brief Releases underlying char buffer.
+ * @param[in,out] str StringView to free. Sets cap, len to 0 and elems to NULL.
+ */
 void StringViewFree(StringView *str);
-// Appends specified char buffer to a string view.
+
+/** @brief Appends specified char buffer to a string view.
+ * @param[in,out] str StringView to append to.
+ * @param[in]     buf Buffer to append.
+ */
 void StringViewAppend(StringView *str, char* buf);
-// Appends multiple NULL-terminated char* buffers to str.
-// Example: StringViewAppendV(&str, "Hello", ", ", "World!", NULL);
+
+/** @brief Appends multiple NULL-terminated char* buffers to str.
+ * @param[in,out] str StringView to append to.
+ * @param[in]     ... Variable number of NULL-terminated char* arguments.
+ *
+ * Example: StringViewAppendV(&str, "Hello", ", ", "World!", NULL);
+ */
 void StringViewAppendV(StringView *str, ...);
-// Sets string view length to 0 and null terminates first char.
+
+/** @brief Sets string view length to 0 and null terminates first char.
+ * @param[in,out] str StringView to clear.
+ */
 void StringViewClear(StringView *str);
 
 #endif

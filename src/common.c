@@ -1,6 +1,8 @@
 #include "../include/common.h"
 #include <string.h>
 #include <stdarg.h>
+#include <ctype.h>
+#include <time.h>
 
 StringView NewStringView(char* from, size_t cap) {
     StringView str = {0};
@@ -51,3 +53,10 @@ void StringViewClear(StringView *str) {
         str->len = 0;
     }
 }
+
+static void to_lower_inplace(char* str) {
+    for (int i = 0; str[i]; i++) {
+        str[i] = (char)tolower((unsigned char)str[i]);
+    }
+}
+
