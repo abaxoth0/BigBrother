@@ -1,3 +1,7 @@
+/** @file firewall.c
+ * @brief Main firewall service implementation using WinDivert.
+ */
+
 #include <assert.h>
 #include <errhandlingapi.h>
 #include <handleapi.h>
@@ -12,10 +16,15 @@
 #include <inttypes.h>
 #include <ws2tcpip.h>
 #include "../include/common.h"
+#include "../include/allowlist.h"
+#include "../include/dns.h"
 
 SERVICE_STATUS g_ServiceStatus = {0};
 SERVICE_STATUS_HANDLE g_StatusHandle = NULL;
 HANDLE g_ServiceStopEvent = INVALID_HANDLE_VALUE;
+
+Whitelist g_Whitelist = {0};
+IpAllowlist g_IpAllowlist = {0};
 
 StringView g_FilterExpr = {0};
 
@@ -23,12 +32,22 @@ StringView g_FilterExpr = {0};
 #define STATUS_INITIALIZATION_FAILED 10
 #define STATUS_FAILED_TO_READ_WHITELIST 11
 
-// TODO Idealy need to get rid of this error and handle all the cases where it was used correctly
 #define STATUS_UNSPECIFIED_ERROR -1
 
-// #define DEFAULT_WHITELIST_PATH "C:\\ProgramData\\BigBrother\\whitelist.txt"
 #define DEFAULT_WHITELIST_PATH "whitelist.txt"
 
+/**
+ * @brief Load whitelist domains and IPs from file.
+ *
+ * Reads entries from a text file (one per line, lines starting
+ * with # are comments). Supports both:
+ * - Plain IPs (e.g., "1.2.3.4") - added directly to allowlist
+ * - Domain names (e.g., "example.com") - added to domain whitelist
+ *
+ * @param[in] path Path to whitelist file. If NULL, uses default path.
+ *
+ * @return STATUS_OK on success, STATUS_FAILED_TO_READ_WHITELIST on failure.
+ */
 int LoadWhiteList(char* path) {
     if (!path) path = DEFAULT_WHITELIST_PATH;
     FILE *f = fopen(path, "r");
@@ -36,41 +55,65 @@ int LoadWhiteList(char* path) {
         return STATUS_FAILED_TO_READ_WHITELIST;
     }
 
-    StringView line = NewStringView(NULL, 64);
-    g_FilterExpr = NewStringView(NULL, 4096);
-    while (fgets(line.elems, line.cap, f)) {
-        line.elems[strcspn(line.elems, "\n")] = 0;
-        if (line.elems[0] == '#' || line.elems[0] == '\0') continue;
-        if (g_FilterExpr.elems[0] != '\0') {
-            StringViewAppend(&g_FilterExpr, " or ");
+    Whitelist_Init(&g_Whitelist);
+    IpAllowlist_Init(&g_IpAllowlist);
+
+    char line[256];
+    while (fgets(line, sizeof(line), f)) {
+        line[strcspn(line, "\n")] = 0;
+        if (line[0] == '#' || line[0] == '\0') continue;
+
+        struct in_addr addr;
+        if (inet_pton(AF_INET, line, &addr) == 1) {
+            IpAllowlist_Add(&g_IpAllowlist, addr.s_addr, line, 0);
+            printf("[INFO] Added IP to allowlist: %s\n", line);
+        } else {
+            Whitelist_Add(&g_Whitelist, line);
         }
-        StringViewAppendV(&g_FilterExpr, "dst host ", line.elems, NULL);
     }
 
-    StringViewFree(&line);
     fclose(f);
-    if (errno != 0) printf("[ ERROR ] Failed to close file");
+    printf("[INFO] Loaded %zu whitelisted domains and %zu IPs\n", g_Whitelist.count, g_IpAllowlist.count);
 
     return STATUS_OK;
 }
 
 #define PACKET_SIZE WINDIVERT_MTU_MAX
 
+/**
+ * @brief Allocate a new packet buffer.
+ *
+ * @return Pointer to allocated buffer, or asserts on failure.
+ */
 char* NewPacketBuffer() {
     char* packet = malloc(PACKET_SIZE);
-    // TODO handle this properly somehow
     if (!packet) {
         assert(0 && "memory allocation failed");
     }
     return packet;
 }
 
-int IsAllowed(const char* dest_ip) {
-    // TODO: Implement. Currently just blocks all
-    return 0;
+/**
+ * @brief Check if destination IP is allowed.
+ *
+ * @param[in] dest_ip Destination IPv4 address (network byte order).
+ *
+ * @return Non-zero if allowed, zero if blocked.
+ */
+int IsAllowed(uint32_t dest_ip) {
+    return IpAllowlist_Contains(&g_IpAllowlist, dest_ip);
 }
 
-// Main thread
+/**
+ * @brief Main firewall service thread.
+ *
+ * Opens WinDivert handle and processes network packets,
+ * filtering based on whitelist and IP allowlist.
+ *
+ * @param[in] lpParam Unused thread parameter.
+ *
+ * @return Thread exit status.
+ */
 DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
     WINDIVERT_ADDRESS addr;
     UINT recv_len;
@@ -82,19 +125,25 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
         return STATUS_UNSPECIFIED_ERROR;
     }
 
-    UINT32 *d = addr.Socket.RemoteAddr;
-    StringView dest_ip = NewStringView(NULL, 0);
-
     while(WaitForSingleObject(g_ServiceStopEvent, 0) != WAIT_OBJECT_0) {
         if (!WinDivertRecv(handle, packet, PACKET_SIZE, &recv_len, &addr)) {
             continue;
         }
 
-        StringViewClear(&dest_ip);
-        dest_ip.len = (size_t)sprintf("%du.%du.%du.%du", dest_ip.elems, d[0], d[1], d[2], d[3]);
+        PWINDIVERT_IPHDR ip_hdr = NULL;
+        WinDivertHelperParsePacket(packet, recv_len, &ip_hdr, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
 
-        if (!IsAllowed(dest_ip.elems)) {
-            printf("Blocked packet to %s\n", dest_ip.elems);
+        if (!ip_hdr) {
+            WinDivertSend(handle, packet, recv_len, NULL, &addr);
+            continue;
+        }
+
+        uint32_t dest_ip = ip_hdr->DstAddr;
+
+        if (!IsAllowed(dest_ip)) {
+            printf("Blocked packet to %u.%u.%u.%u\n",
+                   (dest_ip >> 0) & 0xFF, (dest_ip >> 8) & 0xFF,
+                   (dest_ip >> 16) & 0xFF, (dest_ip >> 24) & 0xFF);
             continue;
         }
 
@@ -102,12 +151,18 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
     }
 
     free(packet);
-    StringViewFree(&dest_ip);
     WinDivertClose(handle);
 
     return STATUS_OK;
 }
 
+/**
+ * @brief Service control handler for Windows Service.
+ *
+ * Handles service control messages (primarily stop request).
+ *
+ * @param[in] CtrlCode Control code from service manager.
+ */
 void WINAPI ServiceControlHandler(DWORD CtrlCode) {
     switch (CtrlCode) {
         case SERVICE_CONTROL_STOP:
@@ -128,6 +183,15 @@ void WINAPI ServiceControlHandler(DWORD CtrlCode) {
 #define SERVICE_NAME "BigBrother"
 #define UpdateServiceStatus() SetServiceStatus(g_StatusHandle, &g_ServiceStatus)
 
+/**
+ * @brief Service main entry point.
+ *
+ * Initializes the Windows service, loads whitelist, and starts
+ * the firewall service thread.
+ *
+ * @param[in] argc Argument count.
+ * @param[in] argv Argument vector.
+ */
 void WINAPI ServiceMain(DWORD argc, LPTSTR *argv) {
     g_StatusHandle = RegisterServiceCtrlHandler(SERVICE_NAME, ServiceControlHandler);
     if (!g_StatusHandle) return;
@@ -170,22 +234,45 @@ void WINAPI ServiceMain(DWORD argc, LPTSTR *argv) {
     UpdateServiceStatus();
 }
 
+// StringView ParseDNSQuery(char* payload, UINT payload_size) {
+//     StringView domain;
+//
+//     return domain;
+// }
+
+#define WINDIVERT_FILTER "ip"
+
+/**
+ * @brief Main entry point for standalone firewall mode.
+ *
+ * Runs firewall in standalone mode (not as Windows service).
+ * Opens WinDivert handle and filters outbound network traffic.
+ *
+ * @return Exit code.
+ */
 int main() {
     printf("STARING\n");
+    setbuf(stdout, NULL);
+
+    LoadWhiteList(NULL);
+    printf("[INFO] Whitelist loaded with %zu domains\n", g_Whitelist.count);
+
     WINDIVERT_ADDRESS addr;
     UINT recv_len;
     char* packet = NewPacketBuffer();
-    HANDLE handle = WinDivertOpen("udp.SrcPort == 53 or (outbound and ip)", WINDIVERT_LAYER_NETWORK, 0, 0);
+    HANDLE handle = WinDivertOpen(WINDIVERT_FILTER, WINDIVERT_LAYER_NETWORK, 0, 0);
 
     if (handle == INVALID_HANDLE_VALUE) {
         printf("[ ERROR ] Failed to open WinDivert handle. Error code: %lu\n", GetLastError());
         return STATUS_UNSPECIFIED_ERROR;
     }
 
-    PWINDIVERT_IPHDR ip_hdr;
-    PWINDIVERT_TCPHDR tcp_hdr;
-    void* payload = NULL;
-    UINT* payload_len = NULL;
+    PWINDIVERT_IPHDR ip_hdr = NULL;
+    PWINDIVERT_TCPHDR tcp_hdr = NULL;
+    PWINDIVERT_UDPHDR udp_hdr = NULL;
+    char payload_buf[1024];
+    void* payload_ptr = payload_buf;
+    UINT payload_len = 0;
 
     printf("Firewall started\n");
 
@@ -193,50 +280,167 @@ int main() {
         if (!WinDivertRecv(handle, packet, PACKET_SIZE, &recv_len, &addr)) {
             continue;
         }
-        if (ip_hdr == NULL) {
-            WinDivertSend(handle, packet, recv_len, NULL, &addr);
-        }
 
-        WinDivertHelperParsePacket(
-            packet, PACKET_SIZE,
+        memset(payload_buf, 0, sizeof(payload_buf));
+        payload_len = sizeof(payload_buf);
+
+        ip_hdr = NULL;
+        tcp_hdr = NULL;
+        udp_hdr = NULL;
+
+        BOOL ok = WinDivertHelperParsePacket(
+            packet, recv_len,
             &ip_hdr,
-            NULL, // Ignore IPv6
-            NULL, // Ignore protocol
-            NULL, NULL, // Ignor ICMP (TODO: can be usefull for debug)
+            NULL,
+            NULL,
+            NULL, NULL,
             &tcp_hdr,
-            NULL, // Ignore UDP
-            payload, payload_len,
-            NULL, NULL // Ignore next package
+            &udp_hdr,
+            (void*)&payload_ptr, &payload_len,
+            NULL, NULL
         );
+
+        if (!ok || ip_hdr == NULL) {
+            WinDivertSend(handle, packet, recv_len, NULL, &addr);
+            continue;
+        }
 
         char src[16], dst[16];
         inet_ntop(AF_INET, &ip_hdr->SrcAddr, src, sizeof(src));
         inet_ntop(AF_INET, &ip_hdr->DstAddr, dst, sizeof(dst));
 
-        printf("[IP] %s -> %s | protocol: %u\n", src, dst, ip_hdr->Protocol);
+#ifdef DEBUG
+        if (udp_hdr) {
+            printf("[UDP] %s -> %s | src: %u; dst: %u | payload: %u\n",
+                   src, dst, ntohs(udp_hdr->SrcPort), ntohs(udp_hdr->DstPort), payload_len);
+        } else if (tcp_hdr) {
+            // printf("[TCP] %s -> %s | src: %u; dst: %u | payload: %u\n",
+            //        src, dst, ntohs(tcp_hdr->SrcPort), ntohs(tcp_hdr->DstPort), payload_len);
+        }
+#endif
 
-        // if (!IsAllowed(dest_ip.elems)) {
-        //     printf("Blocked packet to %s\n", dest_ip.elems);
-        //     continue;
-        // }
+        if (udp_hdr && (ntohs(udp_hdr->DstPort) == 53 || ntohs(udp_hdr->SrcPort) == 53)) {
+            uint8_t* dns_data = (uint8_t*)payload_ptr;
+            size_t dns_len = payload_len;
+
+#ifdef DEBUG
+            printf("[DNS-PORT] Detected DNS packet, src: %u, dst: %u, dns_len: %zu\n", 
+                   ntohs(udp_hdr->SrcPort), ntohs(udp_hdr->DstPort), dns_len);
+#endif
+
+            if (dns_len > 12) {
+                DnsPacket dns = Dns_Parse(dns_data, dns_len);
+
+#ifdef DEBUG
+                printf("[DNS] valid: %d, domain: '%s', response: %s, answers: %u\n",
+                       dns.is_valid, dns.question.domain,
+                       dns.is_response ? "yes" : "no", dns.answer_count);
+#endif
+
+                if (dns.is_valid && dns.question.domain[0] != '\0') {
+
+                    if (dns.is_response && dns.answer_count > 0) {
+                        int domain_whitelisted = 0;
+                        for (size_t w = 0; w < g_Whitelist.count; w++) {
+                            if (Dns_CheckDomain(dns.question.domain, (const char*[]){g_Whitelist.entries[w].domain}, 1)) {
+                                domain_whitelisted = 1;
+                                break;
+                            }
+                        }
+                        
+                        for (uint32_t i = 0; i < dns.answer_count; i++) {
+                            for (uint32_t j = 0; j < dns.answers[i].ip_count; j++) {
+                                uint32_t resolved_ip = dns.answers[i].ips[j];
+                                struct in_addr addr_ip = { .s_addr = resolved_ip };
+
+                                if (domain_whitelisted) {
+                                    uint32_t ttl = 300;
+                                    IpAllowlist_Add(&g_IpAllowlist, resolved_ip, dns.question.domain, ttl);
+                                }
+
+#ifdef DEBUG
+                                printf("[DNS-RESPONSE] %s -> %s (whitelisted: %d)\n",
+                                       dns.question.domain, inet_ntoa(addr_ip), domain_whitelisted);
+#endif
+                            }
+                        }
+                    }
+                }
+
+                Dns_Free(&dns);
+            }
+        }
+
+        uint32_t src_ip = ip_hdr->SrcAddr;
+        uint32_t dest_ip = ip_hdr->DstAddr;
+        
+        int is_local_src = (src_ip == 0x0100007F) || ((src_ip & 0xFF000000) == 0x7F000000) ||
+                           ((src_ip & 0xFFF00000) == 0xAC100000) || ((src_ip & 0xFFFF0000) == 0xC0A80000) ||
+                           ((src_ip & 0xFF000000) == 0x0A000000);
+        int is_local_dst = (dest_ip == 0x0100007F) || ((dest_ip & 0xFF000000) == 0x7F000000) ||
+                          ((dest_ip & 0xFFF00000) == 0xAC100000) || ((dest_ip & 0xFFFF0000) == 0xC0A80000) ||
+                          ((dest_ip & 0xFF000000) == 0x0A000000);
+        int is_local = is_local_src || is_local_dst;
+
+        /*
+         * Blocking logic:
+         * - Only block outbound packets (inbound are always allowed)
+         * - Allow DNS queries (UDP port 53) so we can resolve domains
+         * - Allow packets to local IP ranges (127.x.x.x, 192.168.x.x, 10.x.x.x, 172.16-31.x.x)
+         * - Allow packets to IPs that were resolved from whitelisted domains
+         * - Block everything else
+         */
+        if (addr.Outbound && !IsAllowed(dest_ip) && !is_local) {
+            int is_dns = (udp_hdr && (ntohs(udp_hdr->DstPort) == 53));
+            if (is_dns) {
+                WinDivertSend(handle, packet, recv_len, NULL, &addr);
+                continue;
+            }
+            
+            const char* domain = IpAllowlist_GetDomain(&g_IpAllowlist, dest_ip);
+            int domain_whitelisted = 0;
+            if (domain && domain[0]) {
+                for (size_t w = 0; w < g_Whitelist.count; w++) {
+                    if (Dns_CheckDomain(domain, (const char*[]){g_Whitelist.entries[w].domain}, 1)) {
+                        domain_whitelisted = 1;
+                        break;
+                    }
+                }
+            }
+            
+            if (!domain_whitelisted) {
+#ifdef DEBUG
+                printf("[BLOCKED] Packet to %s blocked", dst);
+                if (domain) printf(" (domain: %s not whitelisted)", domain);
+                printf("\n");
+#endif
+                continue;
+            }
+        }
 
         WinDivertSend(handle, packet, recv_len, NULL, &addr);
     }
     printf("STARING\n");
 }
 
+/**
+ * @brief Alternative entry point for Windows Service mode.
+ *
+ * Runs firewall as a Windows Service using SCM.
+ *
+ * @return Exit code.
+ */
 int main2() {
     SERVICE_TABLE_ENTRY ServiceTable[] = {
         {SERVICE_NAME, (LPSERVICE_MAIN_FUNCTION)ServiceMain},
         {NULL, NULL}
     };
     int errc;
-    // TODO pass path from args
     if ((errc = LoadWhiteList(NULL)) != STATUS_OK) {
         printf("[ ERROR ] Failed to load while list\n");
         return errc;
     }
-    printf("whitelist:\n%s\n", g_FilterExpr.elems);
+    printf("Loaded %zu whitelisted domains\n", g_Whitelist.count);
     if (!StartServiceCtrlDispatcher(ServiceTable)) {
         printf("[ ERROR ] Failed to start firewall service\n");
         return STATUS_UNSPECIFIED_ERROR;
