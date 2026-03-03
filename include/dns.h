@@ -10,7 +10,15 @@
 #include <stddef.h>
 
 #define DNS_MAX_DOMAIN_LEN 255
+#define DNS_MAX_STR_DOMAIN_LEN 256
 #define DNS_MAX_IPS 16
+/*
+ * 12 bytes header
+ * 1+ bytes for domain name
+ * 2 bytes type
+ * 2 bytes class
+ */
+#define DNS_MIN_REQ_LEN 17
 
 /** @brief DNS packet header (12 bytes). */
 typedef struct DnsHeader_s {

@@ -10,7 +10,6 @@
 #include <windows.h>
 #include <stdio.h>
 #include <string.h>
-#include <errno.h>
 #include <windivert.h>
 #include <winsvc.h>
 #include <inttypes.h>
@@ -234,13 +233,8 @@ void WINAPI ServiceMain(DWORD argc, LPTSTR *argv) {
     UpdateServiceStatus();
 }
 
-// StringView ParseDNSQuery(char* payload, UINT payload_size) {
-//     StringView domain;
-//
-//     return domain;
-// }
-
 #define WINDIVERT_FILTER "ip"
+#define PACKET_PAYLOAD_SIZE 1024
 
 /**
  * @brief Main entry point for standalone firewall mode.
@@ -270,7 +264,10 @@ int main() {
     PWINDIVERT_IPHDR ip_hdr = NULL;
     PWINDIVERT_TCPHDR tcp_hdr = NULL;
     PWINDIVERT_UDPHDR udp_hdr = NULL;
-    char payload_buf[1024];
+
+    // Currently it's used only for DNS payloads which usually < 512 bytes.
+    // Consider make it a dynamic array if you will need to get payload from other protocols.
+    char payload_buf[PACKET_PAYLOAD_SIZE];
     void* payload_ptr = payload_buf;
     UINT payload_len = 0;
 
@@ -281,9 +278,7 @@ int main() {
             continue;
         }
 
-        memset(payload_buf, 0, sizeof(payload_buf));
-        payload_len = sizeof(payload_buf);
-
+        payload_buf[0] = '\0';
         ip_hdr = NULL;
         tcp_hdr = NULL;
         udp_hdr = NULL;
@@ -314,21 +309,22 @@ int main() {
             printf("[UDP] %s -> %s | src: %u; dst: %u | payload: %u\n",
                    src, dst, ntohs(udp_hdr->SrcPort), ntohs(udp_hdr->DstPort), payload_len);
         } else if (tcp_hdr) {
-            // printf("[TCP] %s -> %s | src: %u; dst: %u | payload: %u\n",
-            //        src, dst, ntohs(tcp_hdr->SrcPort), ntohs(tcp_hdr->DstPort), payload_len);
+            printf("[TCP] %s -> %s | src: %u; dst: %u | payload: %u\n",
+                   src, dst, ntohs(tcp_hdr->SrcPort), ntohs(tcp_hdr->DstPort), payload_len);
         }
 #endif
 
         if (udp_hdr && (ntohs(udp_hdr->DstPort) == 53 || ntohs(udp_hdr->SrcPort) == 53)) {
+            // Not char* cuz DNS packets contain binary data, not a null-terminated strings
             uint8_t* dns_data = (uint8_t*)payload_ptr;
             size_t dns_len = payload_len;
 
 #ifdef DEBUG
-            printf("[DNS-PORT] Detected DNS packet, src: %u, dst: %u, dns_len: %zu\n", 
+            printf("[DNS-PORT] Detected DNS packet, src: %u, dst: %u, dns_len: %zu\n",
                    ntohs(udp_hdr->SrcPort), ntohs(udp_hdr->DstPort), dns_len);
 #endif
 
-            if (dns_len > 12) {
+            if (dns_len >= DNS_MIN_REQ_LEN) {
                 DnsPacket dns = Dns_Parse(dns_data, dns_len);
 
 #ifdef DEBUG
@@ -337,43 +333,57 @@ int main() {
                        dns.is_response ? "yes" : "no", dns.answer_count);
 #endif
 
-                if (dns.is_valid && dns.question.domain[0] != '\0') {
+                if (!dns.is_valid || dns.question.domain[0] == '\0') {
+                    goto filtering;
+                }
 
-                    if (dns.is_response && dns.answer_count > 0) {
-                        int domain_whitelisted = 0;
-                        for (size_t w = 0; w < g_Whitelist.count; w++) {
-                            if (Dns_CheckDomain(dns.question.domain, (const char*[]){g_Whitelist.entries[w].domain}, 1)) {
-                                domain_whitelisted = 1;
-                                break;
-                            }
-                        }
-                        
-                        for (uint32_t i = 0; i < dns.answer_count; i++) {
-                            for (uint32_t j = 0; j < dns.answers[i].ip_count; j++) {
-                                uint32_t resolved_ip = dns.answers[i].ips[j];
-                                struct in_addr addr_ip = { .s_addr = resolved_ip };
+                // Only process DNS responses (not queries) with answer records
+                if (!dns.is_response || dns.answer_count == 0) {
+                    goto filtering;
+                }
 
-                                if (domain_whitelisted) {
-                                    uint32_t ttl = 300;
-                                    IpAllowlist_Add(&g_IpAllowlist, resolved_ip, dns.question.domain, ttl);
-                                }
-
-#ifdef DEBUG
-                                printf("[DNS-RESPONSE] %s -> %s (whitelisted: %d)\n",
-                                       dns.question.domain, inet_ntoa(addr_ip), domain_whitelisted);
-#endif
-                            }
-                        }
+                int domain_whitelisted = 0;
+                for (size_t w = 0; w < g_Whitelist.count; w++) {
+                    if (Dns_CheckDomain(dns.question.domain, (const char*[]){g_Whitelist.entries[w].domain}, 1)) {
+                        domain_whitelisted = 1;
+                        break;
                     }
                 }
 
+                // Add IPs to allowlist if domain is whitelisted
+                for (uint32_t i = 0; i < dns.answer_count; i++) {
+                    for (uint32_t j = 0; j < dns.answers[i].ip_count; j++) {
+                        uint32_t resolved_ip = dns.answers[i].ips[j];
+                        struct in_addr addr_ip = { .s_addr = resolved_ip };
+
+                        if (domain_whitelisted) {
+                            // In seconds
+                            uint32_t ttl = 300;
+                            IpAllowlist_Add(&g_IpAllowlist, resolved_ip, dns.question.domain, ttl);
+                        }
+
+#ifdef DEBUG
+                        printf("[DNS-RESPONSE] %s -> %s (whitelisted: %d)\n",
+                               dns.question.domain, inet_ntoa(addr_ip), domain_whitelisted);
+#endif
+                    }
+                }
+
+            filtering:
                 Dns_Free(&dns);
             }
         }
 
+        // Extract source and destination IPs
         uint32_t src_ip = ip_hdr->SrcAddr;
         uint32_t dest_ip = ip_hdr->DstAddr;
-        
+
+        /* Check if source/destination is a local IP address.
+         * Local IPs must not be blocked:
+         *   - 127.x.x.x (loopback)
+         *   - 192.168.x.x (private Class C)
+         *   - 10.x.x.x (private Class A)
+         *   - 172.16-31.x.x (private Class B) */
         int is_local_src = (src_ip == 0x0100007F) || ((src_ip & 0xFF000000) == 0x7F000000) ||
                            ((src_ip & 0xFFF00000) == 0xAC100000) || ((src_ip & 0xFFFF0000) == 0xC0A80000) ||
                            ((src_ip & 0xFF000000) == 0x0A000000);
@@ -396,7 +406,7 @@ int main() {
                 WinDivertSend(handle, packet, recv_len, NULL, &addr);
                 continue;
             }
-            
+
             const char* domain = IpAllowlist_GetDomain(&g_IpAllowlist, dest_ip);
             int domain_whitelisted = 0;
             if (domain && domain[0]) {
@@ -407,7 +417,7 @@ int main() {
                     }
                 }
             }
-            
+
             if (!domain_whitelisted) {
 #ifdef DEBUG
                 printf("[BLOCKED] Packet to %s blocked", dst);
@@ -421,30 +431,4 @@ int main() {
         WinDivertSend(handle, packet, recv_len, NULL, &addr);
     }
     printf("STARING\n");
-}
-
-/**
- * @brief Alternative entry point for Windows Service mode.
- *
- * Runs firewall as a Windows Service using SCM.
- *
- * @return Exit code.
- */
-int main2() {
-    SERVICE_TABLE_ENTRY ServiceTable[] = {
-        {SERVICE_NAME, (LPSERVICE_MAIN_FUNCTION)ServiceMain},
-        {NULL, NULL}
-    };
-    int errc;
-    if ((errc = LoadWhiteList(NULL)) != STATUS_OK) {
-        printf("[ ERROR ] Failed to load while list\n");
-        return errc;
-    }
-    printf("Loaded %zu whitelisted domains\n", g_Whitelist.count);
-    if (!StartServiceCtrlDispatcher(ServiceTable)) {
-        printf("[ ERROR ] Failed to start firewall service\n");
-        return STATUS_UNSPECIFIED_ERROR;
-    }
-    printf("Stop\n");
-    return 0;
 }

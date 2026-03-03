@@ -8,7 +8,6 @@
 #include <ws2tcpip.h>
 #include <string.h>
 #include <stdio.h>
-#include <ctype.h>
 #include <stdlib.h>
 
 #define DNS_TYPE_A     1   // IPv4 address (A record)
@@ -106,12 +105,6 @@ bool Dns_IsDnsPacket(const uint8_t* payload, size_t payload_len) {
     }
 
     DnsHeader* hdr = (DnsHeader*)payload;
-
-    /*
-     * Extract flags field and check opcode.
-     * ntohs() converts from network byte order to host byte order.
-     * On little-endian systems (x86/x64), bytes are swapped.
-     */
     uint16_t flags = ntohs(hdr->flags);
 
     /*
@@ -132,14 +125,8 @@ bool Dns_IsDnsPacket(const uint8_t* payload, size_t payload_len) {
         return false;
     }
 
-    // Minimum: 12-byte header + at least 5 bytes for question (name + type + class)
-    if (payload_len < sizeof(DnsHeader) + 5) {
-        return false;
-    }
-
-    return true;
+    return payload_len < DNS_MIN_REQ_LEN;
 }
-
 
 /**
  * @brief Parse a DNS packet and extract domain and IP information.
@@ -163,7 +150,6 @@ DnsPacket Dns_Parse(const uint8_t* payload, size_t payload_len) {
 
     DnsHeader* hdr = (DnsHeader*)payload;
 
-    // Copy and convert each field from network byte order
     packet.header.transaction_id = ntohs(hdr->transaction_id);
     packet.header.flags = ntohs(hdr->flags);
     packet.header.question_count = ntohs(hdr->question_count);
@@ -175,8 +161,7 @@ DnsPacket Dns_Parse(const uint8_t* payload, size_t payload_len) {
      * Determine if this is a query or response.
      * QR bit is bit 15 (most significant bit) of flags.
      *
-     * Technique: shift right by 15, then mask with 1.
-     *   0 = query, 1 = response
+     * 0 = query, 1 = response
      */
     packet.is_response = (packet.header.flags >> 15) & 1;
 
@@ -213,14 +198,14 @@ DnsPacket Dns_Parse(const uint8_t* payload, size_t payload_len) {
      */
     if (packet.is_response && packet.header.answer_count > 0) {
         size_t answer_idx = 0;
-        
+
         for (uint16_t i = 0; i < packet.header.answer_count && answer_idx < DNS_MAX_IPS; i++) {
             if (offset >= payload_len) break;
 
             char name[256] = {0};
-            
+
             uint8_t first_byte = payload[offset];
-            
+
             if (first_byte == 0) {
                 offset++;
             } else if (first_byte >= 0xC0 && offset + 1 < payload_len) {
@@ -323,19 +308,19 @@ int Dns_CheckDomain(const char* domain, const char* whitelist[], size_t whitelis
         return -1;
     }
 
+
     // Convert domain to lowercase for comparison
-    char domain_lower[256];
-    strncpy(domain_lower, domain, 255);
-    domain_lower[255] = '\0';
-    to_lower_inplace(domain_lower);
+    char domain_lower[DNS_MAX_STR_DOMAIN_LEN];
+    STR_COPY_LOWER(domain_lower, domain, DNS_MAX_STR_DOMAIN_LEN);
 
     for (size_t i = 0; i < whitelist_count; i++) {
-        if (whitelist[i] == NULL) continue;
+        if (whitelist[i] == NULL) {
+            assert(0 && "Corrupted whitelist: got NULL pointer instead of string");
+            continue;
+        }
 
-        char wl_lower[256];
-        strncpy(wl_lower, whitelist[i], 255);
-        wl_lower[255] = '\0';
-        to_lower_inplace(wl_lower);
+        char wl_lower[DNS_MAX_STR_DOMAIN_LEN];
+        STR_COPY_LOWER(wl_lower, whitelist[i], DNS_MAX_STR_DOMAIN_LEN);
 
         int is_substring = 0;
         if (wl_lower[0] == '"' && wl_lower[strlen(wl_lower)-1] == '"') {
@@ -344,11 +329,15 @@ int Dns_CheckDomain(const char* domain, const char* whitelist[], size_t whitelis
             is_substring = 1;
         }
 
+        // Handle pattern matching syntax
         if (is_substring) {
             if (strstr(domain_lower, wl_lower) != NULL) {
                 return 1;
             }
-        } else if (wl_lower[0] == '*' && wl_lower[1] == '.') {
+            return 0;
+        }
+        // Handle wildcard syntax
+        if (wl_lower[0] == '*' && wl_lower[1] == '.') {
             const char* suffix = wl_lower + 2;
             size_t suffix_len = strlen(suffix);
             size_t domain_len = strlen(domain_lower);
@@ -361,7 +350,10 @@ int Dns_CheckDomain(const char* domain, const char* whitelist[], size_t whitelis
                     return 1;
                 }
             }
-        } else if (strcmp(domain_lower, wl_lower) == 0) {
+            return 0;
+        }
+        // Handle exact match
+        if (strcmp(domain_lower, wl_lower) == 0) {
             return 1;
         }
     }

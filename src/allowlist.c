@@ -71,16 +71,16 @@ void IpAllowlist_Init(IpAllowlist* al) {
 void IpAllowlist_Cleanup(IpAllowlist* al) {
     if (!al) return;
     time_t now = time(NULL);
-    size_t write_idx = 0;
+    size_t valid_count = 0;
     for (size_t i = 0; i < al->count; i++) {
         if (al->ips[i].expires > now) {
-            if (write_idx != i) {
-                al->ips[write_idx] = al->ips[i];
+            if (valid_count != i) {
+                al->ips[valid_count] = al->ips[i];
             }
-            write_idx++;
+            valid_count++;
         }
     }
-    al->count = write_idx;
+    al->count = valid_count;
 }
 
 int IpAllowlist_Add(IpAllowlist* al, uint32_t ip, const char* domain, uint32_t ttl) {
@@ -127,6 +127,7 @@ int IpAllowlist_Contains(IpAllowlist* al, uint32_t ip) {
 }
 
 const char* IpAllowlist_GetDomain(IpAllowlist* al, uint32_t ip) {
+    // TODO Use hashmap for IpAllowlist.ips instead of static array
     if (!al) return NULL;
     IpAllowlist_Cleanup(al);
     for (size_t i = 0; i < al->count; i++) {

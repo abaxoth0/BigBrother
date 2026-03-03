@@ -29,6 +29,12 @@
     (da)->cap = _new_cap; \
 } while(0)
 
+#define STR_COPY_LOWER(dst, src, count) do {\
+    strncpy((dst), (src), (count)-1);   \
+    (dst)[(count)-1] = '\0';            \
+    to_lower_inplace((dst));            \
+} while(0)
+
 /** @brief Dynamic string container.
  *
  * Note: `len` doesn't count null terminator.
