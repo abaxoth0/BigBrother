@@ -20,6 +20,12 @@
  */
 #define DNS_MIN_REQ_LEN 17
 
+// A standard query (QUERY)
+#define DNS_QUERY_OPCODE 0
+
+#define IP_V4_SIZE 4
+#define IP_V6_SIZE 16
+
 /** @brief DNS packet header (12 bytes). */
 typedef struct DnsHeader_s {
     uint16_t transaction_id;   ///< Transaction identifier.

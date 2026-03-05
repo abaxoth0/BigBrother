@@ -10,6 +10,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+// DNS spec
+// https://datatracker.ietf.org/doc/html/rfc1035
+
 #define DNS_TYPE_A     1   // IPv4 address (A record)
 #define DNS_TYPE_NS    2   // Name server
 #define DNS_TYPE_CNAME 5   // Canonical name (alias)
@@ -44,14 +47,27 @@ static uint32_t parse_dns_name(const uint8_t* payload, size_t payload_len,
     int jumped = 0;
     int loops = 0;
 
+    // Handles 1 label per iteration (except if it is a compression pointers)
     while (offset < payload_len && payload[offset] != 0) {
         if (loops++ > 100) break;
 
         uint8_t label_len = payload[offset];
 
+        // Bytes from 0xC0 to 0xFF are compression pointers.
+        // Compression pointer structure (RFC 1035 p4.1.4)
+        //
+        //    0  1  2  3  4  5  6  7  8  9  0  1  2  3  4  5
+        //  +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+        //  | 1  1|                OFFSET                   |
+        //  +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+        //
         if (label_len >= 0xC0) {
             if (offset + 1 >= payload_len) break;
 
+            // 0x3F mask is 0b00111111, it is used to remove first two MSB (which are 1)
+            // doing so we can get first 6 bits of the offset of the compression pointer.
+            // To get full offset need to shift it by 8 bit to left (to make room for the second byte)
+            // and OR it with the second byte.
             uint16_t jump_offset = ((label_len & 0x3F) << 8) | payload[offset + 1];
 
             if (!jumped) {
@@ -107,19 +123,14 @@ bool Dns_IsDnsPacket(const uint8_t* payload, size_t payload_len) {
     DnsHeader* hdr = (DnsHeader*)payload;
     uint16_t flags = ntohs(hdr->flags);
 
-    /*
-     * Opcode: bits 11-14 of flags field.
-     * Shift right by 11 to move opcode to position 0-3,
-     * then mask with 0xF (binary: 00001111) to keep only those bits.
-     */
+    // Opcode: bits 11-14 of flags field.
+    // 0xF is 0b00001111
     uint8_t opcode = (flags >> 11) & 0xF;
 
-    // Only standard queries (opcode 0) are valid for our purposes
-    if (opcode != 0) {
+    if (opcode != DNS_QUERY_OPCODE) {
         return false;
     }
 
-    // Get question count - must be at least 1
     uint16_t qdcount = ntohs(hdr->question_count);
     if (qdcount == 0) {
         return false;
@@ -157,24 +168,16 @@ DnsPacket Dns_Parse(const uint8_t* payload, size_t payload_len) {
     packet.header.authority_count = ntohs(hdr->authority_count);
     packet.header.additional_count = ntohs(hdr->additional_count);
 
-    /*
-     * Determine if this is a query or response.
-     * QR bit is bit 15 (most significant bit) of flags.
-     *
-     * 0 = query, 1 = response
-     */
+    // QR bit is bit 15 (MSB) of flags.
     packet.is_response = (packet.header.flags >> 15) & 1;
 
-    /*
-     * Start parsing after the 12-byte header.
-     * offset is our position in the packet data.
-     */
     size_t offset = sizeof(DnsHeader);
 
     if (packet.header.question_count > 0) {
         offset = parse_dns_name(payload, payload_len, offset,
                                  packet.question.domain, DNS_MAX_DOMAIN_LEN);
 
+        // 2 bytes for type and 2 bytes for class
         if (offset + 4 <= payload_len) {
             packet.question.type = ntohs(*(uint16_t*)(payload + offset));
             packet.question.qclass = ntohs(*(uint16_t*)(payload + offset + 2));
@@ -183,6 +186,10 @@ DnsPacket Dns_Parse(const uint8_t* payload, size_t payload_len) {
     }
 
     to_lower_inplace(packet.question.domain);
+
+    if (!packet.is_response || packet.header.answer_count == 0) {
+        return packet;
+    }
 
     /*
      * Parse answer section for DNS responses.
@@ -196,73 +203,44 @@ DnsPacket Dns_Parse(const uint8_t* payload, size_t payload_len) {
      *   RDLength: 2 bytes (length of RData)
      *   RData:    variable (IP for A, IPv6 for AAAA, etc.)
      */
-    if (packet.is_response && packet.header.answer_count > 0) {
-        size_t answer_idx = 0;
+    size_t answer_idx = 0;
 
-        for (uint16_t i = 0; i < packet.header.answer_count && answer_idx < DNS_MAX_IPS; i++) {
-            if (offset >= payload_len) break;
+    for (uint16_t i = 0; i < packet.header.answer_count && answer_idx < DNS_MAX_IPS; i++) {
+        if (offset >= payload_len) break;
 
-            char name[256] = {0};
+        char name[256] = {0};
 
-            uint8_t first_byte = payload[offset];
+        offset = parse_dns_name(payload, payload_len, offset, name, sizeof(name));
 
-            if (first_byte == 0) {
-                offset++;
-            } else if (first_byte >= 0xC0 && offset + 1 < payload_len) {
-                offset += 2;
-            } else if (first_byte <= 63) {
-                while (offset < payload_len) {
-                    uint8_t b = payload[offset];
-                    if (b == 0) {
-                        offset++;
-                        break;
-                    } else if (b >= 0xC0) {
-                        offset += 2;
-                        break;
-                    } else {
-                        offset += b + 1;
-                    }
-                }
-            } else {
-                offset++;
-            }
+        // Need 10 bytes for fixed header (type, class, TTL, RDLength)
+        if (offset + 10 > payload_len) break;
 
-            if (offset + 10 > payload_len) break;
+        // For future: offset + 2 is rclass; offset + 4 is ttl
+        uint16_t rtype = ntohs(*(uint16_t*)(payload + offset));
+        uint16_t rdlen = ntohs(*(uint16_t*)(payload + offset + 8));
 
-            uint16_t rtype = ntohs(*(uint16_t*)(payload + offset));
-            uint16_t rclass = ntohs(*(uint16_t*)(payload + offset + 2));
-            uint32_t ttl = ntohl(*(uint32_t*)(payload + offset + 4));
-            uint16_t rdlen = ntohs(*(uint16_t*)(payload + offset + 8));
+        if (offset >= payload_len) break;
 
-            (void)rclass;
-            (void)ttl;
+        offset += 10;
+        // Verify that there are enough space for rdata
+        if (offset + rdlen > payload_len) break;
 
-            if (offset >= payload_len) break;
-
-            offset += 10;
-
-            if (offset + rdlen > payload_len) break;
-
-            if (rtype == DNS_TYPE_A && rdlen == 4) {
-                uint32_t ip = *(uint32_t*)(payload + offset);
-                packet.answers[answer_idx].ip_count = 1;
-                packet.answers[answer_idx].ips[0] = ip;
-                strncpy(packet.answers[answer_idx].domain, name, DNS_MAX_DOMAIN_LEN);
-                packet.answers[answer_idx].domain[DNS_MAX_DOMAIN_LEN] = '\0';
-                answer_idx++;
-            } else if (rtype == DNS_TYPE_AAAA && rdlen == 16) {
-                memcpy(packet.answers[answer_idx].ip6s[0], payload + offset, 16);
-                packet.answers[answer_idx].ip6_count = 1;
-                strncpy(packet.answers[answer_idx].domain, name, DNS_MAX_DOMAIN_LEN);
-                packet.answers[answer_idx].domain[DNS_MAX_DOMAIN_LEN] = '\0';
-                answer_idx++;
-            }
-
-            offset += rdlen;
+        if (rtype == DNS_TYPE_A && rdlen == IP_V4_SIZE) { // IPv4
+            uint32_t ip = *(uint32_t*)(payload + offset);
+            packet.answers[answer_idx].ip_count = 1;
+            packet.answers[answer_idx].ips[0] = ip;
+        } else if (rtype == DNS_TYPE_AAAA && rdlen == IP_V6_SIZE) { // IPv6
+            memcpy(packet.answers[answer_idx].ip6s[0], payload + offset, IP_V6_SIZE);
+            packet.answers[answer_idx].ip6_count = 1;
         }
+        strncpy(packet.answers[answer_idx].domain, name, DNS_MAX_STR_DOMAIN_LEN-1);
+        packet.answers[answer_idx].domain[DNS_MAX_DOMAIN_LEN-1] = '\0';
+        answer_idx++;
 
-        packet.answer_count = answer_idx;
+        offset += rdlen;
     }
+
+    packet.answer_count = answer_idx;
 
     return packet;
 }
