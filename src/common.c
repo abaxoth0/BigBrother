@@ -3,7 +3,7 @@
 #include <stdarg.h>
 #include <ctype.h>
 
-void to_lower_inplace(char* str) {
+void ToLowerInplace(char* str) {
     for (int i = 0; str[i]; i++) {
         str[i] = (char)tolower((unsigned char)str[i]);
     }

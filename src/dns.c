@@ -115,7 +115,7 @@ static uint32_t parse_dns_name(const uint8_t* payload, size_t payload_len,
  *
  * @return true if valid DNS packet, false otherwise.
  */
-bool Dns_IsDnsPacket(const uint8_t* payload, size_t payload_len) {
+bool DnsIsDnsPacket(const uint8_t* payload, size_t payload_len) {
     if (payload == NULL || payload_len < sizeof(DnsHeader)) {
         return false;
     }
@@ -150,10 +150,10 @@ bool Dns_IsDnsPacket(const uint8_t* payload, size_t payload_len) {
  *
  * @return Parsed DnsPacket structure. Check is_valid field for success.
  */
-DnsPacket Dns_Parse(const uint8_t* payload, size_t payload_len) {
+DnsPacket DnsParse(const uint8_t* payload, size_t payload_len) {
     DnsPacket packet = {0};
 
-    if (!Dns_IsDnsPacket(payload, payload_len)) {
+    if (!DnsIsDnsPacket(payload, payload_len)) {
         return packet;
     }
 
@@ -185,7 +185,7 @@ DnsPacket Dns_Parse(const uint8_t* payload, size_t payload_len) {
         }
     }
 
-    to_lower_inplace(packet.question.domain);
+    ToLowerInplace(packet.question.domain);
 
     if (!packet.is_response || packet.header.answer_count == 0) {
         return packet;
@@ -233,8 +233,8 @@ DnsPacket Dns_Parse(const uint8_t* payload, size_t payload_len) {
             memcpy(packet.answers[answer_idx].ip6s[0], payload + offset, IP_V6_SIZE);
             packet.answers[answer_idx].ip6_count = 1;
         }
-        strncpy(packet.answers[answer_idx].domain, name, DNS_MAX_STR_DOMAIN_LEN-1);
-        packet.answers[answer_idx].domain[DNS_MAX_DOMAIN_LEN-1] = '\0';
+        strncpy(packet.answers[answer_idx].domain, name, DNS_MAX_STR_DOMAIN_LEN);
+        packet.answers[answer_idx].domain[DNS_MAX_STR_DOMAIN_LEN-1] = '\0';
         answer_idx++;
 
         offset += rdlen;
@@ -254,7 +254,7 @@ DnsPacket Dns_Parse(const uint8_t* payload, size_t payload_len) {
  *
  * @param[in,out] packet Pointer to DnsPacket to clean up.
  */
-void Dns_Free(DnsPacket* packet) {
+void DnsFree(DnsPacket* packet) {
     if (packet == NULL) return;
     memset(packet, 0, sizeof(DnsPacket));
 }
@@ -273,7 +273,7 @@ void Dns_Free(DnsPacket* packet) {
  *
  * @return 1 if whitelisted, 0 if not, -1 on error (null parameters).
  */
-int Dns_CheckDomain(const char* domain, const char* whitelist[], size_t whitelist_count) {
+int DnsCheckDomain(const char* domain, const char* whitelist[], size_t whitelist_count) {
     /*
      * Supported whitelist patterns:
      * 1. Exact match: "github.com" matches only "github.com"

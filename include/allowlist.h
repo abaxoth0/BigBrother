@@ -40,27 +40,27 @@ typedef struct {
 } IpAllowlist;
 
 /** @brief Initialize a whitelist structure. */
-void Whitelist_Init(Whitelist* wl);
+void WhitelistInit(Whitelist* wl);
 
 /** @brief Add a domain to the whitelist. */
-int Whitelist_Add(Whitelist* wl, const char* domain);
+int WhitelistAdd(Whitelist* wl, const char* domain);
 
 /** @brief Check if a domain is in the whitelist. */
-int Whitelist_Contains(Whitelist* wl, const char* domain);
+int WhitelistContains(Whitelist* wl, const char* domain);
 
 /** @brief Initialize an IP allowlist structure. */
-void IpAllowlist_Init(IpAllowlist* al);
+void IpAllowlistInit(IpAllowlist* al);
 
 /** @brief Remove expired entries from the IP allowlist. */
-void IpAllowlist_Cleanup(IpAllowlist* al);
+void IpAllowlistCleanup(IpAllowlist* al);
 
 /** @brief Add an IP address to the allowlist with TTL. */
-int IpAllowlist_Add(IpAllowlist* al, uint32_t ip, const char* domain, uint32_t ttl);
+int IpAllowlistAdd(IpAllowlist* al, uint32_t ip, const char* domain, uint32_t ttl);
 
 /** @brief Check if an IP address is in the allowlist. */
-int IpAllowlist_Contains(IpAllowlist* al, uint32_t ip);
+int IpAllowlistContains(IpAllowlist* al, uint32_t ip);
 
 /** @brief Get domain associated with an IP address from allowlist. */
-const char* IpAllowlist_GetDomain(IpAllowlist* al, uint32_t ip);
+const char* IpAllowlistGetDomain(IpAllowlist* al, uint32_t ip);
 
 #endif

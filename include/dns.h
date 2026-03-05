@@ -68,7 +68,7 @@ typedef struct DnsPacket_s {
  * @param[in] payload_len Length of DNS data.
  * @return true if valid DNS packet, false otherwise.
  */
-bool Dns_IsDnsPacket(const uint8_t* payload, size_t payload_len);
+bool DnsIsDnsPacket(const uint8_t* payload, size_t payload_len);
 
 /**
  * @brief Parse a DNS packet and extract domain and IP information.
@@ -76,13 +76,13 @@ bool Dns_IsDnsPacket(const uint8_t* payload, size_t payload_len);
  * @param[in] payload_len Length of DNS data.
  * @return Parsed DnsPacket structure.
  */
-DnsPacket Dns_Parse(const uint8_t* payload, size_t payload_len);
+DnsPacket DnsParse(const uint8_t* payload, size_t payload_len);
 
 /**
  * @brief Clean up a parsed DNS packet.
  * @param[in,out] packet Pointer to DnsPacket to free.
  */
-void Dns_Free(DnsPacket* packet);
+void DnsFree(DnsPacket* packet);
 
 /**
  * @brief Check if domain matches any whitelist entry.
@@ -91,6 +91,6 @@ void Dns_Free(DnsPacket* packet);
  * @param[in] whitelist_count Number of entries in whitelist array.
  * @return 1 if whitelisted, 0 if not, -1 on error.
  */
-int Dns_CheckDomain(const char* domain, const char* whitelist[], size_t whitelist_count);
+int DnsCheckDomain(const char* domain, const char* whitelist[], size_t whitelist_count);
 
 #endif

@@ -10,11 +10,11 @@ static int match_domain(const char* domain, const char* pattern) {
 
     strncpy(domain_lower, domain, MAX_DOMAIN_LEN - 1);
     domain_lower[MAX_DOMAIN_LEN - 1] = '\0';
-    to_lower_inplace(domain_lower);
+    ToLowerInplace(domain_lower);
 
     strncpy(pattern_lower, pattern, MAX_DOMAIN_LEN - 1);
     pattern_lower[MAX_DOMAIN_LEN - 1] = '\0';
-    to_lower_inplace(pattern_lower);
+    ToLowerInplace(pattern_lower);
 
     if (pattern_lower[0] == '*' && pattern_lower[1] == '.') {
         const char* suffix = pattern_lower + 2;
@@ -34,11 +34,11 @@ static int match_domain(const char* domain, const char* pattern) {
     return strcmp(domain_lower, pattern_lower) == 0;
 }
 
-void Whitelist_Init(Whitelist* wl) {
+void WhitelistInit(Whitelist* wl) {
     memset(wl, 0, sizeof(Whitelist));
 }
 
-int Whitelist_Add(Whitelist* wl, const char* domain) {
+int WhitelistAdd(Whitelist* wl, const char* domain) {
     if (!wl || !domain || wl->count >= MAX_WHITELIST_DOMAINS) {
         return -1;
     }
@@ -54,7 +54,7 @@ int Whitelist_Add(Whitelist* wl, const char* domain) {
     return 0;
 }
 
-int Whitelist_Contains(Whitelist* wl, const char* domain) {
+int WhitelistContains(Whitelist* wl, const char* domain) {
     if (!wl || !domain) return 0;
     for (size_t i = 0; i < wl->count; i++) {
         if (match_domain(domain, wl->entries[i].domain)) {
@@ -64,11 +64,11 @@ int Whitelist_Contains(Whitelist* wl, const char* domain) {
     return 0;
 }
 
-void IpAllowlist_Init(IpAllowlist* al) {
+void IpAllowlistInit(IpAllowlist* al) {
     memset(al, 0, sizeof(IpAllowlist));
 }
 
-void IpAllowlist_Cleanup(IpAllowlist* al) {
+void IpAllowlistCleanup(IpAllowlist* al) {
     if (!al) return;
     time_t now = time(NULL);
     size_t valid_count = 0;
@@ -83,10 +83,10 @@ void IpAllowlist_Cleanup(IpAllowlist* al) {
     al->count = valid_count;
 }
 
-int IpAllowlist_Add(IpAllowlist* al, uint32_t ip, const char* domain, uint32_t ttl) {
+int IpAllowlistAdd(IpAllowlist* al, uint32_t ip, const char* domain, uint32_t ttl) {
     if (!al) return -1;
 
-    IpAllowlist_Cleanup(al);
+    IpAllowlistCleanup(al);
 
     if (al->count >= MAX_ALLOWED_IPS) {
         return -1;
@@ -115,9 +115,9 @@ int IpAllowlist_Add(IpAllowlist* al, uint32_t ip, const char* domain, uint32_t t
     return 0;
 }
 
-int IpAllowlist_Contains(IpAllowlist* al, uint32_t ip) {
+int IpAllowlistContains(IpAllowlist* al, uint32_t ip) {
     if (!al) return 0;
-    IpAllowlist_Cleanup(al);
+    IpAllowlistCleanup(al);
     for (size_t i = 0; i < al->count; i++) {
         if (al->ips[i].ip == ip) {
             return 1;
@@ -126,10 +126,9 @@ int IpAllowlist_Contains(IpAllowlist* al, uint32_t ip) {
     return 0;
 }
 
-const char* IpAllowlist_GetDomain(IpAllowlist* al, uint32_t ip) {
-    // TODO Use hashmap for IpAllowlist.ips instead of static array
+const char* IpAllowlistGetDomain(IpAllowlist* al, uint32_t ip) {
     if (!al) return NULL;
-    IpAllowlist_Cleanup(al);
+    IpAllowlistCleanup(al);
     for (size_t i = 0; i < al->count; i++) {
         if (al->ips[i].ip == ip) {
             return al->ips[i].domain;

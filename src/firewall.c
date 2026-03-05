@@ -54,8 +54,8 @@ int LoadWhiteList(char* path) {
         return STATUS_FAILED_TO_READ_WHITELIST;
     }
 
-    Whitelist_Init(&g_Whitelist);
-    IpAllowlist_Init(&g_IpAllowlist);
+    WhitelistInit(&g_Whitelist);
+    IpAllowlistInit(&g_IpAllowlist);
 
     char line[256];
     while (fgets(line, sizeof(line), f)) {
@@ -64,10 +64,10 @@ int LoadWhiteList(char* path) {
 
         struct in_addr addr;
         if (inet_pton(AF_INET, line, &addr) == 1) {
-            IpAllowlist_Add(&g_IpAllowlist, addr.s_addr, line, 0);
+            IpAllowlistAdd(&g_IpAllowlist, addr.s_addr, line, 0);
             printf("[INFO] Added IP to allowlist: %s\n", line);
         } else {
-            Whitelist_Add(&g_Whitelist, line);
+            WhitelistAdd(&g_Whitelist, line);
         }
     }
 
@@ -100,7 +100,7 @@ char* NewPacketBuffer() {
  * @return Non-zero if allowed, zero if blocked.
  */
 int IsAllowed(uint32_t dest_ip) {
-    return IpAllowlist_Contains(&g_IpAllowlist, dest_ip);
+    return IpAllowlistContains(&g_IpAllowlist, dest_ip);
 }
 
 /**
@@ -325,7 +325,7 @@ int main() {
 #endif
 
             if (dns_len >= DNS_MIN_REQ_LEN) {
-                DnsPacket dns = Dns_Parse(dns_data, dns_len);
+                DnsPacket dns = DnsParse(dns_data, dns_len);
 
 #ifdef DEBUG
                 printf("[DNS] valid: %d, domain: '%s', response: %s, answers: %u\n",
@@ -344,7 +344,7 @@ int main() {
 
                 int domain_whitelisted = 0;
                 for (size_t w = 0; w < g_Whitelist.count; w++) {
-                    if (Dns_CheckDomain(dns.question.domain, (const char*[]){g_Whitelist.entries[w].domain}, 1)) {
+                    if (DnsCheckDomain(dns.question.domain, (const char*[]){g_Whitelist.entries[w].domain}, 1)) {
                         domain_whitelisted = 1;
                         break;
                     }
@@ -359,7 +359,7 @@ int main() {
                         if (domain_whitelisted) {
                             // In seconds
                             uint32_t ttl = 300;
-                            IpAllowlist_Add(&g_IpAllowlist, resolved_ip, dns.question.domain, ttl);
+                            IpAllowlistAdd(&g_IpAllowlist, resolved_ip, dns.question.domain, ttl);
                         }
 
 #ifdef DEBUG
@@ -370,7 +370,7 @@ int main() {
                 }
 
             filtering:
-                Dns_Free(&dns);
+                DnsFree(&dns);
             }
         }
 
@@ -407,11 +407,11 @@ int main() {
                 continue;
             }
 
-            const char* domain = IpAllowlist_GetDomain(&g_IpAllowlist, dest_ip);
+            const char* domain = IpAllowlistGetDomain(&g_IpAllowlist, dest_ip);
             int domain_whitelisted = 0;
             if (domain && domain[0]) {
                 for (size_t w = 0; w < g_Whitelist.count; w++) {
-                    if (Dns_CheckDomain(domain, (const char*[]){g_Whitelist.entries[w].domain}, 1)) {
+                    if (DnsCheckDomain(domain, (const char*[]){g_Whitelist.entries[w].domain}, 1)) {
                         domain_whitelisted = 1;
                         break;
                     }

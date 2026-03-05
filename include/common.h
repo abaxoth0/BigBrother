@@ -29,12 +29,6 @@
     (da)->cap = _new_cap; \
 } while(0)
 
-#define STR_COPY_LOWER(dst, src, count) do {\
-    strncpy((dst), (src), (count)-1);   \
-    (dst)[(count)-1] = '\0';            \
-    to_lower_inplace((dst));            \
-} while(0)
-
 /** @brief Dynamic string container.
  *
  * Note: `len` doesn't count null terminator.
@@ -61,6 +55,12 @@ void StringViewAppendV(StringView *str, ...);
 void StringViewClear(StringView *str);
 
 /** @brief Convert string to lowercase (ASCII, in-place). */
-void to_lower_inplace(char* str);
+void ToLowerInplace(char* str);
+
+#define STR_COPY_LOWER(dst, src, count) do {\
+    strncpy((dst), (src), (count)-1);       \
+    (dst)[(count)-1] = '\0';                \
+    ToLowerInplace((dst));                  \
+} while(0)
 
 #endif
