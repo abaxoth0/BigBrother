@@ -234,7 +234,7 @@ void WINAPI ServiceMain(DWORD argc, LPTSTR *argv) {
 }
 
 #define WINDIVERT_FILTER "ip"
-#define PACKET_PAYLOAD_SIZE 1024
+#define PACKET_PAYLOAD_SIZE 1500 // Ethernet MTU
 
 /**
  * @brief Main entry point for standalone firewall mode.
@@ -245,7 +245,7 @@ void WINAPI ServiceMain(DWORD argc, LPTSTR *argv) {
  * @return Exit code.
  */
 int main() {
-    printf("STARING\n");
+    printf("STARTING\n");
     setbuf(stdout, NULL);
 
     LoadWhiteList(NULL);
@@ -278,7 +278,6 @@ int main() {
             continue;
         }
 
-        payload_buf[0] = '\0';
         ip_hdr = NULL;
         tcp_hdr = NULL;
         udp_hdr = NULL;
@@ -344,7 +343,7 @@ int main() {
 
                 int domain_whitelisted = 0;
                 for (size_t w = 0; w < g_Whitelist.count; w++) {
-                    if (DnsCheckDomain(dns.question.domain, (const char*[]){g_Whitelist.entries[w].domain}, 1)) {
+                    if (DnsCheckDomain(dns.question.domain, g_Whitelist.entries[w].domain)) {
                         domain_whitelisted = 1;
                         break;
                     }
@@ -357,9 +356,7 @@ int main() {
                         struct in_addr addr_ip = { .s_addr = resolved_ip };
 
                         if (domain_whitelisted) {
-                            // In seconds
-                            uint32_t ttl = 300;
-                            IpAllowlistAdd(&g_IpAllowlist, resolved_ip, dns.question.domain, ttl);
+                            IpAllowlistAdd(&g_IpAllowlist, resolved_ip, dns.question.domain, dns.answers[i].ttl);
                         }
 
 #ifdef DEBUG
@@ -383,13 +380,13 @@ int main() {
          *   - 127.x.x.x (loopback)
          *   - 192.168.x.x (private Class C)
          *   - 10.x.x.x (private Class A)
-         *   - 172.16-31.x.x (private Class B) */
-        int is_local_src = (src_ip == 0x0100007F) || ((src_ip & 0xFF000000) == 0x7F000000) ||
+         *   - 172.(16-31).x.x (private Class B) */
+        int is_local_src = ((src_ip & 0xFF000000) == 0x7F000000) ||
                            ((src_ip & 0xFFF00000) == 0xAC100000) || ((src_ip & 0xFFFF0000) == 0xC0A80000) ||
                            ((src_ip & 0xFF000000) == 0x0A000000);
-        int is_local_dst = (dest_ip == 0x0100007F) || ((dest_ip & 0xFF000000) == 0x7F000000) ||
-                          ((dest_ip & 0xFFF00000) == 0xAC100000) || ((dest_ip & 0xFFFF0000) == 0xC0A80000) ||
-                          ((dest_ip & 0xFF000000) == 0x0A000000);
+        int is_local_dst = ((dest_ip & 0xFF000000) == 0x7F000000) ||
+                           ((dest_ip & 0xFFF00000) == 0xAC100000) || ((dest_ip & 0xFFFF0000) == 0xC0A80000) ||
+                           ((dest_ip & 0xFF000000) == 0x0A000000);
         int is_local = is_local_src || is_local_dst;
 
         /*
@@ -411,7 +408,7 @@ int main() {
             int domain_whitelisted = 0;
             if (domain && domain[0]) {
                 for (size_t w = 0; w < g_Whitelist.count; w++) {
-                    if (DnsCheckDomain(domain, (const char*[]){g_Whitelist.entries[w].domain}, 1)) {
+                    if (DnsCheckDomain(domain, g_Whitelist.entries[w].domain)) {
                         domain_whitelisted = 1;
                         break;
                     }
@@ -430,5 +427,5 @@ int main() {
 
         WinDivertSend(handle, packet, recv_len, NULL, &addr);
     }
-    printf("STARING\n");
+    printf("Bye\n");
 }

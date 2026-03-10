@@ -38,28 +38,29 @@ typedef struct DnsHeader_s {
 
 /** @brief DNS question section. */
 typedef struct DnsQuestion_s {
-    char domain[DNS_MAX_DOMAIN_LEN + 1];  ///< Queried domain name.
-    uint16_t type;                        ///< Query type (A, AAAA, etc.).
+    char domain[DNS_MAX_DOMAIN_LEN + 1]; ///< Queried domain name.
+    uint16_t type;                       ///< Query type (A, AAAA, etc.).
     uint16_t qclass;                     ///< Query class (usually IN).
 } DnsQuestion;
 
 /** @brief DNS answer section containing resolved IPs. */
 typedef struct DnsAnswer_s {
-    char domain[DNS_MAX_DOMAIN_LEN + 1];  ///< Domain name for this answer.
-    uint32_t ip_count;                    ///< Number of IPv4 addresses.
+    char domain[DNS_MAX_DOMAIN_LEN + 1]; ///< Domain name for this answer.
+    uint32_t ip_count;                   ///< Number of IPv4 addresses.
     uint32_t ips[DNS_MAX_IPS];           ///< IPv4 addresses (network byte order).
     uint32_t ip6_count;                  ///< Number of IPv6 addresses.
-    uint8_t ip6s[DNS_MAX_IPS][16];      ///< IPv6 addresses.
+    uint8_t ip6s[DNS_MAX_IPS][16];       ///< IPv6 addresses.
+    uint32_t ttl;                        ///< Answer TTL in seconds.
 } DnsAnswer;
 
 /** @brief Complete parsed DNS packet. */
 typedef struct DnsPacket_s {
-    bool is_valid;         ///< Whether packet was successfully parsed.
-    bool is_response;      ///< True if this is a DNS response, false if query.
-    DnsHeader header;      ///< DNS header fields.
-    DnsQuestion question;  ///< Question section.
+    bool is_valid;                   ///< Whether packet was successfully parsed.
+    bool is_response;                ///< True if this is a DNS response, false if query.
+    DnsHeader header;                ///< DNS header fields.
+    DnsQuestion question;            ///< Question section.
     DnsAnswer answers[DNS_MAX_IPS];  ///< Answer records.
-    uint32_t answer_count; ///< Number of answer records.
+    uint32_t answer_count;           ///< Number of answer records.
 } DnsPacket;
 
 /**
@@ -91,6 +92,19 @@ void DnsFree(DnsPacket* packet);
  * @param[in] whitelist_count Number of entries in whitelist array.
  * @return 1 if whitelisted, 0 if not, -1 on error.
  */
-int DnsCheckDomain(const char* domain, const char* whitelist[], size_t whitelist_count);
+int DnsCheckDomains(const char* domain, const char* whitelist[], size_t whitelist_count);
+
+/**
+ * @brief Check if domain matches a single whitelist pattern.
+ *
+ * Supports exact match (e.g., "github.com"), wildcard suffix
+ * (e.g., "*.github.com"), and substring (e.g., "\"github\"").
+ * Comparison is case-insensitive.
+ *
+ * @param[in] domain   Domain name to check (e.g., "api.github.com").
+ * @param[in] pattern Whitelist pattern string.
+ * @return 1 if matches, 0 if not, -1 on error (null parameters).
+ */
+int DnsCheckDomain(const char* domain, const char* pattern);
 
 #endif

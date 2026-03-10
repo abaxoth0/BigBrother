@@ -26,20 +26,6 @@
 
 #define DNS_CLASS_IN   1   // Internet class
 
-
-/**
- * @brief Parse a DNS name from packet data.
- *
- * Handles both plain and compressed DNS name encoding.
- *
- * @param[in] payload     Pointer to start of DNS data.
- * @param[in] payload_len Total size of DNS data.
- * @param[in] offset      Current position in packet.
- * @param[out] out        Buffer for resulting domain name.
- * @param[in] out_len     Size of output buffer.
- *
- * @return New offset position after reading the name.
- */
 static uint32_t parse_dns_name(const uint8_t* payload, size_t payload_len,
                                size_t offset, char* out, size_t out_len) {
     size_t out_pos = 0;
@@ -104,17 +90,6 @@ static uint32_t parse_dns_name(const uint8_t* payload, size_t payload_len,
     return original_offset;
 }
 
-
-/**
- * @brief Validate that payload is a DNS packet.
- *
- * Checks minimum size, standard query opcode, and question count.
- *
- * @param[in] payload     Pointer to DNS data.
- * @param[in] payload_len Length of DNS data.
- *
- * @return true if valid DNS packet, false otherwise.
- */
 bool DnsIsDnsPacket(const uint8_t* payload, size_t payload_len) {
     if (payload == NULL || payload_len < sizeof(DnsHeader)) {
         return false;
@@ -136,20 +111,9 @@ bool DnsIsDnsPacket(const uint8_t* payload, size_t payload_len) {
         return false;
     }
 
-    return payload_len < DNS_MIN_REQ_LEN;
+    return payload_len >= DNS_MIN_REQ_LEN;
 }
 
-/**
- * @brief Parse a DNS packet and extract domain and IP information.
- *
- * Parses the question section to get the queried domain name.
- * For responses, also parses the answer section for IPv4/IPv6 addresses.
- *
- * @param[in] payload     Pointer to DNS data.
- * @param[in] payload_len Length of DNS data.
- *
- * @return Parsed DnsPacket structure. Check is_valid field for success.
- */
 DnsPacket DnsParse(const uint8_t* payload, size_t payload_len) {
     DnsPacket packet = {0};
 
@@ -215,8 +179,9 @@ DnsPacket DnsParse(const uint8_t* payload, size_t payload_len) {
         // Need 10 bytes for fixed header (type, class, TTL, RDLength)
         if (offset + 10 > payload_len) break;
 
-        // For future: offset + 2 is rclass; offset + 4 is ttl
+        // For future: offset + 2 is rclass
         uint16_t rtype = ntohs(*(uint16_t*)(payload + offset));
+        uint32_t ttl   = ntohl(*(uint32_t*)(payload + offset + 4));
         uint16_t rdlen = ntohs(*(uint16_t*)(payload + offset + 8));
 
         if (offset >= payload_len) break;
@@ -235,6 +200,7 @@ DnsPacket DnsParse(const uint8_t* payload, size_t payload_len) {
         }
         strncpy(packet.answers[answer_idx].domain, name, DNS_MAX_STR_DOMAIN_LEN);
         packet.answers[answer_idx].domain[DNS_MAX_STR_DOMAIN_LEN-1] = '\0';
+        packet.answers[answer_idx].ttl = ttl;
         answer_idx++;
 
         offset += rdlen;
@@ -245,35 +211,26 @@ DnsPacket DnsParse(const uint8_t* payload, size_t payload_len) {
     return packet;
 }
 
-
-/**
- * @brief Clean up a parsed DNS packet.
- *
- * Zeroes the packet structure. Currently a no-op since no dynamic
- * memory is allocated, but kept for API consistency and future use.
- *
- * @param[in,out] packet Pointer to DnsPacket to clean up.
- */
 void DnsFree(DnsPacket* packet) {
     if (packet == NULL) return;
     memset(packet, 0, sizeof(DnsPacket));
 }
 
+int DnsCheckDomains(const char* domain, const char* whitelist[], size_t whitelist_count) {
+    if (domain == NULL || whitelist == NULL) {
+        return -1;
+    }
+    for (size_t i = 0; i < whitelist_count; i++) {
+        if (whitelist[i] == NULL) {
+            assert(0 && "Corrupted whitelist: got NULL pointer instead of string");
+            continue;
+        }
+        if (DnsCheckDomain(domain, whitelist[i])) return 1;
+    }
+    return 0;
+}
 
-/**
- * @brief Check if domain matches any whitelist entry.
- *
- * Supports exact match (e.g., "github.com") and wildcard suffix
- * matching (e.g., "*.github.com" matches "api.github.com").
- * Comparison is case-insensitive.
- *
- * @param[in] domain          Domain name to check (e.g., "api.github.com").
- * @param[in] whitelist       Array of whitelist entry strings.
- * @param[in] whitelist_count Number of entries in whitelist array.
- *
- * @return 1 if whitelisted, 0 if not, -1 on error (null parameters).
- */
-int DnsCheckDomain(const char* domain, const char* whitelist[], size_t whitelist_count) {
+int DnsCheckDomain(const char* domain, const char* pattern) {
     /*
      * Supported whitelist patterns:
      * 1. Exact match: "github.com" matches only "github.com"
@@ -282,58 +239,44 @@ int DnsCheckDomain(const char* domain, const char* whitelist[], size_t whitelist
      *
      * Comparison is case-insensitive.
      */
-    if (domain == NULL || whitelist == NULL) {
+    if (domain == NULL) {
         return -1;
     }
 
-
-    // Convert domain to lowercase for comparison
     char domain_lower[DNS_MAX_STR_DOMAIN_LEN];
+    char pattern_lower[DNS_MAX_STR_DOMAIN_LEN];
     STR_COPY_LOWER(domain_lower, domain, DNS_MAX_STR_DOMAIN_LEN);
+    STR_COPY_LOWER(pattern_lower, pattern, DNS_MAX_STR_DOMAIN_LEN);
 
-    for (size_t i = 0; i < whitelist_count; i++) {
-        if (whitelist[i] == NULL) {
-            assert(0 && "Corrupted whitelist: got NULL pointer instead of string");
-            continue;
-        }
+    int is_substring = 0;
+    if (pattern_lower[0] == '"' && pattern_lower[strlen(pattern_lower)-1] == '"') {
+        pattern_lower[strlen(pattern_lower)-1] = '\0';
+        memmove(pattern_lower, pattern_lower + 1, strlen(pattern_lower));
+        is_substring = 1;
+    }
 
-        char wl_lower[DNS_MAX_STR_DOMAIN_LEN];
-        STR_COPY_LOWER(wl_lower, whitelist[i], DNS_MAX_STR_DOMAIN_LEN);
+    // Handle pattern matching syntax
+    if (is_substring && strstr(domain_lower, pattern_lower) != NULL) {
+        return 1;
+    }
 
-        int is_substring = 0;
-        if (wl_lower[0] == '"' && wl_lower[strlen(wl_lower)-1] == '"') {
-            wl_lower[strlen(wl_lower)-1] = '\0';
-            memmove(wl_lower, wl_lower + 1, strlen(wl_lower));
-            is_substring = 1;
-        }
+    // Handle wildcard syntax
+    if (pattern_lower[0] == '*' && pattern_lower[1] == '.') {
+        const char* suffix = pattern_lower + 2;
+        size_t suffix_len = strlen(suffix);
+        size_t domain_len = strlen(domain_lower);
 
-        // Handle pattern matching syntax
-        if (is_substring) {
-            if (strstr(domain_lower, wl_lower) != NULL) {
+        if (domain_len >= suffix_len) {
+            const char* pos = domain_lower + domain_len - suffix_len;
+            if (strcmp(pos, suffix) == 0 && (domain_len == suffix_len || *(pos - 1) == '.')) {
                 return 1;
             }
-            return 0;
         }
-        // Handle wildcard syntax
-        if (wl_lower[0] == '*' && wl_lower[1] == '.') {
-            const char* suffix = wl_lower + 2;
-            size_t suffix_len = strlen(suffix);
-            size_t domain_len = strlen(domain_lower);
+    }
 
-            if (domain_len >= suffix_len) {
-                const char* pos = domain_lower + domain_len - suffix_len;
-
-                if (strcmp(pos, suffix) == 0 &&
-                    (domain_len == suffix_len || *(pos - 1) == '.')) {
-                    return 1;
-                }
-            }
-            return 0;
-        }
-        // Handle exact match
-        if (strcmp(domain_lower, wl_lower) == 0) {
-            return 1;
-        }
+    // Handle exact match
+    if (strcmp(domain_lower, pattern_lower) == 0) {
+        return 1;
     }
 
     return 0;

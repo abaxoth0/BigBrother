@@ -117,7 +117,11 @@ int IpAllowlistAdd(IpAllowlist* al, uint32_t ip, const char* domain, uint32_t tt
 
 int IpAllowlistContains(IpAllowlist* al, uint32_t ip) {
     if (!al) return 0;
-    IpAllowlistCleanup(al);
+    time_t now = time(NULL);
+    if (now >= al->last_cleared_at + IP_ALLOW_LIST_CLEANUP_COOLDOWN) {
+        IpAllowlistCleanup(al);
+        al->last_cleared_at = now;
+    }
     for (size_t i = 0; i < al->count; i++) {
         if (al->ips[i].ip == ip) {
             return 1;

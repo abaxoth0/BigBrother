@@ -33,10 +33,13 @@ typedef struct {
     time_t expires;
 } AllowedIp;
 
+#define IP_ALLOW_LIST_CLEANUP_COOLDOWN 60 // 1 min
+
 /** @brief Container for allowed IP addresses. */
 typedef struct {
     AllowedIp ips[MAX_ALLOWED_IPS];
     size_t count;
+    time_t last_cleared_at;
 } IpAllowlist;
 
 /** @brief Initialize a whitelist structure. */
