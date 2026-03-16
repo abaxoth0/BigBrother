@@ -7,6 +7,7 @@
 #include <handleapi.h>
 #include <libloaderapi.h>
 #include <minwindef.h>
+#include <stdarg.h>
 #include <stdlib.h>
 #include <winsock2.h>
 #include <windows.h>
@@ -40,11 +41,31 @@ StringView g_FilterExpr = {0};
 // TODO: Allow user to specify whitelist path
 #define DEFAULT_WHITELIST_PATH "E:\\bb\\whitelist.txt"
 
+static FILE* g_LogFile = NULL;
+
+static void log_init(void) {
+    g_LogFile = fopen("E:\\bb\\firewall.log", "a");
+}
+
+static void log_close(void) {
+    if (g_LogFile) fclose(g_LogFile);
+}
+
+static void log_msg(const char* fmt, ...) {
+    if (!g_LogFile) return;
+    va_list args;
+    va_start(args, fmt);
+    vfprintf(g_LogFile, fmt, args);
+    va_end(args);
+    fflush(g_LogFile);
+}
+
 #define DPRINTF_BUF_SIZE 2048
 static char dprintf_buf[DPRINTF_BUF_SIZE];
 
 #define DPRINTF(...) do {               \
     sprintf(dprintf_buf, __VA_ARGS__);   \
+    log_msg(dprintf_buf);               \
     OutputDebugString(dprintf_buf);      \
 } while(0)
 
@@ -163,12 +184,7 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
 
     OutputDebugString("Firewall started\n");
 
-    while (1) {
-        DWORD wait_result = WaitForSingleObject(g_ServiceStopEvent, 1000);
-        if (wait_result == WAIT_OBJECT_0) {
-            OutputDebugString("[FirewallServiceThread] Stop event received\n");
-            break;
-        }
+    while (WaitForSingleObject(g_ServiceStopEvent, 0) != WAIT_OBJECT_0) {
 
         if (!WinDivertRecv(handle, packet, PACKET_SIZE, &recv_len, &addr)) {
             continue;
@@ -294,8 +310,9 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
          * - Block everything else
          */
         if (addr.Outbound && !IsAllowed(dest_ip) && !is_local) {
-            int is_dns = (udp_hdr && (ntohs(udp_hdr->DstPort) == 53));
-            if (is_dns) {
+            int is_dns_udp = (udp_hdr && (ntohs(udp_hdr->DstPort) == 53));
+            int is_dns_tcp = (tcp_hdr && (ntohs(tcp_hdr->DstPort) == 53));
+            if (is_dns_udp || is_dns_tcp) {
                 WinDivertSend(handle, packet, recv_len, NULL, &addr);
                 continue;
             }
@@ -430,10 +447,7 @@ void WINAPI ServiceMain(DWORD argc, LPTSTR *argv) {
 
     WaitForSingleObject(hThread, INFINITE);
     CloseHandle(hThread);
-    OutputDebugString("[ServiceMain] Worker thread exited\n");
     CloseHandle(g_ServiceStopEvent);
-    g_ServiceStopEvent = INVALID_HANDLE_VALUE;
-    OutputDebugString("[ServiceMain] Setting STOPPED status\n");
 
     g_ServiceStatus.dwCurrentState = SERVICE_STOPPED;
     UpdateServiceStatus();
@@ -445,8 +459,10 @@ void WINAPI ServiceMain(DWORD argc, LPTSTR *argv) {
  * @return Exit code.
  */
 int main(int argc, char** argv) {
+    log_init();
     int err = LoadWhiteList(NULL);
     if (err) {
+        log_close();
         return err;
     }
 
@@ -456,5 +472,6 @@ int main(int argc, char** argv) {
     };
 
     StartServiceCtrlDispatcher(serviceTable);
+    log_close();
     return 0;
 }

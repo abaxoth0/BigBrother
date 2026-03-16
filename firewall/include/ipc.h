@@ -20,11 +20,6 @@
 int IpcStart(void);
 
 /**
- * @brief Stop the IPC server.
- */
-void IpcStop(void);
-
-/**
  * @brief Reload the whitelist.
  *
  * @return 0 on success, error code on failure.

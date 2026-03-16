@@ -133,6 +133,9 @@ int IpAllowlistAdd(IpAllowlist* al, uint32_t ip, const char* domain, uint32_t tt
         return -1;
     }
 
+    // Use minimum TTL of 5 minutes if DNS TTL is 0
+    if (ttl == 0) ttl = 300;
+
     for (size_t i = 0; i < al->count; i++) {
         if (al->ips[i].ip == ip) {
             al->ips[i].expires = time(NULL) + ttl;
