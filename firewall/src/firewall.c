@@ -19,6 +19,7 @@
 #include "../include/common.h"
 #include "../include/allowlist.h"
 #include "../include/dns.h"
+#include "../include/ipc.h"
 
 SERVICE_STATUS g_ServiceStatus = {0};
 SERVICE_STATUS_HANDLE g_StatusHandle = NULL;
@@ -37,7 +38,7 @@ StringView g_FilterExpr = {0};
 #define STATUS_UNSPECIFIED_ERROR -1
 
 // TODO: Allow user to specify whitelist path
-#define DEFAULT_WHITELIST_PATH "C:\\Users\\user\\Desktop\\build\\whitelist.txt"
+#define DEFAULT_WHITELIST_PATH "E:\\whitelist.txt"
 
 #define DPRINTF_BUF_SIZE 2048
 static char dprintf_buf[DPRINTF_BUF_SIZE];
@@ -379,6 +380,8 @@ void WINAPI ServiceMain(DWORD argc, LPTSTR *argv) {
     g_ServiceStatus.dwWaitHint = 0;
     UpdateServiceStatus();
 
+    IpcStart();
+
     HANDLE hThread = CreateThread(NULL, 0, FirewallServiceThread, NULL, 0, NULL);
     if (!hThread) {
         CloseHandle(g_ServiceStopEvent);
@@ -389,11 +392,191 @@ void WINAPI ServiceMain(DWORD argc, LPTSTR *argv) {
 
     WaitForSingleObject(hThread, INFINITE);
     CloseHandle(hThread);
+    IpcStop();
     CloseHandle(g_ServiceStopEvent);
 
     g_ServiceStatus.dwCurrentState = SERVICE_STOPPED;
     UpdateServiceStatus();
 }
+
+#ifdef DEBUG
+int DEBUG_RunStandalone() {
+    WINDIVERT_ADDRESS addr;
+    UINT recv_len;
+    char* packet = NewPacketBuffer();
+    HANDLE handle = WinDivertOpen(WINDIVERT_FILTER, WINDIVERT_LAYER_NETWORK, 0, 0);
+
+    if (handle == INVALID_HANDLE_VALUE) {
+        DPRINTF("[ ERROR ] Failed to open WinDivert handle. Error code: %lu\n", GetLastError());
+        return STATUS_UNSPECIFIED_ERROR;
+    }
+
+    PWINDIVERT_IPHDR ip_hdr = NULL;
+    PWINDIVERT_TCPHDR tcp_hdr = NULL;
+    PWINDIVERT_UDPHDR udp_hdr = NULL;
+
+    // Currently it's used only for DNS payloads which usually < 512 bytes.
+    // Consider make it a dynamic array if you will need to get payload from other protocols.
+    char payload_buf[PACKET_PAYLOAD_SIZE];
+    void* payload_ptr = payload_buf;
+    UINT payload_len = 0;
+
+    OutputDebugString("Firewall started\n");
+
+    while(1) {
+        if (!WinDivertRecv(handle, packet, PACKET_SIZE, &recv_len, &addr)) {
+            continue;
+        }
+
+        ip_hdr = NULL;
+        tcp_hdr = NULL;
+        udp_hdr = NULL;
+
+        BOOL ok = WinDivertHelperParsePacket(
+            packet, recv_len,
+            &ip_hdr,
+            NULL,
+            NULL,
+            NULL, NULL,
+            &tcp_hdr,
+            &udp_hdr,
+            (void*)&payload_ptr, &payload_len,
+            NULL, NULL
+        );
+
+        if (!ok || ip_hdr == NULL) {
+            WinDivertSend(handle, packet, recv_len, NULL, &addr);
+            continue;
+        }
+
+        char src[16], dst[16];
+        inet_ntop(AF_INET, &ip_hdr->SrcAddr, src, sizeof(src));
+        inet_ntop(AF_INET, &ip_hdr->DstAddr, dst, sizeof(dst));
+
+        if (udp_hdr) {
+            DPRINTF("[UDP] %s -> %s | src: %u; dst: %u | payload: %u\n",
+                    src, dst, ntohs(udp_hdr->SrcPort), ntohs(udp_hdr->DstPort), payload_len);
+        } else if (tcp_hdr) {
+            DPRINTF("[TCP] %s -> %s | src: %u; dst: %u | payload: %u\n",
+                    src, dst, ntohs(tcp_hdr->SrcPort), ntohs(tcp_hdr->DstPort), payload_len);
+        }
+
+        if (udp_hdr && (ntohs(udp_hdr->DstPort) == 53 || ntohs(udp_hdr->SrcPort) == 53)) {
+            // Not char* cuz DNS packets contain binary data, not a null-terminated strings
+            uint8_t* dns_data = (uint8_t*)payload_ptr;
+            size_t dns_len = payload_len;
+
+            DPRINTF("[DNS-PORT] Detected DNS packet, src: %u, dst: %u, dns_len: %zu\n",
+                   ntohs(udp_hdr->SrcPort), ntohs(udp_hdr->DstPort), dns_len);
+
+            if (dns_len >= DNS_MIN_REQ_LEN) {
+                DnsPacket dns = DnsParse(dns_data, dns_len);
+
+            DPRINTF("[DNS] valid: %d, domain: '%s', response: %s, answers: %u\n",
+                       dns.is_valid, dns.question.domain,
+                       dns.is_response ? "yes" : "no", dns.answer_count);
+
+                if (!dns.is_valid || dns.question.domain[0] == '\0') {
+                    goto filtering;
+                }
+
+                // Only process DNS responses (not queries) with answer records
+                if (!dns.is_response || dns.answer_count == 0) {
+                    goto filtering;
+                }
+
+                int domain_whitelisted = 0;
+                for (size_t w = 0; w < g_Whitelist.count; w++) {
+                    if (DnsCheckDomain(dns.question.domain, g_Whitelist.entries[w].domain)) {
+                        domain_whitelisted = 1;
+                        break;
+                    }
+                }
+
+                // Add IPs to allowlist if domain is whitelisted
+                for (uint32_t i = 0; i < dns.answer_count; i++) {
+                    for (uint32_t j = 0; j < dns.answers[i].ip_count; j++) {
+                        uint32_t resolved_ip = dns.answers[i].ips[j];
+                        struct in_addr addr_ip = { .s_addr = resolved_ip };
+
+                        if (domain_whitelisted) {
+                            IpAllowlistAdd(&g_IpAllowlist, resolved_ip, dns.question.domain, dns.answers[i].ttl);
+                        }
+
+                        DPRINTF("[DNS-RESPONSE] %s -> %s (whitelisted: %d)\n",
+                                dns.question.domain, inet_ntoa(addr_ip), domain_whitelisted);
+                    }
+                }
+
+            filtering:
+                DnsFree(&dns);
+            }
+        }
+
+        // Extract source and destination IPs
+        uint32_t src_ip = ip_hdr->SrcAddr;
+        uint32_t dest_ip = ip_hdr->DstAddr;
+
+        /* Check if source/destination is a local IP address.
+         * Local IPs must not be blocked:
+         *   - 127.x.x.x (loopback)
+         *   - 192.168.x.x (private Class C)
+         *   - 10.x.x.x (private Class A)
+         *   - 172.(16-31).x.x (private Class B) */
+        int is_local_src = ((src_ip & 0xFF000000) == 0x7F000000) ||
+            ((src_ip & 0xFFF00000) == 0xAC100000) || ((src_ip & 0xFFFF0000) == 0xC0A80000) ||
+            ((src_ip & 0xFF000000) == 0x0A000000);
+        int is_local_dst = ((dest_ip & 0xFF000000) == 0x7F000000) ||
+            ((dest_ip & 0xFFF00000) == 0xAC100000) || ((dest_ip & 0xFFFF0000) == 0xC0A80000) ||
+            ((dest_ip & 0xFF000000) == 0x0A000000);
+        int is_local = is_local_src || is_local_dst;
+
+        /*
+         * Blocking logic:
+         * - Only block outbound packets (inbound are always allowed)
+         * - Allow DNS queries (UDP port 53) so we can resolve domains
+         * - Allow packets to local IP ranges (127.x.x.x, 192.168.x.x, 10.x.x.x, 172.16-31.x.x)
+         * - Allow packets to IPs that were resolved from whitelisted domains
+         * - Block everything else
+         */
+        if (addr.Outbound && !IsAllowed(dest_ip) && !is_local) {
+            int is_dns = (udp_hdr && (ntohs(udp_hdr->DstPort) == 53));
+            if (is_dns) {
+                WinDivertSend(handle, packet, recv_len, NULL, &addr);
+                continue;
+            }
+
+            const char* domain = IpAllowlistGetDomain(&g_IpAllowlist, dest_ip);
+            int domain_whitelisted = 0;
+            if (domain && domain[0]) {
+                for (size_t w = 0; w < g_Whitelist.count; w++) {
+                    if (DnsCheckDomain(domain, g_Whitelist.entries[w].domain)) {
+                        domain_whitelisted = 1;
+                        break;
+                    }
+                }
+            }
+
+            if (!domain_whitelisted) {
+                DPRINTF("[BLOCKED] Packet to %s blocked", dst);
+                if (domain) {
+                    DPRINTF(" (domain: %s not whitelisted)", domain);
+                }
+                DPRINTF("\n");
+                continue;
+            }
+        }
+
+        WinDivertSend(handle, packet, recv_len, NULL, &addr);
+
+    }
+
+    free(packet);
+    WinDivertClose(handle);
+
+    return STATUS_OK;
+}
+#endif
 
 /**
  * @brief App entry point.
@@ -401,6 +584,9 @@ void WINAPI ServiceMain(DWORD argc, LPTSTR *argv) {
  * @return Exit code.
  */
 int main(int argc, char** argv) {
+#ifdef DEBUG
+    OutputDebugString("WARNING: This is debug version of an app. FOR DEVELOPMENT ONLY!\n");
+#endif
     OutputDebugString("STARTING\n");
     int err = LoadWhiteList(NULL);
     if (err) {
@@ -413,7 +599,16 @@ int main(int argc, char** argv) {
         {SERVICE_NAME, ServiceMain},
         {NULL, NULL}
     };
+#ifdef DEBUG
+    if (!StartServiceCtrlDispatcher(serviceTable)) {
+        OutputDebugString("[DEBUG] Running in standalone mode\n");
+    }
+    return DEBUG_RunStandalone();
+#else
     if (!StartServiceCtrlDispatcher(serviceTable)) {
         return STATUS_FAILED_TO_START_SERVICE;
     }
+#endif
 }
+
+

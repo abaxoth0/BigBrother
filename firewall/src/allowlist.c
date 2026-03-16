@@ -64,6 +64,47 @@ int WhitelistContains(Whitelist* wl, const char* domain) {
     return 0;
 }
 
+void WhitelistClear(Whitelist* wl) {
+    if (!wl) return;
+    wl->count = 0;
+    memset(wl->entries, 0, sizeof(wl->entries));
+}
+
+int WhitelistLoadFromData(Whitelist* wl, const char* data, size_t size) {
+    if (!wl || !data || size == 0) return -1;
+    
+    WhitelistClear(wl);
+    
+    char* copy = malloc(size + 1);
+    if (!copy) return -1;
+    memcpy(copy, data, size);
+    copy[size] = '\0';
+    
+    char* line = strtok(copy, "\n");
+    while (line && wl->count < MAX_WHITELIST_DOMAINS) {
+        while (*line == ' ' || *line == '\r') line++;
+        size_t len = strlen(line);
+        while (len > 0 && (line[len-1] == '\n' || line[len-1] == '\r')) {
+            line[--len] = '\0';
+        }
+        
+        if (len > 0 && line[0] != '#') {
+            WhitelistAdd(wl, line);
+        }
+        
+        line = strtok(NULL, "\n");
+    }
+    
+    free(copy);
+    return 0;
+}
+
+void IpAllowlistClear(IpAllowlist* al) {
+    if (!al) return;
+    al->count = 0;
+    memset(al->ips, 0, sizeof(al->ips));
+}
+
 void IpAllowlistInit(IpAllowlist* al) {
     memset(al, 0, sizeof(IpAllowlist));
 }

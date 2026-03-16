@@ -51,6 +51,15 @@ int WhitelistAdd(Whitelist* wl, const char* domain);
 /** @brief Check if a domain is in the whitelist. */
 int WhitelistContains(Whitelist* wl, const char* domain);
 
+/** @brief Clear all entries from the whitelist. */
+void WhitelistClear(Whitelist* wl);
+
+/** @brief Load whitelist from data (e.g., received via IPC). */
+int WhitelistLoadFromData(Whitelist* wl, const char* data, size_t size);
+
+/** @brief Clear all entries from the IP allowlist. */
+void IpAllowlistClear(IpAllowlist* al);
+
 /** @brief Initialize an IP allowlist structure. */
 void IpAllowlistInit(IpAllowlist* al);
 

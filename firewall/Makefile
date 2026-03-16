@@ -1,12 +1,12 @@
 CC = x86_64-w64-mingw32-gcc
-COMMON_FLAGS = -Wall -mwindows -I$(HOME)/proj/BigBrother/firewall/include/third-party/WinDivert-2.2.2-A/include -DDEBUG
+COMMON_FLAGS = -Wall -mconsole -I$(HOME)/proj/BigBrother/firewall/include/third-party/WinDivert-2.2.2-A/include -I$(HOME)/proj/BigBrother/common -DDEBUG
 
 DEBUG_FLAGS = -g3 -O0
 RELEASE_FLAGS = -O2
 
 LDFLAGS = -L$(HOME)/proj/BigBrother/firewall/include/third-party/WinDivert-2.2.2-A/x64 -lWinDivert -lws2_32 -static
 
-t-units = src/firewall.c src/common.c src/dns.c src/allowlist.c
+t-units = src/firewall.c src/common.c src/dns.c src/allowlist.c src/ipc.c $(HOME)/proj/BigBrother/common/encoding/encoding.c
 
 all: debug
 
