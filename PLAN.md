@@ -46,15 +46,18 @@ Commands:
 
 ```
 BigBrother/
-├── firewall/              # Daemon (WinDivert firewall)
-│   ├── src/               # C source files
-│   └── include/           # Headers
-├── client/
-│   └── backend/           # Client Backend (C subprocess)
-├── server/
-│   └── backend/          # Server Backend (Go)
-├── common/                # Shared code
-└── build.sh              # Build script
+├── daemon/                   # Everything running on client PC
+│   ├── firewall/             # Daemon source - main app
+│   │   ├── src/
+│   │   └── include/
+│   ├── client/
+│   │   └── backend/          # Background app that communicates with server
+│   │       ├── src/
+│   │       └── include/
+│   └── common/               # Daemon shared code
+├── server/                   # Server-side
+│   └── backend/              # Manages clients whitelists
+└── build.sh                  # Build script
 ```
 
 ---

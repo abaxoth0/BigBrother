@@ -1,10 +1,12 @@
 CC = x86_64-w64-mingw32-gcc
-COMMON_FLAGS = -Wall -mconsole -I$(HOME)/proj/BigBrother/common
+
+ROOT = $(CURDIR)/../..
+COMMON_FLAGS = -Wall -mconsole -I$(ROOT)/common
 
 DEBUG_FLAGS = -g3 -O0
 RELEASE_FLAGS = -O2
 
-t-units = src/main.c src/ipc.c $(HOME)/proj/BigBrother/common/encoding/encoding.c
+t-units = src/main.c src/ipc.c $(ROOT)/common/encoding/encoding.c
 
 all: debug
 
