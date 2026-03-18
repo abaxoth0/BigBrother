@@ -53,4 +53,42 @@ int IpcSetWhitelist(const char* data, size_t size, char* out_buffer, size_t buff
  */
 int IpcReload(char* out_buffer, size_t buffer_size);
 
+/**
+ * @brief Set the server IP address for daemon mode.
+ *
+ * @param ip Server IP address.
+ */
+void SetServerIp(const char* ip);
+
+/**
+ * @brief Check if running in daemon mode.
+ *
+ * @return Non-zero if in daemon mode.
+ */
+int IsDaemonMode(void);
+
+/**
+ * @brief Set daemon mode.
+ *
+ * @param mode Non-zero to enable daemon mode.
+ */
+void SetDaemonMode(int mode);
+
+/**
+ * @brief Run in daemon mode - poll server for whitelist updates.
+ *
+ * @param server_ip Server IP address.
+ * @param poll_interval_secs Polling interval in seconds.
+ *
+ * @return 0 on exit.
+ */
+int DaemonRun(const char* server_ip, int poll_interval_secs);
+
+/**
+ * @brief Ping the local daemon to check if it's alive.
+ *
+ * @return 0 if alive, -1 if not responding.
+ */
+int PingDaemon(void);
+
 #endif // IPC_H

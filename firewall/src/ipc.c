@@ -93,6 +93,10 @@ static int parse_and_execute(HANDLE pipe, char* buffer, size_t size) {
             write_status(pipe);
             break;
 
+        case MSG_PING:
+            write_ok(pipe);
+            break;
+
         default:
             write_error(pipe, "unknown command");
             return -1;
@@ -119,8 +123,7 @@ static DWORD WINAPI ipc_client_handler(LPVOID param) {
 
 static DWORD WINAPI ipc_server_thread(LPVOID param) {
     while (1) {
-        // Create pipe - blocking mode, waits for client
-        HANDLE pipe = CreateNamedPipeA(
+        HANDLE pipe = CreateNamedPipe(
             IPC_PIPE_PREFIX,
             PIPE_ACCESS_DUPLEX,
             PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT,
@@ -146,7 +149,6 @@ static DWORD WINAPI ipc_server_thread(LPVOID param) {
             }
         }
 
-        // Handle client in separate thread
         HANDLE thread = CreateThread(NULL, 0, ipc_client_handler, pipe, 0, NULL);
         if (thread) {
             CloseHandle(thread);

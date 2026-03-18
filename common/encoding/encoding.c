@@ -14,6 +14,7 @@ IpcMessageType EncodingParseMessageType(const char* str) {
     if (strcmp(str, "SET_WHITELIST") == 0) return MSG_SET_WHITELIST;
     if (strcmp(str, "RELOAD") == 0) return MSG_RELOAD;
     if (strcmp(str, "GET_STATUS") == 0) return MSG_GET_STATUS;
+    if (strcmp(str, "PING") == 0) return MSG_PING;
     if (strcmp(str, "WHITELIST") == 0) return MSG_WHITELIST;
     if (strcmp(str, "STATUS") == 0) return MSG_STATUS;
     if (strcmp(str, "OK") == 0) return MSG_OK;

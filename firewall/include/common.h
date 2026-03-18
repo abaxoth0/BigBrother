@@ -63,4 +63,13 @@ void ToLowerInplace(char* str);
     ToLowerInplace((dst));                  \
 } while(0)
 
+#define DPRINTF_BUF_SIZE 2048
+static char dprintf_buf[DPRINTF_BUF_SIZE];
+
+#define DPRINTF(...) do {               \
+    sprintf(dprintf_buf, __VA_ARGS__);   \
+    log_msg(dprintf_buf);               \
+    OutputDebugString(dprintf_buf);      \
+} while(0)
+
 #endif

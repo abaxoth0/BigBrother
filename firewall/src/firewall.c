@@ -40,6 +40,20 @@ StringView g_FilterExpr = {0};
 
 // TODO: Allow user to specify whitelist path
 #define DEFAULT_WHITELIST_PATH "E:\\bb\\whitelist.txt"
+#define DEFAULT_CONFIG_PATH "E:\\bb\\config.txt"
+
+static char g_ServerIp[64] = {0};
+static char g_ClientExePath[MAX_PATH] = {0};
+static DWORD g_ClientPid = 0;
+static HANDLE g_ClientProcess = NULL;
+static HANDLE g_ClientStopEvent = NULL;
+
+static void get_exe_path(char* buf, size_t size) {
+    char* name = buf + GetModuleFileName(NULL, buf, (DWORD)size);
+    // Find last backslash
+    while (name > buf && *(name - 1) != '\\') name--;
+    *name = '\0';
+}
 
 static FILE* g_LogFile = NULL;
 
@@ -60,14 +74,109 @@ static void log_msg(const char* fmt, ...) {
     fflush(g_LogFile);
 }
 
-#define DPRINTF_BUF_SIZE 2048
-static char dprintf_buf[DPRINTF_BUF_SIZE];
+static void load_config(const char* path) {
+    // Set default client exe path to same directory as daemon
+    get_exe_path(g_ClientExePath, sizeof(g_ClientExePath));
+    strncat(g_ClientExePath, "\\bb-client.exe", sizeof(g_ClientExePath) - strlen(g_ClientExePath) - 1);
+    log_msg("[Config] Default client exe: %s\n", g_ClientExePath);
 
-#define DPRINTF(...) do {               \
-    sprintf(dprintf_buf, __VA_ARGS__);   \
-    log_msg(dprintf_buf);               \
-    OutputDebugString(dprintf_buf);      \
-} while(0)
+    FILE* f = fopen(path, "r");
+    if (!f) {
+        log_msg("[Config] Could not open config file: %s\n", path);
+        return;
+    }
+
+    char line[256];
+    while (fgets(line, sizeof(line), f)) {
+        char* eq = strchr(line, '=');
+        if (!eq) continue;
+        *eq = '\0';
+
+        char* key = line;
+        char* value = eq + 1;
+
+        while (*value == ' ' || *value == '\t') value++;
+        char* end = value + strlen(value) - 1;
+        while (end > value && (*end == '\n' || *end == '\r' || *end == ' ' || *end == '\t')) {
+            *end = '\0';
+            end--;
+        }
+
+        if (strcmp(key, "server") == 0) {
+            strncpy(g_ServerIp, value, sizeof(g_ServerIp) - 1);
+            log_msg("[Config] Server IP: %s\n", g_ServerIp);
+        } else if (strcmp(key, "client_exe") == 0) {
+            strncpy(g_ClientExePath, value, sizeof(g_ClientExePath) - 1);
+            log_msg("[Config] Client exe: %s\n", g_ClientExePath);
+        }
+    }
+
+    fclose(f);
+}
+
+static int spawn_client_backend(void) {
+    if (g_ServerIp[0] == '\0') {
+        return -1;
+    }
+
+    STARTUPINFO si = {0};
+    PROCESS_INFORMATION pi = {0};
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESHOWWINDOW;
+    si.wShowWindow = SW_HIDE;
+
+    char cmd[512];
+    snprintf(cmd, sizeof(cmd), "\"%s\" -d %s", g_ClientExePath, g_ServerIp);
+
+    if (CreateProcess(NULL, cmd, NULL, NULL, FALSE, CREATE_NO_WINDOW | INHERIT_PARENT_AFFINITY, NULL, NULL, &si, &pi)) {
+        if (g_ClientProcess) {
+            CloseHandle(g_ClientProcess);
+        }
+        g_ClientProcess = pi.hProcess;
+        g_ClientPid = pi.dwProcessId;
+        CloseHandle(pi.hThread);
+        log_msg("[ServiceMain] Client backend started, pid: %lu\n", g_ClientPid);
+        return 0;
+    } else {
+        log_msg("[ServiceMain] CreateProcess failed: %lu\n", GetLastError());
+        return -1;
+    }
+}
+
+static void stop_client_backend(void) {
+    if (g_ClientProcess) {
+        TerminateProcess(g_ClientProcess, 0);
+        CloseHandle(g_ClientProcess);
+        g_ClientProcess = NULL;
+        g_ClientPid = 0;
+    }
+    if (g_ClientStopEvent) {
+        SetEvent(g_ClientStopEvent);
+    }
+}
+
+static int is_client_running(void) {
+    if (!g_ClientProcess || !g_ClientPid) {
+        return 0;
+    }
+
+    DWORD exit_code;
+    if (GetExitCodeProcess(g_ClientProcess, &exit_code) && exit_code == STILL_ACTIVE) {
+        return 1;
+    }
+
+    return 0;
+}
+
+static DWORD WINAPI client_monitor_thread(LPVOID param) {
+    while (WaitForSingleObject(g_ClientStopEvent, 5000) != WAIT_OBJECT_0) {
+        if (!is_client_running() && g_ServerIp[0] != '\0') {
+            log_msg("[ClientMonitor] Client died, restarting...\n");
+            spawn_client_backend();
+        }
+    }
+    return 0;
+}
 
 /**
  * @brief Load whitelist domains and IPs from file.
@@ -425,8 +534,25 @@ void WINAPI ServiceMain(DWORD argc, LPTSTR *argv) {
         return;
     }
 
+    load_config(DEFAULT_CONFIG_PATH);
+
     OutputDebugString("[ServiceMain] Starting IPC\n");
     IpcStart();
+
+    if (g_ServerIp[0] != '\0') {
+        g_ClientStopEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+
+        DPRINTF("[ServiceMain] Starting client backend, server: %s\n", g_ServerIp);
+        spawn_client_backend();
+
+        HANDLE monitor_thread = CreateThread(NULL, 0, client_monitor_thread, NULL, 0, NULL);
+        if (monitor_thread) {
+            CloseHandle(monitor_thread);
+            DPRINTF("[ServiceMain] Client monitor thread started\n");
+        }
+    } else {
+        log_msg("[ServiceMain] No server IP configured, skipping client backend\n");
+    }
 
     OutputDebugString("[ServiceMain] Creating worker thread\n");
     HANDLE hThread = CreateThread(NULL, 0, FirewallServiceThread, NULL, 0, NULL);
@@ -447,6 +573,9 @@ void WINAPI ServiceMain(DWORD argc, LPTSTR *argv) {
 
     WaitForSingleObject(hThread, INFINITE);
     CloseHandle(hThread);
+
+    stop_client_backend();
+    CloseHandle(g_ClientStopEvent);
     CloseHandle(g_ServiceStopEvent);
 
     g_ServiceStatus.dwCurrentState = SERVICE_STOPPED;

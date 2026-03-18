@@ -24,6 +24,7 @@ typedef enum {
     MSG_SET_WHITELIST,
     MSG_RELOAD,
     MSG_GET_STATUS,
+    MSG_PING,
     MSG_WHITELIST,
     MSG_STATUS,
     MSG_OK,
