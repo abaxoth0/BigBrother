@@ -3,16 +3,26 @@
 package main
 
 import (
+	"bigbrother_server_backend/packages/rpc"
 	"bufio"
 	"fmt"
 	"net"
 	"strings"
+	"time"
 
 	"github.com/Microsoft/go-winio"
 )
 
 const pipeName string = `\\.\pipe\BigBrother`
 const pipeBufSize int32 = 1 << 16
+
+const (
+	statusOK 	  = "1"
+	statusCLIENTS = "2"
+	statusSTATUS  = "3"
+)
+
+var rpcServer = rpc.NewRpcServer()
 
 func main() {
 	cfg := &winio.PipeConfig{
@@ -52,21 +62,56 @@ func handleConnection(conn net.Conn) {
 
 		fmt.Printf("Received: %s\n", line)
 
-		switch line {
+		msg := strings.Split(line, ":")
+		if len(msg) > 2 {
+			fmt.Fprintf(conn, "ERROR: Invalid request syntax (':' duplication)\n")
+			return
+		}
+		cmd, arg := msg[0], ""
+		if len(msg) > 1 {
+			arg = strings.TrimSpace(msg[1])
+		}
+
+		switch cmd {
 		case "GET_WHITELIST":
-			// TODO: Get from database
+			wl := rpcServer.GetWhitelist()
+
 			fmt.Fprintln(conn, "WHITELIST")
-			fmt.Fprintln(conn, "example.com")
-			fmt.Fprintln(conn, "github.com")
+			for _, entry := range wl {
+				fmt.Fprintln(conn, entry)
+			}
 
 		case "REGISTER":
-			// TODO: Register client
-			fmt.Fprintln(conn, "OK")
+			if strings.TrimSpace(arg) == "" {
+				fmt.Fprintf(conn, "ERROR: Missing name\n")
+				return
+			}
+			err := rpcServer.AddClient(&rpc.Client{
+				Addr: conn.RemoteAddr().String(),
+				Name: arg,
+				LastSeen: time.Now(),
+			})
+			if err != nil {
+				fmt.Fprintf(conn, "ERROR: %s\n", err.Error())
+				return
+			}
+			fmt.Fprintf(conn, statusOK)
+
+		case "GET_CLIENTS":
+			clients := rpcServer.GetClients()
+			fmt.Fprintln(conn, statusCLIENTS)
+			for _, client := range clients {
+				fmt.Fprintf(conn, "%s:%s\n", client.Name, client.Addr)
+			}
 
 		case "GET_STATUS":
-			// TODO: Get status
-			fmt.Fprintln(conn, "STATUS")
-			fmt.Fprintln(conn, "clients:0")
+			status := rpcServer.GetStatus()
+			fmt.Fprintln(conn, statusSTATUS)
+			fmt.Fprintln(conn, "uptime:"+status.Uptime.String())
+			for _, client := range status.ConnectedClients {
+				fmt.Fprintf(conn, "%s:%s:%s\n", client.Name, client.Addr, client.LastSeen.Format(time.RFC3339))
+			}
+		// TODO: Implement domain addition/deletion later, for now avoid this to ensure Consistency
 
 		default:
 			fmt.Fprintf(conn, "ERROR: unknown command: %s\n", line)
