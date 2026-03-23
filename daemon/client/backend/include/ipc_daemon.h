@@ -1,5 +1,5 @@
 /**
- * @file ipc.h
+ * @file ipc_daemon.h
  * @brief IPC client for connecting to BigBrother Daemon.
  */
 
@@ -8,8 +8,8 @@
 
 #include <stddef.h>
 
-#define IPC_PIPE_NAME "BigBrother Daemon"
-#define IPC_BUFFER_SIZE 4096
+#define DAEMON_PIPE_NAME "BigBrother Daemon"
+#define DAEMON_PIPE_BUFFER_SIZE 4096
 
 /**
  * @brief Connect to the daemon and get status.
@@ -19,7 +19,7 @@
  *
  * @return 0 on success, -1 on error.
  */
-int IpcGetStatus(char* out_buffer, size_t buffer_size);
+int DaemonGetStatus(char* out_buffer, size_t buffer_size);
 
 /**
  * @brief Connect to the daemon and get whitelist.
@@ -29,7 +29,7 @@ int IpcGetStatus(char* out_buffer, size_t buffer_size);
  *
  * @return 0 on success, -1 on error.
  */
-int IpcGetWhitelist(char* out_buffer, size_t buffer_size);
+int DaemonGetWhitelist(char* out_buffer, size_t buffer_size);
 
 /**
  * @brief Connect to the daemon and set whitelist.
@@ -41,7 +41,7 @@ int IpcGetWhitelist(char* out_buffer, size_t buffer_size);
  *
  * @return 0 on success, -1 on error.
  */
-int IpcSetWhitelist(const char* data, size_t size, char* out_buffer, size_t buffer_size);
+int DaemonSetWhitelist(const char* data, size_t size, char* out_buffer, size_t buffer_size);
 
 /**
  * @brief Connect to the daemon and reload whitelist from file.
@@ -51,7 +51,7 @@ int IpcSetWhitelist(const char* data, size_t size, char* out_buffer, size_t buff
  *
  * @return 0 on success, -1 on error.
  */
-int IpcReload(char* out_buffer, size_t buffer_size);
+int DaemonReload(char* out_buffer, size_t buffer_size);
 
 /**
  * @brief Set the server IP address for daemon mode.

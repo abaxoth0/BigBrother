@@ -1,15 +1,15 @@
 /**
- * @file ipc.c
+ * @file ipc_daemon.c
  * @brief IPC client implementation for connecting to BigBrother Daemon.
  */
 
-#include "../include/ipc.h"
+#include "../include/ipc_daemon.h"
 #include <windows.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 
-#define IPC_PIPE_PREFIX "\\\\.\\pipe\\" IPC_PIPE_NAME
+#define DAEMON_PIPE_PREFIX "\\\\.\\pipe\\" DAEMON_PIPE_NAME
 
 static char g_server_ip[64] = {0};
 static int g_daemon_running = 0;
@@ -35,7 +35,7 @@ static int send_command(const char* command, const char* data, size_t data_size,
     }
 
     HANDLE pipe = CreateFile(
-        IPC_PIPE_PREFIX,
+        DAEMON_PIPE_PREFIX,
         GENERIC_READ | GENERIC_WRITE,
         0,
         NULL,
@@ -84,19 +84,19 @@ static int send_command(const char* command, const char* data, size_t data_size,
     return 0;
 }
 
-int IpcGetStatus(char* out_buffer, size_t buffer_size) {
+int DaemonGetStatus(char* out_buffer, size_t buffer_size) {
     return send_command("GET_STATUS", NULL, 0, out_buffer, buffer_size);
 }
 
-int IpcGetWhitelist(char* out_buffer, size_t buffer_size) {
+int DaemonGetWhitelist(char* out_buffer, size_t buffer_size) {
     return send_command("GET_WHITELIST", NULL, 0, out_buffer, buffer_size);
 }
 
-int IpcSetWhitelist(const char* data, size_t size, char* out_buffer, size_t buffer_size) {
+int DaemonSetWhitelist(const char* data, size_t size, char* out_buffer, size_t buffer_size) {
     return send_command("SET_WHITELIST", data, size, out_buffer, buffer_size);
 }
 
-int IpcReload(char* out_buffer, size_t buffer_size) {
+int DaemonReload(char* out_buffer, size_t buffer_size) {
     return send_command("RELOAD", NULL, 0, out_buffer, buffer_size);
 }
 
@@ -168,7 +168,7 @@ int DaemonRun(const char* server_ip, int poll_interval_secs) {
             if (strcmp(whitelist_buf, last_whitelist) == 0) goto wait;
 
             strncpy(last_whitelist, whitelist_buf, sizeof(last_whitelist) - 1);
-            if (IpcSetWhitelist(whitelist_buf, strlen(whitelist_buf), whitelist_buf, sizeof(whitelist_buf)) != 0) {
+            if (DaemonSetWhitelist(whitelist_buf, strlen(whitelist_buf), whitelist_buf, sizeof(whitelist_buf)) != 0) {
                 OutputDebugString("[Daemon] Failed to set whitelist on daemon\n");
             } else {
                 OutputDebugString("[Daemon] Whitelist updated\n");

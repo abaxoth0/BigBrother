@@ -1,13 +1,14 @@
 /**
  * @file main.c
- * @brief BigBrother Client - CLI for testing IPC to Daemon.
+ * @brief Entry point.
  */
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <windows.h>
-#include "../include/ipc.h"
+#include "../include/ipc_daemon.h"
+#include "../include/ipc_client.h"
 
 static void print_usage(const char* prog) {
     printf("Usage: %s <command>\n", prog);
@@ -59,21 +60,24 @@ int main(int argc, char** argv) {
         snprintf(buf, sizeof(buf), "[Main] Starting daemon mode, server: %s, poll interval: %ds\n", server_ip, poll_interval);
         OutputDebugString(buf);
 
+        OutputDebugString("[Main] Starting frontend server...\n");
+        StartClientServer();
+
         return DaemonRun(server_ip, poll_interval);
     }
 
     char buffer[4096];
 
     if (strcmp(argv[1], "status") == 0) {
-        int result = IpcGetStatus(buffer, sizeof(buffer));
+        int result = DaemonGetStatus(buffer, sizeof(buffer));
         print_response("status", result, buffer);
 
     } else if (strcmp(argv[1], "whitelist") == 0) {
-        int result = IpcGetWhitelist(buffer, sizeof(buffer));
+        int result = DaemonGetWhitelist(buffer, sizeof(buffer));
         print_response("whitelist", result, buffer);
 
     } else if (strcmp(argv[1], "reload") == 0) {
-        int result = IpcReload(buffer, sizeof(buffer));
+        int result = DaemonReload(buffer, sizeof(buffer));
         print_response("reload", result, buffer);
 
     } else if (strcmp(argv[1], "set") == 0) {
@@ -97,7 +101,7 @@ int main(int argc, char** argv) {
         data[size] = '\0';
         fclose(f);
 
-        int result = IpcSetWhitelist(data, size, buffer, sizeof(buffer));
+        int result = DaemonSetWhitelist(data, size, buffer, sizeof(buffer));
         print_response("set", result, buffer);
         free(data);
 
