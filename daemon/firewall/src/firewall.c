@@ -259,6 +259,7 @@ int IsAllowed(uint32_t dest_ip) {
 
 #define WINDIVERT_FILTER "ip"
 #define PACKET_PAYLOAD_SIZE 1500 // Ethernet MTU
+#define PACKET_QUEUE_TIMEOUT 500 // ms
 
 /**
  * @brief Main firewall service thread.
@@ -281,6 +282,11 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
         return STATUS_UNSPECIFIED_ERROR;
     }
 
+    if (!WinDivertSetParam(handle, WINDIVERT_PARAM_QUEUE_TIME, PACKET_QUEUE_TIMEOUT)) {
+        DPRINTF("[ ERROR ] Failed to set packet queue timeout. Error code: %lu\n", GetLastError());
+        return STATUS_UNSPECIFIED_ERROR;
+    }
+
     PWINDIVERT_IPHDR ip_hdr = NULL;
     PWINDIVERT_TCPHDR tcp_hdr = NULL;
     PWINDIVERT_UDPHDR udp_hdr = NULL;
@@ -294,7 +300,6 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
     OutputDebugString("Firewall started\n");
 
     while (WaitForSingleObject(g_ServiceStopEvent, 0) != WAIT_OBJECT_0) {
-
         if (!WinDivertRecv(handle, packet, PACKET_SIZE, &recv_len, &addr)) {
             continue;
         }
@@ -450,7 +455,6 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
         }
 
         WinDivertSend(handle, packet, recv_len, NULL, &addr);
-
     }
 
     free(packet);
