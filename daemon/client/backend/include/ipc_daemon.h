@@ -51,7 +51,7 @@ int DaemonSetWhitelist(const char* data, size_t size, char* out_buffer, size_t b
  *
  * @return 0 on success, -1 on error.
  */
-int DaemonReload(char* out_buffer, size_t buffer_size);
+int DaemonReloadWhitelist(char* out_buffer, size_t buffer_size);
 
 /**
  * @brief Set the server IP address for daemon mode.
@@ -59,20 +59,6 @@ int DaemonReload(char* out_buffer, size_t buffer_size);
  * @param ip Server IP address.
  */
 void SetServerIp(const char* ip);
-
-/**
- * @brief Check if running in daemon mode.
- *
- * @return Non-zero if in daemon mode.
- */
-int IsDaemonMode(void);
-
-/**
- * @brief Set daemon mode.
- *
- * @param mode Non-zero to enable daemon mode.
- */
-void SetDaemonMode(int mode);
 
 /**
  * @brief Run in daemon mode - poll server for whitelist updates.

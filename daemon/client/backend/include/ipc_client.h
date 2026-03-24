@@ -11,9 +11,4 @@
  */
 void StartClientServer(void);
 
-/**
- * @brief Stop client IPC server.
- */
-void StopCleintServer(void);
-
 #endif // FRONTEND_SERVER_H

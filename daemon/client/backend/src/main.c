@@ -54,13 +54,12 @@ int main(int argc, char** argv) {
         }
 
         SetServerIp(server_ip);
-        SetDaemonMode(1);
 
         char buf[256];
         snprintf(buf, sizeof(buf), "[Main] Starting daemon mode, server: %s, poll interval: %ds\n", server_ip, poll_interval);
         OutputDebugString(buf);
 
-        OutputDebugString("[Main] Starting frontend server...\n");
+        OutputDebugString("[Main] Starting client server...\n");
         StartClientServer();
 
         return DaemonRun(server_ip, poll_interval);
@@ -77,7 +76,7 @@ int main(int argc, char** argv) {
         print_response("whitelist", result, buffer);
 
     } else if (strcmp(argv[1], "reload") == 0) {
-        int result = DaemonReload(buffer, sizeof(buffer));
+        int result = DaemonReloadWhitelist(buffer, sizeof(buffer));
         print_response("reload", result, buffer);
 
     } else if (strcmp(argv[1], "set") == 0) {

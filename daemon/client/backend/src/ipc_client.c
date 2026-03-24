@@ -15,13 +15,6 @@
 #define CLIENT_PIPE_NAME "\\\\.\\pipe\\BigBrother Client"
 #define CLIENT_PIPE_BUFFER_SIZE 4096
 
-// Q: Why volatile instead of atomic upd?
-static volatile int g_frontend_running = 1;
-
-void StopFrontendServer(void) {
-    g_frontend_running = 0;
-}
-
 static void write_response(HANDLE pipe, const char* response) {
     DWORD written;
     WriteFile(pipe, response, (DWORD)strlen(response), &written, NULL);
@@ -61,7 +54,7 @@ static int get_local_ip(char* ip_buf, size_t buf_size) {
     return 0;
 }
 
-static DWORD WINAPI frontend_handler(LPVOID param) {
+static DWORD WINAPI client_handler(LPVOID param) {
     HANDLE pipe = (HANDLE)param;
     char buffer[CLIENT_PIPE_BUFFER_SIZE];
     DWORD bytes_read;
@@ -103,6 +96,10 @@ static DWORD WINAPI frontend_handler(LPVOID param) {
             write_response(pipe, response);
         }
 
+    } else if (strcmp(buffer, "RELOAD_WHITELIST") == 0) {
+        DaemonReloadWhitelist(buffer, sizeof(buffer));
+        write_response(pipe, buffer);
+
     } else if (strcmp(buffer, "RESTART_CLIENT") == 0) {
         write_ok(pipe);
         CloseHandle(pipe);
@@ -120,10 +117,10 @@ static DWORD WINAPI frontend_handler(LPVOID param) {
     return 0;
 }
 
-DWORD WINAPI frontend_server_thread(LPVOID param) {
+DWORD WINAPI client_server_thread(LPVOID param) {
     (void)param;
 
-    while (g_frontend_running) {
+    while (1) {
         HANDLE pipe = CreateNamedPipe(
             CLIENT_PIPE_NAME,
             PIPE_ACCESS_DUPLEX,
@@ -141,7 +138,7 @@ DWORD WINAPI frontend_server_thread(LPVOID param) {
         }
 
         if (ConnectNamedPipe(pipe, NULL) || GetLastError() == ERROR_PIPE_CONNECTED) {
-            HANDLE thread = CreateThread(NULL, 0, frontend_handler, pipe, 0, NULL);
+            HANDLE thread = CreateThread(NULL, 0, client_handler, pipe, 0, NULL);
             if (thread) {
                 CloseHandle(thread);
             }
@@ -153,8 +150,8 @@ DWORD WINAPI frontend_server_thread(LPVOID param) {
     return 0;
 }
 
-void StartFrontendServer(void) {
-    HANDLE thread = CreateThread(NULL, 0, frontend_server_thread, NULL, 0, NULL);
+void StartClientServer(void) {
+    HANDLE thread = CreateThread(NULL, 0, client_server_thread, NULL, 0, NULL);
     if (thread) {
         CloseHandle(thread);
     }

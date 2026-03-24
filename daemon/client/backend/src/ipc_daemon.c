@@ -12,20 +12,11 @@
 #define DAEMON_PIPE_PREFIX "\\\\.\\pipe\\" DAEMON_PIPE_NAME
 
 static char g_server_ip[64] = {0};
-static int g_daemon_running = 0;
 
 void SetServerIp(const char* ip) {
     if (ip) {
         strncpy(g_server_ip, ip, sizeof(g_server_ip) - 1);
     }
-}
-
-int IsDaemonMode(void) {
-    return g_daemon_running;
-}
-
-void SetDaemonMode(int mode) {
-    g_daemon_running = mode;
 }
 
 static int send_command(const char* command, const char* data, size_t data_size,
@@ -96,7 +87,7 @@ int DaemonSetWhitelist(const char* data, size_t size, char* out_buffer, size_t b
     return send_command("SET_WHITELIST", data, size, out_buffer, buffer_size);
 }
 
-int DaemonReload(char* out_buffer, size_t buffer_size) {
+int DaemonReloadWhitelist(char* out_buffer, size_t buffer_size) {
     return send_command("RELOAD", NULL, 0, out_buffer, buffer_size);
 }
 
@@ -153,7 +144,7 @@ int DaemonRun(const char* server_ip, int poll_interval_secs) {
     char last_whitelist[8192] = {0};
     int connected = 0;
 
-    while (g_daemon_running) {
+    while (1) {
         if (PingDaemon() != 0) {
             char buf[256];
             snprintf(buf, sizeof(buf), "[Daemon] Local daemon not responding, exiting (pid: %lu)\n", GetCurrentProcessId());
