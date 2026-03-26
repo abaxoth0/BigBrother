@@ -39,8 +39,8 @@ StringView g_FilterExpr = {0};
 #define STATUS_UNSPECIFIED_ERROR -1
 
 // TODO: Allow user to specify whitelist path
-#define DEFAULT_WHITELIST_PATH "E:\\bb\\whitelist.txt"
-#define DEFAULT_CONFIG_PATH "E:\\bb\\config.txt"
+static char g_WhitelistPath[512] = "whitelist.txt";
+static char g_ConfigPath[512] = "config.txt";
 
 static char g_ServerIp[64] = {0};
 static char g_ClientExePath[MAX_PATH] = {0};
@@ -55,10 +55,24 @@ static void get_exe_path(char* buf, size_t size) {
     *name = '\0';
 }
 
+static void init_paths(void) {
+    get_exe_path(g_ClientExePath, sizeof(g_ClientExePath));
+    snprintf(g_WhitelistPath, sizeof(g_WhitelistPath), "%s\\whitelist.txt", g_ClientExePath);
+    snprintf(g_ConfigPath, sizeof(g_ConfigPath), "%s\\config.txt", g_ClientExePath);
+}
+
 static FILE* g_LogFile = NULL;
 
 static void log_init(void) {
-    g_LogFile = fopen("E:\\bb\\firewall.log", "a");
+    char log_path[512];
+    snprintf(log_path, sizeof(log_path), "%s\\firewall.log", g_ClientExePath);
+    g_LogFile = fopen(log_path, "a");
+    if (!g_LogFile) {
+        char temp_path[MAX_PATH];
+        GetTempPathA(sizeof(temp_path), temp_path);
+        snprintf(log_path, sizeof(log_path), "%sBigBrother_firewall.log", temp_path);
+        g_LogFile = fopen(log_path, "a");
+    }
 }
 
 static void log_close(void) {
@@ -191,7 +205,7 @@ static DWORD WINAPI client_monitor_thread(LPVOID param) {
  * @return STATUS_OK on success, STATUS_FAILED_TO_READ_WHITELIST on failure.
  */
 int LoadWhiteList(char* path) {
-    if (!path) path = DEFAULT_WHITELIST_PATH;
+    if (!path) path = g_WhitelistPath;
     DPRINTF("[INFO] Reading whitelist at: %s\n", path);
     FILE *f = fopen(path, "r");
     if (!f) {
@@ -538,7 +552,7 @@ void WINAPI ServiceMain(DWORD argc, LPTSTR *argv) {
         return;
     }
 
-    load_config(DEFAULT_CONFIG_PATH);
+    load_config(g_ConfigPath);
 
     OutputDebugString("[ServiceMain] Starting IPC\n");
     IpcStart();
@@ -592,6 +606,7 @@ void WINAPI ServiceMain(DWORD argc, LPTSTR *argv) {
  * @return Exit code.
  */
 int main(int argc, char** argv) {
+    init_paths();
     log_init();
     int err = LoadWhiteList(NULL);
     if (err) {
