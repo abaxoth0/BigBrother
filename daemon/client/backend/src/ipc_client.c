@@ -5,12 +5,14 @@
 
 #include "../include/ipc_client.h"
 #include "../include/ipc_daemon.h"
+#include "../include/common.h"
 #include <winsock2.h>
 #include <windows.h>
 #include <ws2tcpip.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdarg.h>
 
 #define CLIENT_PIPE_NAME "\\\\.\\pipe\\BigBrother Client"
 #define CLIENT_PIPE_BUFFER_SIZE 4096
@@ -76,16 +78,23 @@ static DWORD WINAPI client_handler(LPVOID param) {
     // Parse command
     if (strcmp(buffer, "GET_STATUS") == 0) {
         char ip[64];
+        char hostname[256];
+        DWORD client_pid = GetCurrentProcessId();
+
         get_local_ip(ip, sizeof(ip));
+        gethostname(hostname, sizeof(hostname));
 
         // Ping daemon to check status
         int daemon_ok = (PingDaemon() == 0);
+        log_msg("[IPC] PingDaemon result: %d (0=success)", daemon_ok);
 
         char response[512];
-        snprintf(response, sizeof(response), "STATUS:%s:%s:%s\n",
-                 "ClientName",  // TODO: get from config
+        snprintf(response, sizeof(response), "STATUS:%s:%s:%s:%lu\n",
+                 hostname,
                  ip,
-                 daemon_ok ? "RUNNING" : "NOT_RUNNING");
+                 daemon_ok ? "RUNNING" : "NOT_RUNNING",
+                 client_pid);
+        log_msg("[IPC] GET_STATUS: daemon_ok=%d, response: %s", daemon_ok, response);
         write_response(pipe, response);
 
     } else if (strcmp(buffer, "GET_WHITELIST") == 0) {
@@ -108,6 +117,19 @@ static DWORD WINAPI client_handler(LPVOID param) {
 
     } else if (strcmp(buffer, "PING") == 0) {
         write_ok(pipe);
+
+    } else if (strcmp(buffer, "GET_LOG_PATH") == 0) {
+        char exe_path[MAX_PATH];
+        char* name = exe_path + GetModuleFileName(NULL, exe_path, sizeof(exe_path));
+        while (name > exe_path && *(name - 1) != '\\') name--;
+        *name = '\0';
+
+        char log_path[512];
+        snprintf(log_path, sizeof(log_path), "%s\\client.log", exe_path);
+
+        char response[600];
+        snprintf(response, sizeof(response), "LOG_PATH:%s\n", log_path);
+        write_response(pipe, response);
 
     } else {
         write_error(pipe, "unknown command");

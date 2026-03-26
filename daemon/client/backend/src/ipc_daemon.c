@@ -25,6 +25,10 @@ static int send_command(const char* command, const char* data, size_t data_size,
         return -1;
     }
 
+    char dbg[256];
+    snprintf(dbg, sizeof(dbg), "[IPC_Daemon] send_command: %s\n", command);
+    OutputDebugString(dbg);
+
     HANDLE pipe = CreateFile(
         DAEMON_PIPE_PREFIX,
         GENERIC_READ | GENERIC_WRITE,
@@ -36,6 +40,9 @@ static int send_command(const char* command, const char* data, size_t data_size,
     );
 
     if (pipe == INVALID_HANDLE_VALUE) {
+        DWORD err = GetLastError();
+        snprintf(dbg, sizeof(dbg), "[IPC_Daemon] CreateFile failed: %lu\n", err);
+        OutputDebugString(dbg);
         return -1;
     }
 
@@ -136,7 +143,11 @@ static int connect_to_server(const char* server_ip, char* out_buffer, size_t buf
 
 int PingDaemon(void) {
     char buffer[256];
-    return send_command("PING", NULL, 0, buffer, sizeof(buffer));
+    char dbg[512];
+    int result = send_command("PING", NULL, 0, buffer, sizeof(buffer));
+    snprintf(dbg, sizeof(dbg), "[IPC_Daemon] PingDaemon result: %d, response: %s\n", result, buffer);
+    OutputDebugString(dbg);
+    return result;
 }
 
 int DaemonRun(const char* server_ip, int poll_interval_secs) {

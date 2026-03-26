@@ -11,4 +11,9 @@
  */
 void StartClientServer(void);
 
+/**
+ * @brief Initialize logging for the client backend.
+ */
+void log_init(void);
+
 #endif // FRONTEND_SERVER_H

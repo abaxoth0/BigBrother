@@ -55,6 +55,8 @@ int main(int argc, char** argv) {
 
         SetServerIp(server_ip);
 
+        log_init();
+
         char buf[256];
         snprintf(buf, sizeof(buf), "[Main] Starting daemon mode, server: %s, poll interval: %ds\n", server_ip, poll_interval);
         OutputDebugString(buf);
