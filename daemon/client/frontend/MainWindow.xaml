@@ -185,8 +185,6 @@
                                                  VerticalAlignment="Center"/>
                                         <TextBlock Text="{Binding DaemonStatus}" 
                                                    Margin="5,0" VerticalAlignment="Center"/>
-                                        <TextBlock Text="{Binding DaemonPid, StringFormat='(PID: {0})'}"
-                                                   Foreground="Gray" VerticalAlignment="Center"/>
                                     </StackPanel>
                                     <StackPanel Orientation="Horizontal" Margin="0,5">
                                         <TextBlock Text="Соединение:" Width="100" Foreground="Gray" VerticalAlignment="Center"/>
@@ -209,8 +207,6 @@
                                                  VerticalAlignment="Center"/>
                                         <TextBlock Text="{Binding ClientStatus}" 
                                                    Margin="5,0" VerticalAlignment="Center"/>
-                                        <TextBlock Text="{Binding ClientPid, StringFormat='(PID: {0})'}"
-                                                   Foreground="Gray" VerticalAlignment="Center"/>
                                     </StackPanel>
                                     <StackPanel Orientation="Horizontal" Margin="0,5">
                                         <TextBlock Text="Соединение:" Width="100" Foreground="Gray" VerticalAlignment="Center"/>

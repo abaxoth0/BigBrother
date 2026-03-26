@@ -9,6 +9,7 @@ public class ClientStatus
     public string IpAddress { get; set; } = "";
     public string DaemonStatus { get; set; } = "NOT_RUNNING";
     public string ClientBackendStatus { get; set; } = "NOT_RUNNING";
+    public int ClientPid { get; set; }
     public bool IsConnected => ClientBackendStatus == "RUNNING";
 }
 
@@ -70,8 +71,8 @@ public class IpcService : IDisposable
 
             writer.WriteLine(command);
             
-            var response = reader.ReadToEnd();
-            return response.Trim();
+            var response = reader.ReadLine();
+            return response?.Trim() ?? "";
         }
         catch (Exception ex)
         {
@@ -87,6 +88,7 @@ public class IpcService : IDisposable
 
         if (!await ConnectAsync())
         {
+            System.Diagnostics.Debug.WriteLine("[IpcService] Connect failed");
             return status;
         }
 
@@ -98,10 +100,23 @@ public class IpcService : IDisposable
             writer.WriteLine("GET_STATUS");
 
             var firstLine = reader.ReadLine();
+            System.Diagnostics.Debug.WriteLine($"[IpcService] GET_STATUS response: {firstLine}");
             if (firstLine != null && firstLine.StartsWith("STATUS:"))
             {
                 var parts = firstLine.Split(':');
-                if (parts.Length >= 4)
+                System.Diagnostics.Debug.WriteLine($"[IpcService] Parts count: {parts.Length}");
+                if (parts.Length >= 5)
+                {
+                    status.ClientName = parts[1];
+                    status.IpAddress = parts[2];
+                    status.DaemonStatus = parts[3];
+                    if (ulong.TryParse(parts[4], out var pid))
+                    {
+                        status.ClientPid = (int)pid;
+                    }
+                    status.ClientBackendStatus = "RUNNING";
+                }
+                else if (parts.Length >= 4)
                 {
                     status.ClientName = parts[1];
                     status.IpAddress = parts[2];
@@ -112,7 +127,9 @@ public class IpcService : IDisposable
 
             Disconnect();
         }
-        catch { }
+        catch (Exception ex) { 
+            System.Diagnostics.Debug.WriteLine($"[IpcService] Exception: {ex.Message}");
+        }
 
         return status;
     }
@@ -196,6 +213,35 @@ public class IpcService : IDisposable
         catch
         {
             return false;
+        }
+    }
+
+    public async Task<string> GetLogPathAsync()
+    {
+        if (!await ConnectAsync())
+        {
+            return "";
+        }
+
+        try
+        {
+            var writer = new StreamWriter(_pipe!) { AutoFlush = true };
+            var reader = new StreamReader(_pipe!);
+
+            writer.WriteLine("GET_LOG_PATH");
+            var response = reader.ReadLine();
+
+            Disconnect();
+            
+            if (response != null && response.StartsWith("LOG_PATH:"))
+            {
+                return response.Substring(9);
+            }
+            return "";
+        }
+        catch
+        {
+            return "";
         }
     }
 

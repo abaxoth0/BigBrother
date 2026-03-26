@@ -1,3 +1,5 @@
+using System;
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Threading;
@@ -11,6 +13,7 @@ namespace frontend
         private readonly DispatcherTimer _refreshTimer;
         private readonly IpcService _ipcService = new();
         private readonly ServiceManager _serviceManager = new();
+        private readonly LogReader _logReader = new();
 
         public MainWindow()
         {
@@ -21,7 +24,6 @@ namespace frontend
                 Interval = TimeSpan.FromSeconds(5)
             };
             _refreshTimer.Tick += async (s, e) => await RefreshStatusAsync();
-            _refreshTimer.Start();
 
             if (DataContext is MainViewModel vm)
             {
@@ -34,7 +36,52 @@ namespace frontend
                 };
             }
 
-            _ = RefreshStatusAsync();
+            _ = InitializeAsync();
+        }
+
+        private async Task InitializeAsync()
+        {
+            // First get status to see if we can connect
+            await RefreshStatusAsync();
+            
+            // Then try to get log path from backend
+            try
+            {
+                var logPath = await _ipcService.GetLogPathAsync();
+                if (!string.IsNullOrEmpty(logPath) && File.Exists(logPath))
+                {
+                    _logReader.OnNewLine += OnLogLineReceived;
+                    _logReader.Start(logPath);
+                    if (DataContext is MainViewModel vm)
+                    {
+                        vm.AddLog("INFO", $"Чтение логов: {logPath}");
+                    }
+                }
+            }
+            catch { }
+
+            _refreshTimer.Start();
+        }
+
+        private void OnLogLineReceived(string line)
+        {
+            if (DataContext is MainViewModel vm)
+            {
+                string level = "INFO";
+                if (line.Contains("[ERROR]") || line.Contains("ERROR"))
+                    level = "ERROR";
+                else if (line.Contains("[WARNING]") || line.Contains("WARN"))
+                    level = "WARNING";
+                else if (line.Contains("[DNS]"))
+                    level = "DNS";
+                else if (line.Contains("[BLOCKED]"))
+                    level = "BLOCKED";
+
+                System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
+                {
+                    vm.AddLog(level, line);
+                });
+            }
         }
 
         private async void RefreshStatus_Click(object sender, RoutedEventArgs e)
@@ -55,7 +102,10 @@ namespace frontend
                     vm.ClientStatus = status.IsConnected ? "Запущен" : "Остановлен";
                     vm.HostName = status.ClientName;
                     vm.IpAddress = status.IpAddress;
+                    vm.ClientPid = status.ClientPid;
                     vm.LastUpdate = DateTime.Now;
+                    
+                    System.Diagnostics.Debug.WriteLine($"[Frontend] Status: Daemon={status.DaemonStatus}, ClientPID={status.ClientPid}");
                 }
                 catch (System.TimeoutException)
                 {
@@ -65,6 +115,7 @@ namespace frontend
                 {
                     vm.DaemonConnectionStatus = "Отключено";
                     vm.ClientConnectionStatus = "Отключено";
+                    System.Diagnostics.Debug.WriteLine($"[Frontend] Status error: {ex.Message}");
                 }
             }
         }

@@ -14,8 +14,8 @@ public class ConnectionStatusToColorConverter : IValueConverter
         {
             return status switch
             {
-                "Установлено" => new WpfBrush(WpfColor.FromRgb(76, 175, 80)),
-                "Неустановлено" => new WpfBrush(WpfColor.FromRgb(220, 20, 60)),
+                "Подключено" => new WpfBrush(WpfColor.FromRgb(76, 175, 80)),
+                "Отключено" => new WpfBrush(WpfColor.FromRgb(220, 20, 60)),
                 "..." => new WpfBrush(WpfColor.FromRgb(255, 152, 0)),
                 _ => new WpfBrush(Colors.Gray)
             };
