@@ -9,6 +9,7 @@
 #include <windows.h>
 #include "../include/ipc_daemon.h"
 #include "../include/ipc_client.h"
+#include "../../../common/log/log.h"
 
 static void print_usage(const char* prog) {
     printf("Usage: %s <command>\n", prog);
@@ -38,6 +39,8 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+    log_init();
+
     // Check for daemon mode
     if (strcmp(argv[1], "-d") == 0) {
         if (argc < 3) {
@@ -55,13 +58,8 @@ int main(int argc, char** argv) {
 
         SetServerIp(server_ip);
 
-        log_init();
-
-        char buf[256];
-        snprintf(buf, sizeof(buf), "[Main] Starting daemon mode, server: %s, poll interval: %ds\n", server_ip, poll_interval);
-        OutputDebugString(buf);
-
-        OutputDebugString("[Main] Starting client server...\n");
+        LOGF("[Main] Starting daemon mode, server: %s, poll interval: %ds\n", server_ip, poll_interval);
+        LOGF("[Main] Starting client server...\n");
         StartClientServer();
 
         return DaemonRun(server_ip, poll_interval);

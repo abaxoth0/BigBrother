@@ -5,8 +5,7 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include "../include/common.h"
-
-static FILE* g_LogFile = NULL;
+#include "../../../common/log/log.h"
 
 void log_init(void) {
     char exe_path[MAX_PATH];
@@ -17,25 +16,16 @@ void log_init(void) {
     char log_path[512];
     snprintf(log_path, sizeof(log_path), "%s\\client.log", exe_path);
 
-    g_LogFile = fopen(log_path, "a");
-    if (!g_LogFile) {
+    LogFile = fopen(log_path, "a");
+    if (!LogFile) {
         char temp_path[MAX_PATH];
         GetTempPath(sizeof(temp_path), temp_path);
         snprintf(log_path, sizeof(log_path), "%sBigBrother_client.log", temp_path);
-        g_LogFile = fopen(log_path, "a");
+        LogFile = fopen(log_path, "a");
     }
 
-    if (g_LogFile) {
-        fprintf(g_LogFile, "[Client] Started, log: %s\n", log_path);
-        fflush(g_LogFile);
+    if (LogFile) {
+        fprintf(LogFile, "[Client] Started, log: %s\n", log_path);
+        fflush(LogFile);
     }
-}
-
-void log_msg(const char* fmt, ...) {
-    if (!g_LogFile) return;
-    va_list args;
-    va_start(args, fmt);
-    vfprintf(g_LogFile, fmt, args);
-    va_end(args);
-    fflush(g_LogFile);
 }

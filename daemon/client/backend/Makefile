@@ -8,7 +8,7 @@ COMMON_FLAGS = -Wall -mconsole \
 DEBUG_FLAGS = -g3 -O0
 RELEASE_FLAGS = -O2
 
-t-units = src/main.c src/common.c src/ipc_daemon.c src/ipc_client.c $(ROOT)/common/encoding/encoding.c
+t-units = src/main.c src/common.c src/ipc_daemon.c src/ipc_client.c $(ROOT)/common/encoding/encoding.c $(ROOT)/common/log/log.c
 
 all: debug
 

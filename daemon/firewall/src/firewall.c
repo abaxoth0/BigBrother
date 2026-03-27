@@ -21,6 +21,7 @@
 #include "../include/allowlist.h"
 #include "../include/dns.h"
 #include "../include/ipc.h"
+#include "../../common/log/log.h"
 
 SERVICE_STATUS g_ServiceStatus = {0};
 SERVICE_STATUS_HANDLE g_StatusHandle = NULL;
@@ -61,42 +62,36 @@ static void init_paths(void) {
     snprintf(g_ConfigPath, sizeof(g_ConfigPath), "%s\\config.txt", g_ClientExePath);
 }
 
-static FILE* g_LogFile = NULL;
-
 static void log_init(void) {
     char log_path[512];
     snprintf(log_path, sizeof(log_path), "%s\\firewall.log", g_ClientExePath);
-    g_LogFile = fopen(log_path, "a");
-    if (!g_LogFile) {
+    LogFile = fopen(log_path, "a");
+    if (!LogFile) {
         char temp_path[MAX_PATH];
-        GetTempPathA(sizeof(temp_path), temp_path);
+        GetTempPath(sizeof(temp_path), temp_path);
         snprintf(log_path, sizeof(log_path), "%sBigBrother_firewall.log", temp_path);
-        g_LogFile = fopen(log_path, "a");
+        LogFile = fopen(log_path, "a");
+    }
+
+    if (LogFile) {
+        fprintf(LogFile, "[Firewall] Started, log: %s\n", log_path);
+        fflush(LogFile);
     }
 }
 
 static void log_close(void) {
-    if (g_LogFile) fclose(g_LogFile);
-}
-
-static void log_msg(const char* fmt, ...) {
-    if (!g_LogFile) return;
-    va_list args;
-    va_start(args, fmt);
-    vfprintf(g_LogFile, fmt, args);
-    va_end(args);
-    fflush(g_LogFile);
+    if (LogFile) fclose(LogFile);
 }
 
 static void load_config(const char* path) {
     // Set default client exe path to same directory as daemon
     get_exe_path(g_ClientExePath, sizeof(g_ClientExePath));
     strncat(g_ClientExePath, "\\bb-client.exe", sizeof(g_ClientExePath) - strlen(g_ClientExePath) - 1);
-    log_msg("[Config] Default client exe: %s\n", g_ClientExePath);
+    LOGF("[Config] Default client exe: %s\n", g_ClientExePath);
 
     FILE* f = fopen(path, "r");
     if (!f) {
-        log_msg("[Config] Could not open config file: %s\n", path);
+        LOGF("[Config] Could not open config file: %s\n", path);
         return;
     }
 
@@ -118,10 +113,10 @@ static void load_config(const char* path) {
 
         if (strcmp(key, "server") == 0) {
             strncpy(g_ServerIp, value, sizeof(g_ServerIp) - 1);
-            log_msg("[Config] Server IP: %s\n", g_ServerIp);
+            LOGF("[Config] Server IP: %s\n", g_ServerIp);
         } else if (strcmp(key, "client_exe") == 0) {
             strncpy(g_ClientExePath, value, sizeof(g_ClientExePath) - 1);
-            log_msg("[Config] Client exe: %s\n", g_ClientExePath);
+            LOGF("[Config] Client exe: %s\n", g_ClientExePath);
         }
     }
 
@@ -149,10 +144,10 @@ static int spawn_client_backend(void) {
         g_ClientProcess = pi.hProcess;
         g_ClientPid = pi.dwProcessId;
         CloseHandle(pi.hThread);
-        log_msg("[ServiceMain] Client backend started, pid: %lu\n", g_ClientPid);
+        LOGF("[ServiceMain] Client backend started, pid: %lu\n", g_ClientPid);
         return 0;
     } else {
-        log_msg("[ServiceMain] CreateProcess failed: %lu\n", GetLastError());
+        LOGF("[ServiceMain] CreateProcess failed: %lu\n", GetLastError());
         return -1;
     }
 }
@@ -185,7 +180,7 @@ static int is_client_running(void) {
 static DWORD WINAPI client_monitor_thread(LPVOID param) {
     while (WaitForSingleObject(g_ClientStopEvent, 5000) != WAIT_OBJECT_0) {
         if (!is_client_running() && g_ServerIp[0] != '\0') {
-            log_msg("[ClientMonitor] Client died, restarting...\n");
+            LOGF("[ClientMonitor] Client died, restarting...\n");
             spawn_client_backend();
         }
     }
@@ -206,7 +201,7 @@ static DWORD WINAPI client_monitor_thread(LPVOID param) {
  */
 int LoadWhiteList(char* path) {
     if (!path) path = g_WhitelistPath;
-    DPRINTF("[INFO] Reading whitelist at: %s\n", path);
+    LOGF("[INFO] Reading whitelist at: %s\n", path);
     FILE *f = fopen(path, "r");
     if (!f) {
         return STATUS_FAILED_TO_READ_WHITELIST;
@@ -232,7 +227,7 @@ int LoadWhiteList(char* path) {
         struct in_addr addr;
         if (inet_pton(AF_INET, p, &addr) == 1) {
             IpAllowlistAdd(&g_IpAllowlist, addr.s_addr, p, 0);
-            DPRINTF("[INFO] Added IP to allowlist: %s\n", p);
+            LOGF("[INFO] Added IP to allowlist: %s\n", p);
 
         } else {
             WhitelistAdd(&g_Whitelist, p);
@@ -240,7 +235,7 @@ int LoadWhiteList(char* path) {
     }
 
     fclose(f);
-    DPRINTF("[INFO] Loaded %zu whitelisted domains and %zu IPs\n", g_Whitelist.count, g_IpAllowlist.count);
+    LOGF("[INFO] Loaded %zu whitelisted domains and %zu IPs\n", g_Whitelist.count, g_IpAllowlist.count);
 
     return STATUS_OK;
 }
@@ -292,12 +287,12 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
     HANDLE handle = WinDivertOpen(WINDIVERT_FILTER, WINDIVERT_LAYER_NETWORK, 0, 0);
 
     if (handle == INVALID_HANDLE_VALUE) {
-        DPRINTF("[ ERROR ] Failed to open WinDivert handle. Error code: %lu\n", GetLastError());
+        LOGF("[ ERROR ] Failed to open WinDivert handle. Error code: %lu\n", GetLastError());
         return STATUS_UNSPECIFIED_ERROR;
     }
 
     if (!WinDivertSetParam(handle, WINDIVERT_PARAM_QUEUE_TIME, PACKET_QUEUE_TIMEOUT)) {
-        DPRINTF("[ ERROR ] Failed to set packet queue timeout. Error code: %lu\n", GetLastError());
+        LOGF("[ ERROR ] Failed to set packet queue timeout. Error code: %lu\n", GetLastError());
         return STATUS_UNSPECIFIED_ERROR;
     }
 
@@ -345,11 +340,11 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
 
 #ifdef DEBUG
         if (udp_hdr) {
-            DPRINTF("[UDP] %s -> %s | src: %u; dst: %u | payload: %u\n",
-                    src, dst, ntohs(udp_hdr->SrcPort), ntohs(udp_hdr->DstPort), payload_len);
+            DLOGF("[UDP] %s -> %s | src: %u; dst: %u | payload: %u\n",
+                  src, dst, ntohs(udp_hdr->SrcPort), ntohs(udp_hdr->DstPort), payload_len);
         } else if (tcp_hdr) {
-            DPRINTF("[TCP] %s -> %s | src: %u; dst: %u | payload: %u\n",
-                    src, dst, ntohs(tcp_hdr->SrcPort), ntohs(tcp_hdr->DstPort), payload_len);
+            DLOGF("[TCP] %s -> %s | src: %u; dst: %u | payload: %u\n",
+                  src, dst, ntohs(tcp_hdr->SrcPort), ntohs(tcp_hdr->DstPort), payload_len);
         }
 #endif
 
@@ -359,17 +354,17 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
             size_t dns_len = payload_len;
 
 #ifdef DEBUG
-            DPRINTF("[DNS-PORT] Detected DNS packet, src: %u, dst: %u, dns_len: %zu\n",
-                   ntohs(udp_hdr->SrcPort), ntohs(udp_hdr->DstPort), dns_len);
+            DLOGF("[DNS-PORT] Detected DNS packet, src: %u, dst: %u, dns_len: %zu\n",
+                  ntohs(udp_hdr->SrcPort), ntohs(udp_hdr->DstPort), dns_len);
 #endif
 
             if (dns_len >= DNS_MIN_REQ_LEN) {
                 DnsPacket dns = DnsParse(dns_data, dns_len);
 
 #ifdef DEBUG
-            DPRINTF("[DNS] valid: %d, domain: '%s', response: %s, answers: %u\n",
-                       dns.is_valid, dns.question.domain,
-                       dns.is_response ? "yes" : "no", dns.answer_count);
+                DLOGF("[DNS] valid: %d, domain: '%s', response: %s, answers: %u\n",
+                      dns.is_valid, dns.question.domain,
+                      dns.is_response ? "yes" : "no", dns.answer_count);
 #endif
 
                 if (!dns.is_valid || dns.question.domain[0] == '\0') {
@@ -393,15 +388,15 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
                 for (uint32_t i = 0; i < dns.answer_count; i++) {
                     for (uint32_t j = 0; j < dns.answers[i].ip_count; j++) {
                         uint32_t resolved_ip = dns.answers[i].ips[j];
-                        struct in_addr addr_ip = { .s_addr = resolved_ip };
 
                         if (domain_whitelisted) {
                             IpAllowlistAdd(&g_IpAllowlist, resolved_ip, dns.question.domain, dns.answers[i].ttl);
                         }
 
 #ifdef DEBUG
-                        DPRINTF("[DNS-RESPONSE] %s -> %s (whitelisted: %d)\n",
-                                dns.question.domain, inet_ntoa(addr_ip), domain_whitelisted);
+                        struct in_addr addr_ip = { .s_addr = resolved_ip };
+                        DLOGF("[DNS-RESPONSE] %s -> %s (whitelisted: %d)\n",
+                              dns.question.domain, inet_ntoa(addr_ip), domain_whitelisted);
 #endif
                     }
                 }
@@ -457,13 +452,11 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
             }
 
             if (!domain_whitelisted) {
-#ifdef DEBUG
-                DPRINTF("[BLOCKED] Packet to %s blocked", dst);
                 if (domain) {
-                    DPRINTF(" (domain: %s not whitelisted)", domain);
+                    DLOGF("[BLOCKED] Packet to %s blocked (domain: %s not whitelisted)\n", dst, domain);
+                } else {
+                    DLOGF("[BLOCKED] Packet to %s blocked\n", dst);
                 }
-                DPRINTF("\n");
-#endif
                 continue;
             }
         }
@@ -560,16 +553,16 @@ void WINAPI ServiceMain(DWORD argc, LPTSTR *argv) {
     if (g_ServerIp[0] != '\0') {
         g_ClientStopEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
 
-        DPRINTF("[ServiceMain] Starting client backend, server: %s\n", g_ServerIp);
+        LOGF("[ServiceMain] Starting client backend, server: %s\n", g_ServerIp);
         spawn_client_backend();
 
         HANDLE monitor_thread = CreateThread(NULL, 0, client_monitor_thread, NULL, 0, NULL);
         if (monitor_thread) {
             CloseHandle(monitor_thread);
-            DPRINTF("[ServiceMain] Client monitor thread started\n");
+            LOGF("[ServiceMain] Client monitor thread started\n");
         }
     } else {
-        log_msg("[ServiceMain] No server IP configured, skipping client backend\n");
+        LOGF("[ServiceMain] No server IP configured, skipping client backend\n");
     }
 
     OutputDebugString("[ServiceMain] Creating worker thread\n");

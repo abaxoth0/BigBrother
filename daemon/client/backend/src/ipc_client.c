@@ -5,7 +5,7 @@
 
 #include "../include/ipc_client.h"
 #include "../include/ipc_daemon.h"
-#include "../include/common.h"
+#include "../../../common/log/log.h"
 #include <winsock2.h>
 #include <windows.h>
 #include <ws2tcpip.h>
@@ -86,7 +86,7 @@ static DWORD WINAPI client_handler(LPVOID param) {
 
         // Ping daemon to check status
         int daemon_ok = (PingDaemon() == 0);
-        log_msg("[IPC] PingDaemon result: %d (0=success)", daemon_ok);
+        LOGF("[IPC] PingDaemon result: %d (0=success)\n", daemon_ok);
 
         char response[512];
         snprintf(response, sizeof(response), "STATUS:%s:%s:%s:%lu\n",
@@ -94,7 +94,7 @@ static DWORD WINAPI client_handler(LPVOID param) {
                  ip,
                  daemon_ok ? "RUNNING" : "NOT_RUNNING",
                  client_pid);
-        log_msg("[IPC] GET_STATUS: daemon_ok=%d, response: %s", daemon_ok, response);
+        LOGF("[IPC] GET_STATUS: daemon_ok=%d, response: %s\n", daemon_ok, response);
         write_response(pipe, response);
 
     } else if (strcmp(buffer, "GET_WHITELIST") == 0) {
