@@ -14,4 +14,10 @@
     <PackageReference Include="System.ServiceProcess.ServiceController" Version="8.0.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Compile Include="..\..\..\lib\cs\LogParser.cs">
+      <Link>Lib\LogParser.cs</Link>
+    </Compile>
+  </ItemGroup>
+
 </Project>

@@ -25,7 +25,6 @@ void log_init(void) {
     }
 
     if (LogFile) {
-        fprintf(LogFile, "[Client] Started, log: %s\n", log_path);
-        fflush(LogFile);
+        LOGF("[Client] Started, log: %s", log_path);
     }
 }

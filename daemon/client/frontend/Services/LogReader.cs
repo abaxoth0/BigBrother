@@ -1,15 +1,16 @@
 using System.IO;
+using Lib;
 
 namespace frontend.Services;
 
 public class LogReader
 {
     private FileStream? _fileStream;
-    private StreamReader? _reader;
     private FileSystemWatcher? _watcher;
     private string _currentFile = "";
     private long _lastPosition;
     private bool _isRunning;
+    private readonly byte[] _readBuffer = new byte[8192];
 
     public event Action<string>? OnNewLine;
     public string CurrentFile => _currentFile;
@@ -21,7 +22,7 @@ public class LogReader
 
         if (!File.Exists(filePath))
         {
-            OnNewLine?.Invoke($"[INFO] Log file not found: {filePath}");
+            OnNewLine?.Invoke($"Log file not found: {filePath}");
             return;
         }
 
@@ -31,7 +32,6 @@ public class LogReader
         try
         {
             _fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-            _reader = new StreamReader(_fileStream);
 
             var directory = Path.GetDirectoryName(filePath);
             var fileName = Path.GetFileName(filePath);
@@ -47,11 +47,11 @@ public class LogReader
             }
 
             _isRunning = true;
-            OnNewLine?.Invoke($"[INFO] Started reading log: {filePath}");
+            OnNewLine?.Invoke($"Started reading log: {filePath}");
         }
         catch (Exception ex)
         {
-            OnNewLine?.Invoke($"[ERROR] Failed to open log file: {ex.Message}");
+            OnNewLine?.Invoke($"Failed to open log file: {ex.Message}");
         }
     }
 
@@ -66,25 +66,40 @@ public class LogReader
 
     private void ReadNewLines()
     {
-        if (_reader == null || _fileStream == null || !_isRunning) return;
+        if (_fileStream == null || !_isRunning) return;
 
         try
         {
             _fileStream.Seek(_lastPosition, SeekOrigin.Begin);
-            _reader.DiscardBufferedData();
 
-            string? line;
-            while ((line = _reader.ReadLine()) != null)
+            int bytesRead;
+            while ((bytesRead = _fileStream.Read(_readBuffer, 0, _readBuffer.Length)) > 0)
             {
-                if (!string.IsNullOrWhiteSpace(line))
+                var entries = LogParser.ParseAll(_readBuffer.Take(bytesRead).ToArray());
+                foreach (var entry in entries)
                 {
-                    OnNewLine?.Invoke(line);
+                    string formatted = FormatEntry(entry);
+                    OnNewLine?.Invoke(formatted);
                 }
             }
 
             _lastPosition = _fileStream.Position;
         }
         catch { }
+    }
+
+    private static string FormatEntry(LogEntry entry)
+    {
+        string levelStr = entry.Level switch
+        {
+            LogLevel.Info => "INFO",
+            LogLevel.Error => "ERROR",
+            LogLevel.Debug => "DEBUG",
+            LogLevel.Blocked => "BLOCKED",
+            _ => "UNKNOWN"
+        };
+
+        return $"[{entry.Timestamp:HH:mm:ss}] [{levelStr}] {entry.Message}";
     }
 
     public void Stop()
@@ -98,9 +113,6 @@ public class LogReader
             _watcher.Dispose();
             _watcher = null;
         }
-
-        _reader?.Dispose();
-        _reader = null;
 
         _fileStream?.Dispose();
         _fileStream = null;

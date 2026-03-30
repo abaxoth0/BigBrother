@@ -1,0 +1,91 @@
+namespace Lib;
+
+public enum LogType : ushort
+{
+    Log = 1,
+    Dlog = 2
+}
+
+public enum LogLevel : byte
+{
+    Info = 0,
+    Error = 1,
+    Debug = 2,
+    Blocked = 3
+}
+
+public class LogEntry
+{
+    public LogType Type { get; set; }
+    public LogLevel Level { get; set; }
+    public DateTime Timestamp { get; set; }
+    public string Message { get; set; } = "";
+}
+
+public static class LogParser
+{
+    public const int HeaderSize = 4;
+
+    public static LogEntry? ParseEntry(byte[] data, int offset)
+    {
+        if (offset + HeaderSize > data.Length)
+            return null;
+
+        // Read header: TYPE (2 bytes) + LEN (2 bytes) - little endian
+        ushort type = (ushort)(data[offset] | (data[offset + 1] << 8));
+        ushort len = (ushort)(data[offset + 2] | (data[offset + 3] << 8));
+
+        if (offset + HeaderSize + len > data.Length)
+            return null;
+
+        // Parse payload
+        int payloadOffset = offset + HeaderSize;
+
+        // Timestamp: 8 bytes - little endian
+        ulong timestamp = 0;
+        for (int i = 0; i < 8; i++)
+        {
+            timestamp |= (ulong)data[payloadOffset + i] << (i * 8);
+        }
+
+        // Level: 1 byte
+        LogLevel level = (LogLevel)data[payloadOffset + 8];
+
+        // Message: null-terminated string
+        int msgOffset = payloadOffset + 9;
+        int msgLen = len - 9;
+        string message = "";
+        for (int i = 0; i < msgLen; i++)
+        {
+            if (data[msgOffset + i] == 0)
+                break;
+            message += (char)data[msgOffset + i];
+        }
+
+        return new LogEntry
+        {
+            Type = (LogType)type,
+            Level = level,
+            Timestamp = DateTimeOffset.FromUnixTimeSeconds((long)timestamp).DateTime,
+            Message = message
+        };
+    }
+
+    public static List<LogEntry> ParseAll(byte[] data)
+    {
+        var entries = new List<LogEntry>();
+        int offset = 0;
+
+        while (offset < data.Length)
+        {
+            var entry = ParseEntry(data, offset);
+            if (entry == null)
+                break;
+
+            entries.Add(entry);
+            offset += HeaderSize + 4 + ((data[offset + 2] | (data[offset + 3] << 8)));
+        }
+
+        return entries;
+    }
+}

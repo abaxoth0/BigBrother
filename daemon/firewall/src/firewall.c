@@ -74,8 +74,7 @@ static void log_init(void) {
     }
 
     if (LogFile) {
-        fprintf(LogFile, "[Firewall] Started, log: %s\n", log_path);
-        fflush(LogFile);
+        LOGF("[Firewall] Started, log: %s", log_path);
     }
 }
 
@@ -287,12 +286,12 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
     HANDLE handle = WinDivertOpen(WINDIVERT_FILTER, WINDIVERT_LAYER_NETWORK, 0, 0);
 
     if (handle == INVALID_HANDLE_VALUE) {
-        LOGF("[ ERROR ] Failed to open WinDivert handle. Error code: %lu\n", GetLastError());
+        LOGE("Failed to open WinDivert handle. Error code: %lu", GetLastError());
         return STATUS_UNSPECIFIED_ERROR;
     }
 
     if (!WinDivertSetParam(handle, WINDIVERT_PARAM_QUEUE_TIME, PACKET_QUEUE_TIMEOUT)) {
-        LOGF("[ ERROR ] Failed to set packet queue timeout. Error code: %lu\n", GetLastError());
+        LOGE("Failed to set packet queue timeout. Error code: %lu", GetLastError());
         return STATUS_UNSPECIFIED_ERROR;
     }
 
@@ -453,9 +452,9 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
 
             if (!domain_whitelisted) {
                 if (domain) {
-                    DLOGF("[BLOCKED] Packet to %s blocked (domain: %s not whitelisted)\n", dst, domain);
+                    LOGB("Packet to %s blocked (domain: %s not whitelisted)", dst, domain);
                 } else {
-                    DLOGF("[BLOCKED] Packet to %s blocked\n", dst);
+                    LOGB("Packet to %s blocked", dst);
                 }
                 continue;
             }
