@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include <time.h>
 #include <string.h>
+#include <windows.h>
 
 extern FILE* LogFile;
 
@@ -23,64 +24,74 @@ static char logf_buf[LOGF_BUF_SIZE] __attribute__((unused));
 
 #define LOGF_HEADER_SIZE 4
 
-static void __attribute__((unused)) log_write(uint16_t type, uint8_t level, const char* msg) {
-    if (!LogFile) return;
-    
-    uint64_t timestamp = (uint64_t)time(NULL);
-    uint16_t msg_len = (uint16_t)strlen(msg) + 1;
-    uint16_t payload_len = 8 + 1 + msg_len; // timestamp + level + message
-    
-    uint8_t header[4];
-    header[0] = (type >> 0) & 0xFF;
-    header[1] = (type >> 8) & 0xFF;
-    header[2] = (payload_len >> 0) & 0xFF;
-    header[3] = (payload_len >> 8) & 0xFF;
-    
-    fwrite(header, 1, 4, LogFile);
-    
-    uint8_t payload[512];
-    int i = 0;
-    // timestamp (8 bytes)
-    for (int j = 0; j < 8; j++) {
-        payload[i++] = (timestamp >> (j * 8)) & 0xFF;
-    }
-    // level (1 byte)
-    payload[i++] = level;
-    // message (null-terminated)
-    memcpy(&payload[i], msg, msg_len);
-    i += msg_len;
-    
-    fwrite(payload, 1, payload_len, LogFile);
-    fflush(LogFile);
-}
+#define LOG_BUFFER_SIZE (10 * 1024 * 1024)  // 10MB default
+#define LOG_BATCH_SIZE 32
+
+#define RING_BUFFER_SIZE (LOG_BUFFER_SIZE + 4096)  // buffer + header space
+
+typedef struct {
+    volatile uint32_t head;  // written by producer
+    volatile uint32_t tail;  // written by consumer
+    uint32_t capacity;
+    uint8_t  data[1];  // flexible array, actual size is capacity
+} RingBuffer;
+
+typedef struct {
+    RingBuffer* rb;
+    HANDLE logger_thread;
+    HANDLE write_semaphore;
+    volatile int running;
+    char log_path[512];
+    FILE* batch_file;
+    int entry_count;
+    uint32_t last_flush_time;
+    uint8_t batch_buffer[LOG_BATCH_SIZE * 512];  // 512 bytes per entry max
+} LoggerContext;
+
+extern LoggerContext* g_logger;
+
+// Initialize synchronous logging (for backward compatibility)
+void log_init(void);
+
+// Initialize async logging (starts logger thread)
+// buffer_size: minimum buffer size (will be rounded up to page size)
+// Returns 0 on success, -1 on failure
+int log_init_async(uint32_t buffer_size);
+
+void log_shutdown(void);
+
+void log_write_async(uint16_t type, uint8_t level, const char* msg);
+
+// Synchronous write for emergency mode
+void log_write_sync(uint16_t type, uint8_t level, const char* msg);
 
 #define LOGF(...) do { \
     sprintf(logf_buf, __VA_ARGS__);  \
-    log_write(LOG_TYPE_LOG, LOG_LEVEL_INFO, logf_buf); \
+    log_write_async(LOG_TYPE_LOG, LOG_LEVEL_INFO, logf_buf); \
 } while(0)
 
 #define LOGE(...) do { \
     sprintf(logf_buf, __VA_ARGS__);  \
-    log_write(LOG_TYPE_LOG, LOG_LEVEL_ERROR, logf_buf); \
+    log_write_async(LOG_TYPE_LOG, LOG_LEVEL_ERROR, logf_buf); \
 } while(0)
 
 #define LOGB(...) do { \
     sprintf(logf_buf, __VA_ARGS__);  \
-    log_write(LOG_TYPE_LOG, LOG_LEVEL_BLOCKED, logf_buf); \
+    log_write_async(LOG_TYPE_LOG, LOG_LEVEL_BLOCKED, logf_buf); \
 } while(0)
 
 #ifdef DEBUG
 
 #define DLOGF(...) do { \
     sprintf(logf_buf, __VA_ARGS__);  \
-    log_write(LOG_TYPE_DLOG, LOG_LEVEL_DEBUG, logf_buf); \
+    log_write_async(LOG_TYPE_DLOG, LOG_LEVEL_DEBUG, logf_buf); \
     OutputDebugString(logf_buf); \
 } while(0)
 
-#else // ifdef DEBUG
+#else
 
 #define DLOGF(...)
 
-#endif // ifdef DEBUG
+#endif
 
 #endif // LOG_H

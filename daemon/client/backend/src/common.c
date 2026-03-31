@@ -1,9 +1,9 @@
-
 #include <fileapi.h>
 #include <libloaderapi.h>
 #include <minwindef.h>
 #include <stdarg.h>
 #include <stdio.h>
+#include <string.h>
 #include "../include/common.h"
 #include "../../../common/log/log.h"
 
@@ -15,16 +15,29 @@ void log_init(void) {
 
     char log_path[512];
     snprintf(log_path, sizeof(log_path), "%s\\client.log", exe_path);
-
-    LogFile = fopen(log_path, "a");
-    if (!LogFile) {
+    
+    // Determine actual path (in case first one fails)
+    if (fopen(log_path, "a") == NULL) {
         char temp_path[MAX_PATH];
         GetTempPath(sizeof(temp_path), temp_path);
         snprintf(log_path, sizeof(log_path), "%sBigBrother_client.log", temp_path);
-        LogFile = fopen(log_path, "a");
     }
-
-    if (LogFile) {
-        LOGF("[Client] Started, log: %s", log_path);
+    
+    // Initialize async logger with path set FIRST
+    log_init_async(LOG_BUFFER_SIZE);
+    
+    // Must set path AFTER log_init_async creates g_logger
+    extern LoggerContext* g_logger;
+    if (g_logger) {
+        snprintf(g_logger->log_path, sizeof(g_logger->log_path), "%s", log_path);
     }
+    
+    // Also keep LogFile for any direct writes
+    FILE* f = fopen(log_path, "a");
+    if (f) {
+        LogFile = f;
+    }
+    
+    // Now write log
+    LOGF("[Client] Started, log: %s", log_path);
 }

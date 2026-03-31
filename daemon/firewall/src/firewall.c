@@ -62,35 +62,42 @@ static void init_paths(void) {
     snprintf(g_ConfigPath, sizeof(g_ConfigPath), "%s\\config.txt", g_ClientExePath);
 }
 
-static void log_init(void) {
+static void init_logging(void) {
     char log_path[512];
     snprintf(log_path, sizeof(log_path), "%s\\firewall.log", g_ClientExePath);
-    LogFile = fopen(log_path, "a");
-    if (!LogFile) {
+    
+    // Set log path in global context
+    extern LoggerContext* g_logger;
+    if (g_logger) {
+        snprintf(g_logger->log_path, sizeof(g_logger->log_path), "%s", log_path);
+    }
+    
+    FILE* f = fopen(log_path, "a");
+    if (!f) {
         char temp_path[MAX_PATH];
         GetTempPath(sizeof(temp_path), temp_path);
         snprintf(log_path, sizeof(log_path), "%sBigBrother_firewall.log", temp_path);
-        LogFile = fopen(log_path, "a");
+        if (g_logger) {
+            snprintf(g_logger->log_path, sizeof(g_logger->log_path), "%s", log_path);
+        }
+        f = fopen(log_path, "a");
     }
-
-    if (LogFile) {
-        LOGF("[Firewall] Started, log: %s", log_path);
+    
+    // Legacy - still needed for sync writes if needed
+    if (f) {
+        LogFile = f;
     }
-}
-
-static void log_close(void) {
-    if (LogFile) fclose(LogFile);
 }
 
 static void load_config(const char* path) {
     // Set default client exe path to same directory as daemon
     get_exe_path(g_ClientExePath, sizeof(g_ClientExePath));
     strncat(g_ClientExePath, "\\bb-client.exe", sizeof(g_ClientExePath) - strlen(g_ClientExePath) - 1);
-    LOGF("[Config] Default client exe: %s\n", g_ClientExePath);
+    LOGF("[Config] Default client exe: %s", g_ClientExePath);
 
     FILE* f = fopen(path, "r");
     if (!f) {
-        LOGF("[Config] Could not open config file: %s\n", path);
+        LOGF("[Config] Could not open config file: %s", path);
         return;
     }
 
@@ -112,10 +119,10 @@ static void load_config(const char* path) {
 
         if (strcmp(key, "server") == 0) {
             strncpy(g_ServerIp, value, sizeof(g_ServerIp) - 1);
-            LOGF("[Config] Server IP: %s\n", g_ServerIp);
+            LOGF("[Config] Server IP: %s", g_ServerIp);
         } else if (strcmp(key, "client_exe") == 0) {
             strncpy(g_ClientExePath, value, sizeof(g_ClientExePath) - 1);
-            LOGF("[Config] Client exe: %s\n", g_ClientExePath);
+            LOGF("[Config] Client exe: %s", g_ClientExePath);
         }
     }
 
@@ -143,10 +150,10 @@ static int spawn_client_backend(void) {
         g_ClientProcess = pi.hProcess;
         g_ClientPid = pi.dwProcessId;
         CloseHandle(pi.hThread);
-        LOGF("[ServiceMain] Client backend started, pid: %lu\n", g_ClientPid);
+        LOGF("[ServiceMain] Client backend started, pid: %lu", g_ClientPid);
         return 0;
     } else {
-        LOGF("[ServiceMain] CreateProcess failed: %lu\n", GetLastError());
+        LOGF("[ServiceMain] CreateProcess failed: %lu", GetLastError());
         return -1;
     }
 }
@@ -179,7 +186,7 @@ static int is_client_running(void) {
 static DWORD WINAPI client_monitor_thread(LPVOID param) {
     while (WaitForSingleObject(g_ClientStopEvent, 5000) != WAIT_OBJECT_0) {
         if (!is_client_running() && g_ServerIp[0] != '\0') {
-            LOGF("[ClientMonitor] Client died, restarting...\n");
+            LOGF("[ClientMonitor] Client died, restarting...");
             spawn_client_backend();
         }
     }
@@ -200,7 +207,7 @@ static DWORD WINAPI client_monitor_thread(LPVOID param) {
  */
 int LoadWhiteList(char* path) {
     if (!path) path = g_WhitelistPath;
-    LOGF("[INFO] Reading whitelist at: %s\n", path);
+    LOGF("[INFO] Reading whitelist at: %s", path);
     FILE *f = fopen(path, "r");
     if (!f) {
         return STATUS_FAILED_TO_READ_WHITELIST;
@@ -226,7 +233,7 @@ int LoadWhiteList(char* path) {
         struct in_addr addr;
         if (inet_pton(AF_INET, p, &addr) == 1) {
             IpAllowlistAdd(&g_IpAllowlist, addr.s_addr, p, 0);
-            LOGF("[INFO] Added IP to allowlist: %s\n", p);
+            LOGF("[INFO] Added IP to allowlist: %s", p);
 
         } else {
             WhitelistAdd(&g_Whitelist, p);
@@ -234,7 +241,7 @@ int LoadWhiteList(char* path) {
     }
 
     fclose(f);
-    LOGF("[INFO] Loaded %zu whitelisted domains and %zu IPs\n", g_Whitelist.count, g_IpAllowlist.count);
+    LOGF("[INFO] Loaded %zu whitelisted domains and %zu IPs", g_Whitelist.count, g_IpAllowlist.count);
 
     return STATUS_OK;
 }
@@ -305,7 +312,7 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
     void* payload_ptr = payload_buf;
     UINT payload_len = 0;
 
-    OutputDebugString("Firewall started\n");
+    OutputDebugString("Firewall started");
 
     while (WaitForSingleObject(g_ServiceStopEvent, 0) != WAIT_OBJECT_0) {
         if (!WinDivertRecv(handle, packet, PACKET_SIZE, &recv_len, &addr)) {
@@ -339,10 +346,10 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
 
 #ifdef DEBUG
         if (udp_hdr) {
-            DLOGF("[UDP] %s -> %s | src: %u; dst: %u | payload: %u\n",
+            DLOGF("[UDP] %s -> %s | src: %u; dst: %u | payload: %u",
                   src, dst, ntohs(udp_hdr->SrcPort), ntohs(udp_hdr->DstPort), payload_len);
         } else if (tcp_hdr) {
-            DLOGF("[TCP] %s -> %s | src: %u; dst: %u | payload: %u\n",
+            DLOGF("[TCP] %s -> %s | src: %u; dst: %u | payload: %u",
                   src, dst, ntohs(tcp_hdr->SrcPort), ntohs(tcp_hdr->DstPort), payload_len);
         }
 #endif
@@ -353,7 +360,7 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
             size_t dns_len = payload_len;
 
 #ifdef DEBUG
-            DLOGF("[DNS-PORT] Detected DNS packet, src: %u, dst: %u, dns_len: %zu\n",
+            DLOGF("[DNS-PORT] Detected DNS packet, src: %u, dst: %u, dns_len: %zu",
                   ntohs(udp_hdr->SrcPort), ntohs(udp_hdr->DstPort), dns_len);
 #endif
 
@@ -361,7 +368,7 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
                 DnsPacket dns = DnsParse(dns_data, dns_len);
 
 #ifdef DEBUG
-                DLOGF("[DNS] valid: %d, domain: '%s', response: %s, answers: %u\n",
+                DLOGF("[DNS] valid: %d, domain: '%s', response: %s, answers: %u",
                       dns.is_valid, dns.question.domain,
                       dns.is_response ? "yes" : "no", dns.answer_count);
 #endif
@@ -394,7 +401,7 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
 
 #ifdef DEBUG
                         struct in_addr addr_ip = { .s_addr = resolved_ip };
-                        DLOGF("[DNS-RESPONSE] %s -> %s (whitelisted: %d)\n",
+                        DLOGF("[DNS-RESPONSE] %s -> %s (whitelisted: %d)",
                               dns.question.domain, inet_ntoa(addr_ip), domain_whitelisted);
 #endif
                     }
@@ -478,14 +485,14 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
  */
 void WINAPI ServiceControlHandler(DWORD CtrlCode) {
     char buf[128];
-    snprintf(buf, sizeof(buf), "[ServiceControlHandler] Received control: %lu\n", CtrlCode);
+    snprintf(buf, sizeof(buf), "[ServiceControlHandler] Received control: %lu", CtrlCode);
     OutputDebugString(buf);
 
     switch (CtrlCode) {
         case SERVICE_CONTROL_STOP:
-            OutputDebugString("[ServiceControlHandler] STOP received\n");
+            OutputDebugString("[ServiceControlHandler] STOP received");
             if (g_ServiceStatus.dwCurrentState != SERVICE_RUNNING) {
-                OutputDebugString("[ServiceControlHandler] Not running, ignoring\n");
+                OutputDebugString("[ServiceControlHandler] Not running, ignoring");
                 break;
             }
 
@@ -494,12 +501,12 @@ void WINAPI ServiceControlHandler(DWORD CtrlCode) {
             g_ServiceStatus.dwWaitHint = 2000;
             SetServiceStatus(g_StatusHandle, &g_ServiceStatus);
 
-            OutputDebugString("[ServiceControlHandler] Setting stop event\n");
+            OutputDebugString("[ServiceControlHandler] Setting stop event");
             SetEvent(g_ServiceStopEvent);
-            OutputDebugString("[ServiceControlHandler] Stop event set\n");
+            OutputDebugString("[ServiceControlHandler] Stop event set");
             break;
         default:
-            snprintf(buf, sizeof(buf), "[ServiceControlHandler] Unknown control: %lu\n", CtrlCode);
+            snprintf(buf, sizeof(buf), "[ServiceControlHandler] Unknown control: %lu", CtrlCode);
             OutputDebugString(buf);
             break;
     }
@@ -518,14 +525,14 @@ void WINAPI ServiceControlHandler(DWORD CtrlCode) {
  * @param[in] argv Argument vector.
  */
 void WINAPI ServiceMain(DWORD argc, LPTSTR *argv) {
-    OutputDebugString("[ServiceMain] Starting\n");
+    OutputDebugString("[ServiceMain] Starting");
     g_StatusHandle = RegisterServiceCtrlHandler(SERVICE_NAME, ServiceControlHandler);
     if (!g_StatusHandle) {
-        OutputDebugString("[ServiceMain] RegisterServiceCtrlHandler failed\n");
+        OutputDebugString("[ServiceMain] RegisterServiceCtrlHandler failed");
         return;
     }
 
-    OutputDebugString("[ServiceMain] Handler registered\n");
+    OutputDebugString("[ServiceMain] Handler registered");
     g_ServiceStatus.dwServiceType = SERVICE_WIN32_OWN_PROCESS;
     g_ServiceStatus.dwCurrentState = SERVICE_START_PENDING;
     g_ServiceStatus.dwControlsAccepted = SERVICE_ACCEPT_STOP;
@@ -535,10 +542,10 @@ void WINAPI ServiceMain(DWORD argc, LPTSTR *argv) {
     g_ServiceStatus.dwWaitHint = 5000;
     UpdateServiceStatus();
 
-    OutputDebugString("[ServiceMain] Creating stop event\n");
+    OutputDebugString("[ServiceMain] Creating stop event");
     g_ServiceStopEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
     if (!g_ServiceStopEvent) {
-        OutputDebugString("[ServiceMain] CreateEvent failed\n");
+        OutputDebugString("[ServiceMain] CreateEvent failed");
         g_ServiceStatus.dwCurrentState = SERVICE_STOPPED;
         UpdateServiceStatus();
         return;
@@ -546,40 +553,40 @@ void WINAPI ServiceMain(DWORD argc, LPTSTR *argv) {
 
     load_config(g_ConfigPath);
 
-    OutputDebugString("[ServiceMain] Starting IPC\n");
+    OutputDebugString("[ServiceMain] Starting IPC");
     IpcStart();
 
     if (g_ServerIp[0] != '\0') {
         g_ClientStopEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
 
-        LOGF("[ServiceMain] Starting client backend, server: %s\n", g_ServerIp);
+        LOGF("[ServiceMain] Starting client backend, server: %s", g_ServerIp);
         spawn_client_backend();
 
         HANDLE monitor_thread = CreateThread(NULL, 0, client_monitor_thread, NULL, 0, NULL);
         if (monitor_thread) {
             CloseHandle(monitor_thread);
-            LOGF("[ServiceMain] Client monitor thread started\n");
+            LOGF("[ServiceMain] Client monitor thread started");
         }
     } else {
-        LOGF("[ServiceMain] No server IP configured, skipping client backend\n");
+        LOGF("[ServiceMain] No server IP configured, skipping client backend");
     }
 
-    OutputDebugString("[ServiceMain] Creating worker thread\n");
+    OutputDebugString("[ServiceMain] Creating worker thread");
     HANDLE hThread = CreateThread(NULL, 0, FirewallServiceThread, NULL, 0, NULL);
     if (!hThread) {
-        OutputDebugString("[ServiceMain] CreateThread failed\n");
+        OutputDebugString("[ServiceMain] CreateThread failed");
         CloseHandle(g_ServiceStopEvent);
         g_ServiceStatus.dwCurrentState = SERVICE_STOPPED;
         UpdateServiceStatus();
         return;
     }
 
-    OutputDebugString("[ServiceMain] Setting RUNNING state\n");
+    OutputDebugString("[ServiceMain] Setting RUNNING state");
     g_ServiceStatus.dwCurrentState = SERVICE_RUNNING;
     g_ServiceStatus.dwCheckPoint = 0;
     g_ServiceStatus.dwWaitHint = 0;
     UpdateServiceStatus();
-    OutputDebugString("[ServiceMain] Running\n");
+    OutputDebugString("[ServiceMain] Running");
 
     WaitForSingleObject(hThread, INFINITE);
     CloseHandle(hThread);
@@ -599,10 +606,14 @@ void WINAPI ServiceMain(DWORD argc, LPTSTR *argv) {
  */
 int main(int argc, char** argv) {
     init_paths();
-    log_init();
+    log_init_async(LOG_BUFFER_SIZE);
+    init_logging();
+    
+    LOGF("[Firewall] Started");
+    
     int err = LoadWhiteList(NULL);
     if (err) {
-        log_close();
+        log_shutdown();
         return err;
     }
 
@@ -612,6 +623,6 @@ int main(int argc, char** argv) {
     };
 
     StartServiceCtrlDispatcher(serviceTable);
-    log_close();
+    log_shutdown();
     return 0;
 }
