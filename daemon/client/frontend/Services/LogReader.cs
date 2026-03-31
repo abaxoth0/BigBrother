@@ -11,14 +11,29 @@ public class LogReader
     private long _lastPosition;
     private bool _isRunning;
     private readonly byte[] _readBuffer = new byte[8192];
+    private LogSource _source = LogSource.Unknown;
 
     public event Action<string>? OnNewLine;
     public string CurrentFile => _currentFile;
     public bool IsRunning => _isRunning;
 
-    public void Start(string filePath)
+    public void Start(string filePath, LogSource source = LogSource.Unknown)
     {
         Stop();
+
+        _source = source;
+
+        // Auto-detect source from file path if not specified
+        if (source == LogSource.Unknown)
+        {
+            string fileName = Path.GetFileName(filePath).ToLower();
+            if (fileName.Contains("firewall"))
+                _source = LogSource.Firewall;
+            else if (fileName.Contains("client"))
+                _source = LogSource.Client;
+            else
+                _source = LogSource.Frontend;
+        }
 
         if (!File.Exists(filePath))
         {
@@ -78,6 +93,11 @@ public class LogReader
                 var entries = LogParser.ParseAll(_readBuffer.Take(bytesRead).ToArray());
                 foreach (var entry in entries)
                 {
+                    // Filter: for non-frontend logs, show only DEBUG, ERROR, BLOCKED
+                    if (_source != LogSource.Frontend && entry.Level == LogLevel.Info)
+                        continue;
+                    
+                    entry.Source = _source;
                     string formatted = FormatEntry(entry);
                     OnNewLine?.Invoke(formatted);
                 }
@@ -99,7 +119,15 @@ public class LogReader
             _ => "UNKNOWN"
         };
 
-        return $"[{entry.Timestamp:HH:mm:ss}] [{levelStr}] {entry.Message}";
+        string sourceStr = entry.Source switch
+        {
+            LogSource.Firewall => "FW",
+            LogSource.Client => "CL",
+            LogSource.Frontend => "FE",
+            _ => "??"
+        };
+
+        return $"[{entry.Timestamp:HH:mm:ss}] [{sourceStr}] [{levelStr}] {entry.Message}";
     }
 
     public void Stop()

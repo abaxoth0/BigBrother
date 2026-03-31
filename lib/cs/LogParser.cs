@@ -14,12 +14,21 @@ public enum LogLevel : byte
     Blocked = 3
 }
 
+public enum LogSource
+{
+    Unknown = 0,
+    Frontend = 1,
+    Firewall = 2,
+    Client = 3
+}
+
 public class LogEntry
 {
     public LogType Type { get; set; }
     public LogLevel Level { get; set; }
     public DateTime Timestamp { get; set; }
     public string Message { get; set; } = "";
+    public LogSource Source { get; set; } = LogSource.Unknown;
 }
 
 public static class LogParser

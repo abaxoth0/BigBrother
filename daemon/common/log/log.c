@@ -100,18 +100,17 @@ static DWORD WINAPI logger_thread_func(LPVOID param) {
             continue;
         }
 
-        // Read entry from ring buffer
+        // Read entry from ring buffer (4 byte header: type + payload_len)
         uint32_t tail = rb->tail;
-        uint16_t entry_size = *(uint16_t*)&rb->data[tail];
+        uint16_t payload_len = *(uint16_t*)&rb->data[tail + 2];
 
-        uint32_t next_tail = tail + 2 + entry_size;
+        uint32_t next_tail = tail + 4 + payload_len;
         if (next_tail >= rb->capacity) {
             next_tail = 0;  // Wrap around
         }
 
-        // Copy entry to batch buffer
-        // First copy size (2 bytes), then payload
-        memcpy(&ctx->batch_buffer[ctx->entry_count * 512], &rb->data[tail], 2 + entry_size);
+        // Copy entry to batch buffer (4 header + payload)
+        memcpy(&ctx->batch_buffer[ctx->entry_count * 512], &rb->data[tail], 4 + payload_len);
         ctx->entry_count++;
 
         // Update tail
@@ -194,10 +193,9 @@ void log_write_async(uint16_t type, uint8_t level, const char* msg) {
     uint64_t timestamp = (uint64_t)time(NULL);
     uint16_t msg_len = (uint16_t)strlen(msg) + 1;
     uint16_t payload_len = 8 + 1 + msg_len;  // timestamp + level + message
-    uint16_t entry_size = payload_len;
 
-    // Total size: 2 (size) + payload
-    uint16_t total_size = 2 + payload_len;
+    // Total size: 4 (type+len header) + payload
+    uint16_t total_size = 4 + payload_len;
 
     // Check available space (blocking)
     while (1) {
@@ -222,9 +220,10 @@ void log_write_async(uint16_t type, uint8_t level, const char* msg) {
     // Write entry to ring buffer
     uint32_t head = rb->head;
 
-    // Write size first
-    *(uint16_t*)&rb->data[head] = entry_size;
-    uint32_t offset = head + 2;
+    // Write TYPE and payload_len header
+    *(uint16_t*)&rb->data[head] = type;
+    *(uint16_t*)&rb->data[head + 2] = payload_len;
+    uint32_t offset = head + 4;
 
     // Write payload
     int i = 0;
@@ -238,8 +237,8 @@ void log_write_async(uint16_t type, uint8_t level, const char* msg) {
     memcpy(&rb->data[offset + i], msg, msg_len);
     i += msg_len;
 
-    // Update head
-    uint32_t new_head = head + 2 + payload_len;
+    // Update head (total = 4 header + payload)
+    uint32_t new_head = head + 4 + payload_len;
     if (new_head >= rb->capacity) {
         new_head = 0;  // Wrap around
     }
