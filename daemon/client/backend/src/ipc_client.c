@@ -124,11 +124,17 @@ static DWORD WINAPI client_handler(LPVOID param) {
         while (name > exe_path && *(name - 1) != '\\') name--;
         *name = '\0';
 
-        char log_path[512];
-        snprintf(log_path, sizeof(log_path), "%s\\client.log", exe_path);
+        char client_log[512];
+        snprintf(client_log, sizeof(client_log), "%s\\client.log", exe_path);
+        
+        char firewall_log[512];
+        snprintf(firewall_log, sizeof(firewall_log), "%s\\firewall.log", exe_path);
 
-        char response[600];
-        snprintf(response, sizeof(response), "LOG_PATH:%s\n", log_path);
+        // Debug: log to stderr
+        fprintf(stderr, "[IPC] GET_LOG_PATH: client=%s, firewall=%s\n", client_log, firewall_log);
+
+        char response[1200];
+        snprintf(response, sizeof(response), "LOG_PATH:%s|%s\n", client_log, firewall_log);
         write_response(pipe, response);
 
     } else {

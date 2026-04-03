@@ -89,10 +89,15 @@ public static class LogParser
         {
             var entry = ParseEntry(data, offset);
             if (entry == null)
+            {
+                System.Diagnostics.Debug.WriteLine($"[LogParser] ParseEntry returned null at offset {offset}, remaining bytes: {data.Length - offset}");
                 break;
+            }
 
             entries.Add(entry);
-            offset += HeaderSize + 4 + ((data[offset + 2] | (data[offset + 3] << 8)));
+            int len = (data[offset + 2] | (data[offset + 3] << 8));
+            System.Diagnostics.Debug.WriteLine($"[LogParser] Entry parsed: type={entry.Type}, level={entry.Level}, msg={entry.Message}, advancing offset by {HeaderSize + len}");
+            offset += HeaderSize + len;
         }
 
         return entries;

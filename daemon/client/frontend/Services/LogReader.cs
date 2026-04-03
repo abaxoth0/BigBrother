@@ -20,6 +20,8 @@ public class LogReader
     public void Start(string filePath, LogSource source = LogSource.Unknown)
     {
         Stop();
+        
+        System.Diagnostics.Debug.WriteLine($"[LogReader] Start called with: {filePath}");
 
         _source = source;
 
@@ -37,6 +39,7 @@ public class LogReader
 
         if (!File.Exists(filePath))
         {
+            System.Diagnostics.Debug.WriteLine($"[LogReader] File not found: {filePath}");
             OnNewLine?.Invoke($"Log file not found: {filePath}");
             return;
         }
@@ -46,6 +49,7 @@ public class LogReader
 
         try
         {
+            System.Diagnostics.Debug.WriteLine($"[LogReader] Opening file: {filePath}");
             _fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
 
             var directory = Path.GetDirectoryName(filePath);
@@ -62,10 +66,15 @@ public class LogReader
             }
 
             _isRunning = true;
+            System.Diagnostics.Debug.WriteLine($"[LogReader] Started reading: {filePath}");
             OnNewLine?.Invoke($"Started reading log: {filePath}");
+            
+            // Read existing content
+            ReadNewLines();
         }
         catch (Exception ex)
         {
+            System.Diagnostics.Debug.WriteLine($"[LogReader] Failed to open: {ex.Message}");
             OnNewLine?.Invoke($"Failed to open log file: {ex.Message}");
         }
     }
@@ -90,7 +99,11 @@ public class LogReader
             int bytesRead;
             while ((bytesRead = _fileStream.Read(_readBuffer, 0, _readBuffer.Length)) > 0)
             {
+                System.Diagnostics.Debug.WriteLine($"[LogReader] Read {bytesRead} bytes from {_currentFile}");
+                
                 var entries = LogParser.ParseAll(_readBuffer.Take(bytesRead).ToArray());
+                System.Diagnostics.Debug.WriteLine($"[LogReader] Parsed {entries.Count} entries");
+                
                 foreach (var entry in entries)
                 {
                     // Filter: for non-frontend logs, show only DEBUG, ERROR, BLOCKED
@@ -99,13 +112,17 @@ public class LogReader
                     
                     entry.Source = _source;
                     string formatted = FormatEntry(entry);
+                    System.Diagnostics.Debug.WriteLine($"[LogReader] Emit: {formatted}");
                     OnNewLine?.Invoke(formatted);
                 }
             }
 
             _lastPosition = _fileStream.Position;
         }
-        catch { }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[LogReader] Error: {ex.Message}");
+        }
     }
 
     private static string FormatEntry(LogEntry entry)

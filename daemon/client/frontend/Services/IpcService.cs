@@ -216,33 +216,51 @@ public class IpcService : IDisposable
         }
     }
 
-    public async Task<string> GetLogPathAsync()
+    public async Task<(string clientLog, string firewallLog)> GetLogPathAsync()
     {
-        if (!await ConnectAsync())
+        // Use longer timeout, retry once
+        for (int attempt = 0; attempt < 2; attempt++)
         {
-            return "";
-        }
-
-        try
-        {
-            var writer = new StreamWriter(_pipe!) { AutoFlush = true };
-            var reader = new StreamReader(_pipe!);
-
-            writer.WriteLine("GET_LOG_PATH");
-            var response = reader.ReadLine();
-
-            Disconnect();
-            
-            if (response != null && response.StartsWith("LOG_PATH:"))
+            if (await ConnectAsync(2000))
             {
-                return response.Substring(9);
+                try
+                {
+                    var writer = new StreamWriter(_pipe!) { AutoFlush = true };
+                    var reader = new StreamReader(_pipe!);
+
+                    writer.WriteLine("GET_LOG_PATH");
+                    var response = reader.ReadLine();
+                    
+                    System.Diagnostics.Debug.WriteLine($"[IpcService] GetLogPathAsync response: {response}");
+
+                    Disconnect();
+                    
+                    if (response != null && response.StartsWith("LOG_PATH:"))
+                    {
+                        var paths = response.Substring(9).Split('|');
+                        if (paths.Length >= 2)
+                        {
+                            return (paths[0], paths[1]);
+                        }
+                    }
+                    return ("", "");
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[IpcService] GetLogPathAsync error: {ex.Message}");
+                    Disconnect();
+                }
             }
-            return "";
+            else
+            {
+                System.Diagnostics.Debug.WriteLine($"[IpcService] GetLogPathAsync: Connect attempt {attempt + 1} failed");
+            }
+            
+            // Small delay before retry
+            if (attempt == 0) await Task.Delay(500);
         }
-        catch
-        {
-            return "";
-        }
+        
+        return ("", "");
     }
 
     public void Dispose()
