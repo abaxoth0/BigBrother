@@ -5,13 +5,14 @@ namespace frontend.Services;
 
 public class LogReader
 {
-    private FileStream? _fileStream;
-    private FileSystemWatcher? _watcher;
     private string _currentFile = "";
     private long _lastPosition;
     private bool _isRunning;
-    private readonly byte[] _readBuffer = new byte[8192];
     private LogSource _source = LogSource.Unknown;
+    
+    private CancellationTokenSource? _cts;
+    private Task? _readTask;
+    private readonly object _lock = new();
 
     public event Action<string>? OnNewLine;
     public string CurrentFile => _currentFile;
@@ -20,12 +21,9 @@ public class LogReader
     public void Start(string filePath, LogSource source = LogSource.Unknown)
     {
         Stop();
-        
-        System.Diagnostics.Debug.WriteLine($"[LogReader] Start called with: {filePath}");
 
         _source = source;
 
-        // Auto-detect source from file path if not specified
         if (source == LogSource.Unknown)
         {
             string fileName = Path.GetFileName(filePath).ToLower();
@@ -39,7 +37,6 @@ public class LogReader
 
         if (!File.Exists(filePath))
         {
-            System.Diagnostics.Debug.WriteLine($"[LogReader] File not found: {filePath}");
             OnNewLine?.Invoke($"Log file not found: {filePath}");
             return;
         }
@@ -49,117 +46,131 @@ public class LogReader
 
         try
         {
-            System.Diagnostics.Debug.WriteLine($"[LogReader] Opening file: {filePath}");
-            _fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-
-            var directory = Path.GetDirectoryName(filePath);
-            var fileName = Path.GetFileName(filePath);
-
-            if (directory != null)
-            {
-                _watcher = new FileSystemWatcher(directory, fileName)
-                {
-                    NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.Size
-                };
-                _watcher.Changed += OnFileChanged;
-                _watcher.EnableRaisingEvents = true;
-            }
-
             _isRunning = true;
-            System.Diagnostics.Debug.WriteLine($"[LogReader] Started reading: {filePath}");
-            OnNewLine?.Invoke($"Started reading log: {filePath}");
+            _cts = new CancellationTokenSource();
+            _readTask = Task.Run(async () => 
+            {
+                try
+                {
+                    await BackgroundReadLoop(_cts.Token);
+                }
+                catch { }
+            });
             
-            // Read existing content
-            ReadNewLines();
+            OnNewLine?.Invoke($"Started reading log: {filePath}");
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[LogReader] Failed to open: {ex.Message}");
             OnNewLine?.Invoke($"Failed to open log file: {ex.Message}");
         }
     }
 
-    private void OnFileChanged(object sender, FileSystemEventArgs e)
+    private async Task BackgroundReadLoop(CancellationToken ct)
     {
-        Task.Run(async () =>
+        byte[] buffer = new byte[8192];
+        
+        while (!ct.IsCancellationRequested && _isRunning)
         {
-            await Task.Delay(100);
-            ReadNewLines();
-        });
+            try
+            {
+                await Task.Delay(100, ct);
+                if (!_isRunning) break;
+                
+                ReadNewEntries(buffer);
+            }
+            catch (TaskCanceledException)
+            {
+                break;
+            }
+            catch { }
+        }
     }
 
-    private void ReadNewLines()
+    private void ReadNewEntries(byte[] buffer)
     {
-        if (_fileStream == null || !_isRunning) return;
+        if (!_isRunning) return;
 
         try
         {
-            _fileStream.Seek(_lastPosition, SeekOrigin.Begin);
-
-            int bytesRead;
-            while ((bytesRead = _fileStream.Read(_readBuffer, 0, _readBuffer.Length)) > 0)
+            lock (_lock)
             {
-                System.Diagnostics.Debug.WriteLine($"[LogReader] Read {bytesRead} bytes from {_currentFile}");
+                if (!File.Exists(_currentFile)) return;
                 
-                var entries = LogParser.ParseAll(_readBuffer.Take(bytesRead).ToArray());
-                System.Diagnostics.Debug.WriteLine($"[LogReader] Parsed {entries.Count} entries");
+                var fileInfo = new FileInfo(_currentFile);
+                if (fileInfo.Length <= _lastPosition) return;
                 
+                using var fs = new FileStream(_currentFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                fs.Seek(_lastPosition, SeekOrigin.Begin);
+                
+                int bytesRead = fs.Read(buffer, 0, buffer.Length);
+                if (bytesRead <= 0) return;
+                
+                var entries = LogParser.ParseAll(buffer.Take(bytesRead).ToArray());
+                
+                if (entries.Count == 0) 
+                {
+                    _lastPosition += bytesRead;
+                    return;
+                }
+                
+                var lines = new List<string>();
                 foreach (var entry in entries)
                 {
-                    // Filter: for non-frontend logs, show only DEBUG, ERROR, BLOCKED
                     if (_source != LogSource.Frontend && entry.Level == LogLevel.Info)
                         continue;
                     
                     entry.Source = _source;
-                    string formatted = FormatEntry(entry);
-                    System.Diagnostics.Debug.WriteLine($"[LogReader] Emit: {formatted}");
-                    OnNewLine?.Invoke(formatted);
+                    
+                    string levelStr = entry.Level switch
+                    {
+                        LogLevel.Info => "INFO",
+                        LogLevel.Error => "ERROR",
+                        LogLevel.Debug => "DEBUG",
+                        LogLevel.Blocked => "BLOCKED",
+                        _ => "UNK"
+                    };
+                    
+                    string sourceStr = entry.Source switch
+                    {
+                        LogSource.Firewall => "FW",
+                        LogSource.Client => "CL",
+                        LogSource.Frontend => "FE",
+                        _ => "??"
+                    };
+                    
+                    lines.Add($"[{entry.Timestamp:HH:mm:ss}] [{sourceStr}] [{levelStr}] {entry.Message}");
+                }
+                
+                if (lines.Count > 0)
+                {
+                    _lastPosition += bytesRead;
+                    
+                    var finalLines = lines;
+                    System.Windows.Application.Current?.Dispatcher.BeginInvoke(() =>
+                    {
+                        foreach (var line in finalLines)
+                        {
+                            OnNewLine?.Invoke(line);
+                        }
+                    });
+                }
+                else
+                {
+                    _lastPosition += bytesRead;
                 }
             }
-
-            _lastPosition = _fileStream.Position;
         }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"[LogReader] Error: {ex.Message}");
-        }
-    }
-
-    private static string FormatEntry(LogEntry entry)
-    {
-        string levelStr = entry.Level switch
-        {
-            LogLevel.Info => "INFO",
-            LogLevel.Error => "ERROR",
-            LogLevel.Debug => "DEBUG",
-            LogLevel.Blocked => "BLOCKED",
-            _ => "UNKNOWN"
-        };
-
-        string sourceStr = entry.Source switch
-        {
-            LogSource.Firewall => "FW",
-            LogSource.Client => "CL",
-            LogSource.Frontend => "FE",
-            _ => "??"
-        };
-
-        return $"[{entry.Timestamp:HH:mm:ss}] [{sourceStr}] [{levelStr}] {entry.Message}";
+        catch { }
     }
 
     public void Stop()
     {
         _isRunning = false;
-
-        if (_watcher != null)
-        {
-            _watcher.EnableRaisingEvents = false;
-            _watcher.Changed -= OnFileChanged;
-            _watcher.Dispose();
-            _watcher = null;
-        }
-
-        _fileStream?.Dispose();
-        _fileStream = null;
+        
+        _cts?.Cancel();
+        _cts?.Dispose();
+        _cts = null;
+        
+        _readTask = null;
     }
 }

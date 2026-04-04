@@ -197,28 +197,65 @@ public class MainViewModel : ViewModelBase
         LastUpdate = DateTime.Now;
     }
 
+    private bool _isUpdatingLogs = false;
+    private readonly List<string> _pendingLogs = new();
+    private const int LogBatchSize = 20;
+    
     public void AddLog(string level, string message)
     {
-        var entry = new LogEntry
+        // Message already contains full formatted string from LogReader
+        // Just add it directly to pending queue
+        _pendingLogs.Add(message);
+        
+        // Process in batches
+        if (_pendingLogs.Count >= LogBatchSize)
         {
-            Timestamp = DateTime.Now.ToString("HH:mm:ss"),
-            Level = level,
-            Message = $"[{level}] {message}"
-        };
-
-        System.Windows.Application.Current.Dispatcher.Invoke(() =>
+            FlushPendingLogs();
+        }
+    }
+    
+    public void FlushPendingLogs()
+    {
+        if (_pendingLogs.Count == 0) return;
+        
+        _isUpdatingLogs = true;
+        var toAdd = new List<string>(_pendingLogs);
+        _pendingLogs.Clear();
+        
+        System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
         {
-            Logs.Add(entry);
-            while (Logs.Count > MaxLogs)
+            foreach (var msg in toAdd)
             {
-                Logs.RemoveAt(0);
+                // Parse level from formatted string to determine color
+                string level = "INFO";
+                if (msg.Contains("[ERROR]")) level = "ERROR";
+                else if (msg.Contains("[WARNING]") || msg.Contains("[WARN]")) level = "WARNING";
+                else if (msg.Contains("[DNS]")) level = "DNS";
+                else if (msg.Contains("[BLOCKED]")) level = "BLOCKED";
+                
+                var entry = new LogEntry
+                {
+                    Timestamp = DateTime.Now.ToString("HH:mm:ss"),
+                    Level = level,
+                    Message = msg
+                };
+                
+                Logs.Add(entry);
+                while (Logs.Count > MaxLogs)
+                {
+                    Logs.RemoveAt(0);
+                }
             }
+            
+            // Only update filter once per batch
             UpdateFilteredLogs();
 
             if (AutoScroll)
             {
                 ScrollToBottomRequested?.Invoke();
             }
+            
+            _isUpdatingLogs = false;
         });
     }
 

@@ -44,7 +44,7 @@ public static class LogParser
         ushort type = (ushort)(data[offset] | (data[offset + 1] << 8));
         ushort len = (ushort)(data[offset + 2] | (data[offset + 3] << 8));
 
-        if (offset + HeaderSize + len > data.Length)
+        if (len < 9 || offset + HeaderSize + len > data.Length)
             return null;
 
         // Parse payload
@@ -55,6 +55,13 @@ public static class LogParser
         for (int i = 0; i < 8; i++)
         {
             timestamp |= (ulong)data[payloadOffset + i] << (i * 8);
+        }
+
+        // Validate timestamp (must be reasonable Unix time: 1990-2100)
+        if (timestamp < 631152000 || timestamp > 4102444800)
+        {
+            // Invalid timestamp, skip this entry
+            return null;
         }
 
         // Level: 1 byte
@@ -90,13 +97,14 @@ public static class LogParser
             var entry = ParseEntry(data, offset);
             if (entry == null)
             {
-                System.Diagnostics.Debug.WriteLine($"[LogParser] ParseEntry returned null at offset {offset}, remaining bytes: {data.Length - offset}");
-                break;
+                // Skip ahead by 1 byte and try again (in case of partial/corrupt data)
+                offset++;
+                continue;
             }
 
             entries.Add(entry);
             int len = (data[offset + 2] | (data[offset + 3] << 8));
-            System.Diagnostics.Debug.WriteLine($"[LogParser] Entry parsed: type={entry.Type}, level={entry.Level}, msg={entry.Message}, advancing offset by {HeaderSize + len}");
+            // System.Diagnostics.Debug.WriteLine($"[LogParser] Entry parsed: type={entry.Type}, level={entry.Level}, msg={entry.Message}, advancing offset by {HeaderSize + len}");
             offset += HeaderSize + len;
         }
 

@@ -27,6 +27,14 @@ public class IpcService : IDisposable
     {
         try
         {
+            // Ensure any previous pipe is fully disposed
+            if (_pipe != null)
+            {
+                try { _pipe.Dispose(); } catch { }
+                _pipe = null;
+                _isConnected = false;
+            }
+            
             _pipe = new NamedPipeClientStream(".", PipeName, PipeDirection.InOut);
             await _pipe.ConnectAsync(timeoutMs);
             _isConnected = true;
@@ -45,8 +53,12 @@ public class IpcService : IDisposable
     {
         try
         {
-            _pipe?.Close();
-            _pipe?.Dispose();
+            if (_pipe != null)
+            {
+                _pipe.Flush();
+                _pipe.Close();
+                _pipe.Dispose();
+            }
         }
         catch { }
         finally
@@ -221,10 +233,12 @@ public class IpcService : IDisposable
         // Use longer timeout, retry once
         for (int attempt = 0; attempt < 2; attempt++)
         {
-            if (await ConnectAsync(2000))
+            if (await ConnectAsync(3000))
             {
                 try
                 {
+                    await Task.Delay(100); // Give pipe time to be ready
+                    
                     var writer = new StreamWriter(_pipe!) { AutoFlush = true };
                     var reader = new StreamReader(_pipe!);
 
@@ -257,7 +271,7 @@ public class IpcService : IDisposable
             }
             
             // Small delay before retry
-            if (attempt == 0) await Task.Delay(500);
+            if (attempt == 0) await Task.Delay(1000);
         }
         
         return ("", "");

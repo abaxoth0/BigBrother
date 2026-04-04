@@ -28,6 +28,19 @@ namespace frontend
             };
             _refreshTimer.Tick += async (s, e) => await RefreshStatusAsync();
 
+            var logFlushTimer = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(500)
+            };
+            logFlushTimer.Tick += (s, e) =>
+            {
+                if (DataContext is MainViewModel vm)
+                {
+                    vm.FlushPendingLogs();
+                }
+            };
+            logFlushTimer.Start();
+
             if (DataContext is MainViewModel vm)
             {
                 vm.ScrollToBottomRequested += () =>
