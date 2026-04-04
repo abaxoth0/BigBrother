@@ -147,11 +147,10 @@ static void flush_batch(LoggerContext* ctx) {
         return;
     }
 
-    // Write all entries to file
+    // Write all entries to file (4 byte header: type + payload_len)
     for (int i = 0; i < ctx->entry_count; i++) {
-        uint16_t entry_size;
-        memcpy(&entry_size, &ctx->batch_buffer[i * 512], 2);
-        fwrite(&ctx->batch_buffer[i * 512], 1, 2 + entry_size, ctx->batch_file);
+        uint16_t payload_len = *(uint16_t*)&ctx->batch_buffer[i * 512 + 2];
+        fwrite(&ctx->batch_buffer[i * 512], 1, 4 + payload_len, ctx->batch_file);
     }
     fflush(ctx->batch_file);
     ctx->entry_count = 0;
