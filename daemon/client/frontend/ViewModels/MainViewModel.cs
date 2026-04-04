@@ -198,7 +198,7 @@ public class MainViewModel : ViewModelBase
     }
 
     private readonly List<string> _pendingLogs = new();
-    private const int LogBatchSize = 20;
+    private const int LogBatchSize = 10; // Smaller batches for more responsive UI
     
     public void AddLog(string level, string message)
     {
@@ -219,6 +219,17 @@ public class MainViewModel : ViewModelBase
         
         System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
         {
+            int logsToRemove = Logs.Count + toAdd.Count - MaxLogs;
+            
+            if (logsToRemove > 0)
+            {
+                int removeCount = Math.Min(logsToRemove, Logs.Count);
+                for (int i = 0; i < removeCount; i++)
+                {
+                    Logs.RemoveAt(0);
+                }
+            }
+            
             foreach (var msg in toAdd)
             {
                 string level = "INFO";
@@ -235,13 +246,20 @@ public class MainViewModel : ViewModelBase
                 };
                 
                 Logs.Add(entry);
-                while (Logs.Count > MaxLogs)
-                {
-                    Logs.RemoveAt(0);
-                }
             }
             
-            UpdateFilteredLogs();
+            if (!string.IsNullOrEmpty(LogSearchText))
+            {
+                UpdateFilteredLogs();
+            }
+            else
+            {
+                FilteredLogs.Clear();
+                foreach (var log in Logs)
+                {
+                    FilteredLogs.Add(log);
+                }
+            }
 
             if (AutoScroll)
             {
@@ -249,16 +267,35 @@ public class MainViewModel : ViewModelBase
             }
         });
     }
+    
+    // Clear pending logs if they get too large (prevents memory buildup)
+    public void TrimPendingLogs()
+    {
+        if (_pendingLogs.Count > MaxLogs * 2)
+        {
+            var keepCount = _pendingLogs.Count - MaxLogs;
+            _pendingLogs.RemoveRange(0, keepCount);
+        }
+    }
 
     private void UpdateFilteredLogs()
     {
         FilteredLogs.Clear();
-        var searchLower = LogSearchText?.ToLower() ?? "";
-
+        
+        // Only filter if there's search text - otherwise show all
+        if (string.IsNullOrEmpty(LogSearchText))
+        {
+            foreach (var log in Logs)
+            {
+                FilteredLogs.Add(log);
+            }
+            return;
+        }
+        
+        var searchLower = LogSearchText.ToLower();
         foreach (var log in Logs)
         {
-            if (string.IsNullOrEmpty(searchLower) ||
-                log.Message.ToLower().Contains(searchLower) ||
+            if (log.Message.ToLower().Contains(searchLower) ||
                 log.Level.ToLower().Contains(searchLower))
             {
                 FilteredLogs.Add(log);

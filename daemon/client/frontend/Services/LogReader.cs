@@ -9,16 +9,19 @@ public class LogReader
     private long _lastPosition;
     private bool _isRunning;
     private LogSource _source = LogSource.Unknown;
+    private bool _initialLoadDone;
     
     private CancellationTokenSource? _cts;
     private Task? _readTask;
     private readonly object _lock = new();
+    
+    private const int InitialReadKB = 512; // Read last 512KB on startup
 
     public event Action<string>? OnNewLine;
     public string CurrentFile => _currentFile;
     public bool IsRunning => _isRunning;
 
-    public void Start(string filePath, LogSource source = LogSource.Unknown)
+    public void Start(string filePath, LogSource source = LogSource.Unknown, bool loadFullHistory = false)
     {
         Stop();
 
@@ -43,6 +46,7 @@ public class LogReader
 
         _currentFile = filePath;
         _lastPosition = 0;
+        _initialLoadDone = false;
 
         try
         {
@@ -67,7 +71,7 @@ public class LogReader
 
     private async Task BackgroundReadLoop(CancellationToken ct)
     {
-        byte[] buffer = new byte[8192];
+        byte[] buffer = new byte[65536]; // 64KB buffer for fewer reads
         
         while (!ct.IsCancellationRequested && _isRunning)
         {
@@ -97,6 +101,14 @@ public class LogReader
                 if (!File.Exists(_currentFile)) return;
                 
                 var fileInfo = new FileInfo(_currentFile);
+                
+                // On first read, skip to near end to avoid loading old logs
+                if (!_initialLoadDone && fileInfo.Length > InitialReadKB * 1024)
+                {
+                    _lastPosition = fileInfo.Length - (InitialReadKB * 1024);
+                    _initialLoadDone = true;
+                }
+                
                 if (fileInfo.Length <= _lastPosition) return;
                 
                 using var fs = new FileStream(_currentFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
