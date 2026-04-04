@@ -197,17 +197,13 @@ public class MainViewModel : ViewModelBase
         LastUpdate = DateTime.Now;
     }
 
-    private bool _isUpdatingLogs = false;
     private readonly List<string> _pendingLogs = new();
     private const int LogBatchSize = 20;
     
     public void AddLog(string level, string message)
     {
-        // Message already contains full formatted string from LogReader
-        // Just add it directly to pending queue
         _pendingLogs.Add(message);
         
-        // Process in batches
         if (_pendingLogs.Count >= LogBatchSize)
         {
             FlushPendingLogs();
@@ -218,7 +214,6 @@ public class MainViewModel : ViewModelBase
     {
         if (_pendingLogs.Count == 0) return;
         
-        _isUpdatingLogs = true;
         var toAdd = new List<string>(_pendingLogs);
         _pendingLogs.Clear();
         
@@ -226,7 +221,6 @@ public class MainViewModel : ViewModelBase
         {
             foreach (var msg in toAdd)
             {
-                // Parse level from formatted string to determine color
                 string level = "INFO";
                 if (msg.Contains("[ERROR]")) level = "ERROR";
                 else if (msg.Contains("[WARNING]") || msg.Contains("[WARN]")) level = "WARNING";
@@ -247,15 +241,12 @@ public class MainViewModel : ViewModelBase
                 }
             }
             
-            // Only update filter once per batch
             UpdateFilteredLogs();
 
             if (AutoScroll)
             {
                 ScrollToBottomRequested?.Invoke();
             }
-            
-            _isUpdatingLogs = false;
         });
     }
 

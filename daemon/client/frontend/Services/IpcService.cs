@@ -100,7 +100,6 @@ public class IpcService : IDisposable
 
         if (!await ConnectAsync())
         {
-            System.Diagnostics.Debug.WriteLine("[IpcService] Connect failed");
             return status;
         }
 
@@ -112,11 +111,9 @@ public class IpcService : IDisposable
             writer.WriteLine("GET_STATUS");
 
             var firstLine = reader.ReadLine();
-            System.Diagnostics.Debug.WriteLine($"[IpcService] GET_STATUS response: {firstLine}");
             if (firstLine != null && firstLine.StartsWith("STATUS:"))
             {
                 var parts = firstLine.Split(':');
-                System.Diagnostics.Debug.WriteLine($"[IpcService] Parts count: {parts.Length}");
                 if (parts.Length >= 5)
                 {
                     status.ClientName = parts[1];
@@ -139,9 +136,7 @@ public class IpcService : IDisposable
 
             Disconnect();
         }
-        catch (Exception ex) { 
-            System.Diagnostics.Debug.WriteLine($"[IpcService] Exception: {ex.Message}");
-        }
+        catch { }
 
         return status;
     }
@@ -245,8 +240,6 @@ public class IpcService : IDisposable
                     writer.WriteLine("GET_LOG_PATH");
                     var response = reader.ReadLine();
                     
-                    System.Diagnostics.Debug.WriteLine($"[IpcService] GetLogPathAsync response: {response}");
-
                     Disconnect();
                     
                     if (response != null && response.StartsWith("LOG_PATH:"))
@@ -259,18 +252,12 @@ public class IpcService : IDisposable
                     }
                     return ("", "");
                 }
-                catch (Exception ex)
+                catch
                 {
-                    System.Diagnostics.Debug.WriteLine($"[IpcService] GetLogPathAsync error: {ex.Message}");
                     Disconnect();
                 }
             }
-            else
-            {
-                System.Diagnostics.Debug.WriteLine($"[IpcService] GetLogPathAsync: Connect attempt {attempt + 1} failed");
-            }
             
-            // Small delay before retry
             if (attempt == 0) await Task.Delay(1000);
         }
         
