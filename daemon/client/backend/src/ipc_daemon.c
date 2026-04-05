@@ -26,7 +26,7 @@ static int send_command(const char* command, const char* data, size_t data_size,
         return -1;
     }
 
-    DLOGF("[IPC_Daemon] send_command: %s\n", command);
+    DLOGF("[IPC_Daemon] send_command: %s", command);
 
     HANDLE pipe = CreateFile(
         DAEMON_PIPE_PREFIX,
@@ -40,7 +40,7 @@ static int send_command(const char* command, const char* data, size_t data_size,
 
     if (pipe == INVALID_HANDLE_VALUE) {
         DWORD err = GetLastError();
-        LOGF("[IPC_Daemon] CreateFile failed: %lu\n", err);
+        LOGF("[IPC_Daemon] CreateFile failed: %lu", err);
         return -1;
     }
 
@@ -142,7 +142,7 @@ static int connect_to_server(const char* server_ip, char* out_buffer, size_t buf
 int PingDaemon(void) {
     char buffer[256];
     int result = send_command("PING", NULL, 0, buffer, sizeof(buffer));
-    DLOGF("[IPC_Daemon] PingDaemon result: %d, response: %s\n", result, buffer);
+    DLOGF("[IPC_Daemon] PingDaemon result: %d, response: %s", result, buffer);
     return result;
 }
 
@@ -153,7 +153,7 @@ int DaemonRun(const char* server_ip, int poll_interval_secs) {
 
     while (1) {
         if (PingDaemon() != 0) {
-            LOGF("[Daemon] Local daemon not responding, exiting (pid: %lu)\n", GetCurrentProcessId());
+            LOGF("[Daemon] Local daemon not responding, exiting (pid: %lu)", GetCurrentProcessId());
             break;
         }
 
@@ -169,12 +169,12 @@ int DaemonRun(const char* server_ip, int poll_interval_secs) {
             last_whitelist[copy_len] = '\0';
 
             if (DaemonSetWhitelist(whitelist_buf, strlen(whitelist_buf), whitelist_buf, sizeof(whitelist_buf)) != 0) {
-                LOGF("[Daemon] Failed to set whitelist on daemon\n");
+                LOGF("[Daemon] Failed to set whitelist on daemon");
             } else {
-                LOGF("[Daemon] Whitelist updated\n");
+                LOGF("[Daemon] Whitelist updated");
             }
         } else {
-            LOGF("[Daemon] Cannot connect to server %s, retrying...\n", server_ip);
+            LOGF("[Daemon] Cannot connect to server %s, retrying...", server_ip);
             connected = 0;
         }
     wait:

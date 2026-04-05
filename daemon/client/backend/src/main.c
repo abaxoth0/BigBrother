@@ -58,8 +58,8 @@ int main(int argc, char** argv) {
 
         SetServerIp(server_ip);
 
-        LOGF("[Main] Starting daemon mode, server: %s, poll interval: %ds\n", server_ip, poll_interval);
-        LOGF("[Main] Starting client server...\n");
+        LOGF("[Main] Starting daemon mode, server: %s, poll interval: %ds", server_ip, poll_interval);
+        LOGF("[Main] Starting client server...");
         StartClientServer();
 
         return DaemonRun(server_ip, poll_interval);
