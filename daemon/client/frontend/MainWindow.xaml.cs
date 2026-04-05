@@ -17,6 +17,8 @@ namespace frontend
         private readonly LogReader _clientLogReader = new();
         private readonly LogReader _firewallLogReader = new();
         private int _lastClientPid = 0;
+        private string _lastClientLogPath = "";
+        private string _lastFirewallLogPath = "";
 
         public MainWindow()
         {
@@ -137,33 +139,50 @@ namespace frontend
         
         private async Task StartLogReadersAsync()
         {
+            string clientLog = "";
+            string firewallLog = "";
+            
             try
             {
-                var (clientLog, firewallLog) = await _ipcService.GetLogPathAsync();
-                
-                if (!string.IsNullOrEmpty(clientLog) && File.Exists(clientLog))
-                {
-                    _clientLogReader.Stop();
-                    _clientLogReader.OnNewLine += OnLogLineReceived;
-                    _clientLogReader.Start(clientLog, LogSource.Client);
-                }
-                
-                if (!string.IsNullOrEmpty(firewallLog) && File.Exists(firewallLog))
-                {
-                    _firewallLogReader.Stop();
-                    _firewallLogReader.OnNewLine += OnLogLineReceived;
-                    _firewallLogReader.Start(firewallLog, LogSource.Firewall);
-                }
-                
-                if (DataContext is MainViewModel vm)
-                {
-                    if (!string.IsNullOrEmpty(clientLog) || !string.IsNullOrEmpty(firewallLog))
-                    {
-                        vm.AddLog("INFO", $"Чтение логов: client={clientLog}, firewall={firewallLog}");
-                    }
-                }
+                var paths = await _ipcService.GetLogPathAsync();
+                clientLog = paths.clientLog;
+                firewallLog = paths.firewallLog;
             }
             catch { }
+            
+            // If IPC failed, try to use previous paths
+            if (string.IsNullOrEmpty(clientLog))
+                clientLog = _lastClientLogPath;
+            if (string.IsNullOrEmpty(firewallLog))
+                firewallLog = _lastFirewallLogPath;
+            
+            // Save for next time
+            if (!string.IsNullOrEmpty(clientLog))
+                _lastClientLogPath = clientLog;
+            if (!string.IsNullOrEmpty(firewallLog))
+                _lastFirewallLogPath = firewallLog;
+            
+            if (!string.IsNullOrEmpty(clientLog) && File.Exists(clientLog))
+            {
+                _clientLogReader.Stop();
+                _clientLogReader.OnNewLine += OnLogLineReceived;
+                _clientLogReader.Start(clientLog, LogSource.Client);
+            }
+            
+            if (!string.IsNullOrEmpty(firewallLog) && File.Exists(firewallLog))
+            {
+                _firewallLogReader.Stop();
+                _firewallLogReader.OnNewLine += OnLogLineReceived;
+                _firewallLogReader.Start(firewallLog, LogSource.Firewall);
+            }
+            
+            if (DataContext is MainViewModel vm)
+            {
+                if (!string.IsNullOrEmpty(clientLog) || !string.IsNullOrEmpty(firewallLog))
+                {
+                    vm.AddLog("INFO", $"Чтение логов: client={clientLog}, firewall={firewallLog}");
+                }
+            }
         }
 
         private async void StartDaemon_Click(object sender, RoutedEventArgs e)
@@ -232,6 +251,42 @@ namespace frontend
                 await Task.Delay(2000);
                 await RefreshStatusAsync();
             }
+        }
+
+        private async void OpenHistory_Click(object sender, RoutedEventArgs e)
+        {
+            string clientLog = _lastClientLogPath;
+            string firewallLog = _lastFirewallLogPath;
+            
+            // Only try IPC if we have a valid client PID (connected)
+            if (_lastClientPid != 0)
+            {
+                try
+                {
+                    var paths = await _ipcService.GetLogPathAsync();
+                    if (!string.IsNullOrEmpty(paths.clientLog))
+                        clientLog = paths.clientLog;
+                    if (!string.IsNullOrEmpty(paths.firewallLog))
+                        firewallLog = paths.firewallLog;
+                }
+                catch { }
+            }
+            
+            // Save for next time
+            if (!string.IsNullOrEmpty(clientLog))
+                _lastClientLogPath = clientLog;
+            if (!string.IsNullOrEmpty(firewallLog))
+                _lastFirewallLogPath = firewallLog;
+            
+            if (string.IsNullOrEmpty(clientLog) && string.IsNullOrEmpty(firewallLog))
+            {
+                System.Windows.MessageBox.Show("Нет доступных логов", "Ошибка", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            
+            var historyWindow = new LogHistoryWindow(firewallLog, clientLog);
+            historyWindow.Owner = this;
+            historyWindow.Show();
         }
     }
 }

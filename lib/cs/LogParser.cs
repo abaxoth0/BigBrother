@@ -75,6 +75,8 @@ public static class LogParser
         {
             if (data[msgOffset + i] == 0)
                 break;
+            if (data[msgOffset + i] == '\r' || data[msgOffset + i] == '\n')
+                continue;
             message += (char)data[msgOffset + i];
         }
 
