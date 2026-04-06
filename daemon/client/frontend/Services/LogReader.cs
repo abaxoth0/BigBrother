@@ -102,6 +102,13 @@ public class LogReader
                 
                 var fileInfo = new FileInfo(_currentFile);
                 
+                // Detect rotation: file shrunk or disappeared+reappeared
+                if (fileInfo.Length < _lastPosition)
+                {
+                    _lastPosition = 0;
+                    _initialLoadDone = false;
+                }
+                
                 // On first read, skip to near end to avoid loading old logs
                 if (!_initialLoadDone && fileInfo.Length > InitialReadKB * 1024)
                 {

@@ -63,20 +63,26 @@ static void init_paths(void) {
 }
 
 static void init_logging(void) {
-    char log_path[512];
-    snprintf(log_path, sizeof(log_path), "%s\\firewall.log", g_ClientExePath);
+    char logs_dir[LOG_PATH_MAX];
+    snprintf(logs_dir, sizeof(logs_dir), "%s\\logs", g_ClientExePath);
+    CreateDirectory(logs_dir, NULL);
+
+    char log_path[LOG_PATH_MAX];
+    snprintf(log_path, sizeof(log_path), "%s\\firewall.binlog", logs_dir);
     
     // Set log path in global context
     extern LoggerContext* g_logger;
     if (g_logger) {
         snprintf(g_logger->log_path, sizeof(g_logger->log_path), "%s", log_path);
+        g_logger->max_file_size = 10 * 1024;  // 10KB for testing
+        g_logger->max_files = LOG_MAX_FILES;
     }
     
     FILE* f = fopen(log_path, "a");
     if (!f) {
-        char temp_path[MAX_PATH];
+        char temp_path[LOG_PATH_MAX];
         GetTempPath(sizeof(temp_path), temp_path);
-        snprintf(log_path, sizeof(log_path), "%sBigBrother_firewall.log", temp_path);
+        snprintf(log_path, sizeof(log_path), "%sBigBrother_firewall.binlog", temp_path);
         if (g_logger) {
             snprintf(g_logger->log_path, sizeof(g_logger->log_path), "%s", log_path);
         }

@@ -24,8 +24,12 @@ static char logf_buf[LOGF_BUF_SIZE] __attribute__((unused));
 
 #define LOGF_HEADER_SIZE 4
 
+#define LOG_PATH_MAX 4096
+
 #define LOG_BUFFER_SIZE (10 * 1024 * 1024)  // 10MB default
 #define LOG_BATCH_SIZE 32
+#define LOG_MAX_FILE_SIZE (10 * 1024 * 1024)  // 10MB default max log file size
+#define LOG_MAX_FILES 10  // Keep last 10 rotated files + 1 current
 
 #define RING_BUFFER_SIZE (LOG_BUFFER_SIZE + 4096)  // buffer + header space
 
@@ -41,11 +45,14 @@ typedef struct {
     HANDLE logger_thread;
     HANDLE write_semaphore;
     volatile int running;
-    char log_path[512];
+    char log_path[LOG_PATH_MAX];
     FILE* batch_file;
     int entry_count;
     uint32_t last_flush_time;
     uint8_t batch_buffer[LOG_BATCH_SIZE * 512];  // 512 bytes per entry max
+    uint32_t max_file_size;  // Max size before rotation (bytes)
+    uint32_t max_files;      // Number of rotated files to keep
+    uint32_t current_file_size;  // Track current file size
 } LoggerContext;
 
 extern LoggerContext* g_logger;
@@ -66,24 +73,24 @@ void log_write_async(uint16_t type, uint8_t level, const char* msg);
 void log_write_sync(uint16_t type, uint8_t level, const char* msg);
 
 #define LOGF(...) do { \
-    sprintf(logf_buf, __VA_ARGS__);  \
+    snprintf(logf_buf, LOGF_BUF_SIZE, __VA_ARGS__);  \
     log_write_async(LOG_TYPE_LOG, LOG_LEVEL_INFO, logf_buf); \
 } while(0)
 
 #define LOGE(...) do { \
-    sprintf(logf_buf, __VA_ARGS__);  \
+    snprintf(logf_buf, LOGF_BUF_SIZE, __VA_ARGS__);  \
     log_write_async(LOG_TYPE_LOG, LOG_LEVEL_ERROR, logf_buf); \
 } while(0)
 
 #define LOGB(...) do { \
-    sprintf(logf_buf, __VA_ARGS__);  \
+    snprintf(logf_buf, LOGF_BUF_SIZE, __VA_ARGS__);  \
     log_write_async(LOG_TYPE_LOG, LOG_LEVEL_BLOCKED, logf_buf); \
 } while(0)
 
 #ifdef DEBUG
 
 #define DLOGF(...) do { \
-    sprintf(logf_buf, __VA_ARGS__);  \
+    snprintf(logf_buf, LOGF_BUF_SIZE, __VA_ARGS__);  \
     log_write_async(LOG_TYPE_DLOG, LOG_LEVEL_DEBUG, logf_buf); \
     OutputDebugString(logf_buf); \
 } while(0)

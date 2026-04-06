@@ -1,7 +1,7 @@
 CC = x86_64-w64-mingw32-gcc
 
 ROOT = $(CURDIR)/../..
-COMMON_FLAGS = -Wall -mconsole \
+COMMON_FLAGS = -Wall -Wno-format-truncation -mconsole \
 	-I$(CURDIR)/include \
 	-I$(ROOT)/common
 

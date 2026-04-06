@@ -5,10 +5,10 @@
 
 #include "../include/ipc_client.h"
 #include "../include/ipc_daemon.h"
-#include "../../../common/log/log.h"
 #include <winsock2.h>
-#include <windows.h>
 #include <ws2tcpip.h>
+#include "../../../common/log/log.h"
+#include <windows.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -125,10 +125,10 @@ static DWORD WINAPI client_handler(LPVOID param) {
         *name = '\0';
 
         char client_log[512];
-        snprintf(client_log, sizeof(client_log), "%s\\client.log", exe_path);
+        snprintf(client_log, sizeof(client_log), "%s\\logs\\client.binlog", exe_path);
         
         char firewall_log[512];
-        snprintf(firewall_log, sizeof(firewall_log), "%s\\firewall.log", exe_path);
+        snprintf(firewall_log, sizeof(firewall_log), "%s\\logs\\firewall.binlog", exe_path);
 
         // Debug: log to stderr
         fprintf(stderr, "[IPC] GET_LOG_PATH: client=%s, firewall=%s\n", client_log, firewall_log);

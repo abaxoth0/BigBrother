@@ -13,14 +13,18 @@ void log_init(void) {
     while (name > exe_path && *(name - 1) != '\\') name--;
     *name = '\0';
 
-    char log_path[512];
-    snprintf(log_path, sizeof(log_path), "%s\\client.log", exe_path);
+    char logs_dir[LOG_PATH_MAX];
+    snprintf(logs_dir, sizeof(logs_dir), "%s\\logs", exe_path);
+    CreateDirectory(logs_dir, NULL);
+
+    char log_path[LOG_PATH_MAX];
+    snprintf(log_path, sizeof(log_path), "%s\\client.binlog", logs_dir);
     
     // Determine actual path (in case first one fails)
     if (fopen(log_path, "a") == NULL) {
-        char temp_path[MAX_PATH];
+        char temp_path[LOG_PATH_MAX];
         GetTempPath(sizeof(temp_path), temp_path);
-        snprintf(log_path, sizeof(log_path), "%sBigBrother_client.log", temp_path);
+        snprintf(log_path, sizeof(log_path), "%sBigBrother_client.binlog", temp_path);
     }
     
     // Initialize async logger with path set FIRST
@@ -30,6 +34,8 @@ void log_init(void) {
     extern LoggerContext* g_logger;
     if (g_logger) {
         snprintf(g_logger->log_path, sizeof(g_logger->log_path), "%s", log_path);
+        g_logger->max_file_size = 2 * 1024;  // 2KB for testing
+        g_logger->max_files = LOG_MAX_FILES;
     }
     
     // Also keep LogFile for any direct writes
