@@ -143,6 +143,24 @@ public class MainViewModel : ViewModelBase
         }
     }
 
+    private int _whitelistFormatIndex = 0;
+    public int WhitelistFormatIndex
+    {
+        get => _whitelistFormatIndex;
+        set
+        {
+            if (SetProperty(ref _whitelistFormatIndex, value))
+                ShowPrettyWhitelist = value == 0;
+        }
+    }
+
+    private string _rawWhitelistText = "";
+    public string RawWhitelistText
+    {
+        get => _rawWhitelistText;
+        private set => SetProperty(ref _rawWhitelistText, value);
+    }
+
     private string _whitelistSearchText = "";
     public string WhitelistSearchText
     {
@@ -320,6 +338,15 @@ public class MainViewModel : ViewModelBase
             }
         }
         WhitelistCount = FilteredWhitelist.Count;
+
+        UpdateRawWhitelistText();
+    }
+
+    private void UpdateRawWhitelistText()
+    {
+        var lines = WhitelistEntries
+            .Select(e => e.Raw);
+        RawWhitelistText = string.Join(Environment.NewLine, lines);
     }
 
     public void ClearLogs()

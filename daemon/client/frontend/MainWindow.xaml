@@ -19,6 +19,8 @@
 
     <Window.Resources>
         <conv:ConnectionStatusToColorConverter x:Key="ConnectionStatusToColor"/>
+        <conv:BoolToVisibilityConverter x:Key="BoolToVisibility"/>
+        <conv:InverseBoolToVisibilityConverter x:Key="InverseBoolToVisibility"/>
 
         <!-- Colors -->
         <SolidColorBrush x:Key="BorderBrush" Color="#CCCCCC"/>
@@ -266,7 +268,7 @@
 
                         <StackPanel Grid.Column="3" Orientation="Horizontal" Margin="5" VerticalAlignment="Center">
                             <TextBlock Text="Формат:" VerticalAlignment="Center" Margin="0,0,5,0"/>
-                            <ComboBox Width="150" SelectedIndex="1">
+                            <ComboBox Width="150" SelectedIndex="{Binding WhitelistFormatIndex}">
                                 <ComboBoxItem Content="Красивый"/>
                                 <ComboBoxItem Content="Исходный"/>
                             </ComboBox>
@@ -276,27 +278,40 @@
                                 Style="{StaticResource ControlButton}" Margin="5"/>
                     </Grid>
 
-                    <ListBox Grid.Row="1" ItemsSource="{Binding FilteredWhitelist}"
-                             BorderBrush="{StaticResource BorderBrush}"
-                             FontFamily="Segoe UI" FontSize="13"
-                             ScrollViewer.HorizontalScrollBarVisibility="Disabled">
-                        <ListBox.ItemContainerStyle>
-                            <Style TargetType="ListBoxItem">
-                                <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-                                <Setter Property="Padding" Value="0"/>
-                            </Style>
-                        </ListBox.ItemContainerStyle>
-                        <ListBox.ItemTemplate>
-                            <DataTemplate>
-                                <StackPanel Orientation="Horizontal" Margin="5,8">
-                                    <Ellipse Width="8" Height="8"
-                                             Fill="{StaticResource StatusRunning}"
-                                             VerticalAlignment="Center" Margin="0,0,15,0"/>
-                                    <TextBlock Text="{Binding}" TextWrapping="Wrap"/>
-                                </StackPanel>
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
-                    </ListBox>
+                    <Grid Grid.Row="1">
+                        <ListBox ItemsSource="{Binding FilteredWhitelist}"
+                                 BorderBrush="{StaticResource BorderBrush}"
+                                 FontFamily="Segoe UI" FontSize="13"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                 Visibility="{Binding ShowPrettyWhitelist, Converter={StaticResource BoolToVisibility}}">
+                            <ListBox.ItemContainerStyle>
+                                <Style TargetType="ListBoxItem">
+                                    <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                    <Setter Property="Padding" Value="0"/>
+                                </Style>
+                            </ListBox.ItemContainerStyle>
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <StackPanel Orientation="Horizontal" Margin="5,8">
+                                        <Ellipse Width="8" Height="8"
+                                                 Fill="{StaticResource StatusRunning}"
+                                                 VerticalAlignment="Center" Margin="0,0,15,0"/>
+                                        <TextBlock Text="{Binding}" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+
+                        <TextBox Text="{Binding RawWhitelistText, Mode=OneWay}"
+                                 IsReadOnly="True"
+                                 TextWrapping="Wrap"
+                                 VerticalScrollBarVisibility="Auto"
+                                 FontFamily="Consolas" FontSize="14"
+                                 Background="{StaticResource LogBackground}"
+                                 Foreground="{StaticResource LogInfo}"
+                                 Padding="10"
+                                 Visibility="{Binding ShowPrettyWhitelist, Converter={StaticResource InverseBoolToVisibility}}"/>
+                    </Grid>
                 </Grid>
             </TabItem>
 
