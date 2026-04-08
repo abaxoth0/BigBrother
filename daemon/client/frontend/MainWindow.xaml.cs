@@ -284,9 +284,62 @@ namespace frontend
                 return;
             }
             
-            var historyWindow = new LogHistoryWindow(firewallLog, clientLog);
-            historyWindow.Owner = this;
+            var sources = new List<LogFileSource>();
+            
+            if (!string.IsNullOrEmpty(firewallLog))
+            {
+                sources.Add(new LogFileSource
+                {
+                    Label = "Firewall",
+                    FilePath = firewallLog,
+                    Source = LogSource.Firewall
+                });
+            }
+            
+            if (!string.IsNullOrEmpty(clientLog))
+            {
+                sources.Add(new LogFileSource
+                {
+                    Label = "Client",
+                    FilePath = clientLog,
+                    Source = LogSource.Client
+                });
+            }
+            
+            var historyWindow = new LogViewWindow(sources) { Owner = this };
             historyWindow.Show();
+        }
+
+        private void OpenArchivedLog_Click(object sender, RoutedEventArgs e)
+        {
+            var dialog = new Microsoft.Win32.OpenFileDialog
+            {
+                Filter = "Binary log files (*.binlog)|*.binlog|All files (*.*)|*.*",
+                Multiselect = true,
+                Title = "Выберите файлы логов"
+            };
+
+            if (dialog.ShowDialog() != true || dialog.FileNames.Length == 0)
+                return;
+
+            var sources = new List<LogFileSource>();
+            foreach (var path in dialog.FileNames)
+            {
+                var fileName = System.IO.Path.GetFileNameWithoutExtension(path);
+                var label = fileName.Contains("firewall") ? "Firewall"
+                    : fileName.Contains("client") ? "Client"
+                    : fileName;
+
+                sources.Add(new LogFileSource
+                {
+                    Label = label,
+                    FilePath = path,
+                    Source = LogSource.Unknown
+                });
+            }
+
+            var viewWindow = new LogViewWindow(sources) { Owner = this };
+            viewWindow.Show();
         }
     }
 }

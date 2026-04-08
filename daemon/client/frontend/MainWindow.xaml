@@ -96,6 +96,8 @@
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
 
                             <TextBlock Grid.Column="0" Text="ЛОГИ" FontWeight="Bold"
@@ -112,12 +114,14 @@
                                      Text="{Binding LogSearchText, UpdateSourceTrigger=PropertyChanged}"
                                      VerticalContentAlignment="Center"/>
 
-                            <Button Grid.Column="5" Content="Экспорт" Style="{StaticResource ControlButton}"
-                                    Command="{Binding ExportLogsCommand}" Margin="2" x:Name="ExportButton"/>
-                            <Button Grid.Column="6" Content="История" Style="{StaticResource ControlButton}"
-                                    Click="OpenHistory_Click" Margin="2" x:Name="HistoryButton"/>
-                            <Button Grid.Column="7" Content="Очистить" Style="{StaticResource ControlButton}"
-                                    Command="{Binding ClearLogsCommand}" Margin="2" x:Name="ClearButton"/>
+                             <Button Grid.Column="5" Content="Открыть" Style="{StaticResource ControlButton}"
+                                     Click="OpenArchivedLog_Click" Margin="2" x:Name="OpenButton"/>
+                             <Button Grid.Column="6" Content="История" Style="{StaticResource ControlButton}"
+                                     Click="OpenHistory_Click" Margin="2" x:Name="HistoryButton"/>
+                             <Button Grid.Column="7" Content="Экспорт" Style="{StaticResource ControlButton}"
+                                     Command="{Binding ExportLogsCommand}" Margin="2" x:Name="ExportButton"/>
+                             <Button Grid.Column="8" Content="Очистить" Style="{StaticResource ControlButton}"
+                                     Command="{Binding ClearLogsCommand}" Margin="2" x:Name="ClearButton"/>
                         </Grid>
 
                         <!-- Logs ListBox with colored levels -->
