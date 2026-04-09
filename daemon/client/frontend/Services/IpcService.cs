@@ -11,6 +11,7 @@ public class ClientStatus
     public string ClientBackendStatus { get; set; } = "NOT_RUNNING";
     public int ClientPid { get; set; }
     public bool IsConnected => ClientBackendStatus == "RUNNING";
+    public uint WhitelistRevision { get; set; }
 }
 
 public class IpcService : IDisposable
@@ -111,26 +112,69 @@ public class IpcService : IDisposable
             writer.WriteLine("GET_STATUS");
 
             var firstLine = reader.ReadLine();
-            if (firstLine != null && firstLine.StartsWith("STATUS:"))
+            System.Diagnostics.Debug.WriteLine($"[IpcService] GET_STATUS firstLine: '{firstLine}'");
+            if (firstLine != null)
             {
-                var parts = firstLine.Split(':');
-                if (parts.Length >= 5)
+                // New format: STATUS\n<whitelist_count>\n<allowlist_count>\n<revision>\n<status>
+                if (firstLine == "STATUS")
                 {
-                    status.ClientName = parts[1];
-                    status.IpAddress = parts[2];
-                    status.DaemonStatus = parts[3];
-                    if (ulong.TryParse(parts[4], out var pid))
+                    // Read whitelist count (second line)
+                    var whitelistCountLine = reader.ReadLine();
+                    
+                    // Read allowlist count (third line)
+                    var allowlistCountLine = reader.ReadLine();
+                    
+                    // Read revision (fourth line)
+                    var revisionLine = reader.ReadLine();
+                    if (revisionLine != null && uint.TryParse(revisionLine, out var revision))
                     {
-                        status.ClientPid = (int)pid;
+                        status.WhitelistRevision = revision;
                     }
-                    status.ClientBackendStatus = "RUNNING";
+                    
+                    // Read status (fifth line, should be "running")
+                    var statusLine = reader.ReadLine();
+                    if (statusLine != null && statusLine == "running")
+                    {
+                        status.ClientBackendStatus = "RUNNING";
+                        status.ClientName = "BigBrother Client";
+                        status.IpAddress = "127.0.0.1";
+                        status.DaemonStatus = "RUNNING";
+                        status.ClientPid = Environment.ProcessId;
+                    }
                 }
-                else if (parts.Length >= 4)
+                // Old format: STATUS:hostname:ip:status:pid:revision (6 parts)
+                else if (firstLine.StartsWith("STATUS:"))
                 {
-                    status.ClientName = parts[1];
-                    status.IpAddress = parts[2];
-                    status.DaemonStatus = parts[3];
-                    status.ClientBackendStatus = "RUNNING";
+                    var parts = firstLine.Split(':');
+                    System.Diagnostics.Debug.WriteLine($"[IpcService] STATUS parts count: {parts.Length}");
+                    if (parts.Length >= 6)
+                    {
+                        status.ClientName = parts[1];
+                        status.IpAddress = parts[2];
+                        status.DaemonStatus = parts[3];
+                        if (ulong.TryParse(parts[4], out var pid))
+                        {
+                            status.ClientPid = (int)pid;
+                        }
+                        if (uint.TryParse(parts[5], out var revision))
+                        {
+                            status.WhitelistRevision = revision;
+                            System.Diagnostics.Debug.WriteLine($"[IpcService] Parsed revision from parts[5]: {revision}");
+                        }
+                        status.ClientBackendStatus = parts[3] == "RUNNING" ? "RUNNING" : "NOT_RUNNING";
+                    }
+                    else if (parts.Length >= 5)
+                    {
+                        status.ClientName = parts[1];
+                        status.IpAddress = parts[2];
+                        status.DaemonStatus = parts[3];
+                        if (ulong.TryParse(parts[4], out var pid))
+                        {
+                            status.ClientPid = (int)pid;
+                        }
+                        status.WhitelistRevision = 1;
+                        status.ClientBackendStatus = parts[3] == "RUNNING" ? "RUNNING" : "NOT_RUNNING";
+                    }
                 }
             }
 
@@ -138,6 +182,7 @@ public class IpcService : IDisposable
         }
         catch { }
 
+        System.Diagnostics.Debug.WriteLine($"[IpcService] GetStatusAsync returning, WhitelistRevision: {status.WhitelistRevision}");
         return status;
     }
 
@@ -158,8 +203,29 @@ public class IpcService : IDisposable
             writer.WriteLine("GET_WHITELIST");
 
             var firstLine = reader.ReadLine();
+            System.Diagnostics.Debug.WriteLine($"[IpcService] GET_WHITELIST firstLine: '{firstLine}'");
             if (firstLine == "WHITELIST")
             {
+                string? line;
+                int count = 0;
+                while ((line = reader.ReadLine()) != null)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[IpcService] GET_WHITELIST line: '{line}'");
+                    // Skip empty lines and the header line "WHITELIST" if it appears as a domain
+                    if (string.IsNullOrWhiteSpace(line)) break;
+                    if (line == "WHITELIST") {
+                        System.Diagnostics.Debug.WriteLine("[IpcService] Skipping 'WHITELIST' header line");
+                        continue;
+                    }
+                    whitelist.Add(line);
+                    count++;
+                }
+                System.Diagnostics.Debug.WriteLine($"[IpcService] GET_WHITELIST total lines: {count}");
+            }
+            else if (!string.IsNullOrWhiteSpace(firstLine))
+            {
+                // No WHITELIST header, treat firstLine as first domain
+                whitelist.Add(firstLine);
                 string? line;
                 while ((line = reader.ReadLine()) != null)
                 {
@@ -170,7 +236,7 @@ public class IpcService : IDisposable
 
             Disconnect();
         }
-        catch { }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[IpcService] GET_WHITELIST exception: {ex.Message}"); }
 
         return whitelist;
     }

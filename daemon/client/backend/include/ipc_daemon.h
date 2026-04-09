@@ -7,9 +7,12 @@
 #define IPC_H
 
 #include <stddef.h>
+#include <stdint.h>
 
 #define DAEMON_PIPE_NAME "BigBrother Daemon"
 #define DAEMON_PIPE_BUFFER_SIZE 4096
+
+extern uint32_t g_whitelist_revision;
 
 /**
  * @brief Connect to the daemon and get status.
@@ -44,12 +47,12 @@ int DaemonGetWhitelist(char* out_buffer, size_t buffer_size);
 int DaemonSetWhitelist(const char* data, size_t size, char* out_buffer, size_t buffer_size);
 
 /**
- * @brief Connect to the daemon and reload whitelist from file.
+ * @brief Reload whitelist on daemon.
  *
  * @param out_buffer Output buffer for response.
- * @param buffer_size Size of output buffer.
+ * @param buffer_size Buffer size.
  *
- * @return 0 on success, -1 on error.
+ * @return 0 on success, -1 on failure.
  */
 int DaemonReloadWhitelist(char* out_buffer, size_t buffer_size);
 

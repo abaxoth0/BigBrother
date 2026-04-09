@@ -72,14 +72,14 @@ void WhitelistClear(Whitelist* wl) {
 
 int WhitelistLoadFromData(Whitelist* wl, const char* data, size_t size) {
     if (!wl || !data || size == 0) return -1;
-    
+
     WhitelistClear(wl);
-    
+
     char* copy = malloc(size + 1);
     if (!copy) return -1;
     memcpy(copy, data, size);
     copy[size] = '\0';
-    
+
     char* line = strtok(copy, "\n");
     while (line && wl->count < MAX_WHITELIST_DOMAINS) {
         while (*line == ' ' || *line == '\r') line++;
@@ -87,14 +87,14 @@ int WhitelistLoadFromData(Whitelist* wl, const char* data, size_t size) {
         while (len > 0 && (line[len-1] == '\n' || line[len-1] == '\r')) {
             line[--len] = '\0';
         }
-        
+
         if (len > 0 && line[0] != '#') {
             WhitelistAdd(wl, line);
         }
-        
+
         line = strtok(NULL, "\n");
     }
-    
+
     free(copy);
     return 0;
 }

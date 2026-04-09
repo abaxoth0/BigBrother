@@ -89,20 +89,26 @@ static DWORD WINAPI client_handler(LPVOID param) {
         LOGF("[IPC] PingDaemon result: %d (0=success)", daemon_ok);
 
         char response[512];
-        snprintf(response, sizeof(response), "STATUS:%s:%s:%s:%lu\n",
+        snprintf(response, sizeof(response), "STATUS:%s:%s:%s:%lu:%u\n",
                  hostname,
                  ip,
                  daemon_ok ? "RUNNING" : "NOT_RUNNING",
-                 client_pid);
+                 client_pid,
+                 g_whitelist_revision);
         LOGF("[IPC] GET_STATUS: daemon_ok=%d, response: %s", daemon_ok, response);
         write_response(pipe, response);
 
     } else if (strcmp(buffer, "GET_WHITELIST") == 0) {
-        write_response(pipe, "WHITELIST\n");
-
+        LOGF("[IPC_Client] GET_WHITELIST received");
+        
+        // DaemonGetWhitelist already returns WHITELIST header, just forward it
         char response[8192];
         if (DaemonGetWhitelist(response, sizeof(response)) == 0) {
+            LOGF("[IPC_Client] DaemonGetWhitelist returned, sending %zu bytes", strlen(response));
             write_response(pipe, response);
+        } else {
+            LOGF("[IPC_Client] DaemonGetWhitelist failed");
+            write_response(pipe, "WHITELIST\n");
         }
 
     } else if (strcmp(buffer, "RELOAD_WHITELIST") == 0) {
@@ -126,7 +132,7 @@ static DWORD WINAPI client_handler(LPVOID param) {
 
         char client_log[512];
         snprintf(client_log, sizeof(client_log), "%s\\logs\\client.binlog", exe_path);
-        
+
         char firewall_log[512];
         snprintf(firewall_log, sizeof(firewall_log), "%s\\logs\\firewall.binlog", exe_path);
 

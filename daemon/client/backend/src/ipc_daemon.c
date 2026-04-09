@@ -13,6 +13,7 @@
 #define DAEMON_PIPE_PREFIX "\\\\.\\pipe\\" DAEMON_PIPE_NAME
 
 static char g_server_ip[64] = {0};
+uint32_t g_whitelist_revision = 1;
 
 void SetServerIp(const char* ip) {
     if (ip) {
@@ -66,15 +67,14 @@ static int send_command(const char* command, const char* data, size_t data_size,
 
     DWORD bytes_read = 0;
     if (!ReadFile(pipe, out_buffer, (DWORD)(buffer_size - 1), &bytes_read, NULL)) {
+        DWORD err = GetLastError();
+        LOGF("[IPC_Daemon] ReadFile failed: %lu", err);
         CloseHandle(pipe);
         return -1;
     }
 
     out_buffer[bytes_read] = '\0';
-
-    while (bytes_read > 0 && (out_buffer[bytes_read - 1] == '\n' || out_buffer[bytes_read - 1] == '\r')) {
-        out_buffer[--bytes_read] = '\0';
-    }
+    LOGF("[IPC_Daemon] Response: %.100s", out_buffer);
 
     CloseHandle(pipe);
     return 0;
@@ -85,6 +85,7 @@ int DaemonGetStatus(char* out_buffer, size_t buffer_size) {
 }
 
 int DaemonGetWhitelist(char* out_buffer, size_t buffer_size) {
+    LOGF("[IPC_Daemon] DaemonGetWhitelist called");
     return send_command("GET_WHITELIST", NULL, 0, out_buffer, buffer_size);
 }
 
@@ -172,6 +173,7 @@ int DaemonRun(const char* server_ip, int poll_interval_secs) {
                 LOGF("[Daemon] Failed to set whitelist on daemon");
             } else {
                 LOGF("[Daemon] Whitelist updated");
+                g_whitelist_revision++;
             }
         } else {
             LOGF("[Daemon] Cannot connect to server %s, retrying...", server_ip);

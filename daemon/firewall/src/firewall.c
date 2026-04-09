@@ -40,9 +40,8 @@ StringView g_FilterExpr = {0};
 #define STATUS_UNSPECIFIED_ERROR -1
 
 // TODO: Allow user to specify whitelist path
-static char g_WhitelistPath[512] = "whitelist.txt";
-static char g_ConfigPath[512] = "config.txt";
-
+static char g_WhitelistPath[MAX_PATH] = "whitelist.txt";
+static char g_ConfigPath[MAX_PATH] = "config.txt";
 static char g_ServerIp[64] = {0};
 static char g_ClientExePath[MAX_PATH] = {0};
 static DWORD g_ClientPid = 0;

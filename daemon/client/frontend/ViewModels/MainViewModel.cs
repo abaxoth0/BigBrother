@@ -1,8 +1,10 @@
 using System.Collections.ObjectModel;
 using System.IO;
+using System.Timers;
 using System.Windows;
 using System.Windows.Input;
 using frontend.Models;
+using frontend.Services;
 
 namespace frontend.ViewModels;
 
@@ -30,6 +32,9 @@ public class RelayCommand : ICommand
 public class MainViewModel : ViewModelBase
 {
     private const int MaxLogs = 500;
+
+    // Services
+    private readonly IpcService _ipcService = new IpcService();
 
     // Status
     private string _daemonStatus = "Запущен";
@@ -172,6 +177,10 @@ public class MainViewModel : ViewModelBase
         }
     }
 
+    // Whitelist revision tracking for change detection
+    private uint _lastWhitelistRevision = 0;
+    private readonly System.Timers.Timer _statusTimer = new System.Timers.Timer(2000); // Poll every 2 seconds
+
     public ObservableCollection<WhitelistEntry> WhitelistEntries { get; } = new();
     public ObservableCollection<string> FilteredWhitelist { get; } = new();
 
@@ -182,10 +191,73 @@ public class MainViewModel : ViewModelBase
     // Event for auto-scroll notification
     public event Action? ScrollToBottomRequested;
 
+    private async void OnStatusTimerElapsed(object? sender, ElapsedEventArgs e)
+    {
+        try
+        {
+            // GetStatusAsync handles connection internally, so we don't check IsConnected here
+            var status = await _ipcService.GetStatusAsync();
+            
+            System.Diagnostics.Debug.WriteLine($"[ViewModel] After GetStatusAsync: revision={status.WhitelistRevision}, last={_lastWhitelistRevision}");
+            
+            // Update connection status display
+            System.Windows.Application.Current.Dispatcher.Invoke(() =>
+            {
+                ClientConnectionStatus = status.IsConnected ? "Подключено" : "Отключено";
+            });
+            
+            // Check if whitelist revision changed (ignore revision 0 as it indicates connection failure)
+            if (status.WhitelistRevision != 0 && status.WhitelistRevision != _lastWhitelistRevision)
+            {
+                System.Diagnostics.Debug.WriteLine($"[ViewModel] Revision changed: {_lastWhitelistRevision} -> {status.WhitelistRevision}");
+                _lastWhitelistRevision = status.WhitelistRevision;
+                
+                // Fetch full whitelist
+                var whitelist = await _ipcService.GetWhitelistAsync();
+                System.Diagnostics.Debug.WriteLine($"[ViewModel] Got whitelist: {whitelist.Count} domains");
+                
+                // Only update UI if we got actual data
+                if (whitelist.Count > 0)
+                {
+                    // Update UI on dispatcher thread
+                    System.Windows.Application.Current.Dispatcher.Invoke(() =>
+                    {
+                        WhitelistEntries.Clear();
+                        foreach (var domain in whitelist)
+                        {
+                            WhitelistEntries.Add(WhitelistEntry.Parse(domain));
+                        }
+                        
+                        UpdateWhitelistDisplay();
+                        AddLog("INFO", $"Whitelist updated ({whitelist.Count} domains)");
+                    });
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine("[ViewModel] Whitelist fetch returned empty, keeping current");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            // Update connection status to disconnected on error
+            System.Windows.Application.Current.Dispatcher.Invoke(() =>
+            {
+                ClientConnectionStatus = "Отключено";
+            });
+            System.Diagnostics.Debug.WriteLine($"[Whitelist] Status polling error: {ex.Message}");
+        }
+    }
+
     public MainViewModel()
     {
         ClearLogsCommand = new RelayCommand(_ => ClearLogs());
         ExportLogsCommand = new RelayCommand(_ => ExportLogs());
+
+        // Initialize whitelist status polling timer
+        _statusTimer.Elapsed += OnStatusTimerElapsed;
+        _statusTimer.AutoReset = true;
+        _statusTimer.Enabled = true;
 
         AddLog("INFO", "Клиент запущен");
         AddLog("INFO", "Подключение к демону...");
