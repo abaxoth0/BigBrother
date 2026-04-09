@@ -37,25 +37,6 @@ const char* EncodingMessageTypeToString(IpcMessageType type) {
     }
 }
 
-int EncodingFormatStatus(char* buffer, size_t size, size_t whitelist_count, size_t allowlist_count) {
-    return snprintf(buffer, size, "STATUS\n%zu\n%zu\nrunning\n", whitelist_count, allowlist_count);
-}
-
-int EncodingFormatWhitelist(char* buffer, size_t size, const char** domains, size_t count) {
-    size_t pos = 0;
-    int n = snprintf(buffer + pos, size - pos, "WHITELIST\n");
-    if (n < 0) return -1;
-    pos += n;
-
-    for (size_t i = 0; i < count && pos < size - 1; i++) {
-        n = snprintf(buffer + pos, size - pos, "%s\n", domains[i]);
-        if (n < 0) return -1;
-        pos += n;
-    }
-
-    return (int)pos;
-}
-
 int EncodingFormatOk(char* buffer, size_t size) {
     return snprintf(buffer, size, "OK\n");
 }

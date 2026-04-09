@@ -18,27 +18,26 @@ static int reload_whitelist(void) {
     return LoadWhiteList(NULL);
 }
 
-static void write_response(HANDLE pipe, const char* response) {
+static void write_str(HANDLE pipe, const char* str) {
     DWORD written;
-    WriteFile(pipe, response, (DWORD)strlen(response), &written, NULL);
+    WriteFile(pipe, str, (DWORD)strlen(str), &written, NULL);
 }
 
 static void write_status(HANDLE pipe) {
     char buffer[IPC_BUFFER_SIZE];
-    EncodingFormatStatus(buffer, sizeof(buffer), g_Whitelist.count, g_IpAllowlist.count);
-    write_response(pipe, buffer);
+    snprintf(buffer, sizeof(buffer), "STATUS\n%zu\n%zu\nrunning\n",
+             g_Whitelist.count, g_IpAllowlist.count);
+    write_str(pipe, buffer);
 }
 
 static void write_ok(HANDLE pipe) {
-    char buffer[IPC_BUFFER_SIZE];
-    EncodingFormatOk(buffer, sizeof(buffer));
-    write_response(pipe, buffer);
+    write_str(pipe, "OK\n");
 }
 
 static void write_error(HANDLE pipe, const char* error) {
     char buffer[IPC_BUFFER_SIZE];
-    EncodingFormatError(buffer, sizeof(buffer), error);
-    write_response(pipe, buffer);
+    snprintf(buffer, sizeof(buffer), "ERROR\n%s\n", error);
+    write_str(pipe, buffer);
 }
 
 static void write_whitelist(HANDLE pipe) {
@@ -48,8 +47,16 @@ static void write_whitelist(HANDLE pipe) {
     }
 
     char buffer[IPC_BUFFER_SIZE * 4];
-    EncodingFormatWhitelist(buffer, sizeof(buffer), (const char**)domains, g_Whitelist.count);
-    write_response(pipe, buffer);
+    size_t pos = 0;
+    int n = snprintf(buffer + pos, sizeof(buffer) - pos, "WHITELIST\n");
+    if (n > 0) pos += n;
+
+    for (size_t i = 0; i < g_Whitelist.count && pos < sizeof(buffer) - 1; i++) {
+        n = snprintf(buffer + pos, sizeof(buffer) - pos, "%s\n", domains[i]);
+        if (n > 0) pos += n;
+    }
+
+    write_str(pipe, buffer);
 }
 
 static int parse_and_execute(HANDLE pipe, char* buffer, size_t size) {

@@ -50,30 +50,6 @@ IpcMessageType EncodingParseMessageType(const char* str);
 const char* EncodingMessageTypeToString(IpcMessageType type);
 
 /**
- * @brief Format STATUS response.
- *
- * @param buffer Output buffer.
- * @param size Buffer size.
- * @param whitelist_count Number of whitelisted domains.
- * @param allowlist_count Number of allowed IPs.
- *
- * @return Number of bytes written, or -1 on error.
- */
-int EncodingFormatStatus(char* buffer, size_t size, size_t whitelist_count, size_t allowlist_count);
-
-/**
- * @brief Format WHITELIST response.
- *
- * @param buffer Output buffer.
- * @param size Buffer size.
- * @param domains Array of domain strings.
- * @param count Number of domains.
- *
- * @return Number of bytes written, or -1 on error.
- */
-int EncodingFormatWhitelist(char* buffer, size_t size, const char** domains, size_t count);
-
-/**
  * @brief Format OK response.
  *
  * @param buffer Output buffer.
