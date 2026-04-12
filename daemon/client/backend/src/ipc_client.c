@@ -5,14 +5,10 @@
 
 #include "../include/ipc_client.h"
 #include "../include/ipc_daemon.h"
-#include <winsock2.h>
-#include <ws2tcpip.h>
-#include "../../../common/log/log.h"
 #include <windows.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
-#include <stdarg.h>
 
 #define CLIENT_PIPE_NAME "\\\\.\\pipe\\BigBrother Client"
 #define CLIENT_PIPE_BUFFER_SIZE 4096
@@ -31,29 +27,6 @@ static void write_error(HANDLE pipe, const char* error) {
     char buf[512];
     snprintf(buf, sizeof(buf), "ERROR:%s\n", error);
     write_response(pipe, buf);
-}
-
-static int get_local_ip(char* ip_buf, size_t buf_size) {
-    char hostname[256];
-    if (gethostname(hostname, sizeof(hostname)) != 0) {
-        strncpy(ip_buf, "unknown", buf_size - 1);
-        return -1;
-    }
-
-    struct hostent* he = gethostbyname(hostname);
-    if (!he) {
-        strncpy(ip_buf, "unknown", buf_size - 1);
-        return -1;
-    }
-
-    struct in_addr** addr_list = (struct in_addr**)he->h_addr_list;
-    if (addr_list[0] == NULL) {
-        strncpy(ip_buf, "unknown", buf_size - 1);
-        return -1;
-    }
-
-    strncpy(ip_buf, inet_ntoa(*addr_list[0]), buf_size - 1);
-    return 0;
 }
 
 static DWORD WINAPI client_handler(LPVOID param) {
@@ -77,37 +50,19 @@ static DWORD WINAPI client_handler(LPVOID param) {
 
     // Parse command
     if (strcmp(buffer, "GET_STATUS") == 0) {
-        char ip[64];
-        char hostname[256];
-        DWORD client_pid = GetCurrentProcessId();
-
-        get_local_ip(ip, sizeof(ip));
-        gethostname(hostname, sizeof(hostname));
-
-        // Ping daemon to check status
         int daemon_ok = (PingDaemon() == 0);
-        LOGF("[IPC] PingDaemon result: %d (0=success)", daemon_ok);
 
         char response[512];
-        snprintf(response, sizeof(response), "STATUS:%s:%s:%s:%lu:%u\n",
-                 hostname,
-                 ip,
-                 daemon_ok ? "RUNNING" : "NOT_RUNNING",
-                 client_pid,
-                 g_whitelist_revision);
-        LOGF("[IPC] GET_STATUS: daemon_ok=%d, response: %s", daemon_ok, response);
+        snprintf(response, sizeof(response), "STATUS\n0\n0\n%u\n%s\n",
+                 g_whitelist_revision,
+                 daemon_ok ? "running" : "not_running");
         write_response(pipe, response);
 
     } else if (strcmp(buffer, "GET_WHITELIST") == 0) {
-        LOGF("[IPC_Client] GET_WHITELIST received");
-        
-        // DaemonGetWhitelist already returns WHITELIST header, just forward it
         char response[8192];
         if (DaemonGetWhitelist(response, sizeof(response)) == 0) {
-            LOGF("[IPC_Client] DaemonGetWhitelist returned, sending %zu bytes", strlen(response));
             write_response(pipe, response);
         } else {
-            LOGF("[IPC_Client] DaemonGetWhitelist failed");
             write_response(pipe, "WHITELIST\n");
         }
 
@@ -118,7 +73,6 @@ static DWORD WINAPI client_handler(LPVOID param) {
     } else if (strcmp(buffer, "RESTART_CLIENT") == 0) {
         write_ok(pipe);
         CloseHandle(pipe);
-        // Exit the process - daemon will restart us
         ExitProcess(0);
 
     } else if (strcmp(buffer, "PING") == 0) {
@@ -135,9 +89,6 @@ static DWORD WINAPI client_handler(LPVOID param) {
 
         char firewall_log[512];
         snprintf(firewall_log, sizeof(firewall_log), "%s\\logs\\firewall.binlog", exe_path);
-
-        // Debug: log to stderr
-        fprintf(stderr, "[IPC] GET_LOG_PATH: client=%s, firewall=%s\n", client_log, firewall_log);
 
         char response[1200];
         snprintf(response, sizeof(response), "LOG_PATH:%s|%s\n", client_log, firewall_log);
@@ -159,7 +110,7 @@ DWORD WINAPI client_server_thread(LPVOID param) {
             CLIENT_PIPE_NAME,
             PIPE_ACCESS_DUPLEX,
             PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT,
-            1,
+            PIPE_UNLIMITED_INSTANCES,
             CLIENT_PIPE_BUFFER_SIZE,
             CLIENT_PIPE_BUFFER_SIZE,
             0,

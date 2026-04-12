@@ -179,7 +179,7 @@ public class MainViewModel : ViewModelBase
 
     // Whitelist revision tracking for change detection
     private uint _lastWhitelistRevision = 0;
-    private readonly System.Timers.Timer _statusTimer = new System.Timers.Timer(2000); // Poll every 2 seconds
+    private readonly System.Timers.Timer _statusTimer = new System.Timers.Timer(10000); // Poll every 10 seconds (reduced from 2s)
 
     public ObservableCollection<WhitelistEntry> WhitelistEntries { get; } = new();
     public ObservableCollection<string> FilteredWhitelist { get; } = new();
@@ -195,31 +195,21 @@ public class MainViewModel : ViewModelBase
     {
         try
         {
-            // GetStatusAsync handles connection internally, so we don't check IsConnected here
             var status = await _ipcService.GetStatusAsync();
             
-            System.Diagnostics.Debug.WriteLine($"[ViewModel] After GetStatusAsync: revision={status.WhitelistRevision}, last={_lastWhitelistRevision}");
-            
-            // Update connection status display
             System.Windows.Application.Current.Dispatcher.Invoke(() =>
             {
                 ClientConnectionStatus = status.IsConnected ? "Подключено" : "Отключено";
             });
             
-            // Check if whitelist revision changed (ignore revision 0 as it indicates connection failure)
             if (status.WhitelistRevision != 0 && status.WhitelistRevision != _lastWhitelistRevision)
             {
-                System.Diagnostics.Debug.WriteLine($"[ViewModel] Revision changed: {_lastWhitelistRevision} -> {status.WhitelistRevision}");
                 _lastWhitelistRevision = status.WhitelistRevision;
                 
-                // Fetch full whitelist
                 var whitelist = await _ipcService.GetWhitelistAsync();
-                System.Diagnostics.Debug.WriteLine($"[ViewModel] Got whitelist: {whitelist.Count} domains");
                 
-                // Only update UI if we got actual data
                 if (whitelist.Count > 0)
                 {
-                    // Update UI on dispatcher thread
                     System.Windows.Application.Current.Dispatcher.Invoke(() =>
                     {
                         WhitelistEntries.Clear();
@@ -232,20 +222,14 @@ public class MainViewModel : ViewModelBase
                         AddLog("INFO", $"Whitelist updated ({whitelist.Count} domains)");
                     });
                 }
-                else
-                {
-                    System.Diagnostics.Debug.WriteLine("[ViewModel] Whitelist fetch returned empty, keeping current");
-                }
             }
         }
-        catch (Exception ex)
+        catch
         {
-            // Update connection status to disconnected on error
             System.Windows.Application.Current.Dispatcher.Invoke(() =>
             {
                 ClientConnectionStatus = "Отключено";
             });
-            System.Diagnostics.Debug.WriteLine($"[Whitelist] Status polling error: {ex.Message}");
         }
     }
 

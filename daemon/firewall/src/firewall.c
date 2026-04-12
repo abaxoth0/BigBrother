@@ -559,7 +559,7 @@ void WINAPI ServiceMain(DWORD argc, LPTSTR *argv) {
     load_config(g_ConfigPath);
 
     OutputDebugString("[ServiceMain] Starting IPC");
-    IpcStart();
+    IpcStart(g_ServiceStopEvent);
 
     if (g_ServerIp[0] != '\0') {
         g_ClientStopEvent = CreateEvent(NULL, TRUE, FALSE, NULL);

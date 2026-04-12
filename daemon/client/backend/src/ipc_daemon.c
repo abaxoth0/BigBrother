@@ -27,8 +27,6 @@ static int send_command(const char* command, const char* data, size_t data_size,
         return -1;
     }
 
-    DLOGF("[IPC_Daemon] send_command: %s", command);
-
     HANDLE pipe = CreateFile(
         DAEMON_PIPE_PREFIX,
         GENERIC_READ | GENERIC_WRITE,
@@ -40,12 +38,9 @@ static int send_command(const char* command, const char* data, size_t data_size,
     );
 
     if (pipe == INVALID_HANDLE_VALUE) {
-        DWORD err = GetLastError();
-        LOGF("[IPC_Daemon] CreateFile failed: %lu", err);
         return -1;
     }
 
-    DWORD written;
     size_t cmd_len = strlen(command);
     char* send_buf = malloc(cmd_len + 1 + data_size + 1);
     if (!send_buf) {
@@ -60,21 +55,23 @@ static int send_command(const char* command, const char* data, size_t data_size,
     }
     size_t total_len = cmd_len + 1 + (data && data_size > 0 ? data_size : 0);
 
-    WriteFile(pipe, send_buf, (DWORD)total_len, &written, NULL);
+    DWORD written;
+    if (!WriteFile(pipe, send_buf, (DWORD)total_len, &written, NULL)) {
+        free(send_buf);
+        CloseHandle(pipe);
+        return -1;
+    }
     free(send_buf);
 
     FlushFileBuffers(pipe);
 
     DWORD bytes_read = 0;
     if (!ReadFile(pipe, out_buffer, (DWORD)(buffer_size - 1), &bytes_read, NULL)) {
-        DWORD err = GetLastError();
-        LOGF("[IPC_Daemon] ReadFile failed: %lu", err);
         CloseHandle(pipe);
         return -1;
     }
 
     out_buffer[bytes_read] = '\0';
-    LOGF("[IPC_Daemon] Response: %.100s", out_buffer);
 
     CloseHandle(pipe);
     return 0;
@@ -85,7 +82,6 @@ int DaemonGetStatus(char* out_buffer, size_t buffer_size) {
 }
 
 int DaemonGetWhitelist(char* out_buffer, size_t buffer_size) {
-    LOGF("[IPC_Daemon] DaemonGetWhitelist called");
     return send_command("GET_WHITELIST", NULL, 0, out_buffer, buffer_size);
 }
 
@@ -142,15 +138,29 @@ static int connect_to_server(const char* server_ip, char* out_buffer, size_t buf
 
 int PingDaemon(void) {
     char buffer[256];
-    int result = send_command("PING", NULL, 0, buffer, sizeof(buffer));
-    DLOGF("[IPC_Daemon] PingDaemon result: %d, response: %s", result, buffer);
-    return result;
+    return send_command("PING", NULL, 0, buffer, sizeof(buffer));
 }
 
 int DaemonRun(const char* server_ip, int poll_interval_secs) {
     char whitelist_buf[8192];
     char last_whitelist[8192] = {0};
     int connected = 0;
+    int startup_retries = 30; // Wait up to 30 seconds for daemon to be ready
+
+    LOGF("[Daemon] Waiting for local daemon to be ready...");
+    while (startup_retries > 0) {
+        if (PingDaemon() == 0) {
+            LOGF("[Daemon] Local daemon is ready");
+            break;
+        }
+        startup_retries--;
+        Sleep(1000);
+    }
+
+    if (startup_retries == 0) {
+        LOGF("[Daemon] Local daemon not responding after startup, exiting (pid: %lu)", GetCurrentProcessId());
+        return 1;
+    }
 
     while (1) {
         if (PingDaemon() != 0) {

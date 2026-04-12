@@ -8,6 +8,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <windows.h>
 
 #define IPC_PIPE_NAME "BigBrother Daemon"
 #define IPC_BUFFER_SIZE 4096
@@ -15,9 +16,10 @@
 /**
  * @brief Start the IPC server in a separate thread.
  *
+ * @param stop_event Event to signal for shutdown. If NULL, uses internal event.
  * @return 0 on success, -1 on failure.
  */
-int IpcStart(void);
+int IpcStart(HANDLE stop_event);
 
 /**
  * @brief Reload the whitelist.

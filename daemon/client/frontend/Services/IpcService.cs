@@ -17,9 +17,11 @@ public class ClientStatus
 public class IpcService : IDisposable
 {
     private const string PipeName = "BigBrother Client";
+    private const int MaxRetries = 3;
     private NamedPipeClientStream? _pipe;
     private bool _isConnected;
     private string _lastError = "";
+    private readonly SemaphoreSlim _connectionLock = new(1, 1);
 
     public bool IsConnected => _isConnected;
     public string LastError => _lastError;
@@ -36,21 +38,42 @@ public class IpcService : IDisposable
                 _isConnected = false;
             }
             
-            _pipe = new NamedPipeClientStream(".", PipeName, PipeDirection.InOut);
-            await _pipe.ConnectAsync(timeoutMs);
-            _isConnected = true;
-            _lastError = "";
-            return true;
-        }
-        catch (Exception ex)
-        {
-            _isConnected = false;
-            _lastError = ex.Message;
+            for (int attempt = 0; attempt < MaxRetries; attempt++)
+            {
+                try
+                {
+                    _pipe = new NamedPipeClientStream(".", PipeName, PipeDirection.InOut);
+                    await _pipe.ConnectAsync(timeoutMs);
+                    _isConnected = true;
+                    _lastError = "";
+                    return true;
+                }
+                catch (Exception)
+                {
+                    _isConnected = false;
+                    if (_pipe != null)
+                    {
+                        try { _pipe.Dispose(); } catch { }
+                        _pipe = null;
+                    }
+                    
+                    if (attempt < MaxRetries - 1)
+                    {
+                        await Task.Delay(50 * (attempt + 1));
+                    }
+                }
+            }
+            
+            _lastError = "Failed to connect after " + MaxRetries + " attempts";
             return false;
+        }
+        finally
+        {
+            // Connection state is managed by caller via lock
         }
     }
 
-    public void Disconnect()
+    private void Disconnect()
     {
         try
         {
@@ -99,41 +122,39 @@ public class IpcService : IDisposable
     {
         var status = new ClientStatus();
 
-        if (!await ConnectAsync())
-        {
-            return status;
-        }
-
+        await _connectionLock.WaitAsync();
         try
         {
-            var writer = new StreamWriter(_pipe!) { AutoFlush = true };
-            var reader = new StreamReader(_pipe!);
-
-            writer.WriteLine("GET_STATUS");
-
-            var firstLine = reader.ReadLine();
-            System.Diagnostics.Debug.WriteLine($"[IpcService] GET_STATUS firstLine: '{firstLine}'");
-            if (firstLine != null)
+            if (!await ConnectAsync())
             {
-                // New format: STATUS\n<whitelist_count>\n<allowlist_count>\n<revision>\n<status>
-                if (firstLine == "STATUS")
+                return status;
+            }
+
+            try
+            {
+                await Task.Delay(50);
+                
+                var writer = new StreamWriter(_pipe!) { AutoFlush = true };
+                var reader = new StreamReader(_pipe!);
+
+                writer.WriteLine("GET_STATUS");
+
+                var lines = new List<string>();
+                for (int i = 0; i < 5; i++)
                 {
-                    // Read whitelist count (second line)
-                    var whitelistCountLine = reader.ReadLine();
-                    
-                    // Read allowlist count (third line)
-                    var allowlistCountLine = reader.ReadLine();
-                    
-                    // Read revision (fourth line)
-                    var revisionLine = reader.ReadLine();
-                    if (revisionLine != null && uint.TryParse(revisionLine, out var revision))
+                    var line = reader.ReadLine();
+                    if (line == null) break;
+                    lines.Add(line);
+                }
+                
+                if (lines.Count >= 5 && lines[0] == "STATUS")
+                {
+                    if (uint.TryParse(lines[3], out var revision))
                     {
                         status.WhitelistRevision = revision;
                     }
                     
-                    // Read status (fifth line, should be "running")
-                    var statusLine = reader.ReadLine();
-                    if (statusLine != null && statusLine == "running")
+                    if (lines[4] == "running")
                     {
                         status.ClientBackendStatus = "RUNNING";
                         status.ClientName = "BigBrother Client";
@@ -142,11 +163,10 @@ public class IpcService : IDisposable
                         status.ClientPid = Environment.ProcessId;
                     }
                 }
-                // Old format: STATUS:hostname:ip:status:pid:revision (6 parts)
-                else if (firstLine.StartsWith("STATUS:"))
+                else if (lines.Count > 0 && lines[0].StartsWith("STATUS:"))
                 {
+                    var firstLine = lines[0];
                     var parts = firstLine.Split(':');
-                    System.Diagnostics.Debug.WriteLine($"[IpcService] STATUS parts count: {parts.Length}");
                     if (parts.Length >= 6)
                     {
                         status.ClientName = parts[1];
@@ -159,7 +179,6 @@ public class IpcService : IDisposable
                         if (uint.TryParse(parts[5], out var revision))
                         {
                             status.WhitelistRevision = revision;
-                            System.Diagnostics.Debug.WriteLine($"[IpcService] Parsed revision from parts[5]: {revision}");
                         }
                         status.ClientBackendStatus = parts[3] == "RUNNING" ? "RUNNING" : "NOT_RUNNING";
                     }
@@ -177,12 +196,16 @@ public class IpcService : IDisposable
                     }
                 }
             }
-
-            Disconnect();
+            finally
+            {
+                Disconnect();
+            }
         }
-        catch { }
+        finally
+        {
+            _connectionLock.Release();
+        }
 
-        System.Diagnostics.Debug.WriteLine($"[IpcService] GetStatusAsync returning, WhitelistRevision: {status.WhitelistRevision}");
         return status;
     }
 
@@ -190,148 +213,177 @@ public class IpcService : IDisposable
     {
         var whitelist = new List<string>();
 
-        if (!await ConnectAsync())
-        {
-            return whitelist;
-        }
-
+        await _connectionLock.WaitAsync();
         try
         {
-            var writer = new StreamWriter(_pipe!) { AutoFlush = true };
-            var reader = new StreamReader(_pipe!);
-
-            writer.WriteLine("GET_WHITELIST");
-
-            var firstLine = reader.ReadLine();
-            System.Diagnostics.Debug.WriteLine($"[IpcService] GET_WHITELIST firstLine: '{firstLine}'");
-            if (firstLine == "WHITELIST")
+            if (!await ConnectAsync())
             {
-                string? line;
-                int count = 0;
-                while ((line = reader.ReadLine()) != null)
+                return whitelist;
+            }
+
+            try
+            {
+                var writer = new StreamWriter(_pipe!) { AutoFlush = true };
+                var reader = new StreamReader(_pipe!);
+
+                writer.WriteLine("GET_WHITELIST");
+
+                var firstLine = reader.ReadLine();
+                if (firstLine == "WHITELIST")
                 {
-                    System.Diagnostics.Debug.WriteLine($"[IpcService] GET_WHITELIST line: '{line}'");
-                    // Skip empty lines and the header line "WHITELIST" if it appears as a domain
-                    if (string.IsNullOrWhiteSpace(line)) break;
-                    if (line == "WHITELIST") {
-                        System.Diagnostics.Debug.WriteLine("[IpcService] Skipping 'WHITELIST' header line");
-                        continue;
+                    string? line;
+                    while ((line = reader.ReadLine()) != null)
+                    {
+                        if (string.IsNullOrWhiteSpace(line)) break;
+                        if (line == "WHITELIST") continue;
+                        whitelist.Add(line);
                     }
-                    whitelist.Add(line);
-                    count++;
                 }
-                System.Diagnostics.Debug.WriteLine($"[IpcService] GET_WHITELIST total lines: {count}");
-            }
-            else if (!string.IsNullOrWhiteSpace(firstLine))
-            {
-                // No WHITELIST header, treat firstLine as first domain
-                whitelist.Add(firstLine);
-                string? line;
-                while ((line = reader.ReadLine()) != null)
+                else if (!string.IsNullOrWhiteSpace(firstLine))
                 {
-                    if (string.IsNullOrWhiteSpace(line)) break;
-                    whitelist.Add(line);
+                    whitelist.Add(firstLine);
+                    string? line;
+                    while ((line = reader.ReadLine()) != null)
+                    {
+                        if (string.IsNullOrWhiteSpace(line)) break;
+                        whitelist.Add(line);
+                    }
                 }
             }
-
-            Disconnect();
+            finally
+            {
+                Disconnect();
+            }
         }
-        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[IpcService] GET_WHITELIST exception: {ex.Message}"); }
+        finally
+        {
+            _connectionLock.Release();
+        }
 
         return whitelist;
     }
 
     public async Task<bool> RestartClientAsync()
     {
-        if (!await ConnectAsync())
-        {
-            return false;
-        }
-
+        await _connectionLock.WaitAsync();
         try
         {
-            var writer = new StreamWriter(_pipe!) { AutoFlush = true };
-            var reader = new StreamReader(_pipe!);
+            if (!await ConnectAsync())
+            {
+                return false;
+            }
 
-            writer.WriteLine("RESTART_CLIENT");
-            var response = reader.ReadLine();
+            try
+            {
+                var writer = new StreamWriter(_pipe!) { AutoFlush = true };
+                var reader = new StreamReader(_pipe!);
 
-            Disconnect();
-            return response == "OK";
+                writer.WriteLine("RESTART_CLIENT");
+                var response = reader.ReadLine();
+
+                return response == "OK";
+            }
+            finally
+            {
+                Disconnect();
+            }
         }
-        catch
+        finally
         {
-            return false;
+            _connectionLock.Release();
         }
     }
 
     public async Task<bool> PingAsync()
     {
-        if (!await ConnectAsync())
-        {
-            return false;
-        }
-
+        await _connectionLock.WaitAsync();
         try
         {
-            var writer = new StreamWriter(_pipe!) { AutoFlush = true };
-            var reader = new StreamReader(_pipe!);
+            if (!await ConnectAsync())
+            {
+                return false;
+            }
 
-            writer.WriteLine("PING");
-            var response = reader.ReadLine();
+            try
+            {
+                var writer = new StreamWriter(_pipe!) { AutoFlush = true };
+                var reader = new StreamReader(_pipe!);
 
-            Disconnect();
-            return response == "OK";
+                writer.WriteLine("PING");
+                var response = reader.ReadLine();
+
+                return response == "OK";
+            }
+            finally
+            {
+                Disconnect();
+            }
         }
-        catch
+        finally
         {
-            return false;
+            _connectionLock.Release();
         }
     }
 
     public async Task<(string clientLog, string firewallLog)> GetLogPathAsync()
     {
-        // Use longer timeout, retry once
-        for (int attempt = 0; attempt < 2; attempt++)
+        await _connectionLock.WaitAsync();
+        try
         {
-            if (await ConnectAsync(3000))
+            for (int attempt = 0; attempt < MaxRetries; attempt++)
             {
-                try
+                if (await ConnectAsync(3000))
                 {
-                    await Task.Delay(100); // Give pipe time to be ready
-                    
-                    var writer = new StreamWriter(_pipe!) { AutoFlush = true };
-                    var reader = new StreamReader(_pipe!);
-
-                    writer.WriteLine("GET_LOG_PATH");
-                    var response = reader.ReadLine();
-                    
-                    Disconnect();
-                    
-                    if (response != null && response.StartsWith("LOG_PATH:"))
+                    try
                     {
-                        var paths = response.Substring(9).Split('|');
-                        if (paths.Length >= 2)
+                        await Task.Delay(50);
+                        
+                        var writer = new StreamWriter(_pipe!) { AutoFlush = true };
+                        var reader = new StreamReader(_pipe!);
+
+                        writer.WriteLine("GET_LOG_PATH");
+                        var response = reader.ReadLine();
+                        
+                        Disconnect();
+                        
+                        if (response != null && response.StartsWith("LOG_PATH:"))
                         {
-                            return (paths[0], paths[1]);
+                            var paths = response.Substring(9).Split('|');
+                            if (paths.Length >= 2)
+                            {
+                                return (paths[0], paths[1]);
+                            }
                         }
+                        return ("", "");
                     }
-                    return ("", "");
+                    catch
+                    {
+                        Disconnect();
+                    }
                 }
-                catch
-                {
-                    Disconnect();
-                }
+                
+                if (attempt < MaxRetries - 1) await Task.Delay(500);
             }
             
-            if (attempt == 0) await Task.Delay(1000);
+            return ("", "");
         }
-        
-        return ("", "");
+        finally
+        {
+            _connectionLock.Release();
+        }
     }
 
     public void Dispose()
     {
-        Disconnect();
+        _connectionLock.Wait();
+        try
+        {
+            Disconnect();
+        }
+        finally
+        {
+            _connectionLock.Release();
+            _connectionLock.Dispose();
+        }
     }
 }

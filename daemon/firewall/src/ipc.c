@@ -129,44 +129,71 @@ static DWORD WINAPI ipc_client_handler(LPVOID param) {
 }
 
 static DWORD WINAPI ipc_server_thread(LPVOID param) {
+    HANDLE stop_event = *(HANDLE*)param;
+    HANDLE pipes[16];
+    int num_pipes = 0;
+    
     while (1) {
-        HANDLE pipe = CreateNamedPipe(
-            IPC_PIPE_PREFIX,
-            PIPE_ACCESS_DUPLEX,
-            PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT,
-            PIPE_UNLIMITED_INSTANCES,
-            IPC_BUFFER_SIZE,
-            IPC_BUFFER_SIZE,
-            0,
-            NULL
-        );
+        if (num_pipes < 16) {
+            HANDLE pipe = CreateNamedPipe(
+                IPC_PIPE_PREFIX,
+                PIPE_ACCESS_DUPLEX,
+                PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT,
+                PIPE_UNLIMITED_INSTANCES,
+                IPC_BUFFER_SIZE,
+                IPC_BUFFER_SIZE,
+                0,
+                NULL
+            );
 
-        if (pipe == INVALID_HANDLE_VALUE) {
+            if (pipe != INVALID_HANDLE_VALUE) {
+                pipes[num_pipes++] = pipe;
+            }
+        }
+        
+        if (num_pipes == 0) {
             Sleep(100);
             continue;
         }
-
-        // Wait for client - this blocks until a client connects
-        BOOL connected = ConnectNamedPipe(pipe, NULL);
-        if (!connected) {
-            DWORD err = GetLastError();
-            if (err != ERROR_PIPE_CONNECTED) {
-                CloseHandle(pipe);
-                continue;
-            }
+        
+        HANDLE handles[17];
+        handles[0] = stop_event;
+        for (int i = 0; i < num_pipes; i++) {
+            handles[i + 1] = pipes[i];
         }
-
-        HANDLE thread = CreateThread(NULL, 0, ipc_client_handler, pipe, 0, NULL);
-        if (thread) {
-            CloseHandle(thread);
+        
+        DWORD wait_result = WaitForMultipleObjects(num_pipes + 1, handles, FALSE, 500);
+        
+        if (wait_result == WAIT_TIMEOUT) {
+            continue;
+        }
+        
+        if (wait_result == WAIT_OBJECT_0) {
+            for (int i = 0; i < num_pipes; i++) {
+                CloseHandle(pipes[i]);
+            }
+            break;
+        }
+        
+        int idx = wait_result - WAIT_OBJECT_0 - 1;
+        HANDLE pipe = pipes[idx];
+        
+        pipes[idx] = pipes[num_pipes - 1];
+        num_pipes--;
+        
+        if (ConnectNamedPipe(pipe, NULL) || GetLastError() == ERROR_PIPE_CONNECTED) {
+            HANDLE thread = CreateThread(NULL, 0, ipc_client_handler, pipe, 0, NULL);
+            if (thread) CloseHandle(thread);
+        } else {
+            CloseHandle(pipe);
         }
     }
 
     return 0;
 }
 
-int IpcStart(void) {
-    HANDLE thread = CreateThread(NULL, 0, ipc_server_thread, NULL, 0, NULL);
+int IpcStart(HANDLE stop_event) {
+    HANDLE thread = CreateThread(NULL, 0, ipc_server_thread, &stop_event, 0, NULL);
     if (!thread) {
         return -1;
     }

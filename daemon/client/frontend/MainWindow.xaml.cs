@@ -26,7 +26,7 @@ namespace frontend
 
             _refreshTimer = new DispatcherTimer
             {
-                Interval = TimeSpan.FromSeconds(5)
+                Interval = TimeSpan.FromSeconds(10)
             };
             _refreshTimer.Tick += async (s, e) => await RefreshStatusAsync();
 
