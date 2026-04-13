@@ -22,7 +22,7 @@ cp build/bb-client.exe "$OUTPUT_DIR/"
 
 echo "Building server backend..."
 cd "$SCRIPT_DIR/server/backend"
-GOOS=windows GOARCH=amd64 go build -o "$OUTPUT_DIR/bb-server.exe" ./cmd
+CGO_ENABLED=1 CC=clang GOOS=windows GOARCH=amd64 go build -o "$OUTPUT_DIR/bb-server.exe" ./cmd
 
 if [ -f "$SCRIPT_DIR/daemon/firewall/include/third-party/WinDivert-2.2.2-A/x64/WinDivert.dll" ]; then
     cp "$SCRIPT_DIR/daemon/firewall/include/third-party/WinDivert-2.2.2-A/x64/WinDivert.dll" "$OUTPUT_DIR/"
