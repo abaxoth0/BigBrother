@@ -5,7 +5,7 @@ package main
 import (
 	"bigbrother_server_backend/cmd/app"
 	"bigbrother_server_backend/packages/common/log"
-	"bigbrother_server_backend/packages/db/sqlite"
+	"bigbrother_server_backend/packages/database/sqlite"
 	"bigbrother_server_backend/packages/rpc"
 	"bufio"
 	"fmt"

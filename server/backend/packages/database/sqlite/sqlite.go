@@ -1,12 +1,11 @@
 package sqlite
 
 import (
-	"bigbrother_server_backend/packages/db/common"
+	"bigbrother_server_backend/packages/database/common"
 	"database/sql"
 	"errors"
 	"fmt"
 
-	"github.com/google/uuid"
 	_ "github.com/ncruces/go-sqlite3/driver"
 )
 
@@ -71,29 +70,31 @@ func (db *Database) initTables() error {
 		return dbcommon.ErrNotConnectedToDB
 	}
 
+	// By default SQLite disables foreign key constraints for backward compatability, so need to enable them
+	enableForeignKeysSQL :=
+	`PRAGMA foreign_keys = ON`
 	createWhitelistTableSQL :=
 	`CREATE TABLE IF NOT EXISTS whitelist (
 		id 				BLOB NOT NULL PRIMARY KEY,
 		name 			TEXT UNIQUE NOT NULL,
-		updated_at		INTEGER NOT NULL,
-		parent_id		BLOB NOT NULL REFERENCES whitelist(id)
+		parent_id		BLOB REFERENCES whitelist(id) ON DELETE SET NULL
 	)`
 	createWhitelistDomainTableSQL :=
 	`CREATE TABLE IF NOT EXISTS whitelist_entry (
 		id 				BLOB NOT NULL PRIMARY KEY,
-		value 			TEXT UNIQUE NOT NULL,
-		whitelist_id	BLOB NOT NULL REFERENCES whitelist(id)
+		value 			TEXT NOT NULL,
+		whitelist_id	BLOB NOT NULL REFERENCES whitelist(id) ON DELETE CASCADE
 	)`
 	createUserTableSQL :=
 	`CREATE TABLE IF NOT EXISTS user (
 		id 				BLOB NOT NULL PRIMARY KEY,
 		name 			TEXT UNIQUE NOT NULL,
 		addr			TEXT UNIQUE NOT NULL,
-		last_seen_at	INTEGER,
-		whitelist_id	BLOB REFERENCES whitelist(id)
+		whitelist_id	BLOB REFERENCES whitelist(id) ON DELETE SET NULL
 	)`
 
 	queries := []string{
+		enableForeignKeysSQL,
 		createWhitelistTableSQL,
 		createWhitelistDomainTableSQL,
 		createUserTableSQL,
@@ -116,29 +117,44 @@ func Test() error {
 	}
 	defer db.Disconnect()
 
-	_, err := db.conn.Exec(`INSERT INTO test (id, name) VALUES (?, ?)`, uuid.New(), "Obabo")
-	if err != nil {
+	// wlID, err := db.GetWhitelistID("main")
+	// if err != nil {
+	// 	return err
+	// }
+
+	// x, err := db.GetWhitelistEntries("main")
+	// if err != nil {
+	// 	return err
+	// }
+	// fmt.Println(len(x), x)
+
+	if err := db.DeleteWhitelistEntry("*.twitch.tv", "main"); err != nil {
 		return err
 	}
 
-	rows, err := db.conn.Query(`SELECT id, name FROM test`)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var id []byte
-		var name string
-		err := rows.Scan(&id, &name)
-		if err != nil {
-			return err
-		}
-		fmt.Println("DATA: ", string(id), name)
-	}
-	if err = rows.Err(); err != nil {
-		return err
-	}
+	// _, err := db.conn.Exec(`INSERT INTO test (id, name) VALUES (?, ?)`, uuid.New(), "Obabo")
+	// if err != nil {
+	// 	return err
+	// }
+	//
+	// rows, err := db.conn.Query(`SELECT id, name FROM test`)
+	// if err != nil {
+	// 	return err
+	// }
+	// defer rows.Close()
+	//
+	// for rows.Next() {
+	// 	var id []byte
+	// 	var name string
+	// 	err := rows.Scan(&id, &name)
+	// 	if err != nil {
+	// 		return err
+	// 	}
+	// 	fmt.Println("DATA: ", string(id), name)
+	// }
+	// if err = rows.Err(); err != nil {
+	// 	return err
+	// }
 
 	return nil
 }
