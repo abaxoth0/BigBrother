@@ -20,7 +20,7 @@ type Client struct {
 
 type whitelist map[string]bool
 
-type Server interface {
+type RpcServer interface {
 	GetWhitelist() []string
 	SetWhitelist(domains []string) error
 
@@ -46,12 +46,12 @@ func newWhitelist(domains ...string) whitelist {
 	return newWl
 }
 
-type RpcServer struct {
+type Server struct {
 	wl whitelist
 }
 
-func NewRpcServer() *RpcServer {
-	return &RpcServer{
+func NewServer() *Server {
+	return &Server{
 		wl: newWhitelist(
 			// TODO: temp
 			"\"github.com\"",
@@ -61,7 +61,7 @@ func NewRpcServer() *RpcServer {
 	}
 }
 
-func (s *RpcServer) GetWhitelist() []string {
+func (s *Server) GetWhitelist() []string {
 	r := make([]string, 0, len(s.wl))
 	for domain := range s.wl {
 		r = append(r, domain)
@@ -69,12 +69,12 @@ func (s *RpcServer) GetWhitelist() []string {
 	return r
 }
 
-func (s *RpcServer) SetWhitelist(domains []string) error {
+func (s *Server) SetWhitelist(domains []string) error {
 	s.wl = newWhitelist(domains...)
 	return nil
 }
 
-func (s *RpcServer) AddDomain(domain string) error {
+func (s *Server) AddDomain(domain string) error {
 	if s.wl[domain] {
 		return errors.New("domain already in whitelist")
 	}
@@ -82,7 +82,7 @@ func (s *RpcServer) AddDomain(domain string) error {
 	return nil
 }
 
-func (s *RpcServer) RemoveDomain(domain string) error {
+func (s *Server) RemoveDomain(domain string) error {
 	if !s.wl[domain] {
 		return errors.New("domain is not in whitelist")
 	}
@@ -90,11 +90,11 @@ func (s *RpcServer) RemoveDomain(domain string) error {
 	return nil
 }
 
-func (s *RpcServer) GetClients() []*Client {
+func (s *Server) GetClients() []*Client {
 	return clients
 }
 
-func (s *RpcServer) AddClient(client *Client) error {
+func (s *Server) AddClient(client *Client) error {
 	ok := slices.ContainsFunc(clients, func(c *Client) bool {
 		return client.Addr == c.Addr
 	})
@@ -105,7 +105,7 @@ func (s *RpcServer) AddClient(client *Client) error {
 	return nil
 }
 
-func (s *RpcServer) KickClient(name string) error {
+func (s *Server) KickClient(name string) error {
 	for i, client := range clients {
 		if client.Name == name {
 			clients = append(clients[:i], clients[i+1:]...)
@@ -115,7 +115,7 @@ func (s *RpcServer) KickClient(name string) error {
 	return errors.New("client not found")
 }
 
-func (s *RpcServer) GetStatus() *ServerStatus {
+func (s *Server) GetStatus() *ServerStatus {
 	return &ServerStatus{
 		ConnectedClients: clients,
 		Uptime: time.Since(startTime),

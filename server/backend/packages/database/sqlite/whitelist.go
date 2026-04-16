@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"bigbrother_server_backend/packages/database/common"
+	"bigbrother_server_backend/packages/domain/entity"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -12,12 +13,6 @@ import (
 	"github.com/google/uuid"
 	_ "github.com/ncruces/go-sqlite3/driver"
 )
-
-type WhitelistEntry struct {
-	ID 	  string
-	Value string
-	WhitelistID string
-}
 
 func (db *Database) CreateWhitelist(name string, parentID string) error {
 	parentID = strings.Trim(parentID, " \n\r")
@@ -33,15 +28,9 @@ func (db *Database) CreateWhitelist(name string, parentID string) error {
 	return nil
 }
 
-type Whitelist struct {
-	ID 		 string
-	Name 	 string
-	ParentID string
-}
-
 var whitelistProperties  = []string{"id", "name"}
 
-func (db *Database) getWhitelistBy(property string, value string) (*Whitelist, error) {
+func (db *Database) getWhitelistBy(property string, value string) (*entity.Whitelist, error) {
 	dbcommon.Log.Trace("Getting whitelist \""+value+"\"...", nil)
 
 	if !slices.Contains(whitelistProperties, property) {
@@ -53,7 +42,7 @@ func (db *Database) getWhitelistBy(property string, value string) (*Whitelist, e
 		return nil, err
 	}
 
-	wl := new(Whitelist)
+	wl := new(entity.Whitelist)
 	var parentID sql.NullString
 
 	if err := row.Scan(&wl.ID, &wl.Name, &parentID); err != nil {
@@ -68,18 +57,18 @@ func (db *Database) getWhitelistBy(property string, value string) (*Whitelist, e
 	return wl, nil
 }
 
-func (db *Database) GetWhitelistByName(name string) (*Whitelist, error) {
+func (db *Database) GetWhitelistByName(name string) (*entity.Whitelist, error) {
 	return db.getWhitelistBy("name", name)
 }
 
-func (db *Database) GetWhitelistByID(id string) (*Whitelist, error) {
+func (db *Database) GetWhitelistByID(id string) (*entity.Whitelist, error) {
 	return db.getWhitelistBy("id", id)
 }
 
-func (db *Database) GetWhitelistID(wlName string) (string, error) {
-	dbcommon.Log.Trace("Getting ID of whitelist \""+wlName+"\"...", nil)
+func (db *Database) GetWhitelistID(whitelistName string) (string, error) {
+	dbcommon.Log.Trace("Getting ID of whitelist \""+whitelistName+"\"...", nil)
 
-	row := db.conn.QueryRow("SELECT id FROM whitelist WHERE name = ?", wlName)
+	row := db.conn.QueryRow("SELECT id FROM whitelist WHERE name = ?", whitelistName)
 	if err := row.Err(); err != nil {
 		return "", err
 	}
@@ -89,7 +78,7 @@ func (db *Database) GetWhitelistID(wlName string) (string, error) {
 		return "", err
 	}
 
-	dbcommon.Log.Trace("Getting ID of whitelist \""+wlName+"\": OK", nil)
+	dbcommon.Log.Trace("Getting ID of whitelist \""+whitelistName+"\": OK", nil)
 
 	return id, nil
 }
@@ -158,7 +147,7 @@ func (db *Database) DeleteWhitelist(name string) error {
 	return nil
 }
 
-func (db *Database) GetWhitelistEntries(name string) ([]*WhitelistEntry, error) {
+func (db *Database) GetWhitelistEntries(name string) ([]*entity.WhitelistEntry, error) {
 	dbcommon.Log.Trace("Getting entries of whitelist \""+name+"\"...", nil)
 
 	wl, err := db.GetWhitelistByName(name)
@@ -176,9 +165,9 @@ func (db *Database) GetWhitelistEntries(name string) ([]*WhitelistEntry, error) 
 		return nil, err
 	}
 
-	entries := []*WhitelistEntry{}
+	entries := []*entity.WhitelistEntry{}
 	for rows.Next() {
-		entry := new(WhitelistEntry)
+		entry := new(entity.WhitelistEntry)
 		if err := rows.Scan(&entry.ID, &entry.Value); err != nil {
 			return nil, err
 		}
