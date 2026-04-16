@@ -1,7 +1,7 @@
 package sqlite
 
 import (
-	"bigbrother_server_backend/packages/database/common"
+	dbcommon "bigbrother_server_backend/packages/infrastructure/database/common"
 	"database/sql"
 	"errors"
 	"fmt"
