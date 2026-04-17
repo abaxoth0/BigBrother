@@ -182,6 +182,40 @@ func (db *Database) GetWhitelistEntries(name string) ([]*entity.WhitelistEntry, 
 	return entries, nil
 }
 
+func (db *Database) GetUserWhitelistEntries(username string) ([]*entity.WhitelistEntry, error) {
+	dbcommon.Log.Trace("Getting whitelist entries of user \""+username+"\"...", nil)
+
+	// TODO check this query with multiple users and whitelists
+	rows, err := db.conn.Query(
+		`SELECT wl_entry.id, wl_entry.value as entry FROM whitelist_entry as wl_entry
+		INNER JOIN user ON user.whitelist_id = wl_entry.whitelist_id
+		WHERE user.name = ? AND user.whitelist_id = wl_entry.whitelist_id`,
+		username,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	entries := []*entity.WhitelistEntry{}
+	for rows.Next() {
+		entry := new(entity.WhitelistEntry)
+		var id []byte
+		if err := rows.Scan(&id, &entry.Value); err != nil {
+			return nil, err
+		}
+		entry.ID = string(id)
+		entries = append(entries, entry)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	dbcommon.Log.Trace("Getting whitelist entries of user \""+username+"\": OK", nil)
+
+	return entries, nil
+}
+
 func (db *Database) AddWhitelistEntry(value string, wlName string) error {
 	wlID, err := db.GetWhitelistID(wlName)
 	if err != nil {

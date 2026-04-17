@@ -3,7 +3,6 @@ package entity
 type WhitelistEntry struct {
 	ID 	  string
 	Value string
-	WhitelistID string
 }
 
 type Whitelist struct {

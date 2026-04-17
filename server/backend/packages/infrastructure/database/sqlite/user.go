@@ -60,14 +60,14 @@ func (db *Database) GetUserByAddr(userAddr string) (*entity.User, error) {
 	return &user, nil
 }
 
-func (db *Database) CreateUser(name string, addr string, whitelistID string) (string, error) {
+func (db *Database) CreateUser(name string, addr string) (string, error) {
 	dbcommon.Log.Info("Creating new user - \""+name+"\" | \""+addr+"\" ...", nil)
 
 	id := uuid.New()
 
 	_, err := db.conn.Exec(
-		"INSERT INTO user (id, name, addr, whitelist_id) VALUES (?, ?, ?, ?)",
-		id, name, addr, whitelistID,
+		"INSERT INTO user (id, name, addr, whitelist_id) VALUES (?, ?, ?)",
+		id, name, addr,
 	)
 	if err != nil {
 		return "", err
@@ -120,12 +120,16 @@ func (db *Database) ChangeUserName(username string, newUsername string) error {
 	return db.changeUserProperty("name", username, newUsername, nil)
 }
 
-func (db *Database) ChangeUsersWhitelist(newWhitelistID string, usernames ...string) error {
+func (db *Database) ChangeUsersWhitelist(newWhitelistName string, usernames ...string) error {
+	wl, err := db.GetWhitelistByName(newWhitelistName)
+	if err != nil {
+		return err
+	}
 	transaction, err := dbcommon.NewTransaction(
 		"user(-s) whitelist update",
 		db.conn,
 		func(tx *sql.Tx, username string) error {
-			if err := db.changeUserProperty("whitelist_id", username, newWhitelistID, tx); err != nil {
+			if err := db.changeUserProperty("whitelist_id", username, wl.ID, tx); err != nil {
 				return err
 			}
 			return nil

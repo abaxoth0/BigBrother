@@ -8,10 +8,10 @@ type QueryHandler interface {
 }
 
 type CommandHandler interface {
-	CreateUser(name, addr, whitelistID string) (string, error)
+	CreateUser(name, addr string) (string, error)
 	ChangeUserAddr(username string, newAddr string) error
 	ChangeUserName(username string, newUsername string) error
-	ChangeUsersWhitelist(newWhitelistID string, usernames ...string) error
+	ChangeUsersWhitelist(newWhitelistName string, usernames ...string) error
 	DeleteUsers(usernames ...string) error
 }
 
