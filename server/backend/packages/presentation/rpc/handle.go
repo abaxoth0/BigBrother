@@ -15,8 +15,8 @@ import (
 	"github.com/abaxoth0/Ain/errs"
 )
 
-const pipeName 	  = `\\.\pipe\BigBrother.Server`
-const pipeBufSize = 65536
+const backendPipeName 	  = `\\.\pipe\BigBrother.Server.Backend`
+const backendPipeBufSize = 65536
 
 const (
 	StatusOK = 1 + iota
@@ -56,16 +56,16 @@ func (h *DuplexHandler) Start() error {
 
 	cfg := &winio.PipeConfig{
 		MessageMode:      true,
-		InputBufferSize:  pipeBufSize,
-		OutputBufferSize: pipeBufSize,
+		InputBufferSize:  backendPipeBufSize,
+		OutputBufferSize: backendPipeBufSize,
 	}
-	listener, err := winio.ListenPipe(pipeName, cfg)
+	listener, err := winio.ListenPipe(backendPipeName, cfg)
 	if err != nil {
 		return err
 	}
 	defer listener.Close()
 
-	log.Info("Server listening on: "+pipeName, nil)
+	log.Info("Server listening on: "+backendPipeName, nil)
 	var wg sync.WaitGroup
 
 	for {

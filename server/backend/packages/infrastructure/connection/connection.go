@@ -63,7 +63,7 @@ func (m *MemoryResidentConnectionManager) NewConnection(user *entity.User) (*Con
 	}
 
 	conn := newConnection(user)
-	m.connections[conn.id] = conn
+	m.connections[user.Name] = conn
 
 	return conn, nil
 }
