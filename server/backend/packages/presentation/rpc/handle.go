@@ -15,7 +15,7 @@ import (
 	"github.com/abaxoth0/Ain/errs"
 )
 
-const backendPipeName 	  = `\\.\pipe\BigBrother.Server.Backend`
+const backendPipeName = `\\.\pipe\BigBrother.Server.Backend`
 const backendPipeBufSize = 65536
 
 const (
@@ -28,7 +28,7 @@ const DefaultHandlerStopTimeout = time.Second * 10
 
 type Handler interface {
 	Start() error
-	Stop(timeout time.Duration)  error
+	Stop(timeout time.Duration) error
 	handle(conn net.Conn)
 
 	Server
@@ -43,11 +43,11 @@ type DuplexHandler struct {
 	stopCh chan struct{}
 }
 
-func NewDuplexHandler() *DuplexHandler {
+func NewDuplexHandler(server *DuplexServer) *DuplexHandler {
 	return &DuplexHandler{
-		DuplexServer: new(DuplexServer),
-		doneCh: make(chan struct{}),
-		stopCh: make(chan struct{}),
+		DuplexServer: server,
+		doneCh:       make(chan struct{}),
+		stopCh:       make(chan struct{}),
 	}
 }
 
@@ -55,9 +55,11 @@ func (h *DuplexHandler) Start() error {
 	defer close(h.stopCh)
 
 	cfg := &winio.PipeConfig{
-		MessageMode:      true,
-		InputBufferSize:  backendPipeBufSize,
-		OutputBufferSize: backendPipeBufSize,
+		MessageMode:        true,
+		InputBufferSize:    backendPipeBufSize,
+		OutputBufferSize:   backendPipeBufSize,
+		// Allow authenticated users and SYSTEM full access (required cuz by default winio rejects remote connections)
+		SecurityDescriptor: "D:P(A;;GA;;;AU)(A;;GA;;;SY)",
 	}
 	listener, err := winio.ListenPipe(backendPipeName, cfg)
 	if err != nil {
@@ -85,7 +87,7 @@ func (h *DuplexHandler) Start() error {
 					wg.Add(1)
 					defer wg.Done()
 					h.handle(conn)
-				} ()
+				}()
 			}
 		}
 	}
@@ -184,7 +186,55 @@ func (h *DuplexHandler) handle(conn net.Conn) {
 				writeError(conn, requestError, "Missing name")
 				return
 			}
-			if err := h.RegisterUser(conn.RemoteAddr().String(), arg); err != nil {
+			if err := h.RegisterPendingUser(arg, conn.RemoteAddr().String()); err != nil {
+				writeError(conn, internalError, err.Error())
+				return
+			}
+			write(conn, "%d", StatusOK)
+
+		case "CONNECT":
+			if strings.TrimSpace(arg) == "" {
+				writeError(conn, requestError, "Missing name")
+				return
+			}
+			if err := h.ConnectUser(arg, conn.RemoteAddr().String()); err != nil {
+				writeError(conn, internalError, err.Error())
+				return
+			}
+			write(conn, "%d", StatusOK)
+
+		case "DISCONNECT":
+			if strings.TrimSpace(arg) == "" {
+				writeError(conn, requestError, "Missing name")
+				return
+			}
+			if err := h.DisconnectUser(arg); err != nil {
+				writeError(conn, internalError, err.Error())
+				return
+			}
+			write(conn, "%d", StatusOK)
+
+		case "REFRESH":
+			if strings.TrimSpace(arg) == "" {
+				writeError(conn, requestError, "Missing name")
+				return
+			}
+			if err := h.RefreshConnection(arg); err != nil {
+				writeError(conn, internalError, err.Error())
+				return
+			}
+			write(conn, "%d", StatusOK)
+
+		case "CHANGE_NAME":
+			// Format: CHANGE_NAME:oldName:newName
+			parts := strings.Split(arg, ":")
+			if len(parts) != 2 || strings.TrimSpace(parts[0]) == "" || strings.TrimSpace(parts[1]) == "" {
+				writeError(conn, requestError, "Invalid format, use: CHANGE_NAME:oldName:newName")
+				return
+			}
+			oldName := strings.TrimSpace(parts[0])
+			newName := strings.TrimSpace(parts[1])
+			if err := h.ChangeUserName(oldName, newName); err != nil {
 				writeError(conn, internalError, err.Error())
 				return
 			}

@@ -10,7 +10,7 @@
 #include <stdbool.h>
 #include <windows.h>
 
-#define IPC_PIPE_NAME "BigBrother Daemon"
+#define IPC_PIPE_NAME "BigBrother.Firewall"
 #define IPC_BUFFER_SIZE 4096
 
 /**

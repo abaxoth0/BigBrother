@@ -2,6 +2,8 @@ github.com/Microsoft/go-winio v0.6.2 h1:F2VQgta7ecxGYO8k3ZZz3RS8fVIXVxONVUPlNERo
 github.com/Microsoft/go-winio v0.6.2/go.mod h1:yd8OoFMLzJbo9gZq8j5qaps8bJ9aShtEA8Ipt1oGCvU=
 github.com/abaxoth0/Ain v1.2.0 h1:3c4Wtc+wtwidFnvw24bY8BllwJHxjVGhze4KblD7P3A=
 github.com/abaxoth0/Ain v1.2.0/go.mod h1:zd5cYoLdTVkV+Nc/CQO3ZgyK9bAHkFoQ9Ig3el4tf5M=
+github.com/abaxoth0/Ain v1.2.1 h1:3yugzJV4VyQEhtfWv14Cq2jskIE1j+Wy/ICdlrln4co=
+github.com/abaxoth0/Ain v1.2.1/go.mod h1:zd5cYoLdTVkV+Nc/CQO3ZgyK9bAHkFoQ9Ig3el4tf5M=
 github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=
 github.com/google/uuid v1.6.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
 github.com/ncruces/go-sqlite3 v0.33.3 h1:6jCR3KuGvJSEwhaQrkHDGeIe2qCQ6nOUDNsPz7ZIotw=

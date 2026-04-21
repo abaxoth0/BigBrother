@@ -10,7 +10,7 @@
 #include <string.h>
 #include <stdlib.h>
 
-#define CLIENT_PIPE_NAME "\\\\.\\pipe\\BigBrother Client"
+#define CLIENT_PIPE_NAME "\\\\.\\pipe\\BigBrother.Client.Backend"
 #define CLIENT_PIPE_BUFFER_SIZE 4096
 
 static void write_response(HANDLE pipe, const char* response) {
@@ -93,6 +93,65 @@ static DWORD WINAPI client_handler(LPVOID param) {
         char response[1200];
         snprintf(response, sizeof(response), "LOG_PATH:%s|%s\n", client_log, firewall_log);
         write_response(pipe, response);
+
+    } else if (strncmp(buffer, "REGISTER:", 9) == 0) {
+        char* username = buffer + 9;
+        while (*username == ' ') username++;
+        
+        if (strlen(username) == 0) {
+            write_error(pipe, "missing username");
+        } else if (ServerRegister(username) != 0) {
+            write_error(pipe, "failed to register");
+        } else {
+            SaveUserName(username);
+            write_ok(pipe);
+        }
+
+    } else if (strcmp(buffer, "CONNECT") == 0) {
+        char username[128];
+        if (LoadUserName(username, sizeof(username)) != 0 || username[0] == '\0') {
+            write_error(pipe, "no saved username");
+        } else if (ServerConnect(username) != 0) {
+            write_error(pipe, "failed to connect (not registered/approved)");
+        } else {
+            write_ok(pipe);
+        }
+
+    } else if (strcmp(buffer, "DISCONNECT") == 0) {
+        char username[128];
+        if (LoadUserName(username, sizeof(username)) != 0 || username[0] == '\0') {
+            write_error(pipe, "no saved username");
+        } else if (ServerDisconnect(username) != 0) {
+            write_error(pipe, "failed to disconnect");
+        } else {
+            write_ok(pipe);
+        }
+
+    } else if (strcmp(buffer, "REFRESH") == 0) {
+        char username[128];
+        if (LoadUserName(username, sizeof(username)) != 0 || username[0] == '\0') {
+            write_error(pipe, "not connected");
+        } else if (ServerRefresh(username) != 0) {
+            write_error(pipe, "failed to refresh");
+        } else {
+            write_ok(pipe);
+        }
+
+    } else if (strncmp(buffer, "CHANGE_NAME:", 12) == 0) {
+        char* new_name = buffer + 12;
+        while (*new_name == ' ') new_name++;
+        
+        char old_name[128];
+        if (LoadUserName(old_name, sizeof(old_name)) != 0 || old_name[0] == '\0') {
+            write_error(pipe, "no saved username");
+        } else if (strlen(new_name) == 0) {
+            write_error(pipe, "missing new name");
+        } else if (ServerChangeName(old_name, new_name) != 0) {
+            write_error(pipe, "failed to change name");
+        } else {
+            SaveUserName(new_name);
+            write_ok(pipe);
+        }
 
     } else {
         write_error(pipe, "unknown command");

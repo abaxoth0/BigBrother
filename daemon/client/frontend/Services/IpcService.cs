@@ -16,7 +16,7 @@ public class ClientStatus
 
 public class IpcService : IDisposable
 {
-    private const string PipeName = "BigBrother Client";
+    private const string PipeName = "BigBrother.Client.Backend";
     private const int MaxRetries = 3;
     private NamedPipeClientStream? _pipe;
     private bool _isConnected;

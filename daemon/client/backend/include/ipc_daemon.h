@@ -9,7 +9,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define DAEMON_PIPE_NAME "BigBrother Daemon"
+#define DAEMON_PIPE_NAME "BigBrother.Firewall"
 #define DAEMON_PIPE_BUFFER_SIZE 4096
 
 extern uint32_t g_whitelist_revision;
@@ -64,6 +64,11 @@ int DaemonReloadWhitelist(char* out_buffer, size_t buffer_size);
 void SetServerIp(const char* ip);
 
 /**
+ * @brief Load server IP from config file.
+ */
+void load_server_ip(void);
+
+/**
  * @brief Run in daemon mode - poll server for whitelist updates.
  *
  * @param server_ip Server IP address.
@@ -79,5 +84,70 @@ int DaemonRun(const char* server_ip, int poll_interval_secs);
  * @return 0 if alive, -1 if not responding.
  */
 int PingDaemon(void);
+
+/**
+ * @brief Load username from config file.
+ *
+ * @param buffer Output buffer for username.
+ * @param size Buffer size.
+ *
+ * @return 0 on success, -1 if not found or error.
+ */
+int LoadUserName(char* buffer, size_t size);
+
+/**
+ * @brief Save username to config file.
+ *
+ * @param name Username to save.
+ *
+ * @return 0 on success, -1 on error.
+ */
+int SaveUserName(const char* name);
+
+/**
+ * @brief Register user on server (pending approval).
+ *
+ * @param name Username to register.
+ *
+ * @return 0 on success, -1 on error.
+ */
+int ServerRegister(const char* name);
+
+/**
+ * @brief Connect user to server.
+ *
+ * @param name Username to connect.
+ *
+ * @return 0 on success, -1 on error.
+ */
+int ServerConnect(const char* name);
+
+/**
+ * @brief Disconnect user from server.
+ *
+ * @param name Username to disconnect.
+ *
+ * @return 0 on success, -1 on error.
+ */
+int ServerDisconnect(const char* name);
+
+/**
+ * @brief Refresh connection TTL on server.
+ *
+ * @param name Username to refresh.
+ *
+ * @return 0 on success, -1 on error.
+ */
+int ServerRefresh(const char* name);
+
+/**
+ * @brief Change username on server.
+ *
+ * @param oldName Current username.
+ * @param newName New username.
+ *
+ * @return 0 on success, -1 on error.
+ */
+int ServerChangeName(const char* oldName, const char* newName);
 
 #endif // IPC_H
