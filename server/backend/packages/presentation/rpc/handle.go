@@ -257,8 +257,30 @@ func (h *DuplexHandler) handle(conn net.Conn) {
 				write(conn, "%s:%s:%s\n", client.Name, client.Addr)
 			}
 
+		case "GET_SERVER_STATUS":
+			writeln(conn, "OK")
+
+		case "GET_CLIENTS":
+			connections := h.GetConnections()
+			writeln(conn, "OK")
+			for _, connection := range connections {
+				client := connection.GetUser()
+				write(conn, "%s:%s:%s\n", client.Name, client.Addr, "Active")
+			}
+
+		case "GET_PENDING":
+			writeln(conn, "OK")
+			// TODO: return pending users from server
+
+		case "GET_WHITELISTS":
+			writeln(conn, "OK")
+			// TODO: return whitelists from DB
+
+		case "GET_WHITELIST":
+			writeln(conn, "OK")
+			// TODO: return whitelist entries from DB
+
 		default:
 			fmt.Fprintf(conn, "ERROR: unknown command: %s\n", line)
 		}
-	}
 }

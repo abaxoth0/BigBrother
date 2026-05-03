@@ -1,0 +1,190 @@
+<Window x:Class="frontend.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:vm="clr-namespace:frontend.ViewModels"
+        mc:Ignorable="d"
+        Title="BigBrother Сервер" Height="650" Width="900"
+        WindowStartupLocation="CenterScreen"
+        Background="White">
+
+    <Window.DataContext>
+        <vm:MainViewModel/>
+    </Window.DataContext>
+
+    <Window.Resources>
+        <SolidColorBrush x:Key="BorderBrush" Color="#CCCCCC"/>
+        <SolidColorBrush x:Key="HeaderBackground" Color="#F0F0F0"/>
+        <SolidColorBrush x:Key="StatusRunning" Color="#4CAF50"/>
+
+        <Style x:Key="ControlButton" TargetType="Button">
+            <Setter Property="Padding" Value="8,4"/>
+            <Setter Property="Margin" Value="2,0"/>
+            <Setter Property="MinWidth" Value="70"/>
+        </Style>
+
+        <Style TargetType="TextBox">
+            <Setter Property="Padding" Value="4,2"/>
+            <Setter Property="Height" Value="22"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+        </Style>
+
+        <Style TargetType="ComboBox">
+            <Setter Property="Padding" Value="4,2"/>
+            <Setter Property="Height" Value="22"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <Border Grid.Row="0" Background="{StaticResource HeaderBackground}" Padding="10,5">
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Text="Сервер: " Foreground="Black" VerticalAlignment="Center" FontSize="14"/>
+                <Ellipse Width="10" Height="10" Fill="{StaticResource StatusRunning}" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                <TextBlock Text="{Binding ServerStatus}" Foreground="Black" VerticalAlignment="Center" FontSize="14" FontWeight="Bold"/>
+                <TextBlock Text="  |  " Foreground="Gray" VerticalAlignment="Center"/>
+                <TextBlock Text="{Binding Uptime}" Foreground="Gray" VerticalAlignment="Center"/>
+            </StackPanel>
+        </Border>
+
+        <!-- Tabs -->
+        <TabControl Grid.Row="1" Margin="5">
+
+            <!-- Users Tab -->
+            <TabItem Header="Пользователи">
+                <Grid Background="White" Margin="5">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- Connected Clients -->
+                    <Grid Grid.Row="0" Background="{StaticResource HeaderBackground}" Margin="0,0,0,2">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <TextBlock Grid.Column="0" Margin="10,5" VerticalAlignment="Center" FontWeight="Bold">
+                            <Run Text="Подключённые клиенты ("/>
+                            <Run Text="{Binding ConnectedClientsCount, Mode=OneWay}"/>
+                            <Run Text=")"/>
+                        </TextBlock>
+                        <Button Grid.Column="2" Content="Обновить" Style="{StaticResource ControlButton}" Command="{Binding RefreshCommand}"/>
+                    </Grid>
+
+                    <DataGrid Grid.Row="1" ItemsSource="{Binding ConnectedClients}" AutoGenerateColumns="False"
+                            Background="White" Foreground="Black" BorderBrush="{StaticResource BorderBrush}"
+                            CanUserAddRows="False" CanUserDeleteRows="False" IsReadOnly="True"
+                            GridLinesVisibility="Horizontal" HeadersVisibility="Column">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Имя" Binding="{Binding Name}" Width="150"/>
+                            <DataGridTextColumn Header="Адрес" Binding="{Binding Address}" Width="150"/>
+                            <DataGridTextColumn Header="Статус" Binding="{Binding Status}" Width="100"/>
+                            <DataGridTextColumn Header="Список" Binding="{Binding Whitelist}" Width="100"/>
+                            <DataGridTextColumn Header="Последняя активность" Binding="{Binding LastActivity, StringFormat=HH:mm:ss}" Width="120"/>
+                        </DataGrid.Columns>
+                        <DataGrid.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="Отключить" Command="{Binding DisconnectCommand}" CommandParameter="{Binding SelectedItem.Name, RelativeSource={RelativeSource AncestorType=DataGrid}}"/>
+                            </ContextMenu>
+                        </DataGrid.ContextMenu>
+                    </DataGrid>
+
+                    <!-- Pending Registrations -->
+                    <Grid Grid.Row="2" Background="{StaticResource HeaderBackground}" Margin="0,10,0,2">
+                        <TextBlock Margin="10,5" VerticalAlignment="Center" FontWeight="Bold">
+                            <Run Text="Ожидающие регистрации ("/>
+                            <Run Text="{Binding PendingCount, Mode=OneWay}"/>
+                            <Run Text=")"/>
+                        </TextBlock>
+                    </Grid>
+
+                    <DataGrid Grid.Row="3" ItemsSource="{Binding PendingRegistrations}" AutoGenerateColumns="False"
+                            Background="White" Foreground="Black" BorderBrush="{StaticResource BorderBrush}"
+                            CanUserAddRows="False" CanUserDeleteRows="False" IsReadOnly="True"
+                            GridLinesVisibility="Horizontal" HeadersVisibility="Column">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Имя" Binding="{Binding Name}" Width="150"/>
+                            <DataGridTextColumn Header="Адрес" Binding="{Binding Address}" Width="150"/>
+                            <DataGridTextColumn Header="Запрошено" Binding="{Binding CreatedAt, StringFormat=yyyy-MM-dd HH:mm}" Width="150"/>
+                        </DataGrid.Columns>
+                        <DataGrid.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="Одобрить" Command="{Binding ApproveCommand}" CommandParameter="{Binding SelectedItem.Name, RelativeSource={RelativeSource AncestorType=DataGrid}}"/>
+                                <MenuItem Header="Отклонить" Command="{Binding RejectCommand}" CommandParameter="{Binding SelectedItem.Name, RelativeSource={RelativeSource AncestorType=DataGrid}}"/>
+                            </ContextMenu>
+                        </DataGrid.ContextMenu>
+                    </DataGrid>
+                </Grid>
+            </TabItem>
+
+            <!-- Whitelists Tab -->
+            <TabItem Header="Списки">
+                <Grid Background="White" Margin="5">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- Active Whitelist -->
+                    <Grid Grid.Row="0" Background="{StaticResource HeaderBackground}" Margin="0,0,0,5">
+                        <StackPanel Orientation="Horizontal" Margin="10,5">
+                            <TextBlock Text="Активный: " VerticalAlignment="Center" FontWeight="Bold"/>
+                            <TextBlock Text="{Binding ActiveWhitelist}" VerticalAlignment="Center" Foreground="Gray"/>
+                            <TextBlock Text="  |  " VerticalAlignment="Center" Margin="10,0"/>
+                            <TextBlock Text="Просмотр: " VerticalAlignment="Center" FontWeight="Bold"/>
+                            <ComboBox ItemsSource="{Binding Whitelists}" SelectedItem="{Binding SelectedWhitelist}" DisplayMemberPath="Name" Width="150"/>
+                            <Button Content="Установить" Style="{StaticResource ControlButton}" Command="{Binding SetActiveWhitelistCommand}" CommandParameter="{Binding SelectedWhitelistName}"/>
+                            <Button Content="Создать" Style="{StaticResource ControlButton}" Command="{Binding OpenCreateWhitelistCommand}"/>
+                        </StackPanel>
+                    </Grid>
+
+                    <!-- Whitelists List -->
+                    <DataGrid Grid.Row="1" ItemsSource="{Binding Whitelists}" AutoGenerateColumns="False"
+                            Background="White" Foreground="Black" BorderBrush="{StaticResource BorderBrush}"
+                            CanUserAddRows="False" CanUserDeleteRows="False" IsReadOnly="True"
+                            SelectedItem="{Binding SelectedWhitelist}"
+                            GridLinesVisibility="Horizontal" HeadersVisibility="Column">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Название" Binding="{Binding Name}" Width="200"/>
+                            <DataGridTextColumn Header="Записей" Binding="{Binding EntryCount}" Width="100"/>
+                        </DataGrid.Columns>
+                        <DataGrid.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="Установить активным" Command="{Binding SetActiveWhitelistCommand}" CommandParameter="{Binding SelectedItem.Name, RelativeSource={RelativeSource AncestorType=DataGrid}}"/>
+                                <MenuItem Header="Редактировать" Command="{Binding OpenEditWhitelistCommand}" CommandParameter="{Binding SelectedItem, RelativeSource={RelativeSource AncestorType=DataGrid}}"/>
+                                <Separator/>
+                                <MenuItem Header="Удалить" Command="{Binding DeleteWhitelistCommand}" CommandParameter="{Binding SelectedItem.Name, RelativeSource={RelativeSource AncestorType=DataGrid}}"/>
+                            </ContextMenu>
+                        </DataGrid.ContextMenu>
+                    </DataGrid>
+                </Grid>
+            </TabItem>
+
+            <!-- Logs Tab -->
+            <TabItem Header="Логи">
+                <Grid Background="White" Margin="5">
+                    <ListBox ItemsSource="{Binding LogEntries}" Background="White" Foreground="Black" FontFamily="Consolas"/>
+                </Grid>
+            </TabItem>
+
+            <!-- Settings Tab -->
+            <TabItem Header="Настройки">
+                <Grid Background="White" Margin="10">
+                    <TextBlock Text="Настройки (скоро)..." Foreground="Gray" FontSize="18" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Grid>
+            </TabItem>
+        </TabControl>
+    </Grid>
+</Window>
