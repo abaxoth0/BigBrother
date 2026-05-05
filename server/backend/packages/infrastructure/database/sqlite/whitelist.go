@@ -28,6 +28,35 @@ func (db *Database) CreateWhitelist(name string, parentID string) error {
 	return nil
 }
 
+func (db *Database) GetWhitelists() ([]*entity.Whitelist, error) {
+	dbcommon.Log.Trace("Getting whitelists...", nil)
+
+	rows, err := db.conn.Query(`SELECT id, name, parent_id FROM whitelist`)
+	if err != nil {
+		return nil, err
+	}
+
+	wls := []*entity.Whitelist{}
+	for rows.Next() {
+		wl := new(entity.Whitelist)
+		var parentID sql.NullString
+		if err := rows.Scan(&wl.ID, &wl.Name, &parentID); err != nil {
+			return nil, err
+		}
+		if parentID.Valid {
+			wl.ParentID = parentID.String
+		}
+		wls = append(wls, wl)
+	}
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+
+	dbcommon.Log.Trace("Getting whitelists: OK", nil)
+
+	return wls, nil
+}
+
 var whitelistProperties  = []string{"id", "name"}
 
 func (db *Database) getWhitelistBy(property string, value string) (*entity.Whitelist, error) {

@@ -7,6 +7,7 @@ import (
 	"bigbrother_server_backend/packages/common/log"
 	"bigbrother_server_backend/packages/infrastructure/connection"
 	"bigbrother_server_backend/packages/infrastructure/database/sqlite"
+	"bigbrother_server_backend/packages/infrastructure/pending"
 	"bigbrother_server_backend/packages/presentation/rpc"
 	"time"
 
@@ -14,6 +15,13 @@ import (
 )
 
 var mainLogger = logger.NewSource("MAIN", log.DefaultLogger)
+
+const frontendPipePath = `\\.\pipe\BigBrother.Server.Frontend`
+const backendPipePath  = `\\.\pipe\BigBrother.Server.Backend`
+const frontendPipeBufSize = 65536
+const backendPipeBufSize  = 65536
+
+const backendSecurityDescriptor = "D:P(A;;GA;;;AU)(A;;GA;;;SY)"
 
 func main() {
 	log.DefaultLoggerConfig.Trace = true
@@ -37,23 +45,43 @@ func main() {
 	// Reserve some time for logger to start up
 	time.Sleep(time.Millisecond * 50)
 
-	connManger := connection.NewMemoryResidentConnectionManager()
+	connManager := connection.NewMemoryResidentConnectionManager()
 	db := sqlite.New("bb-server.db")
 	if err := db.Connect(); err != nil {
 		mainLogger.Fatal("Database connection error", err.Error(), nil)
 	}
 	defer db.Disconnect()
 
-	server := rpc.NewDuplexServer(db, connManger)
-	handler := rpc.NewDuplexHandler(server)
+	pendingUsersStorage := pending.NewUserStorage()
 
-	if err := handler.Start(); err != nil {
-		mainLogger.Fatal("RPC Handler error", err.Error(), nil)
+	backendServer := rpc.NewServer(
+		"Backend",
+		rpc.NewBackendHandler(db, connManager, pendingUsersStorage) ,
+		&rpc.ServerConfig{
+			InputBufferSize: 	backendPipeBufSize,
+			OutputBufferSize: 	backendPipeBufSize,
+			SecurityDescriptor: backendSecurityDescriptor,
+		},
+	)
+
+	frontendServer := rpc.NewServer(
+		"Frontend",
+		rpc.NewFrontendHandler(db, connManager, pendingUsersStorage),
+		&rpc.ServerConfig{
+			InputBufferSize: 	frontendPipeBufSize,
+			OutputBufferSize: 	frontendPipeBufSize,
+		},
+	)
+
+	// TODO make this thread a hypervisor which will track status of those servers and restart them if anything
+
+	go func() {
+		if err := frontendServer.Start(frontendPipePath); err != nil {
+			mainLogger.Fatal("Frontend RPC Handler error", err.Error(), nil)
+		}
+	}()
+
+	if err := backendServer.Start(backendPipePath); err != nil {
+		mainLogger.Fatal("Backend RPC Handler error", err.Error(), nil)
 	}
-
-	// if err := sqlite.Test(); err != nil {
-	// 	panic(err)
-	// }
-	//
-	// fmt.Println("TEST: OK")
 }

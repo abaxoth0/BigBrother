@@ -3,6 +3,7 @@ package whitelistapplication
 import "bigbrother_server_backend/packages/domain/entity"
 
 type QueryHandler interface {
+	GetWhitelists() ([]*entity.Whitelist, error)
 	GetWhitelistByID(id string) (*entity.Whitelist, error)
 	GetWhitelistByName(name string) (*entity.Whitelist, error)
 	GetWhitelistID(whitelistName string) (string, error)
