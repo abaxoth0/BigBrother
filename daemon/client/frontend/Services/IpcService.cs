@@ -183,13 +183,13 @@ public class IpcService : IDisposable
                     status.IpAddress = data[1];
                     status.DaemonStatus = data[2] == "running" ? "RUNNING" : "NOT_RUNNING";
                     status.ClientBackendStatus = data[3] == "running" ? "RUNNING" : "NOT_RUNNING";
-                    if (uint.TryParse(data[3], out uint pid))
-                    {
-                        status.ClientPid = (int)pid;
-                    }
                     if (data.Count > 4 && uint.TryParse(data[4], out uint revision))
                     {
                         status.WhitelistRevision = revision;
+                    }
+                    if (data.Count > 5 && uint.TryParse(data[5], out uint pid))
+                    {
+                        status.ClientPid = (int)pid;
                     }
                 }
             }

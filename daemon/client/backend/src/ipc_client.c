@@ -193,17 +193,22 @@ DWORD WINAPI client_handler(LPVOID param) {
         // Build response with separate TLV values
         // data[0] = ClientName, data[1] = IpAddress, data[2] = DaemonStatus
         // data[3] = Backend status ("running"), data[4] = WhitelistRevision
+        // data[5] = PID
+        char pid_str[32];
+        snprintf(pid_str, sizeof(pid_str), "%lu", GetCurrentProcessId());
+
         char rev_str[32];
         snprintf(rev_str, sizeof(rev_str), "%u", g_whitelist_revision);
 
-        const char* data[5] = {
+        const char* data[6] = {
             client_name[0] ? client_name : "unknown",
             "127.0.0.1",
             daemon_ok ? "running" : "not_running",
             "running",
-            rev_str
+            rev_str,
+            pid_str
         };
-        write_response_tlv(pipe, "OK", data, 5);
+        write_response_tlv(pipe, "OK", data, 6);
 
     } else if (strcmp(buffer, "GET_WHITELIST") == 0) {
         char whitelist_buf[8192];

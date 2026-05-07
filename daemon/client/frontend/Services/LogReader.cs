@@ -135,9 +135,6 @@ public class LogReader
                 var lines = new List<string>();
                 foreach (var entry in entries)
                 {
-                    if (_source != LogSource.Frontend && entry.Level == LogLevel.Info)
-                        continue;
-                    
                     entry.Source = _source;
                     
                     string levelStr = entry.Level switch
