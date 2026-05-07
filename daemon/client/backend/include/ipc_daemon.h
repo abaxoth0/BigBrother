@@ -8,11 +8,13 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <windows.h>
 
 #define DAEMON_PIPE_NAME "BigBrother.Firewall"
 #define DAEMON_PIPE_BUFFER_SIZE 4096
 
 extern uint32_t g_whitelist_revision;
+extern HANDLE g_ServiceStopEvent;
 
 /**
  * @brief Connect to the daemon and get status.

@@ -3,23 +3,17 @@
 package rpc
 
 import (
+	"bufio"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"time"
+
 	"bigbrother_server_backend/packages/domain/entity"
 	"bigbrother_server_backend/packages/infrastructure/connection"
 	"bigbrother_server_backend/packages/infrastructure/database"
 	"bigbrother_server_backend/packages/infrastructure/pending"
-	"bufio"
-	"errors"
-	"fmt"
-	"net"
-	"strings"
-	"time"
-)
-
-// TODO remove?
-const (
-	StatusOK = 1 + iota
-	StatusClients
-	StatusServerStatus
 )
 
 type BackendHandler struct {
@@ -46,93 +40,86 @@ func (h *BackendHandler) handle(conn net.Conn) {
 	log.Info("Client connected", nil)
 
 	scanner := bufio.NewScanner(conn)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
-		}
-
-		log.Debug("Received: "+line, nil)
-
-		msg := strings.Split(line, ":")
-		if len(msg) > 2 {
-			writeError(conn, requestError, "Invalid request syntax (':' duplication)")
+	for {
+		cmd, args, err := readRequest(scanner)
+		if err != nil {
+			if err != io.EOF {
+				writeErrorTLV(conn, err.Error())
+			}
 			return
 		}
-		cmd, arg := msg[0], ""
-		if len(msg) > 1 {
-			arg = strings.TrimSpace(msg[1])
-		}
+
+		log.Debug("Received: "+cmd, nil)
 
 		switch cmd {
 		case "GET_WHITELIST":
-			wl := h.GetWhitelist(arg)
-
-			writeln(conn, "WHITELIST")
-			for _, entry := range wl {
-				writeln(conn, entry)
+			if len(args) < 1 {
+				writeErrorTLV(conn, "Missing username")
+				continue
 			}
+			wl := h.GetWhitelist(args[0])
+			var data []string
+			for _, entry := range wl {
+				data = append(data, entry.Value)
+			}
+			writeTLVResponse(conn, data...)
 
 		case "REGISTER":
-			if strings.TrimSpace(arg) == "" {
-				writeError(conn, requestError, "Missing name")
-				return
+			if len(args) < 1 {
+				writeErrorTLV(conn, "Missing name")
+				continue
 			}
-			if err := h.RegisterPendingUser(arg, conn.RemoteAddr().String()); err != nil {
-				writeError(conn, internalError, err.Error())
-				return
+			if err := h.RegisterPendingUser(args[0], conn.RemoteAddr().String()); err != nil {
+				writeErrorTLV(conn, err.Error())
+			} else {
+				writeOK(conn)
 			}
-			write(conn, "%d", StatusOK)
 
 		case "CONNECT":
-			if strings.TrimSpace(arg) == "" {
-				writeError(conn, requestError, "Missing name")
-				return
+			if len(args) < 1 {
+				writeErrorTLV(conn, "Missing name")
+				continue
 			}
-			if err := h.ConnectUser(arg, conn.RemoteAddr().String()); err != nil {
-				writeError(conn, internalError, err.Error())
-				return
+			if err := h.ConnectUser(args[0], conn.RemoteAddr().String()); err != nil {
+				writeErrorTLV(conn, err.Error())
+			} else {
+				writeOK(conn)
 			}
-			write(conn, "%d", StatusOK)
 
 		case "DISCONNECT":
-			if strings.TrimSpace(arg) == "" {
-				writeError(conn, requestError, "Missing name")
-				return
+			if len(args) < 1 {
+				writeErrorTLV(conn, "Missing name")
+				continue
 			}
-			if err := h.DisconnectUser(arg); err != nil {
-				writeError(conn, internalError, err.Error())
-				return
+			if err := h.DisconnectUser(args[0]); err != nil {
+				writeErrorTLV(conn, err.Error())
+			} else {
+				writeOK(conn)
 			}
-			write(conn, "%d", StatusOK)
 
 		case "REFRESH":
-			if strings.TrimSpace(arg) == "" {
-				writeError(conn, requestError, "Missing name")
-				return
+			if len(args) < 1 {
+				writeErrorTLV(conn, "Missing name")
+				continue
 			}
-			if err := h.RefreshConnection(arg); err != nil {
-				writeError(conn, internalError, err.Error())
-				return
+			if err := h.RefreshConnection(args[0]); err != nil {
+				writeErrorTLV(conn, err.Error())
+			} else {
+				writeOK(conn)
 			}
-			write(conn, "%d", StatusOK)
-
 
 		case "GET_STATUS":
 			status := h.GetStatus()
-			writeln(conn, StatusServerStatus)
-			writeln(conn, "uptime:"+status.Uptime.String())
+			var data []string
+			data = append(data, fmt.Sprintf("uptime:%s", status.Uptime.String()))
 			for _, connection := range status.Connections {
 				client := connection.GetUser()
-				write(conn, "%s:%s:%s\n", client.Name, client.Addr)
+				data = append(data, fmt.Sprintf("%s:%s:%s", client.Name, client.Addr, "Active"))
 			}
-
-		// TODO remove
-		case "GET_SERVER_STATUS":
-			writeln(conn, "OK")
+			writeTLVResponse(conn, data...)
 
 		default:
-			fmt.Fprintf(conn, "ERROR: unknown command: %s\n", line)
+			writeErrorTLV(conn, fmt.Sprintf("unknown command: %s", cmd))
 		}
 	}
 }
@@ -174,7 +161,6 @@ func (s *BackendHandler) ConnectUser(name string, addr string) error {
 	if err := s.db.ChangeUserAddr(name, addr); err != nil {
 		return err
 	}
-
 	_, err = s.connManager.NewConnection(user)
 	return err
 }
@@ -228,20 +214,20 @@ func (s *BackendHandler) DeleteUsers(usernames ...string) error {
 		for i, errMsg := range errMsgs {
 			msg += fmt.Sprintf("%d %s\n", i+1, errMsg)
 		}
-		return errors.New(msg)
+		return fmt.Errorf(msg)
 	}
 	return nil
 }
 
-func (h *BackendHandler) RegisterPendingUser(username, addr string) error {
-	user, err := h.pendingUsers.Pop(username)
+func (s *BackendHandler) RegisterPendingUser(username, addr string) error {
+	user, err := s.pendingUsers.Pop(username)
 	if err != nil {
 		return err
 	}
 	if user.Addr != addr {
 		user.Addr = addr
 	}
-	if _, err := h.db.CreateUser(user.Name, user.Addr); err != nil {
+	if _, err := s.db.CreateUser(user.Name, user.Addr); err != nil {
 		return err
 	}
 	return nil

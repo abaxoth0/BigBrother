@@ -1,5 +1,6 @@
 using System.IO;
 using System.IO.Pipes;
+using System.Text;
 
 namespace frontend.Services;
 
@@ -109,29 +110,71 @@ public class IpcService : IDisposable
         }
     }
 
-    private string SendCommand(string command)
+    private (string status, List<string> data) SendCommand(string cmd, params string[] args)
     {
         if (_pipe == null || !_isConnected)
         {
             _lastError = "Not connected";
-            return "";
+            return ("", new List<string>());
         }
 
         try
         {
-            var writer = new StreamWriter(_pipe!) { AutoFlush = true };
-            var reader = new StreamReader(_pipe!);
+            var writer = new StreamWriter(_pipe) { AutoFlush = true };
+            var reader = new StreamReader(_pipe);
 
-            writer.WriteLine(command);
+            // Write TLV request: command\n<len>\n<arg>\n...\n (empty line terminates)
+            writer.WriteLine(cmd);
+            foreach (var arg in args)
+            {
+                writer.Write(arg.Length + "\n");
+                writer.Write(arg + "\n");
+            }
+            writer.WriteLine(); // empty line terminates request
 
-            var response = reader.ReadLine();
-            return response?.Trim() ?? "";
+            // Read response: status\n[TLV data...\n] (empty line terminates)
+            var status = reader.ReadLine();
+            if (string.IsNullOrEmpty(status)) return ("", new List<string>());
+
+            var data = new List<string>();
+            if (status == "OK")
+            {
+                // Read TLV data until empty line
+                while (true)
+                {
+                    var lenLine = reader.ReadLine();
+                    if (string.IsNullOrEmpty(lenLine)) break; // empty line terminates response
+
+                    if (!int.TryParse(lenLine, out int len) || len < 0)
+                    {
+                        break; // invalid TLV
+                    }
+
+                    var value = reader.ReadLine();
+                    if (value == null) break;
+                    if (value.Length != len) break; // length mismatch
+
+                    data.Add(value);
+                }
+            }
+            else if (status == "ERROR")
+            {
+                // Read error message as TLV
+                var lenLine = reader.ReadLine();
+                if (!string.IsNullOrEmpty(lenLine) && int.TryParse(lenLine, out int len))
+                {
+                    var errorMsg = reader.ReadLine();
+                    _lastError = errorMsg ?? "Unknown error";
+                }
+            }
+
+            return (status, data);
         }
         catch (Exception ex)
         {
             _lastError = ex.Message;
             _isConnected = false;
-            return "";
+            return ("", new List<string>());
         }
     }
 
@@ -149,8 +192,8 @@ public class IpcService : IDisposable
 
             try
             {
-                var result = SendCommand("GET_SERVER_STATUS");
-                status.IsRunning = result == "OK" || result.StartsWith("OK");
+                var (responseStatus, _) = SendCommand("GET_SERVER_STATUS");
+                status.IsRunning = responseStatus == "OK";
             }
             finally
             {
@@ -179,32 +222,21 @@ public class IpcService : IDisposable
 
             try
             {
-                var writer = new StreamWriter(_pipe!) { AutoFlush = true };
-                var reader = new StreamReader(_pipe!);
-
-                writer.WriteLine("GET_CLIENTS");
-
-                string? line;
-                while ((line = reader.ReadLine()) != null)
+                var (status, data) = SendCommand("GET_CLIENTS");
+                if (status == "OK")
                 {
-                    if (string.IsNullOrWhiteSpace(line)) break;
-                    if (line == "OK")
+                    foreach (var line in data)
                     {
-                        while ((line = reader.ReadLine()) != null)
+                        var parts = line.Split(':');
+                        if (parts.Length >= 2)
                         {
-                            if (string.IsNullOrWhiteSpace(line)) break;
-                            var parts = line.Split(':');
-                            if (parts.Length >= 2)
+                            clients.Add(new ConnectedClient
                             {
-                                clients.Add(new ConnectedClient
-                                {
-                                    Name = parts[0],
-                                    Address = parts[1],
-                                    Status = parts.Length > 2 ? parts[2] : "Active"
-                                });
-                            }
+                                Name = parts[0],
+                                Address = parts[1],
+                                Status = parts.Length > 2 ? parts[2] : "Active"
+                            });
                         }
-                        break;
                     }
                 }
             }
@@ -235,31 +267,20 @@ public class IpcService : IDisposable
 
             try
             {
-                var writer = new StreamWriter(_pipe!) { AutoFlush = true };
-                var reader = new StreamReader(_pipe!);
-
-                writer.WriteLine("GET_PENDING");
-
-                string? line;
-                while ((line = reader.ReadLine()) != null)
+                var (status, data) = SendCommand("GET_PENDING");
+                if (status == "OK")
                 {
-                    if (string.IsNullOrWhiteSpace(line)) break;
-                    if (line == "OK")
+                    foreach (var line in data)
                     {
-                        while ((line = reader.ReadLine()) != null)
+                        var parts = line.Split(':');
+                        if (parts.Length >= 2)
                         {
-                            if (string.IsNullOrWhiteSpace(line)) break;
-                            var parts = line.Split(':');
-                            if (parts.Length >= 2)
+                            pending.Add(new PendingRegistration
                             {
-                                pending.Add(new PendingRegistration
-                                {
-                                    Name = parts[0],
-                                    Address = parts[1]
-                                });
-                            }
+                                Name = parts[0],
+                                Address = parts[1]
+                            });
                         }
-                        break;
                     }
                 }
             }
@@ -284,17 +305,9 @@ public class IpcService : IDisposable
             try
             {
                 if (!ConnectAsync().Result) return false;
-
-                try
-                {
-                    var result = SendCommand($"APPROVE:{name}");
-                    Disconnect();
-                    return result == "OK";
-                }
-                finally
-                {
-                    Disconnect();
-                }
+                var (status, _) = SendCommand("APPROVE", name);
+                Disconnect();
+                return status == "OK";
             }
             finally
             {
@@ -311,17 +324,9 @@ public class IpcService : IDisposable
             try
             {
                 if (!ConnectAsync().Result) return false;
-
-                try
-                {
-                    var result = SendCommand($"REJECT:{name}");
-                    Disconnect();
-                    return result == "OK";
-                }
-                finally
-                {
-                    Disconnect();
-                }
+                var (status, _) = SendCommand("REJECT", name);
+                Disconnect();
+                return status == "OK";
             }
             finally
             {
@@ -338,17 +343,9 @@ public class IpcService : IDisposable
             try
             {
                 if (!ConnectAsync().Result) return false;
-
-                try
-                {
-                    var result = SendCommand($"DISCONNECT:{name}");
-                    Disconnect();
-                    return result == "OK";
-                }
-                finally
-                {
-                    Disconnect();
-                }
+                var (status, _) = SendCommand("DISCONNECT", name);
+                Disconnect();
+                return status == "OK";
             }
             finally
             {
@@ -371,31 +368,20 @@ public class IpcService : IDisposable
 
             try
             {
-                var writer = new StreamWriter(_pipe!) { AutoFlush = true };
-                var reader = new StreamReader(_pipe!);
-
-                writer.WriteLine("GET_WHITELISTS");
-
-                string? line;
-                while ((line = reader.ReadLine()) != null)
+                var (status, data) = SendCommand("GET_WHITELISTS");
+                if (status == "OK")
                 {
-                    if (string.IsNullOrWhiteSpace(line)) break;
-                    if (line == "OK")
+                    foreach (var line in data)
                     {
-                        while ((line = reader.ReadLine()) != null)
+                        var parts = line.Split(':');
+                        if (parts.Length >= 1)
                         {
-                            if (string.IsNullOrWhiteSpace(line)) break;
-                            var parts = line.Split(':');
-                            if (parts.Length >= 1)
+                            whitelists.Add(new WhitelistInfo
                             {
-                                whitelists.Add(new WhitelistInfo
-                                {
-                                    Name = parts[0],
-                                    EntryCount = parts.Length > 1 && int.TryParse(parts[1], out var count) ? count : 0
-                                });
-                            }
+                                Name = parts[0],
+                                EntryCount = parts.Length > 1 && int.TryParse(parts[1], out var count) ? count : 0
+                            });
                         }
-                        break;
                     }
                 }
             }
@@ -426,24 +412,10 @@ public class IpcService : IDisposable
 
             try
             {
-                var writer = new StreamWriter(_pipe!) { AutoFlush = true };
-                var reader = new StreamReader(_pipe!);
-
-                writer.WriteLine($"GET_WHITELIST:{whitelistName}");
-
-                string? line;
-                while ((line = reader.ReadLine()) != null)
+                var (status, data) = SendCommand("GET_WHITELIST", whitelistName);
+                if (status == "OK")
                 {
-                    if (string.IsNullOrWhiteSpace(line)) break;
-                    if (line == "OK")
-                    {
-                        while ((line = reader.ReadLine()) != null)
-                        {
-                            if (string.IsNullOrWhiteSpace(line)) break;
-                            entries.Add(line);
-                        }
-                        break;
-                    }
+                    entries.AddRange(data);
                 }
             }
             finally
@@ -459,60 +431,6 @@ public class IpcService : IDisposable
         return entries;
     }
 
-    public async Task<bool> AddWhitelistEntryAsync(string whitelistName, string entry)
-    {
-        return await Task.Run(() =>
-        {
-            _connectionLock.Wait();
-            try
-            {
-                if (!ConnectAsync().Result) return false;
-
-                try
-                {
-                    var result = SendCommand($"ADD_WHITELIST_ENTRY:{whitelistName}:{entry}");
-                    Disconnect();
-                    return result == "OK";
-                }
-                finally
-                {
-                    Disconnect();
-                }
-            }
-            finally
-            {
-                _connectionLock.Release();
-            }
-        });
-    }
-
-    public async Task<bool> DeleteWhitelistEntryAsync(string whitelistName, string entry)
-    {
-        return await Task.Run(() =>
-        {
-            _connectionLock.Wait();
-            try
-            {
-                if (!ConnectAsync().Result) return false;
-
-                try
-                {
-                    var result = SendCommand($"DELETE_WHITELIST_ENTRY:{whitelistName}:{entry}");
-                    Disconnect();
-                    return result == "OK";
-                }
-                finally
-                {
-                    Disconnect();
-                }
-            }
-            finally
-            {
-                _connectionLock.Release();
-            }
-        });
-    }
-
     public async Task<bool> CreateWhitelistAsync(string name)
     {
         return await Task.Run(() =>
@@ -521,17 +439,9 @@ public class IpcService : IDisposable
             try
             {
                 if (!ConnectAsync().Result) return false;
-
-                try
-                {
-                    var result = SendCommand($"CREATE_WHITELIST:{name}");
-                    Disconnect();
-                    return result == "OK";
-                }
-                finally
-                {
-                    Disconnect();
-                }
+                var (status, _) = SendCommand("CREATE_WHITELIST", name);
+                Disconnect();
+                return status == "OK";
             }
             finally
             {
@@ -548,17 +458,9 @@ public class IpcService : IDisposable
             try
             {
                 if (!ConnectAsync().Result) return false;
-
-                try
-                {
-                    var result = SendCommand($"DELETE_WHITELIST:{name}");
-                    Disconnect();
-                    return result == "OK";
-                }
-                finally
-                {
-                    Disconnect();
-                }
+                var (status, _) = SendCommand("DELETE_WHITELIST", name);
+                Disconnect();
+                return status == "OK";
             }
             finally
             {
@@ -575,17 +477,9 @@ public class IpcService : IDisposable
             try
             {
                 if (!ConnectAsync().Result) return false;
-
-                try
-                {
-                    var result = SendCommand($"SET_ACTIVE_WHITELIST:{name}");
-                    Disconnect();
-                    return result == "OK";
-                }
-                finally
-                {
-                    Disconnect();
-                }
+                var (status, _) = SendCommand("SET_ACTIVE_WHITELIST", name);
+                Disconnect();
+                return status == "OK";
             }
             finally
             {
@@ -608,23 +502,31 @@ public class IpcService : IDisposable
                     var writer = new StreamWriter(_pipe!) { AutoFlush = true };
                     var reader = new StreamReader(_pipe!);
 
-                    writer.WriteLine($"SAVE_WHITELIST:{name}");
+                    // Write command
+                    writer.WriteLine("SAVE_WHITELIST");
+                    writer.Write(name.Length + "\n");
+                    writer.Write(name + "\n");
+
+                    // Write entries as TLV
                     foreach (var entry in entries)
                     {
                         if (!string.IsNullOrWhiteSpace(entry))
                         {
-                            writer.WriteLine(entry);
+                            writer.Write(entry.Length + "\n");
+                            writer.Write(entry + "\n");
                         }
                     }
-                    writer.WriteLine();
+                    writer.WriteLine(); // empty line terminates request
 
-                    var response = reader.ReadLine();
+                    // Read response
+                    var status = reader.ReadLine();
                     Disconnect();
-                    return response == "OK";
+                    return status == "OK";
                 }
-                finally
+                catch
                 {
                     Disconnect();
+                    return false;
                 }
             }
             finally
@@ -642,17 +544,9 @@ public class IpcService : IDisposable
             try
             {
                 if (!ConnectAsync().Result) return false;
-
-                try
-                {
-                    var result = SendCommand($"RENAME_WHITELIST:{oldName}:{newName}");
-                    Disconnect();
-                    return result == "OK";
-                }
-                finally
-                {
-                    Disconnect();
-                }
+                var (status, _) = SendCommand("RENAME_WHITELIST", oldName, newName);
+                Disconnect();
+                return status == "OK";
             }
             finally
             {

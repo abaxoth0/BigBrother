@@ -1,5 +1,6 @@
 using System.IO;
 using System.IO.Pipes;
+using System.Text;
 
 namespace frontend.Services;
 
@@ -30,14 +31,13 @@ public class IpcService : IDisposable
     {
         try
         {
-            // Ensure any previous pipe is fully disposed
             if (_pipe != null)
             {
                 try { _pipe.Dispose(); } catch { }
                 _pipe = null;
                 _isConnected = false;
             }
-            
+
             for (int attempt = 0; attempt < MaxRetries; attempt++)
             {
                 try
@@ -56,21 +56,18 @@ public class IpcService : IDisposable
                         try { _pipe.Dispose(); } catch { }
                         _pipe = null;
                     }
-                    
+
                     if (attempt < MaxRetries - 1)
                     {
                         await Task.Delay(50 * (attempt + 1));
                     }
                 }
             }
-            
+
             _lastError = "Failed to connect after " + MaxRetries + " attempts";
             return false;
         }
-        finally
-        {
-            // Connection state is managed by caller via lock
-        }
+        finally { }
     }
 
     private void Disconnect()
@@ -92,29 +89,76 @@ public class IpcService : IDisposable
         }
     }
 
-    private string SendRawCommand(string command)
+    private (string status, List<string> data) SendCommand(string cmd, params string[] args)
     {
         if (_pipe == null || !_isConnected)
         {
             _lastError = "Not connected";
-            return "";
+            return ("", new List<string>());
         }
 
         try
         {
-            var writer = new StreamWriter(_pipe!) { AutoFlush = true };
-            var reader = new StreamReader(_pipe!);
+            var writer = new StreamWriter(_pipe) { AutoFlush = true };
+            var reader = new StreamReader(_pipe);
 
-            writer.WriteLine(command);
-            
-            var response = reader.ReadLine();
-            return response?.Trim() ?? "";
+            // Write TLV request: command\n<len>\n<arg>\n...\n(empty line)
+            // Use Write() with explicit \n to avoid \r\n on Windows
+            writer.Write(cmd + "\n");
+            foreach (var arg in args)
+            {
+                writer.Write(arg.Length + "\n");
+                writer.Write(arg + "\n");
+            }
+            writer.Write("\n"); // empty line terminates request
+
+            // Read response: status\n[TLV data...\n](empty line)
+            var status = reader.ReadLine();
+            if (string.IsNullOrEmpty(status)) return ("", new List<string>());
+
+            var data = new List<string>();
+             if (status == "OK")
+                {
+                    // Read TLV data until empty line
+                    while (true)
+                    {
+                        var lenLine = reader.ReadLine();
+                        if (string.IsNullOrEmpty(lenLine)) break; // empty line terminates response
+
+                        if (!int.TryParse(lenLine, out int len) || len < 0)
+                        {
+                            break; // invalid TLV
+                        }
+
+                        // Read the value (ReadLine strips newline, so we read the raw bytes)
+                        var valueBuffer = new char[len];
+                        int charsRead = reader.Read(valueBuffer, 0, len);
+                        if (charsRead != len) break;
+                        
+                        // Read the trailing newline
+                        reader.Read();
+                        
+                        data.Add(new string(valueBuffer));
+                    }
+                }
+            else if (status == "ERROR")
+            {
+                // Read error message as TLV
+                var lenLine = reader.ReadLine();
+                if (!string.IsNullOrEmpty(lenLine) && int.TryParse(lenLine, out int len))
+                {
+                    var errorMsg = reader.ReadLine();
+                    _lastError = errorMsg ?? "Unknown error";
+                }
+            }
+
+            return (status, data);
         }
         catch (Exception ex)
         {
             _lastError = ex.Message;
             _isConnected = false;
-            return "";
+            return ("", new List<string>());
         }
     }
 
@@ -132,67 +176,20 @@ public class IpcService : IDisposable
 
             try
             {
-                await Task.Delay(50);
-                
-                var writer = new StreamWriter(_pipe!) { AutoFlush = true };
-                var reader = new StreamReader(_pipe!);
-
-                writer.WriteLine("GET_STATUS");
-
-                var lines = new List<string>();
-                for (int i = 0; i < 5; i++)
+                var (responseStatus, data) = SendCommand("GET_STATUS");
+                if (responseStatus == "OK" && data.Count >= 4)
                 {
-                    var line = reader.ReadLine();
-                    if (line == null) break;
-                    lines.Add(line);
-                }
-                
-                if (lines.Count >= 5 && lines[0] == "STATUS")
-                {
-                    if (uint.TryParse(lines[3], out var revision))
+                    status.ClientName = data[0];
+                    status.IpAddress = data[1];
+                    status.DaemonStatus = data[2] == "running" ? "RUNNING" : "NOT_RUNNING";
+                    status.ClientBackendStatus = data[3] == "running" ? "RUNNING" : "NOT_RUNNING";
+                    if (uint.TryParse(data[3], out uint pid))
+                    {
+                        status.ClientPid = (int)pid;
+                    }
+                    if (data.Count > 4 && uint.TryParse(data[4], out uint revision))
                     {
                         status.WhitelistRevision = revision;
-                    }
-                    
-                    if (lines[4] == "running")
-                    {
-                        status.ClientBackendStatus = "RUNNING";
-                        status.ClientName = "BigBrother Client";
-                        status.IpAddress = "127.0.0.1";
-                        status.DaemonStatus = "RUNNING";
-                        status.ClientPid = Environment.ProcessId;
-                    }
-                }
-                else if (lines.Count > 0 && lines[0].StartsWith("STATUS:"))
-                {
-                    var firstLine = lines[0];
-                    var parts = firstLine.Split(':');
-                    if (parts.Length >= 6)
-                    {
-                        status.ClientName = parts[1];
-                        status.IpAddress = parts[2];
-                        status.DaemonStatus = parts[3];
-                        if (ulong.TryParse(parts[4], out var pid))
-                        {
-                            status.ClientPid = (int)pid;
-                        }
-                        if (uint.TryParse(parts[5], out var revision))
-                        {
-                            status.WhitelistRevision = revision;
-                        }
-                        status.ClientBackendStatus = parts[3] == "RUNNING" ? "RUNNING" : "NOT_RUNNING";
-                    }
-                    else if (parts.Length >= 5)
-                    {
-                        status.ClientName = parts[1];
-                        status.IpAddress = parts[2];
-                        status.DaemonStatus = parts[3];
-                        if (ulong.TryParse(parts[4], out var pid))
-                        {
-                            status.ClientPid = (int)pid;
-                        }
-                        status.WhitelistRevision = 1;
-                        status.ClientBackendStatus = parts[3] == "RUNNING" ? "RUNNING" : "NOT_RUNNING";
                     }
                 }
             }
@@ -223,31 +220,10 @@ public class IpcService : IDisposable
 
             try
             {
-                var writer = new StreamWriter(_pipe!) { AutoFlush = true };
-                var reader = new StreamReader(_pipe!);
-
-                writer.WriteLine("GET_WHITELIST");
-
-                var firstLine = reader.ReadLine();
-                if (firstLine == "WHITELIST")
+                var (status, data) = SendCommand("GET_WHITELIST");
+                if (status == "OK")
                 {
-                    string? line;
-                    while ((line = reader.ReadLine()) != null)
-                    {
-                        if (string.IsNullOrWhiteSpace(line)) break;
-                        if (line == "WHITELIST") continue;
-                        whitelist.Add(line);
-                    }
-                }
-                else if (!string.IsNullOrWhiteSpace(firstLine))
-                {
-                    whitelist.Add(firstLine);
-                    string? line;
-                    while ((line = reader.ReadLine()) != null)
-                    {
-                        if (string.IsNullOrWhiteSpace(line)) break;
-                        whitelist.Add(line);
-                    }
+                    whitelist.AddRange(data);
                 }
             }
             finally
@@ -265,64 +241,40 @@ public class IpcService : IDisposable
 
     public async Task<bool> RestartClientAsync()
     {
-        await _connectionLock.WaitAsync();
-        try
+        return await Task.Run(() =>
         {
-            if (!await ConnectAsync())
-            {
-                return false;
-            }
-
+            _connectionLock.Wait();
             try
             {
-                var writer = new StreamWriter(_pipe!) { AutoFlush = true };
-                var reader = new StreamReader(_pipe!);
-
-                writer.WriteLine("RESTART_CLIENT");
-                var response = reader.ReadLine();
-
-                return response == "OK";
+                if (!ConnectAsync().Result) return false;
+                var (status, _) = SendCommand("RESTART_CLIENT");
+                Disconnect();
+                return status == "OK";
             }
             finally
             {
-                Disconnect();
+                _connectionLock.Release();
             }
-        }
-        finally
-        {
-            _connectionLock.Release();
-        }
+        });
     }
 
     public async Task<bool> PingAsync()
     {
-        await _connectionLock.WaitAsync();
-        try
+        return await Task.Run(() =>
         {
-            if (!await ConnectAsync())
-            {
-                return false;
-            }
-
+            _connectionLock.Wait();
             try
             {
-                var writer = new StreamWriter(_pipe!) { AutoFlush = true };
-                var reader = new StreamReader(_pipe!);
-
-                writer.WriteLine("PING");
-                var response = reader.ReadLine();
-
-                return response == "OK";
+                if (!ConnectAsync().Result) return false;
+                var (status, _) = SendCommand("PING");
+                Disconnect();
+                return status == "OK";
             }
             finally
             {
-                Disconnect();
+                _connectionLock.Release();
             }
-        }
-        finally
-        {
-            _connectionLock.Release();
-        }
+        });
     }
 
     public async Task<(string clientLog, string firewallLog)> GetLogPathAsync()
@@ -337,22 +289,13 @@ public class IpcService : IDisposable
                     try
                     {
                         await Task.Delay(50);
-                        
-                        var writer = new StreamWriter(_pipe!) { AutoFlush = true };
-                        var reader = new StreamReader(_pipe!);
 
-                        writer.WriteLine("GET_LOG_PATH");
-                        var response = reader.ReadLine();
-                        
+                        var (status, data) = SendCommand("GET_LOG_PATH");
                         Disconnect();
-                        
-                        if (response != null && response.StartsWith("LOG_PATH:"))
+
+                        if (status == "OK" && data.Count >= 2)
                         {
-                            var paths = response.Substring(9).Split('|');
-                            if (paths.Length >= 2)
-                            {
-                                return (paths[0], paths[1]);
-                            }
+                            return (data[0], data[1]);
                         }
                         return ("", "");
                     }
@@ -361,10 +304,10 @@ public class IpcService : IDisposable
                         Disconnect();
                     }
                 }
-                
+
                 if (attempt < MaxRetries - 1) await Task.Delay(500);
             }
-            
+
             return ("", "");
         }
         finally

@@ -12,6 +12,11 @@
 void StartClientServer(void);
 
 /**
+ * @brief Signal the client server to shut down.
+ */
+void SignalClientServerShutdown(void);
+
+/**
  * @brief Initialize logging for the client backend.
  */
 void log_init(void);

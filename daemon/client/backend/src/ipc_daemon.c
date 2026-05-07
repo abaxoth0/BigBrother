@@ -10,8 +10,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#define DAEMON_PIPE_PREFIX "\\\\.\\pipe\\" DAEMON_PIPE_NAME
-
+#define DAEMON_PIPE_PREFIX "\\\\.\\pipe\\"
 #define USER_CONFIG_FILENAME "config\\user.cfg"
 
 static char g_server_ip[64] = {0};
@@ -29,12 +28,12 @@ static void get_exe_path(char* buffer, size_t size) {
 void load_server_ip(void) {
     char exe_path[MAX_PATH];
     get_exe_path(exe_path, sizeof(exe_path));
-    
+
     char config_path[MAX_PATH];
     snprintf(config_path, sizeof(config_path), "%s\\" SERVER_IP_FILENAME, exe_path);
-    
+
     printf("[DEBUG] load_server_ip: checking %s\n", config_path);
-    
+
     FILE* f = fopen(config_path, "r");
     if (f) {
         if (fgets(g_server_ip, sizeof(g_server_ip), f)) {
@@ -53,18 +52,18 @@ void load_server_ip(void) {
 void SetServerIp(const char* ip) {
     if (ip) {
         strncpy(g_server_ip, ip, sizeof(g_server_ip) - 1);
-        
+
         // Save server IP to config file
         char exe_path[MAX_PATH];
         get_exe_path(exe_path, sizeof(exe_path));
-        
+
         char config_path[MAX_PATH];
         snprintf(config_path, sizeof(config_path), "%s\\" SERVER_IP_FILENAME, exe_path);
-        
+
         char dir_path[MAX_PATH];
         snprintf(dir_path, sizeof(dir_path), "%s\\config", exe_path);
         CreateDirectory(dir_path, NULL);
-        
+
         FILE* f = fopen(config_path, "w");
         if (f) {
             fprintf(f, "%s\n", ip);
@@ -78,7 +77,7 @@ int LoadUserName(char* buffer, size_t size) {
 
     char exe_path[MAX_PATH];
     get_exe_path(exe_path, sizeof(exe_path));
-    
+
     char config_path[MAX_PATH];
     snprintf(config_path, sizeof(config_path), "%s\\" USER_CONFIG_FILENAME, exe_path);
 
@@ -107,7 +106,7 @@ int SaveUserName(const char* name) {
 
     char exe_path[MAX_PATH];
     get_exe_path(exe_path, sizeof(exe_path));
-    
+
     char config_path[MAX_PATH];
     snprintf(config_path, sizeof(config_path), "%s\\" USER_CONFIG_FILENAME, exe_path);
 
@@ -126,14 +125,18 @@ int SaveUserName(const char* name) {
     return 0;
 }
 
-static int send_command(const char* command, const char* data, size_t data_size,
-                       char* out_buffer, size_t buffer_size) {
+// Send command to local daemon (firewall) using old protocol format
+static int send_command_tlv(const char* command, const char** args, size_t arg_count,
+                           char* out_buffer, size_t buffer_size) {
     if (!command || !out_buffer || buffer_size == 0) {
         return -1;
     }
 
+    char pipe_name[MAX_PATH];
+    snprintf(pipe_name, sizeof(pipe_name), "%s%s", DAEMON_PIPE_PREFIX, DAEMON_PIPE_NAME);
+
     HANDLE pipe = CreateFile(
-        DAEMON_PIPE_PREFIX,
+        pipe_name,
         GENERIC_READ | GENERIC_WRITE,
         0,
         NULL,
@@ -146,22 +149,35 @@ static int send_command(const char* command, const char* data, size_t data_size,
         return -1;
     }
 
-    size_t cmd_len = strlen(command);
-    char* send_buf = malloc(cmd_len + 1 + data_size + 1);
+    // Build old-format request: command\n[args...]\n
+    // For SET_WHITELIST: command + newline + data + newline
+    size_t req_len = strlen(command) + 1; // command + newline
+    for (size_t i = 0; i < arg_count; i++) {
+        if (args[i]) {
+            req_len += strlen(args[i]); // arg data directly appended
+        }
+    }
+
+    char* send_buf = malloc(req_len);
     if (!send_buf) {
         CloseHandle(pipe);
         return -1;
     }
 
-    memcpy(send_buf, command, cmd_len);
-    send_buf[cmd_len] = '\n';
-    if (data && data_size > 0) {
-        memcpy(send_buf + cmd_len + 1, data, data_size);
+    char* p = send_buf;
+    memcpy(p, command, strlen(command));
+    p += strlen(command);
+    *p++ = '\n';
+
+    for (size_t i = 0; i < arg_count; i++) {
+        if (args[i]) {
+            memcpy(p, args[i], strlen(args[i]));
+            p += strlen(args[i]);
+        }
     }
-    size_t total_len = cmd_len + 1 + (data && data_size > 0 ? data_size : 0);
 
     DWORD written;
-    if (!WriteFile(pipe, send_buf, (DWORD)total_len, &written, NULL)) {
+    if (!WriteFile(pipe, send_buf, (DWORD)(p - send_buf), &written, NULL)) {
         free(send_buf);
         CloseHandle(pipe);
         return -1;
@@ -170,40 +186,51 @@ static int send_command(const char* command, const char* data, size_t data_size,
 
     FlushFileBuffers(pipe);
 
+    // Read response using old firewall format - read entire message
     DWORD bytes_read = 0;
     if (!ReadFile(pipe, out_buffer, (DWORD)(buffer_size - 1), &bytes_read, NULL)) {
         CloseHandle(pipe);
         return -1;
     }
-
     out_buffer[bytes_read] = '\0';
+
+    // Remove trailing newlines
+    while (bytes_read > 0 && (out_buffer[bytes_read - 1] == '\n' || out_buffer[bytes_read - 1] == '\r')) {
+        out_buffer[--bytes_read] = '\0';
+    }
 
     CloseHandle(pipe);
     return 0;
 }
 
 int DaemonGetStatus(char* out_buffer, size_t buffer_size) {
-    return send_command("GET_STATUS", NULL, 0, out_buffer, buffer_size);
+    return send_command_tlv("GET_STATUS", NULL, 0, out_buffer, buffer_size);
 }
 
 int DaemonGetWhitelist(char* out_buffer, size_t buffer_size) {
-    return send_command("GET_WHITELIST", NULL, 0, out_buffer, buffer_size);
+    return send_command_tlv("GET_WHITELIST", NULL, 0, out_buffer, buffer_size);
 }
 
 int DaemonSetWhitelist(const char* data, size_t size, char* out_buffer, size_t buffer_size) {
-    return send_command("SET_WHITELIST", data, size, out_buffer, buffer_size);
+    const char* args[1] = {data};
+    return send_command_tlv("SET_WHITELIST", args, 1, out_buffer, buffer_size);
 }
 
 int DaemonReloadWhitelist(char* out_buffer, size_t buffer_size) {
-    return send_command("RELOAD", NULL, 0, out_buffer, buffer_size);
+    return send_command_tlv("RELOAD", NULL, 0, out_buffer, buffer_size);
 }
 
 int PingDaemon(void) {
     char buffer[256];
-    return send_command("PING", NULL, 0, buffer, sizeof(buffer));
+    return send_command_tlv("PING", NULL, 0, buffer, sizeof(buffer));
 }
 
-static int send_to_server(const char* command, char* out_buffer, size_t buffer_size) {
+int DaemonGetLogPath(char* out_buffer, size_t buffer_size) {
+    return send_command_tlv("GET_LOG_PATH", NULL, 0, out_buffer, buffer_size);
+}
+
+static int send_to_server_tlv(const char* command, const char** args, size_t arg_count,
+                              char* out_buffer, size_t buffer_size) {
     if (!g_server_ip[0] || !command || !out_buffer || buffer_size == 0) {
         printf("[send_to_server] Error: invalid parameters or empty server IP\n");
         return -1;
@@ -216,7 +243,7 @@ static int send_to_server(const char* command, char* out_buffer, size_t buffer_s
 
     HANDLE pipe = INVALID_HANDLE_VALUE;
     int retries = 3;
-    
+
     while (retries > 0 && pipe == INVALID_HANDLE_VALUE) {
         pipe = CreateFile(
             pipe_path,
@@ -227,11 +254,11 @@ static int send_to_server(const char* command, char* out_buffer, size_t buffer_s
             0,
             NULL
         );
-        
+
         if (pipe == INVALID_HANDLE_VALUE) {
             DWORD err = GetLastError();
             printf("[send_to_server] Attempt failed, err=%lu\n", err);
-            
+
             if (err == 2 || err == 5) { // ERROR_FILE_NOT_FOUND or ERROR_ACCESS_DENIED
                 printf("[send_to_server] Waiting for server...\n");
                 Sleep(500);
@@ -250,97 +277,201 @@ static int send_to_server(const char* command, char* out_buffer, size_t buffer_s
 
     printf("[send_to_server] Connected, sending command...\n");
     fflush(stdout);
-    
-    DWORD written;
-    WriteFile(pipe, command, (DWORD)strlen(command), &written, NULL);
-    FlushFileBuffers(pipe);
 
-    DWORD bytes_read = 0;
-    if (!ReadFile(pipe, out_buffer, (DWORD)(buffer_size - 1), &bytes_read, NULL)) {
-        printf("[send_to_server] Error: ReadFile failed\n");
-        fflush(stdout);
+    // Build TLV request
+    size_t cmd_len = strlen(command);
+    size_t total_size = cmd_len + 1; // command + newline
+    for (size_t i = 0; i < arg_count; i++) {
+        if (args[i]) {
+            total_size += snprintf(NULL, 0, "%zu", strlen(args[i])) + 1;
+            total_size += strlen(args[i]) + 1;
+        }
+    }
+    total_size += 1; // empty line
+
+    char* send_buf = malloc(total_size);
+    if (!send_buf) {
         CloseHandle(pipe);
         return -1;
     }
 
-    out_buffer[bytes_read] = '\0';
+    char* p = send_buf;
+    memcpy(p, command, cmd_len);
+    p += cmd_len;
+    *p++ = '\n';
 
-    // Remove trailing newlines
-    while (bytes_read > 0 && (out_buffer[bytes_read - 1] == '\n' || out_buffer[bytes_read - 1] == '\r')) {
-        out_buffer[--bytes_read] = '\0';
+    for (size_t i = 0; i < arg_count; i++) {
+        if (args[i]) {
+            size_t arg_len = strlen(args[i]);
+            int len = snprintf(p, total_size - (p - send_buf), "%zu", arg_len);
+            p += len;
+            *p++ = '\n';
+            memcpy(p, args[i], arg_len);
+            p += arg_len;
+            *p++ = '\n';
+        }
+    }
+    *p++ = '\n';
+
+    DWORD written;
+    if (!WriteFile(pipe, send_buf, (DWORD)(p - send_buf), &written, NULL)) {
+        free(send_buf);
+        CloseHandle(pipe);
+        return -1;
+    }
+    free(send_buf);
+
+    FlushFileBuffers(pipe);
+
+    // Read response: status\n[TLV data...\n]<empty line>
+    char status_buf[32] = {0};
+    char* status_out = status_buf;
+    size_t status_remaining = sizeof(status_buf) - 1;
+    while (status_remaining > 0) {
+        char c;
+        DWORD read;
+        if (!ReadFile(pipe, &c, 1, &read, NULL) || read == 0) break;
+        if (c == '\n') break;
+        *status_out++ = c;
+        status_remaining--;
+    }
+    *status_out = '\0';
+
+    printf("[send_to_server] Response status: '%s'\n", status_buf);
+    fflush(stdout);
+
+    int result = -1;
+
+    // If status is OK, read TLV data until empty line
+    if (strcmp(status_buf, "OK") == 0) {
+        char* out = out_buffer;
+        size_t remaining = buffer_size - 1;
+        int first = 1;
+
+        while (1) {
+            // Read length line
+            char len_line[32] = {0};
+            char* p = len_line;
+            while (1) {
+                char c;
+                DWORD read;
+                if (!ReadFile(pipe, &c, 1, &read, NULL) || read == 0) break;
+                if (c == '\n') break;
+                *p++ = c;
+            }
+
+            // Empty line terminates response
+            if (strlen(len_line) == 0) break;
+
+            int expected_len = atoi(len_line);
+            if (expected_len < 0) break;
+
+            // Add newline separator between values (for whitelist domains)
+            if (!first) {
+                if (remaining > 1) {
+                    *out++ = '\n';
+                    remaining--;
+                }
+            }
+            first = 0;
+
+            // Read value
+            int count = 0;
+            while (count < expected_len && remaining > 0) {
+                char c;
+                DWORD read;
+                if (!ReadFile(pipe, &c, 1, &read, NULL) || read == 0) break;
+                *out++ = c;
+                count++;
+                remaining--;
+            }
+            *out = '\0';
+        }
+        result = 0;
+    } else if (strcmp(status_buf, "ERROR") == 0) {
+        // Read error message as TLV
+        char len_line[32] = {0};
+        char* p = len_line;
+        while (1) {
+            char c;
+            DWORD read;
+            if (!ReadFile(pipe, &c, 1, &read, NULL) || read == 0) break;
+            if (c == '\n') break;
+            *p++ = c;
+        }
+
+        if (strlen(len_line) > 0) {
+            int expected_len = atoi(len_line);
+            if (expected_len > 0 && expected_len < (int)buffer_size) {
+                DWORD bytes_read = 0;
+                ReadFile(pipe, out_buffer, expected_len, &bytes_read, NULL);
+                out_buffer[bytes_read] = '\0';
+            }
+        }
+        result = -1;
     }
 
-    printf("[send_to_server] Response: '%s'\n", out_buffer);
-    fflush(stdout);
     CloseHandle(pipe);
-    return 0;
+    return result;
 }
 
 int ServerRegister(const char* name) {
     if (!name) return -1;
     printf("[DEBUG] ServerRegister: START name='%s', g_server_ip='%s'\n", name, g_server_ip);
     fflush(stdout);
-    
+
     if (!g_server_ip[0]) {
         printf("[DEBUG] ServerRegister: no server IP set\n");
         fflush(stdout);
         return -1;
     }
-    
-    char cmd[256];
-    snprintf(cmd, sizeof(cmd), "REGISTER:%s\n", name);
-    printf("[DEBUG] ServerRegister: cmd='%s'\n", cmd);
-    fflush(stdout);
-    
+
+    const char* args[1] = {name};
     char response[256];
     memset(response, 0, sizeof(response));
-    
+
     printf("[DEBUG] ServerRegister: calling send_to_server...\n");
     fflush(stdout);
-    
-    int result = send_to_server(cmd, response, sizeof(response));
-    
+
+    int result = send_to_server_tlv("REGISTER", args, 1, response, sizeof(response));
+
     printf("[DEBUG] ServerRegister: send_to_server done, result=%d\n", result);
     fflush(stdout);
-    
+
     if (result == 0) {
         printf("[DEBUG] ServerRegister: response='%s'\n", response);
         fflush(stdout);
     }
-    
+
     return result;
 }
 
 int ServerConnect(const char* name) {
     if (!name) return -1;
-    char cmd[256];
-    snprintf(cmd, sizeof(cmd), "CONNECT:%s\n", name);
+    const char* args[1] = {name};
     char response[256];
-    return send_to_server(cmd, response, sizeof(response));
+    return send_to_server_tlv("CONNECT", args, 1, response, sizeof(response));
 }
 
 int ServerDisconnect(const char* name) {
     if (!name) return -1;
-    char cmd[256];
-    snprintf(cmd, sizeof(cmd), "DISCONNECT:%s\n", name);
+    const char* args[1] = {name};
     char response[256];
-    return send_to_server(cmd, response, sizeof(response));
+    return send_to_server_tlv("DISCONNECT", args, 1, response, sizeof(response));
 }
 
 int ServerRefresh(const char* name) {
     if (!name) return -1;
-    char cmd[256];
-    snprintf(cmd, sizeof(cmd), "REFRESH:%s\n", name);
+    const char* args[1] = {name};
     char response[256];
-    return send_to_server(cmd, response, sizeof(response));
+    return send_to_server_tlv("REFRESH", args, 1, response, sizeof(response));
 }
 
 int ServerChangeName(const char* oldName, const char* newName) {
     if (!oldName || !newName) return -1;
-    char cmd[512];
-    snprintf(cmd, sizeof(cmd), "CHANGE_NAME:%s:%s\n", oldName, newName);
+    const char* args[2] = {oldName, newName};
     char response[256];
-    return send_to_server(cmd, response, sizeof(response));
+    return send_to_server_tlv("CHANGE_NAME", args, 2, response, sizeof(response));
 }
 
 int DaemonRun(const char* server_ip, int poll_interval_secs) {
@@ -351,18 +482,20 @@ int DaemonRun(const char* server_ip, int poll_interval_secs) {
     int startup_retries = 30; // Wait up to 30 seconds for daemon to be ready
 
     LOGF("[Daemon] Waiting for local daemon to be ready...");
+    int local_ready = 0;
     while (startup_retries > 0) {
         if (PingDaemon() == 0) {
             LOGF("[Daemon] Local daemon is ready");
+            local_ready = 1;
             break;
         }
         startup_retries--;
         Sleep(1000);
     }
 
-    if (startup_retries == 0) {
-        LOGF("[Daemon] Local daemon not responding after startup, exiting (pid: %lu)", GetCurrentProcessId());
-        return 1;
+    if (!local_ready) {
+        LOGF("[Daemon] Local daemon not available, continuing without it (pid: %lu)", GetCurrentProcessId());
+        // Don't exit - continue in degraded mode
     }
 
     // Try to connect to server on startup
@@ -379,9 +512,17 @@ int DaemonRun(const char* server_ip, int poll_interval_secs) {
     }
 
     while (1) {
-        if (PingDaemon() != 0) {
-            LOGF("[Daemon] Local daemon not responding, exiting (pid: %lu)", GetCurrentProcessId());
-            break;
+        // Check for stop event
+        if (g_ServiceStopEvent != INVALID_HANDLE_VALUE) {
+            if (WaitForSingleObject(g_ServiceStopEvent, 0) == WAIT_OBJECT_0) {
+                LOGF("[Daemon] Stop signal received, exiting...");
+                break;
+            }
+        }
+
+        if (local_ready && PingDaemon() != 0) {
+            LOGF("[Daemon] Local daemon not responding (pid: %lu), continuing in degraded mode", GetCurrentProcessId());
+            local_ready = 0;
         }
 
         if (server_connected && username[0] != '\0') {
@@ -391,61 +532,48 @@ int DaemonRun(const char* server_ip, int poll_interval_secs) {
 
         if (server_connected) goto wait;
 
-        // Try to get whitelist
-        char pipe_path[128];
-        snprintf(pipe_path, sizeof(pipe_path), "\\\\%s\\pipe\\BigBrother.Server.Backend", server_ip);
-
-        HANDLE pipe = CreateFile(
-            pipe_path,
-            GENERIC_READ | GENERIC_WRITE,
-            0,
-            NULL,
-            OPEN_EXISTING,
-            0,
-            NULL
-        );
-
-        if (pipe != INVALID_HANDLE_VALUE) {
-            const char* cmd = "GET_WHITELIST\n";
-            DWORD written;
-            WriteFile(pipe, cmd, (DWORD)strlen(cmd), &written, NULL);
-            FlushFileBuffers(pipe);
-
-            DWORD bytes_read = 0;
-            if (ReadFile(pipe, whitelist_buf, sizeof(whitelist_buf) - 1, &bytes_read, NULL)) {
-                whitelist_buf[bytes_read] = '\0';
-                
-                // Remove trailing newlines
-                while (bytes_read > 0 && (whitelist_buf[bytes_read - 1] == '\n' || whitelist_buf[bytes_read - 1] == '\r')) {
-                    whitelist_buf[--bytes_read] = '\0';
-                }
-
+        // Try to get whitelist from remote server
+        if (username[0] != '\0') {
+            const char* wl_args[1] = {username};
+            char response[8192] = {0};
+            if (send_to_server_tlv("GET_WHITELIST", wl_args, 1, response, sizeof(response)) == 0) {
                 server_connected = 1;
-                if (strcmp(whitelist_buf, last_whitelist) == 0) {
-                    CloseHandle(pipe);
+                if (strcmp(response, last_whitelist) == 0) {
                     goto wait;
                 }
-
-                size_t copy_len = strlen(whitelist_buf);
+                size_t copy_len = strlen(response);
                 if (copy_len >= sizeof(last_whitelist)) copy_len = sizeof(last_whitelist) - 1;
-                memcpy(last_whitelist, whitelist_buf, copy_len);
+                memcpy(last_whitelist, response, copy_len);
                 last_whitelist[copy_len] = '\0';
 
-                if (DaemonSetWhitelist(whitelist_buf, strlen(whitelist_buf), whitelist_buf, sizeof(whitelist_buf)) != 0) {
+                if (DaemonSetWhitelist(response, strlen(response), whitelist_buf, sizeof(whitelist_buf)) != 0) {
                     LOGF("[Daemon] Failed to set whitelist on daemon");
                 } else {
                     LOGF("[Daemon] Whitelist updated");
                     g_whitelist_revision++;
                 }
+            } else {
+                LOGF("[Daemon] Cannot connect to server %s, retrying...", g_server_ip);
+                server_connected = 0;
             }
-            CloseHandle(pipe);
         } else {
-            LOGF("[Daemon] Cannot connect to server %s, retrying...", server_ip);
-            server_connected = 0;
+            LOGF("[Daemon] No username, skipping server whitelist fetch");
+            goto wait;
         }
-    wait:
-        Sleep(poll_interval_secs * 1000);
+
+        wait:
+        // Sleep in small increments to check for stop
+        for (int i = 0; i < poll_interval_secs; i++) {
+            if (g_ServiceStopEvent != INVALID_HANDLE_VALUE) {
+                if (WaitForSingleObject(g_ServiceStopEvent, 0) == WAIT_OBJECT_0) {
+                    LOGF("[Daemon] Stop signal received during sleep, exiting...");
+                    goto stop;
+                }
+            }
+            Sleep(1000);
+        }
     }
 
+stop:
     return 0;
 }

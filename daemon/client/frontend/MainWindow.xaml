@@ -47,7 +47,6 @@
         <!-- Connection Status Style -->
         <Style x:Key="ConnectionText" TargetType="TextBlock">
             <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="Foreground" Value="{Binding DaemonConnectionStatus, Converter={StaticResource ConnectionStatusToColor}}"/>
         </Style>
     </Window.Resources>
 
@@ -205,7 +204,8 @@
                                     <StackPanel Orientation="Horizontal" Margin="0,5">
                                         <TextBlock Text="Соединение:" Width="100" Foreground="Gray" VerticalAlignment="Center"/>
                                         <TextBlock Text="{Binding DaemonConnectionStatus}"
-                                                   Style="{StaticResource ConnectionText}"/>
+                                                   Style="{StaticResource ConnectionText}"
+                                                   Foreground="{Binding DaemonConnectionStatus, Converter={StaticResource ConnectionStatusToColor}}"/>
                                     </StackPanel>
                                     <StackPanel Orientation="Horizontal" Margin="0,5">
                                         <Button Content="Старт" Style="{StaticResource ControlButton}" Click="StartDaemon_Click"/>
@@ -227,7 +227,8 @@
                                     <StackPanel Orientation="Horizontal" Margin="0,5">
                                         <TextBlock Text="Соединение:" Width="100" Foreground="Gray" VerticalAlignment="Center"/>
                                         <TextBlock Text="{Binding ClientConnectionStatus}"
-                                                   Style="{StaticResource ConnectionText}"/>
+                                                   Style="{StaticResource ConnectionText}"
+                                                   Foreground="{Binding ClientConnectionStatus, Converter={StaticResource ConnectionStatusToColor}}"/>
                                     </StackPanel>
                                     <StackPanel Orientation="Horizontal" Margin="0,5">
                                         <Button Content="Рестарт" Style="{StaticResource ControlButton}" Click="RestartClient_Click"/>

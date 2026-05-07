@@ -5,8 +5,8 @@ package rpc
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"net"
-	"strings"
 	"time"
 
 	"bigbrother_server_backend/packages/domain/entity"
@@ -44,187 +44,177 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 	log.Info("Frontend connected", nil)
 
 	scanner := bufio.NewScanner(conn)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
-		}
-
-		log.Debug("Frontend received: "+line, nil)
-
-		msg := strings.Split(line, ":")
-		if len(msg) > 2 {
-			write(conn, "ERROR: Invalid request syntax (':' duplication)\n")
+	for {
+		cmd, args, err := readRequest(scanner)
+		if err != nil {
+			if err != io.EOF {
+				writeErrorTLV(conn, err.Error())
+			}
 			return
 		}
-		cmd, arg := msg[0], ""
-		if len(msg) > 1 {
-			arg = strings.TrimSpace(msg[1])
-		}
+
+		log.Debug("Frontend received: "+cmd, nil)
 
 		switch cmd {
 		case "GET_ACTIVE_WHITELIST":
-			writeln(conn, h.GetActiveWhitelist())
+			writeTLVResponse(conn, h.GetActiveWhitelist())
 
 		case "SET_ACTIVE_WHITELIST":
-			if strings.TrimSpace(arg) == "" {
-				writeError(conn, requestError, "Missing whitelist name")
-				return
+			if len(args) < 1 {
+				writeErrorTLV(conn, "Missing whitelist name")
+				continue
 			}
-			h.SetActiveWhitelist(arg)
-			write(conn, "OK\n")
-
+			h.SetActiveWhitelist(args[0])
+			writeOK(conn)
 
 		case "GET_SERVER_STATUS":
-			writeln(conn, "OK")
+			writeOK(conn)
 
 		case "APPROVE":
-			if strings.TrimSpace(arg) == "" {
-				writeError(conn, requestError, "Missing name")
-				return
+			if len(args) < 1 {
+				writeErrorTLV(conn, "Missing name")
+				continue
 			}
-			if err := h.ApproveUser(arg); err != nil {
-				writeError(conn, internalError, err.Error())
-				return
+			if err := h.ApproveUser(args[0]); err != nil {
+				writeErrorTLV(conn, err.Error())
+			} else {
+				writeOK(conn)
 			}
-			write(conn, "OK\n")
 
 		case "REJECT":
-			if strings.TrimSpace(arg) == "" {
-				writeError(conn, requestError, "Missing name")
-				return
+			if len(args) < 1 {
+				writeErrorTLV(conn, "Missing name")
+				continue
 			}
-			h.RejectUser(arg)
-			write(conn, "OK\n")
+			h.RejectUser(args[0])
+			writeOK(conn)
 
 		case "DISCONNECT":
-			if strings.TrimSpace(arg) == "" {
-				writeError(conn, requestError, "Missing name")
-				return
+			if len(args) < 1 {
+				writeErrorTLV(conn, "Missing name")
+				continue
 			}
-			if err := h.DisconnectUser(arg); err != nil {
-				writeError(conn, internalError, err.Error())
-				return
+			if err := h.DisconnectUser(args[0]); err != nil {
+				writeErrorTLV(conn, err.Error())
+			} else {
+				writeOK(conn)
 			}
-			write(conn, "OK\n")
 
 		case "DELETE_USERS":
-			if strings.TrimSpace(arg) == "" {
-				writeError(conn, requestError, "Missing name")
-				return
+			if len(args) < 1 {
+				writeErrorTLV(conn, "Missing name")
+				continue
 			}
-			if err := h.DeleteUsers(arg); err != nil {
-				writeError(conn, internalError, err.Error())
-				return
+			if err := h.DeleteUsers(args...); err != nil {
+				writeErrorTLV(conn, err.Error())
+			} else {
+				writeOK(conn)
 			}
-			write(conn, "OK\n")
 
-		// TODO refactor to CHANGE_USER_NAME
 		case "CHANGE_NAME":
-			// Format: CHANGE_NAME:oldName:newName
-			parts := strings.Split(arg, ":")
-			if len(parts) != 2 || strings.TrimSpace(parts[0]) == "" || strings.TrimSpace(parts[1]) == "" {
-				writeError(conn, requestError, "Invalid format, use: CHANGE_NAME:oldName:newName")
-				return
+			if len(args) < 2 {
+				writeErrorTLV(conn, "Invalid format, use: CHANGE_NAME oldName newName")
+				continue
 			}
-			if err := h.db.ChangeUserName(parts[0], parts[1]); err != nil {
-				writeError(conn, internalError, err.Error())
-				return
+			if err := h.db.ChangeUserName(args[0], args[1]); err != nil {
+				writeErrorTLV(conn, err.Error())
+			} else {
+				writeOK(conn)
 			}
-			write(conn, "OK\n")
 
 		case "GET_CLIENTS":
 			connections := h.connManager.GetAllConnections()
-			writeln(conn, "OK")
+			var data []string
 			for _, connection := range connections {
 				client := connection.GetUser()
-				write(conn, "%s:%s:%s\n", client.Name, client.Addr, "Active")
+				data = append(data, fmt.Sprintf("%s:%s:%s", client.Name, client.Addr, "Active"))
 			}
+			writeTLVResponse(conn, data...)
 
 		case "GET_PENDING":
-			writeln(conn, "OK")
+			var data []string
 			for _, user := range h.pendingUsers.GetAll() {
-				writeln(conn, "%s:%s", user.Name, user.Addr)
+				data = append(data, fmt.Sprintf("%s:%s", user.Name, user.Addr))
 			}
+			writeTLVResponse(conn, data...)
 
 		case "GET_WHITELISTS":
 			wls, err := h.GetWhitelists()
 			if err != nil {
-				writeError(conn, internalError, err.Error())
-				return
+				writeErrorTLV(conn, err.Error())
+				continue
 			}
-			writeln(conn, "OK")
+			var data []string
 			for _, wl := range wls {
 				entryCount := 0
 				entries, err := h.GetWhitelistEntries(wl.ID)
 				if err == nil {
 					entryCount = len(entries)
 				}
-				writeln(conn, "%s:%d", wl.Name, entryCount)
+				data = append(data, fmt.Sprintf("%s:%d", wl.Name, entryCount))
 			}
+			writeTLVResponse(conn, data...)
 
 		case "GET_WHITELIST":
-			wl := h.GetWhitelist(arg)
-			writeln(conn, "OK")
-			for _, entry := range wl {
-				writeln(conn, entry.Value)
+			if len(args) < 1 {
+				writeErrorTLV(conn, "Missing whitelist name")
+				continue
 			}
+			wl := h.GetWhitelist(args[0])
+			var data []string
+			for _, entry := range wl {
+				data = append(data, entry.Value)
+			}
+			writeTLVResponse(conn, data...)
 
 		case "CREATE_WHITELIST":
-			if strings.TrimSpace(arg) == "" {
-				writeError(conn, requestError, "Missing whitelist name")
-				return
+			if len(args) < 1 {
+				writeErrorTLV(conn, "Missing whitelist name")
+				continue
 			}
-			if err := h.CreateWhitelist(arg); err != nil {
-				writeError(conn, internalError, err.Error())
-				return
+			if err := h.CreateWhitelist(args[0]); err != nil {
+				writeErrorTLV(conn, err.Error())
+			} else {
+				writeOK(conn)
 			}
-			write(conn, "OK\n")
 
 		case "DELETE_WHITELIST":
-			if strings.TrimSpace(arg) == "" {
-				writeError(conn, requestError, "Missing whitelist name")
-				return
+			if len(args) < 1 {
+				writeErrorTLV(conn, "Missing whitelist name")
+				continue
 			}
-			if err := h.DeleteWhitelist(arg); err != nil {
-				writeError(conn, internalError, err.Error())
-				return
+			if err := h.DeleteWhitelist(args[0]); err != nil {
+				writeErrorTLV(conn, err.Error())
+			} else {
+				writeOK(conn)
 			}
-			write(conn, "OK\n")
 
 		case "RENAME_WHITELIST":
-			parts := strings.Split(arg, ":")
-			if len(parts) != 2 || strings.TrimSpace(parts[0]) == "" || strings.TrimSpace(parts[1]) == "" {
-				writeError(conn, requestError, "Invalid format, use: RENAME_WHITELIST:oldName:newName")
-				return
+			if len(args) < 2 {
+				writeErrorTLV(conn, "Invalid format, use: RENAME_WHITELIST oldName newName")
+				continue
 			}
-			if err := h.ChangeWhitelistName(parts[0], parts[1]); err != nil {
-				writeError(conn, internalError, err.Error())
-				return
+			if err := h.ChangeWhitelistName(args[0], args[1]); err != nil {
+				writeErrorTLV(conn, err.Error())
+			} else {
+				writeOK(conn)
 			}
-			write(conn, "OK\n")
 
 		case "SAVE_WHITELIST":
-			if strings.TrimSpace(arg) == "" {
-				writeError(conn, requestError, "Missing whitelist name")
-				return
+			if len(args) < 1 {
+				writeErrorTLV(conn, "Missing whitelist name")
+				continue
 			}
-			var entries []string
-			for scanner.Scan() {
-				entry := strings.TrimSpace(scanner.Text())
-				if entry == "" {
-					break
-				}
-				entries = append(entries, entry)
+			wlName := args[0]
+			entries := args[1:] // rest are entries
+			if err := h.SetWhitelistEntries(wlName, entries); err != nil {
+				writeErrorTLV(conn, err.Error())
+			} else {
+				writeOK(conn)
 			}
-			if err := h.SetWhitelistEntries(arg, entries); err != nil {
-				writeError(conn, internalError, err.Error())
-				return
-			}
-			write(conn, "OK\n")
 
 		default:
-			fmt.Fprintf(conn, "ERROR: unknown command: %s\n", line)
+			writeErrorTLV(conn, fmt.Sprintf("unknown command: %s", cmd))
 		}
 	}
 }
