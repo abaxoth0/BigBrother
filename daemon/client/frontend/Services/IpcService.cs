@@ -10,8 +10,10 @@ public class ClientStatus
     public string IpAddress { get; set; } = "";
     public string DaemonStatus { get; set; } = "NOT_RUNNING";
     public string ClientBackendStatus { get; set; } = "NOT_RUNNING";
+    public string ServerConnectionStatus { get; set; } = "NOT_RUNNING";
     public int ClientPid { get; set; }
     public bool IsConnected => ClientBackendStatus == "RUNNING";
+    public bool IsServerConnected => ServerConnectionStatus == "RUNNING";
     public uint WhitelistRevision { get; set; }
 }
 
@@ -190,6 +192,10 @@ public class IpcService : IDisposable
                     if (data.Count > 5 && uint.TryParse(data[5], out uint pid))
                     {
                         status.ClientPid = (int)pid;
+                    }
+                    if (data.Count > 6)
+                    {
+                        status.ServerConnectionStatus = data[6] == "running" ? "RUNNING" : "NOT_RUNNING";
                     }
                 }
             }

@@ -39,8 +39,10 @@ public class MainViewModel : ViewModelBase
     // Status
     private string _daemonStatus = "Запущен";
     private string _clientStatus = "Запущен";
+    private string _serverStatus = "Запущен";
     private string _daemonConnectionStatus = "...";
     private string _clientConnectionStatus = "...";
+    private string _serverConnectionStatus = "...";
     private string _hostName = "DESKTOP-PC";
     private string _ipAddress = "192.168.1.100";
     private int _daemonPid = 1234;
@@ -67,6 +69,12 @@ public class MainViewModel : ViewModelBase
         set => SetProperty(ref _clientStatus, value);
     }
 
+    public string ServerStatus
+    {
+        get => _serverStatus;
+        set => SetProperty(ref _serverStatus, value);
+    }
+
     public string DaemonConnectionStatus
     {
         get => _daemonConnectionStatus;
@@ -77,6 +85,12 @@ public class MainViewModel : ViewModelBase
     {
         get => _clientConnectionStatus;
         set => SetProperty(ref _clientConnectionStatus, value);
+    }
+
+    public string ServerConnectionStatus
+    {
+        get => _serverConnectionStatus;
+        set => SetProperty(ref _serverConnectionStatus, value);
     }
 
     public string HostName

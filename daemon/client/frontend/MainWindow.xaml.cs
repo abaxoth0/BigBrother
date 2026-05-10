@@ -103,6 +103,8 @@ namespace frontend
                     vm.DaemonStatus = status.DaemonStatus == "RUNNING" ? "Запущен" : "Остановлен";
                     vm.ClientConnectionStatus = status.IsConnected ? "Подключено" : "Отключено";
                     vm.ClientStatus = status.IsConnected ? "Запущен" : "Остановлен";
+                    vm.ServerConnectionStatus = status.IsServerConnected ? "Подключено" : "Отключено";
+                    vm.ServerStatus = status.IsServerConnected ? "Запущен" : "Остановлен";
                     vm.HostName = status.ClientName;
                     vm.IpAddress = status.IpAddress;
                     vm.ClientPid = status.ClientPid;
@@ -122,11 +124,15 @@ namespace frontend
                         _firewallLogReader.Stop();
                     }
                     _lastClientPid = 0;
+                    vm.ServerConnectionStatus = "Отключено";
+                    vm.ServerStatus = "Остановлен";
                 }
                 catch (System.Exception ex) when (ex is not System.OperationCanceledException)
                 {
                     vm.DaemonConnectionStatus = "Отключено";
                     vm.ClientConnectionStatus = "Отключено";
+                    vm.ServerConnectionStatus = "Отключено";
+                    vm.ServerStatus = "Остановлен";
                     if (_lastClientPid != 0)
                     {
                         _clientLogReader.Stop();

@@ -189,6 +189,7 @@
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
                                 </Grid.ColumnDefinitions>
 
                                 <!-- Firewall Control -->
@@ -214,8 +215,26 @@
                                     </StackPanel>
                                 </StackPanel>
 
-                                <!-- Client Control -->
+                                <!-- Server Control -->
                                 <StackPanel Grid.Column="1">
+                                    <StackPanel Orientation="Horizontal" Margin="0,5">
+                                        <TextBlock Text="Сервер:" Width="80" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                        <Ellipse Width="12" Height="12"
+                                                 Fill="{StaticResource StatusRunning}"
+                                                 VerticalAlignment="Center"/>
+                                        <TextBlock Text="{Binding ServerStatus}"
+                                                   Margin="5,0" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Margin="0,5">
+                                        <TextBlock Text="Соединение:" Width="100" Foreground="Gray" VerticalAlignment="Center"/>
+                                        <TextBlock Text="{Binding ServerConnectionStatus}"
+                                                   Style="{StaticResource ConnectionText}"
+                                                   Foreground="{Binding ServerConnectionStatus, Converter={StaticResource ConnectionStatusToColor}}"/>
+                                    </StackPanel>
+                                </StackPanel>
+
+                                <!-- Client Control -->
+                                <StackPanel Grid.Column="2">
                                     <StackPanel Orientation="Horizontal" Margin="0,5">
                                         <TextBlock Text="Клиент:" Width="80" FontWeight="SemiBold" VerticalAlignment="Center"/>
                                         <Ellipse Width="12" Height="12"
