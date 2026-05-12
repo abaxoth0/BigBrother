@@ -103,8 +103,8 @@ namespace frontend
                     vm.DaemonStatus = status.DaemonStatus == "RUNNING" ? "Запущен" : "Остановлен";
                     vm.ClientConnectionStatus = status.IsConnected ? "Подключено" : "Отключено";
                     vm.ClientStatus = status.IsConnected ? "Запущен" : "Остановлен";
-                    vm.ServerConnectionStatus = status.IsServerConnected ? "Подключено" : "Отключено";
-                    vm.ServerStatus = status.IsServerConnected ? "Запущен" : "Остановлен";
+                    vm.ServerStatus = status.IsServerRunning ? "Запущен" : "Остановлен";
+                    vm.ServerConnectionStatus = status.IsServerSessionActive ? "Подключено" : "Отключено";
                     vm.HostName = status.ClientName;
                     vm.IpAddress = status.IpAddress;
                     vm.ClientPid = status.ClientPid;

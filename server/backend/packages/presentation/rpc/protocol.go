@@ -19,9 +19,12 @@ func writeStatus(conn net.Conn, status string) error {
 	return writeLine(conn, status)
 }
 
-// writeOK writes "OK\n" - convenience
+// writeOK writes "OK\n\n" - convenience (empty line terminates response)
 func writeOK(conn net.Conn) error {
-	return writeLine(conn, StatusOK)
+	if err := writeLine(conn, StatusOK); err != nil {
+		return err
+	}
+	return writeLine(conn, "") // empty line terminates response
 }
 
 // writeErrorTLV writes "ERROR\n<len>\n<msg>\n" in TLV format

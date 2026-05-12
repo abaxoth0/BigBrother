@@ -118,6 +118,9 @@ func (h *BackendHandler) handle(conn net.Conn) {
 			}
 			writeTLVResponse(conn, data...)
 
+		case "PING":
+			writeOK(conn)
+
 		default:
 			writeErrorTLV(conn, fmt.Sprintf("unknown command: %s", cmd))
 		}

@@ -10,10 +10,12 @@ public class ClientStatus
     public string IpAddress { get; set; } = "";
     public string DaemonStatus { get; set; } = "NOT_RUNNING";
     public string ClientBackendStatus { get; set; } = "NOT_RUNNING";
-    public string ServerConnectionStatus { get; set; } = "NOT_RUNNING";
+    public string ServerRunning { get; set; } = "NOT_RUNNING";
+    public string ServerSessionActive { get; set; } = "NOT_CONNECTED";
     public int ClientPid { get; set; }
     public bool IsConnected => ClientBackendStatus == "RUNNING";
-    public bool IsServerConnected => ServerConnectionStatus == "RUNNING";
+    public bool IsServerRunning => ServerRunning == "RUNNING";
+    public bool IsServerSessionActive => ServerSessionActive == "CONNECTED";
     public uint WhitelistRevision { get; set; }
 }
 
@@ -195,7 +197,11 @@ public class IpcService : IDisposable
                     }
                     if (data.Count > 6)
                     {
-                        status.ServerConnectionStatus = data[6] == "running" ? "RUNNING" : "NOT_RUNNING";
+                        status.ServerRunning = data[6] == "running" ? "RUNNING" : "NOT_RUNNING";
+                    }
+                    if (data.Count > 7)
+                    {
+                        status.ServerSessionActive = data[7] == "connected" ? "CONNECTED" : "NOT_CONNECTED";
                     }
                 }
             }

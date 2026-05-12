@@ -14,6 +14,15 @@
 #define USER_CONFIG_FILENAME "config\\user.cfg"
 
 static char g_server_ip[64] = {0};
+static int g_server_session_active = 0;
+
+void SetServerSessionActive(int active) {
+    g_server_session_active = active;
+}
+
+int IsServerSessionActive(void) {
+    return g_server_session_active;
+}
 uint32_t g_whitelist_revision = 1;
 
 #define SERVER_IP_FILENAME "config\\server.cfg"
@@ -47,6 +56,10 @@ void load_server_ip(void) {
     } else {
         printf("[DEBUG] load_server_ip: no config file\n");
     }
+}
+
+int HasServerIp(void) {
+    return g_server_ip[0] != '\0';
 }
 
 void SetServerIp(const char* ip) {
@@ -450,21 +463,27 @@ int ServerConnect(const char* name) {
     if (!name) return -1;
     const char* args[1] = {name};
     char response[256];
-    return send_to_server_tlv("CONNECT", args, 1, response, sizeof(response));
+    int result = send_to_server_tlv("CONNECT", args, 1, response, sizeof(response));
+    if (result == 0) g_server_session_active = 1;
+    return result;
 }
 
 int ServerDisconnect(const char* name) {
     if (!name) return -1;
     const char* args[1] = {name};
     char response[256];
-    return send_to_server_tlv("DISCONNECT", args, 1, response, sizeof(response));
+    int result = send_to_server_tlv("DISCONNECT", args, 1, response, sizeof(response));
+    if (result == 0) g_server_session_active = 0;
+    return result;
 }
 
 int ServerRefresh(const char* name) {
     if (!name) return -1;
     const char* args[1] = {name};
     char response[256];
-    return send_to_server_tlv("REFRESH", args, 1, response, sizeof(response));
+    int result = send_to_server_tlv("REFRESH", args, 1, response, sizeof(response));
+    if (result == 0) g_server_session_active = 1;
+    return result;
 }
 
 int ServerChangeName(const char* oldName, const char* newName) {
@@ -472,6 +491,11 @@ int ServerChangeName(const char* oldName, const char* newName) {
     const char* args[2] = {oldName, newName};
     char response[256];
     return send_to_server_tlv("CHANGE_NAME", args, 2, response, sizeof(response));
+}
+
+int PingServer(void) {
+    char response[256];
+    return send_to_server_tlv("PING", NULL, 0, response, sizeof(response));
 }
 
 int DaemonRun(const char* server_ip, int poll_interval_secs) {
@@ -538,6 +562,7 @@ int DaemonRun(const char* server_ip, int poll_interval_secs) {
             char response[8192] = {0};
             if (send_to_server_tlv("GET_WHITELIST", wl_args, 1, response, sizeof(response)) == 0) {
                 server_connected = 1;
+                g_server_session_active = 1;
                 if (strcmp(response, last_whitelist) == 0) {
                     goto wait;
                 }
@@ -555,6 +580,7 @@ int DaemonRun(const char* server_ip, int poll_interval_secs) {
             } else {
                 LOGF("[Daemon] Cannot connect to server %s, retrying...", g_server_ip);
                 server_connected = 0;
+                g_server_session_active = 0;
             }
         } else {
             LOGF("[Daemon] No username, skipping server whitelist fetch");

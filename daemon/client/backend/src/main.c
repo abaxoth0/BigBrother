@@ -48,6 +48,9 @@ void WINAPI ServiceMain(DWORD argc, LPTSTR* argv) {
     g_ServiceStatus.dwCurrentState = SERVICE_RUNNING;
     SetServiceStatus(g_StatusHandle, &g_ServiceStatus);
 
+    // Load server IP from config file
+    load_server_ip();
+
     // Parse arguments from service
     const char* server_ip = NULL;
     int poll_interval = 5;
@@ -67,8 +70,11 @@ void WINAPI ServiceMain(DWORD argc, LPTSTR* argv) {
 
     if (server_ip) {
         SetServerIp(server_ip);
+    }
+
+    if (HasServerIp()) {
         StartClientServer();
-        DaemonRun(server_ip, poll_interval);
+        DaemonRun(server_ip ? server_ip : "", poll_interval);
     }
 
     // Wait for stop event

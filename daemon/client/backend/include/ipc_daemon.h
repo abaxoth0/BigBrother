@@ -59,6 +59,25 @@ int DaemonSetWhitelist(const char* data, size_t size, char* out_buffer, size_t b
 int DaemonReloadWhitelist(char* out_buffer, size_t buffer_size);
 
 /**
+ * @brief Check if a server IP is configured.
+ *
+ * @return 1 if configured, 0 otherwise.
+ */
+int HasServerIp(void);
+
+/**
+ * @brief Set the active session state with the server.
+ */
+void SetServerSessionActive(int active);
+
+/**
+ * @brief Check if there is an active user session with the server.
+ *
+ * @return 1 if connected, 0 otherwise.
+ */
+int IsServerSessionActive(void);
+
+/**
  * @brief Set the server IP address for daemon mode.
  *
  * @param ip Server IP address.
@@ -86,6 +105,13 @@ int DaemonRun(const char* server_ip, int poll_interval_secs);
  * @return 0 if alive, -1 if not responding.
  */
 int PingDaemon(void);
+
+/**
+ * @brief Ping the remote server to check connection.
+ *
+ * @return 0 if reachable, -1 if not responding.
+ */
+int PingServer(void);
 
 /**
  * @brief Load username from config file.

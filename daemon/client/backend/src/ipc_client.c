@@ -185,6 +185,7 @@ DWORD WINAPI client_handler(LPVOID param) {
     // Parse command
     if (strcmp(buffer, "GET_STATUS") == 0) {
         int daemon_ok = (PingDaemon() == 0);
+        int server_ok = (PingServer() == 0);
 
         // Get client name from config
         char client_name[128] = {0};
@@ -193,22 +194,24 @@ DWORD WINAPI client_handler(LPVOID param) {
         // Build response with separate TLV values
         // data[0] = ClientName, data[1] = IpAddress, data[2] = DaemonStatus
         // data[3] = Backend status ("running"), data[4] = WhitelistRevision
-        // data[5] = PID
+        // data[5] = PID, data[6] = ServerRunning, data[7] = ServerSession
         char pid_str[32];
         snprintf(pid_str, sizeof(pid_str), "%lu", GetCurrentProcessId());
 
         char rev_str[32];
         snprintf(rev_str, sizeof(rev_str), "%u", g_whitelist_revision);
 
-        const char* data[6] = {
+        const char* data[8] = {
             client_name[0] ? client_name : "unknown",
             "127.0.0.1",
             daemon_ok ? "running" : "not_running",
             "running",
             rev_str,
-            pid_str
+            pid_str,
+            server_ok ? "running" : "not_running",
+            IsServerSessionActive() ? "connected" : "not_connected"
         };
-        write_response_tlv(pipe, "OK", data, 6);
+        write_response_tlv(pipe, "OK", data, 8);
 
     } else if (strcmp(buffer, "GET_WHITELIST") == 0) {
         char whitelist_buf[8192];
