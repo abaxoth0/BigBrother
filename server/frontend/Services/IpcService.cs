@@ -1,5 +1,6 @@
 using System.IO;
 using System.IO.Pipes;
+using System.Linq;
 using System.Text;
 
 namespace frontend.Services;
@@ -124,13 +125,14 @@ public class IpcService : IDisposable
             var reader = new StreamReader(_pipe);
 
             // Write TLV request: command\n<len>\n<arg>\n...\n (empty line terminates)
-            writer.WriteLine(cmd);
+            // Use Write() with explicit \n to avoid \r\n on Windows
+            writer.Write(cmd + "\n");
             foreach (var arg in args)
             {
                 writer.Write(arg.Length + "\n");
                 writer.Write(arg + "\n");
             }
-            writer.WriteLine(); // empty line terminates request
+            writer.Write("\n"); // empty line terminates request
 
             // Read response: status\n[TLV data...\n] (empty line terminates)
             var status = reader.ReadLine();
@@ -490,44 +492,17 @@ public class IpcService : IDisposable
 
     public async Task<bool> SaveWhitelistAsync(string name, List<string> entries)
     {
+        var args = new List<string> { name };
+        args.AddRange(entries.Where(e => !string.IsNullOrWhiteSpace(e)));
         return await Task.Run(() =>
         {
             _connectionLock.Wait();
             try
             {
                 if (!ConnectAsync().Result) return false;
-
-                try
-                {
-                    var writer = new StreamWriter(_pipe!) { AutoFlush = true };
-                    var reader = new StreamReader(_pipe!);
-
-                    // Write command
-                    writer.WriteLine("SAVE_WHITELIST");
-                    writer.Write(name.Length + "\n");
-                    writer.Write(name + "\n");
-
-                    // Write entries as TLV
-                    foreach (var entry in entries)
-                    {
-                        if (!string.IsNullOrWhiteSpace(entry))
-                        {
-                            writer.Write(entry.Length + "\n");
-                            writer.Write(entry + "\n");
-                        }
-                    }
-                    writer.WriteLine(); // empty line terminates request
-
-                    // Read response
-                    var status = reader.ReadLine();
-                    Disconnect();
-                    return status == "OK";
-                }
-                catch
-                {
-                    Disconnect();
-                    return false;
-                }
+                var (status, _) = SendCommand("SAVE_WHITELIST", args.ToArray());
+                Disconnect();
+                return status == "OK";
             }
             finally
             {

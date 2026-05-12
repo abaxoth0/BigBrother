@@ -15,16 +15,12 @@ import (
 	"bigbrother_server_backend/packages/infrastructure/pending"
 )
 
-type ServerStatus struct {
-	Connections []*connection.Connection
-	Uptime      time.Duration
-}
-
 type FrontendHandler struct {
 	db           database.DBInstance
 	connManager  connection.Manager
-	activeWl 	 string // TODO refactor?
+	activeWl 	  string // TODO refactor?
 	pendingUsers *pending.UserStorage
+	startTime    time.Time
 }
 
 func NewFrontendHandler(
@@ -33,9 +29,10 @@ func NewFrontendHandler(
 	pendingUsers *pending.UserStorage,
 ) *FrontendHandler {
 	return &FrontendHandler{
-		db: db,
-		connManager: connManager,
+		db:           db,
+		connManager:  connManager,
 		pendingUsers: pendingUsers,
+		startTime:    time.Now(),
 	}
 }
 
@@ -68,7 +65,12 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 			writeOK(conn)
 
 		case "GET_SERVER_STATUS":
-			writeOK(conn)
+			connections := h.connManager.GetAllConnections()
+			status := fmt.Sprintf("uptime:%s:clients:%d:pending:%d",
+				time.Since(h.startTime).String(),
+				len(connections),
+				len(h.pendingUsers.GetAll()))
+			writeTLVResponse(conn, status)
 
 		case "APPROVE":
 			if len(args) < 1 {
