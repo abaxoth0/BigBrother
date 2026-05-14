@@ -214,6 +214,11 @@ func (db *Database) GetWhitelistEntries(name string) ([]*entity.WhitelistEntry, 
 func (db *Database) GetUserWhitelistEntries(username string) ([]*entity.WhitelistEntry, error) {
 	dbcommon.Log.Trace("Getting whitelist entries of user \""+username+"\"...", nil)
 
+	// First verify user exists
+	if _, err := db.GetUserByName(username); err != nil {
+		return nil, err
+	}
+
 	// TODO check this query with multiple users and whitelists
 	rows, err := db.conn.Query(
 		`SELECT wl_entry.id, wl_entry.value as entry FROM whitelist_entry as wl_entry

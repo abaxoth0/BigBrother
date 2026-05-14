@@ -57,6 +57,10 @@ func (h *BackendHandler) handle(conn net.Conn) {
 				writeErrorTLV(conn, "Missing username")
 				continue
 			}
+			if _, err := h.db.GetUserByName(args[0]); err != nil {
+				writeErrorTLV(conn, "user not found")
+				continue
+			}
 			wl := h.GetWhitelist(args[0])
 			var data []string
 			for _, entry := range wl {
@@ -69,7 +73,11 @@ func (h *BackendHandler) handle(conn net.Conn) {
 				writeErrorTLV(conn, "Missing name")
 				continue
 			}
-			if err := h.RegisterPendingUser(args[0], conn.RemoteAddr().String()); err != nil {
+			addr := conn.RemoteAddr().String()
+			if len(args) >= 2 && args[1] != "" {
+				addr = args[1]
+			}
+			if err := h.RegisterPendingUser(args[0], addr); err != nil {
 				writeErrorTLV(conn, err.Error())
 			} else {
 				writeOK(conn)
@@ -80,7 +88,11 @@ func (h *BackendHandler) handle(conn net.Conn) {
 				writeErrorTLV(conn, "Missing name")
 				continue
 			}
-			if err := h.ConnectUser(args[0], conn.RemoteAddr().String()); err != nil {
+			addr := conn.RemoteAddr().String()
+			if len(args) >= 2 && args[1] != "" {
+				addr = args[1]
+			}
+			if err := h.ConnectUser(args[0], addr); err != nil {
 				writeErrorTLV(conn, err.Error())
 			} else {
 				writeOK(conn)
@@ -164,6 +176,7 @@ func (s *BackendHandler) ConnectUser(name string, addr string) error {
 	if err := s.db.ChangeUserAddr(name, addr); err != nil {
 		return err
 	}
+	user.Addr = addr
 	_, err = s.connManager.NewConnection(user)
 	return err
 }
@@ -223,17 +236,8 @@ func (s *BackendHandler) DeleteUsers(usernames ...string) error {
 }
 
 func (s *BackendHandler) RegisterPendingUser(username, addr string) error {
-	user, err := s.pendingUsers.Pop(username)
-	if err != nil {
-		return err
-	}
-	if user.Addr != addr {
-		user.Addr = addr
-	}
-	if _, err := s.db.CreateUser(user.Name, user.Addr); err != nil {
-		return err
-	}
-	return nil
+	log.Info("Registration request for user \""+username+"\"", nil)
+	return s.pendingUsers.Add(username, addr)
 }
 
 func (s *BackendHandler) Pair(username string) (*connection.Connection, error) {

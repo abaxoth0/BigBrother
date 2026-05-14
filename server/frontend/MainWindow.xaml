@@ -17,6 +17,7 @@
         <SolidColorBrush x:Key="BorderBrush" Color="#CCCCCC"/>
         <SolidColorBrush x:Key="HeaderBackground" Color="#F0F0F0"/>
         <SolidColorBrush x:Key="StatusRunning" Color="#4CAF50"/>
+        <SolidColorBrush x:Key="StatusDisconnected" Color="#F44336"/>
 
         <Style x:Key="ControlButton" TargetType="Button">
             <Setter Property="Padding" Value="8,4"/>
@@ -47,7 +48,18 @@
         <Border Grid.Row="0" Background="{StaticResource HeaderBackground}" Padding="10,5">
             <StackPanel Orientation="Horizontal">
                 <TextBlock Text="Сервер: " Foreground="Black" VerticalAlignment="Center" FontSize="14"/>
-                <Ellipse Width="10" Height="10" Fill="{StaticResource StatusRunning}" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                <Ellipse Width="10" Height="10" VerticalAlignment="Center" Margin="0,0,5,0">
+                    <Ellipse.Style>
+                        <Style TargetType="Ellipse">
+                            <Setter Property="Fill" Value="{StaticResource StatusDisconnected}"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsConnected}" Value="True">
+                                    <Setter Property="Fill" Value="{StaticResource StatusRunning}"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Ellipse.Style>
+                </Ellipse>
                 <TextBlock Text="{Binding ServerStatus}" Foreground="Black" VerticalAlignment="Center" FontSize="14" FontWeight="Bold"/>
                 <TextBlock Text="  |  " Foreground="Gray" VerticalAlignment="Center"/>
                 <TextBlock Text="{Binding Uptime}" Foreground="Gray" VerticalAlignment="Center"/>
@@ -96,7 +108,7 @@
                         </DataGrid.Columns>
                         <DataGrid.ContextMenu>
                             <ContextMenu>
-                                <MenuItem Header="Отключить" Command="{Binding DisconnectCommand}" CommandParameter="{Binding SelectedItem.Name, RelativeSource={RelativeSource AncestorType=DataGrid}}"/>
+                                <MenuItem Header="Отключить" Command="{Binding DisconnectCommand}" CommandParameter="{Binding PlacementTarget.SelectedItem.Name, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
                             </ContextMenu>
                         </DataGrid.ContextMenu>
                     </DataGrid>
@@ -121,8 +133,8 @@
                         </DataGrid.Columns>
                         <DataGrid.ContextMenu>
                             <ContextMenu>
-                                <MenuItem Header="Одобрить" Command="{Binding ApproveCommand}" CommandParameter="{Binding SelectedItem.Name, RelativeSource={RelativeSource AncestorType=DataGrid}}"/>
-                                <MenuItem Header="Отклонить" Command="{Binding RejectCommand}" CommandParameter="{Binding SelectedItem.Name, RelativeSource={RelativeSource AncestorType=DataGrid}}"/>
+                                <MenuItem Header="Одобрить" Command="{Binding ApproveCommand}" CommandParameter="{Binding PlacementTarget.SelectedItem.Name, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                                <MenuItem Header="Отклонить" Command="{Binding RejectCommand}" CommandParameter="{Binding PlacementTarget.SelectedItem.Name, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
                             </ContextMenu>
                         </DataGrid.ContextMenu>
                     </DataGrid>
@@ -162,10 +174,10 @@
                         </DataGrid.Columns>
                         <DataGrid.ContextMenu>
                             <ContextMenu>
-                                <MenuItem Header="Установить активным" Command="{Binding SetActiveWhitelistCommand}" CommandParameter="{Binding SelectedItem.Name, RelativeSource={RelativeSource AncestorType=DataGrid}}"/>
-                                <MenuItem Header="Редактировать" Command="{Binding OpenEditWhitelistCommand}" CommandParameter="{Binding SelectedItem, RelativeSource={RelativeSource AncestorType=DataGrid}}"/>
+                                <MenuItem Header="Установить активным" Command="{Binding SetActiveWhitelistCommand}" CommandParameter="{Binding PlacementTarget.SelectedItem.Name, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                                <MenuItem Header="Редактировать" Command="{Binding OpenEditWhitelistCommand}" CommandParameter="{Binding PlacementTarget.SelectedItem, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
                                 <Separator/>
-                                <MenuItem Header="Удалить" Command="{Binding DeleteWhitelistCommand}" CommandParameter="{Binding SelectedItem.Name, RelativeSource={RelativeSource AncestorType=DataGrid}}"/>
+                                <MenuItem Header="Удалить" Command="{Binding DeleteWhitelistCommand}" CommandParameter="{Binding PlacementTarget.SelectedItem.Name, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
                             </ContextMenu>
                         </DataGrid.ContextMenu>
                     </DataGrid>

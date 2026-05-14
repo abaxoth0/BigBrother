@@ -20,16 +20,15 @@ func (db *Database) GetUserByName(username string) (*entity.User, error) {
 		"SELECT id, name, addr, whitelist_id FROM user WHERE name = ?",
 		username,
 	)
-	if err := row.Err(); err != nil {
-		return nil, err
-	}
 
 	user := entity.User{}
 	var id []byte
-	if err := row.Scan(&id, &user.Name, &user.Addr, &user.WhitelistID); err != nil {
+	var wlID sql.NullString
+	if err := row.Scan(&id, &user.Name, &user.Addr, &wlID); err != nil {
 		return nil, err
 	}
 	user.Id = string(id)
+	user.WhitelistID = wlID.String
 
 	dbcommon.Log.Trace("Getting user with name \""+username+"\": OK", nil)
 
@@ -44,16 +43,15 @@ func (db *Database) GetUserByAddr(userAddr string) (*entity.User, error) {
 		"SELECT id, name, addr, whitelist_id FROM user WHERE addr = ?",
 		userAddr,
 	)
-	if err := row.Err(); err != nil {
-		return nil, err
-	}
 
 	user := entity.User{}
 	var id []byte
-	if err := row.Scan(&id, &user.Name, &user.Addr, &user.WhitelistID); err != nil {
+	var wlID sql.NullString
+	if err := row.Scan(&id, &user.Name, &user.Addr, &wlID); err != nil {
 		return nil, err
 	}
 	user.Id = string(id)
+	user.WhitelistID = wlID.String
 
 	dbcommon.Log.Trace("Getting user with address \""+userAddr+"\": OK", nil)
 
@@ -66,10 +64,11 @@ func (db *Database) CreateUser(name string, addr string) (string, error) {
 	id := uuid.New()
 
 	_, err := db.conn.Exec(
-		"INSERT INTO user (id, name, addr, whitelist_id) VALUES (?, ?, ?)",
+		"INSERT INTO user (id, name, addr) VALUES (?, ?, ?)",
 		id, name, addr,
 	)
 	if err != nil {
+		dbcommon.Log.Error("Creating new user - \""+name+"\" | \""+addr+"\"", err.Error(), nil)
 		return "", err
 	}
 

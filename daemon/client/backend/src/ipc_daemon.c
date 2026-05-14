@@ -3,6 +3,9 @@
  * @brief IPC client implementation for connecting to BigBrother Daemon.
  */
 
+#include <winsock2.h>
+#include <ws2tcpip.h>
+
 #include "../include/ipc_daemon.h"
 #include "../../../common/log/log.h"
 #include <windows.h>
@@ -15,6 +18,7 @@
 
 static char g_server_ip[64] = {0};
 static int g_server_session_active = 0;
+static int g_registration_tried = 0;
 
 void SetServerSessionActive(int active) {
     g_server_session_active = active;
@@ -428,6 +432,66 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
     return result;
 }
 
+static int get_local_ip(const char* server_ip, char* buffer, size_t buffer_size) {
+    if (!buffer || buffer_size == 0) return -1;
+    buffer[0] = '\0';
+
+    WSADATA wsaData;
+    if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0)
+        return -1;
+
+    int ret = -1;
+
+    // Try route-based detection using the server IP
+    if (server_ip && server_ip[0]) {
+        SOCKET sock = socket(AF_INET, SOCK_DGRAM, 0);
+        if (sock != INVALID_SOCKET) {
+            struct sockaddr_in addr;
+            addr.sin_family = AF_INET;
+            addr.sin_port = htons(445);
+            addr.sin_addr.s_addr = inet_addr(server_ip);
+
+            if (connect(sock, (struct sockaddr*)&addr, sizeof(addr)) == 0) {
+                struct sockaddr_in local_addr;
+                int len = sizeof(local_addr);
+                if (getsockname(sock, (struct sockaddr*)&local_addr, &len) == 0) {
+                    char* ip = inet_ntoa(local_addr.sin_addr);
+                    if (ip) {
+                        strncpy(buffer, ip, buffer_size - 1);
+                        buffer[buffer_size - 1] = '\0';
+                        ret = 0;
+                    }
+                }
+            }
+            closesocket(sock);
+        }
+    }
+
+    // Fallback: resolve local hostname
+    if (ret != 0) {
+        char hostname[256];
+        if (gethostname(hostname, sizeof(hostname)) == 0) {
+            struct addrinfo hints, *res = NULL;
+            memset(&hints, 0, sizeof(hints));
+            hints.ai_family = AF_INET;
+            hints.ai_socktype = SOCK_STREAM;
+            if (getaddrinfo(hostname, NULL, &hints, &res) == 0 && res) {
+                struct sockaddr_in* sa = (struct sockaddr_in*)res->ai_addr;
+                char* ip = inet_ntoa(sa->sin_addr);
+                if (ip) {
+                    strncpy(buffer, ip, buffer_size - 1);
+                    buffer[buffer_size - 1] = '\0';
+                    ret = 0;
+                }
+                freeaddrinfo(res);
+            }
+        }
+    }
+
+    WSACleanup();
+    return ret;
+}
+
 int ServerRegister(const char* name) {
     if (!name) return -1;
     printf("[DEBUG] ServerRegister: START name='%s', g_server_ip='%s'\n", name, g_server_ip);
@@ -439,14 +503,17 @@ int ServerRegister(const char* name) {
         return -1;
     }
 
-    const char* args[1] = {name};
+    char local_ip[64] = {0};
+    get_local_ip(g_server_ip, local_ip, sizeof(local_ip));
+
+    const char* args[2] = {name, local_ip};
     char response[256];
     memset(response, 0, sizeof(response));
 
-    printf("[DEBUG] ServerRegister: calling send_to_server...\n");
+    printf("[DEBUG] ServerRegister: local_ip='%s', calling send_to_server...\n", local_ip);
     fflush(stdout);
 
-    int result = send_to_server_tlv("REGISTER", args, 1, response, sizeof(response));
+    int result = send_to_server_tlv("REGISTER", args, local_ip[0] ? 2 : 1, response, sizeof(response));
 
     printf("[DEBUG] ServerRegister: send_to_server done, result=%d\n", result);
     fflush(stdout);
@@ -461,9 +528,11 @@ int ServerRegister(const char* name) {
 
 int ServerConnect(const char* name) {
     if (!name) return -1;
-    const char* args[1] = {name};
+    char local_ip[64] = {0};
+    get_local_ip(g_server_ip, local_ip, sizeof(local_ip));
+    const char* args[2] = {name, local_ip};
     char response[256];
-    int result = send_to_server_tlv("CONNECT", args, 1, response, sizeof(response));
+    int result = send_to_server_tlv("CONNECT", args, local_ip[0] ? 2 : 1, response, sizeof(response));
     if (result == 0) g_server_session_active = 1;
     return result;
 }
@@ -530,6 +599,11 @@ int DaemonRun(const char* server_ip, int poll_interval_secs) {
             server_connected = 1;
         } else {
             LOGF("[Daemon] Failed to connect to server (may not be registered/approved yet)");
+            if (!g_registration_tried) {
+                LOGF("[Daemon] Attempting to register...");
+                ServerRegister(username);
+                g_registration_tried = 1;
+            }
         }
     } else {
         LOGF("[Daemon] No saved username found, skipping server connection");
@@ -563,6 +637,8 @@ int DaemonRun(const char* server_ip, int poll_interval_secs) {
             if (send_to_server_tlv("GET_WHITELIST", wl_args, 1, response, sizeof(response)) == 0) {
                 server_connected = 1;
                 g_server_session_active = 1;
+                // Also register connection on server if not already connected
+                ServerConnect(username);
                 if (strcmp(response, last_whitelist) == 0) {
                     goto wait;
                 }
@@ -581,6 +657,11 @@ int DaemonRun(const char* server_ip, int poll_interval_secs) {
                 LOGF("[Daemon] Cannot connect to server %s, retrying...", g_server_ip);
                 server_connected = 0;
                 g_server_session_active = 0;
+                if (!g_registration_tried) {
+                    LOGF("[Daemon] Attempting to register...");
+                    ServerRegister(username);
+                    g_registration_tried = 1;
+                }
             }
         } else {
             LOGF("[Daemon] No username, skipping server whitelist fetch");

@@ -38,10 +38,11 @@ public class MainViewModel : ViewModelBase
     private readonly IpcService _ipcService;
     private System.Timers.Timer? _refreshTimer;
 
-    private string _serverStatus = "Not Connected";
+    private string _serverStatus = "Подключение...";
     private string _uptime = "";
     private int _connectedClientsCount;
     private int _pendingCount;
+    private bool _isConnected;
 
     private string _activeWhitelist = "";
     private ObservableCollection<WhitelistInfo> _whitelists = new();
@@ -62,10 +63,11 @@ public class MainViewModel : ViewModelBase
         RefreshCommand = new RelayCommand(async _ => await RefreshAllAsync());
         DeleteWhitelistCommand = new RelayCommand(async o => await DeleteWhitelistAsync(o?.ToString()!), o => o != null);
         SetActiveWhitelistCommand = new RelayCommand(async o => await SetActiveWhitelistAsync(o?.ToString()!), o => o != null);
-        OpenCreateWhitelistCommand = new RelayCommand(_ => OpenCreateWhitelist());
-        OpenEditWhitelistCommand = new RelayCommand(o => OpenEditWhitelist(o as WhitelistInfo), o => o is WhitelistInfo);
+        OpenCreateWhitelistCommand = new RelayCommand(async _ => await OpenCreateWhitelistAsync());
+        OpenEditWhitelistCommand = new RelayCommand(async o => await OpenEditWhitelistAsync(o as WhitelistInfo), o => o is WhitelistInfo);
 
         StartAutoRefresh();
+        _ = RefreshAllAsync();
     }
 
     public ObservableCollection<ConnectedClient> ConnectedClients { get; }
@@ -95,6 +97,12 @@ public class MainViewModel : ViewModelBase
     {
         get => _pendingCount;
         set => SetProperty(ref _pendingCount, value);
+    }
+
+    public bool IsConnected
+    {
+        get => _isConnected;
+        set => SetProperty(ref _isConnected, value);
     }
 
     public string ActiveWhitelist
@@ -139,10 +147,38 @@ public class MainViewModel : ViewModelBase
     {
         await Task.Run(async () =>
         {
+            await RefreshServerStatusAsync();
             await RefreshClientsAsync();
             await RefreshPendingAsync();
             await RefreshWhitelistsAsync();
         });
+    }
+
+    private async Task RefreshServerStatusAsync()
+    {
+        try
+        {
+            var serverStatus = await _ipcService.GetServerStatusAsync();
+            await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+            {
+                IsConnected = serverStatus.IsRunning;
+                ServerStatus = serverStatus.IsRunning ? "Запущен" : "Не подключен";
+                Uptime = serverStatus.IsRunning && !string.IsNullOrEmpty(serverStatus.UptimeText)
+                    ? $"Аптайм: {serverStatus.UptimeText}" : "";
+                ConnectedClientsCount = serverStatus.ConnectedClients;
+                PendingCount = serverStatus.PendingCount;
+            });
+        }
+        catch (Exception ex)
+        {
+            await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+            {
+                IsConnected = false;
+                ServerStatus = "Не подключен";
+                Uptime = "";
+                AddLog("ERROR", $"Ошибка: {ex.Message}");
+            });
+        }
     }
 
     public async Task RefreshClientsAsync()
@@ -158,12 +194,15 @@ public class MainViewModel : ViewModelBase
                     ConnectedClients.Add(client);
                 }
                 ConnectedClientsCount = clients.Count;
-                ServerStatus = clients.Count > 0 ? "Running" : "Running (No Clients)";
+                AddLog("INFO", $"Клиентов: {clients.Count}");
             });
         }
-        catch
+        catch (Exception ex)
         {
-            ServerStatus = "Not Connected";
+            await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+            {
+                AddLog("ERROR", $"Ошибка загрузки клиентов: {ex.Message}");
+            });
         }
     }
 
@@ -180,9 +219,17 @@ public class MainViewModel : ViewModelBase
                     PendingRegistrations.Add(p);
                 }
                 PendingCount = pending.Count;
+                if (pending.Count > 0)
+                    AddLog("INFO", $"Ожидают регистрации: {pending.Count}");
             });
         }
-        catch { }
+        catch (Exception ex)
+        {
+            await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+            {
+                AddLog("ERROR", $"Ошибка загрузки ожидающих: {ex.Message}");
+            });
+        }
     }
 
     public async Task RefreshWhitelistsAsync()
@@ -197,19 +244,23 @@ public class MainViewModel : ViewModelBase
                 {
                     Whitelists.Add(wl);
                 }
-                if (whitelists.Count > 0 && string.IsNullOrEmpty(ActiveWhitelist))
-                {
-                    ActiveWhitelist = whitelists[0].Name;
-                }
+                AddLog("INFO", $"Списков: {whitelists.Count}");
             });
         }
-        catch { }
+        catch (Exception ex)
+        {
+            await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+            {
+                AddLog("ERROR", $"Ошибка загрузки списков: {ex.Message}");
+            });
+        }
     }
 
     private async Task ApproveUserAsync(string? name)
     {
         if (string.IsNullOrEmpty(name)) return;
-        await _ipcService.ApproveUserAsync(name);
+        var ok = await _ipcService.ApproveUserAsync(name);
+        AddLog(ok ? "INFO" : "ERROR", ok ? $"Пользователь {name} одобрен" : $"Ошибка одобрения {name}");
         await RefreshPendingAsync();
         await RefreshClientsAsync();
     }
@@ -217,21 +268,24 @@ public class MainViewModel : ViewModelBase
     private async Task RejectUserAsync(string? name)
     {
         if (string.IsNullOrEmpty(name)) return;
-        await _ipcService.RejectUserAsync(name);
+        var ok = await _ipcService.RejectUserAsync(name);
+        AddLog(ok ? "INFO" : "ERROR", ok ? $"Пользователь {name} отклонен" : $"Ошибка отклонения {name}");
         await RefreshPendingAsync();
     }
 
     private async Task DisconnectUserAsync(string? name)
     {
         if (string.IsNullOrEmpty(name)) return;
-        await _ipcService.DisconnectUserAsync(name);
+        var ok = await _ipcService.DisconnectUserAsync(name);
+        AddLog(ok ? "INFO" : "ERROR", ok ? $"Пользователь {name} отключен" : $"Ошибка отключения {name}");
         await RefreshClientsAsync();
     }
 
     private async Task DeleteWhitelistAsync(string? name)
     {
         if (string.IsNullOrEmpty(name)) return;
-        await _ipcService.DeleteWhitelistAsync(name);
+        var ok = await _ipcService.DeleteWhitelistAsync(name);
+        AddLog(ok ? "INFO" : "ERROR", ok ? $"Список {name} удален" : $"Ошибка удаления {name}");
         await RefreshWhitelistsAsync();
     }
 
@@ -239,10 +293,11 @@ public class MainViewModel : ViewModelBase
     {
         if (string.IsNullOrEmpty(name)) return;
         ActiveWhitelist = name;
-        await _ipcService.SetActiveWhitelistAsync(name);
+        var ok = await _ipcService.SetActiveWhitelistAsync(name);
+        AddLog(ok ? "INFO" : "ERROR", ok ? $"Активный список: {name}" : $"Ошибка установки активного списка");
     }
 
-    private void OpenCreateWhitelist()
+    private async Task OpenCreateWhitelistAsync()
     {
         var dialog = new WhitelistEditWindow();
         dialog.ViewModel.SetCreateMode();
@@ -252,25 +307,34 @@ public class MainViewModel : ViewModelBase
         {
             var name = dialog.ViewModel.WhitelistName;
             var entries = dialog.ViewModel.GetEntries();
-            await _ipcService.CreateWhitelistAsync(name);
-            if (entries.Count > 0)
+            var ok = await _ipcService.CreateWhitelistAsync(name);
+            if (ok && entries.Count > 0)
             {
-                await _ipcService.SaveWhitelistAsync(name, entries);
+                ok = await _ipcService.SaveWhitelistAsync(name, entries);
             }
+            AddLog(ok ? "INFO" : "ERROR", ok ? $"Список {name} создан" : $"Ошибка создания списка {name}");
             await RefreshWhitelistsAsync();
         };
 
         dialog.ShowDialog();
     }
 
-    private void OpenEditWhitelist(WhitelistInfo? whitelist)
+    private async Task OpenEditWhitelistAsync(WhitelistInfo? whitelist)
     {
         if (whitelist == null) return;
 
         var dialog = new WhitelistEditWindow();
         dialog.Owner = Application.Current.MainWindow;
 
-        _ = LoadWhitelistForEdit(whitelist.Name, dialog.ViewModel);
+        try
+        {
+            var entries = await _ipcService.GetWhitelistEntriesAsync(whitelist.Name);
+            dialog.ViewModel.SetEditMode(whitelist.Name, entries);
+        }
+        catch
+        {
+            dialog.ViewModel.SetEditMode(whitelist.Name, new List<string>());
+        }
 
         dialog.ViewModel.Saved += async (s, e) =>
         {
@@ -282,24 +346,24 @@ public class MainViewModel : ViewModelBase
                 await _ipcService.RenameWhitelistAsync(dialog.ViewModel.GetOriginalName(), newName);
             }
 
-            await _ipcService.SaveWhitelistAsync(newName, entries);
+            var ok = await _ipcService.SaveWhitelistAsync(newName, entries);
+            AddLog(ok ? "INFO" : "ERROR", ok ? $"Список {newName} сохранен" : $"Ошибка сохранения списка {newName}");
             await RefreshWhitelistsAsync();
         };
 
         dialog.ShowDialog();
     }
 
-    private async Task LoadWhitelistForEdit(string name, WhitelistEditViewModel viewModel)
+    private void AddLog(string level, string message)
     {
-        try
+        System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
         {
-            var entries = await _ipcService.GetWhitelistEntriesAsync(name);
-            await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+            LogEntries.Add($"[{DateTime.Now:HH:mm:ss}] [{level}] {message}");
+            if (LogEntries.Count > 1000)
             {
-                viewModel.SetEditMode(name, entries);
-            });
-        }
-        catch { }
+                LogEntries.RemoveAt(0);
+            }
+        });
     }
 
     public void Dispose()

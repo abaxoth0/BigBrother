@@ -15,6 +15,11 @@ import (
 	"bigbrother_server_backend/packages/infrastructure/pending"
 )
 
+type ServerStatus struct {
+	Connections []*connection.Connection
+	Uptime      time.Duration
+}
+
 type FrontendHandler struct {
 	db           database.DBInstance
 	connManager  connection.Manager
@@ -66,8 +71,12 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 
 		case "GET_SERVER_STATUS":
 			connections := h.connManager.GetAllConnections()
+			d := time.Since(h.startTime)
+			hours := int(d.Hours())
+			minutes := int(d.Minutes()) % 60
+			uptimeStr := fmt.Sprintf("%dh %dm", hours, minutes)
 			status := fmt.Sprintf("uptime:%s:clients:%d:pending:%d",
-				time.Since(h.startTime).String(),
+				uptimeStr,
 				len(connections),
 				len(h.pendingUsers.GetAll()))
 			writeTLVResponse(conn, status)
@@ -77,9 +86,12 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 				writeErrorTLV(conn, "Missing name")
 				continue
 			}
+			log.Info("Approving user \""+args[0]+"\"...", nil)
 			if err := h.ApproveUser(args[0]); err != nil {
+				log.Error("Approving user \""+args[0]+"\"", err.Error(), nil)
 				writeErrorTLV(conn, err.Error())
 			} else {
+				log.Info("Approving user \""+args[0]+"\": OK", nil)
 				writeOK(conn)
 			}
 
@@ -136,7 +148,7 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 		case "GET_PENDING":
 			var data []string
 			for _, user := range h.pendingUsers.GetAll() {
-				data = append(data, fmt.Sprintf("%s:%s", user.Name, user.Addr))
+				data = append(data, fmt.Sprintf("%s:%s:%d", user.Name, user.Addr, user.CreatedAt.Unix()))
 			}
 			writeTLVResponse(conn, data...)
 

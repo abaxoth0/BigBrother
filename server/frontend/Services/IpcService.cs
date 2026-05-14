@@ -32,7 +32,7 @@ public class WhitelistInfo
 public class ServerStatus
 {
     public bool IsRunning { get; set; }
-    public TimeSpan Uptime { get; set; }
+    public string UptimeText { get; set; } = "";
     public int ConnectedClients { get; set; }
     public int PendingCount { get; set; }
 }
@@ -194,8 +194,29 @@ public class IpcService : IDisposable
 
             try
             {
-                var (responseStatus, _) = SendCommand("GET_SERVER_STATUS");
+                var (responseStatus, data) = SendCommand("GET_SERVER_STATUS");
                 status.IsRunning = responseStatus == "OK";
+                if (status.IsRunning && data.Count > 0)
+                {
+                    var parts = data[0].Split(':');
+                    for (int i = 0; i < parts.Length - 1; i += 2)
+                    {
+                        switch (parts[i])
+                        {
+                            case "uptime":
+                                status.UptimeText = parts[i + 1];
+                                break;
+                            case "clients":
+                                if (int.TryParse(parts[i + 1], out var clients))
+                                    status.ConnectedClients = clients;
+                                break;
+                            case "pending":
+                                if (int.TryParse(parts[i + 1], out var pending))
+                                    status.PendingCount = pending;
+                                break;
+                        }
+                    }
+                }
             }
             finally
             {
@@ -277,11 +298,16 @@ public class IpcService : IDisposable
                         var parts = line.Split(':');
                         if (parts.Length >= 2)
                         {
-                            pending.Add(new PendingRegistration
+                            var reg = new PendingRegistration
                             {
                                 Name = parts[0],
                                 Address = parts[1]
-                            });
+                            };
+                            if (parts.Length > 2 && long.TryParse(parts[2], out var unixSecs))
+                            {
+                                reg.CreatedAt = DateTimeOffset.FromUnixTimeSeconds(unixSecs).LocalDateTime;
+                            }
+                            pending.Add(reg);
                         }
                     }
                 }

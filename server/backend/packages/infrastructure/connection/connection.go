@@ -58,7 +58,7 @@ func NewMemoryResidentConnectionManager() *MemoryResidentConnectionManager {
 }
 
 func (m *MemoryResidentConnectionManager) NewConnection(user *entity.User) (*Connection, error) {
-	if _, ok := m.connections[user.Name]; !ok {
+	if _, ok := m.connections[user.Name]; ok {
 		return nil, ErrAlreadyConnected
 	}
 
