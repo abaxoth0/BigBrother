@@ -151,15 +151,16 @@
 
                     <!-- Active Whitelist -->
                     <Grid Grid.Row="0" Background="{StaticResource HeaderBackground}" Margin="0,0,0,5">
-                        <StackPanel Orientation="Horizontal" Margin="10,5">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" Margin="10,5">
                             <TextBlock Text="Активный: " VerticalAlignment="Center" FontWeight="Bold"/>
                             <TextBlock Text="{Binding ActiveWhitelist}" VerticalAlignment="Center" Foreground="Gray"/>
-                            <TextBlock Text="  |  " VerticalAlignment="Center" Margin="10,0"/>
-                            <TextBlock Text="Просмотр: " VerticalAlignment="Center" FontWeight="Bold"/>
-                            <ComboBox ItemsSource="{Binding Whitelists}" SelectedItem="{Binding SelectedWhitelist}" DisplayMemberPath="Name" Width="150"/>
-                            <Button Content="Установить" Style="{StaticResource ControlButton}" Command="{Binding SetActiveWhitelistCommand}" CommandParameter="{Binding SelectedWhitelistName}"/>
-                            <Button Content="Создать" Style="{StaticResource ControlButton}" Command="{Binding OpenCreateWhitelistCommand}"/>
                         </StackPanel>
+                        <Button Grid.Column="2" Content="Создать" Style="{StaticResource ControlButton}" Command="{Binding OpenCreateWhitelistCommand}" Margin="10,5"/>
                     </Grid>
 
                     <!-- Whitelists List -->

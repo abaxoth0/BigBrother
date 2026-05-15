@@ -19,6 +19,7 @@
 static char g_server_ip[64] = {0};
 static int g_server_session_active = 0;
 static int g_registration_tried = 0;
+static int g_fallback_whitelist_enabled = 1;
 
 void SetServerSessionActive(int active) {
     g_server_session_active = active;
@@ -27,6 +28,15 @@ void SetServerSessionActive(int active) {
 int IsServerSessionActive(void) {
     return g_server_session_active;
 }
+
+void SetFallbackWhitelistEnabled(int enabled) {
+    g_fallback_whitelist_enabled = enabled ? 1 : 0;
+}
+
+int IsFallbackWhitelistEnabled(void) {
+    return g_fallback_whitelist_enabled;
+}
+
 uint32_t g_whitelist_revision = 1;
 
 #define SERVER_IP_FILENAME "config\\server.cfg"
@@ -574,6 +584,9 @@ int DaemonRun(const char* server_ip, int poll_interval_secs) {
     int server_connected = 0;
     int startup_retries = 30; // Wait up to 30 seconds for daemon to be ready
 
+    // Track whether we've pushed an empty whitelist for block-all mode
+    int blocked_all_pushed = 0;
+
     LOGF("[Daemon] Waiting for local daemon to be ready...");
     int local_ready = 0;
     while (startup_retries > 0) {
@@ -643,13 +656,26 @@ int DaemonRun(const char* server_ip, int poll_interval_secs) {
                 // Check if server whitelist sync is disabled
                 if (strcmp(response, "SYNC_DISABLED") == 0) {
                     if (strcmp(last_whitelist, "SYNC_DISABLED") != 0) {
-                        LOGF("[Daemon] Server whitelist sync is disabled, keeping local whitelist");
+                        if (g_fallback_whitelist_enabled) {
+                            LOGF("[Daemon] Server whitelist sync is disabled, keeping local whitelist");
+                        } else {
+                            LOGF("[Daemon] Server whitelist sync is disabled, fallback off - blocking all traffic");
+                            if (DaemonSetWhitelist("", 0, whitelist_buf, sizeof(whitelist_buf)) == 0) {
+                                g_whitelist_revision++;
+                                blocked_all_pushed = 1;
+                            }
+                        }
                         strncpy(last_whitelist, "SYNC_DISABLED", sizeof(last_whitelist) - 1);
                         last_whitelist[sizeof(last_whitelist) - 1] = '\0';
                     }
                     goto wait;
                 }
 
+                // Server returned actual whitelist entries - always push them
+                if (blocked_all_pushed) {
+                    blocked_all_pushed = 0;
+                    last_whitelist[0] = '\0'; // Force push to restore from block-all
+                }
                 if (strcmp(response, last_whitelist) == 0) {
                     goto wait;
                 }
@@ -668,6 +694,14 @@ int DaemonRun(const char* server_ip, int poll_interval_secs) {
                 LOGF("[Daemon] Cannot connect to server %s, retrying...", g_server_ip);
                 server_connected = 0;
                 g_server_session_active = 0;
+                // Push empty whitelist if fallback is disabled and not already blocked
+                if (!g_fallback_whitelist_enabled && local_ready && !blocked_all_pushed) {
+                    LOGF("[Daemon] Server unreachable and fallback off - blocking all traffic");
+                    if (DaemonSetWhitelist("", 0, whitelist_buf, sizeof(whitelist_buf)) == 0) {
+                        g_whitelist_revision++;
+                        blocked_all_pushed = 1;
+                    }
+                }
                 if (!g_registration_tried) {
                     LOGF("[Daemon] Attempting to register...");
                     ServerRegister(username);

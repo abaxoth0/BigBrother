@@ -309,6 +309,19 @@ DWORD WINAPI client_handler(LPVOID param) {
             write_ok(pipe);
         }
 
+    } else if (strcmp(buffer, "SET_FALLBACK_WHITELIST") == 0) {
+        if (arg_count < 1 || !args[0]) {
+            write_error_tlv(pipe, "missing value (0 or 1)");
+        } else {
+            SetFallbackWhitelistEnabled(args[0][0] == '1');
+            write_ok(pipe);
+        }
+
+    } else if (strcmp(buffer, "GET_FALLBACK_WHITELIST") == 0) {
+        const char* val = IsFallbackWhitelistEnabled() ? "1" : "0";
+        const char* data[1] = {val};
+        write_response_tlv(pipe, "OK", data, 1);
+
     } else if (strcmp(buffer, "CHANGE_NAME") == 0) {
         if (arg_count < 1 || !args[0] || strlen(args[0]) == 0) {
             write_error_tlv(pipe, "missing new name");

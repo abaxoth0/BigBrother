@@ -259,10 +259,22 @@ public class MainViewModel : ViewModelBase
             var whitelists = await _ipcService.GetWhitelistsAsync();
             await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
             {
-                Whitelists.Clear();
-                foreach (var wl in whitelists)
+                // Update collection in-place to preserve DataGrid stability (context menus, selection, etc.)
+                var toRemove = Whitelists.Where(w => !whitelists.Any(n => n.Name == w.Name)).ToList();
+                foreach (var w in toRemove)
+                    Whitelists.Remove(w);
+
+                foreach (var nw in whitelists)
                 {
-                    Whitelists.Add(wl);
+                    var existing = Whitelists.FirstOrDefault(w => w.Name == nw.Name);
+                    if (existing != null)
+                    {
+                        existing.EntryCount = nw.EntryCount;
+                    }
+                    else
+                    {
+                        Whitelists.Add(nw);
+                    }
                 }
                 AddLog("INFO", $"Списков: {whitelists.Count}");
             });

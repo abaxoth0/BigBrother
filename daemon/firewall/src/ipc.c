@@ -80,7 +80,7 @@ static int parse_and_execute(HANDLE pipe, char* buffer, size_t size) {
             char* data = newline ? newline + 1 : buffer + strlen(buffer);
             size_t data_len = size - (data - buffer);
 
-            if (data_len > 0 && IpcSetWhitelist(data, data_len) == 0) {
+            if (IpcSetWhitelist(data, data_len) == 0) {
                 write_ok(pipe);
             } else {
                 write_error(pipe, "failed to set whitelist");
@@ -207,7 +207,10 @@ int IpcReloadWhitelist(void) {
 
 int IpcSetWhitelist(const char* data, size_t size) {
     if (!data || size == 0) {
-        return -1;
+        // Empty data means clear the whitelist (block all)
+        WhitelistClear(&g_Whitelist);
+        IpAllowlistClear(&g_IpAllowlist);
+        return 0;
     }
 
     WhitelistLoadFromData(&g_Whitelist, data, size);

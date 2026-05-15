@@ -271,11 +271,25 @@ func (h *FrontendHandler) CreateWhitelist(name string) error {
 }
 
 func (h *FrontendHandler) DeleteWhitelist(name string) error {
-	return h.db.DeleteWhitelist(name)
+	if err := h.db.DeleteWhitelist(name); err != nil {
+		return err
+	}
+	if h.activeWl == name {
+		h.activeWl = ""
+		h.db.SetSetting("active_whitelist", "")
+	}
+	return nil
 }
 
 func (h *FrontendHandler) ChangeWhitelistName(oldName, newName string) error {
-	return h.db.ChangeWhitelistName(oldName, newName)
+	if err := h.db.ChangeWhitelistName(oldName, newName); err != nil {
+		return err
+	}
+	if h.activeWl == oldName {
+		h.activeWl = newName
+		h.db.SetSetting("active_whitelist", newName)
+	}
+	return nil
 }
 
 func (h *FrontendHandler) SetWhitelistEntries(name string, entries []string) error {

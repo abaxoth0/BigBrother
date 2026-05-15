@@ -114,6 +114,20 @@ int PingDaemon(void);
 int PingServer(void);
 
 /**
+ * @brief Enable or disable fallback whitelist (use local file when server sync is unavailable).
+ *
+ * @param enabled 1 to enable fallback, 0 to disable (block all traffic).
+ */
+void SetFallbackWhitelistEnabled(int enabled);
+
+/**
+ * @brief Check if fallback whitelist is enabled.
+ *
+ * @return 1 if enabled, 0 if disabled.
+ */
+int IsFallbackWhitelistEnabled(void);
+
+/**
  * @brief Load username from config file.
  *
  * @param buffer Output buffer for username.

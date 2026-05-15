@@ -338,10 +338,20 @@
             <!-- TAB 3: Settings -->
             <TabItem Header="Настройки">
                 <Grid Margin="10">
-                    <TextBlock Text="Настройки (Скоро)"
-                               FontSize="18" Foreground="Gray"
-                               HorizontalAlignment="Center"
-                               VerticalAlignment="Center"/>
+                    <StackPanel>
+                        <GroupBox Header="Белый список" Margin="0,0,0,10" Padding="10">
+                            <StackPanel>
+                                <CheckBox IsChecked="{Binding FallbackWhitelistEnabled}" 
+                                          Content="Использовать локальный список при отключении синхронизации"
+                                          Margin="0,5"/>
+                                <TextBlock TextWrapping="Wrap" Foreground="Gray" FontSize="11" Margin="20,0,0,0">
+                                    <Run Text="При включении используется список из файла whitelist.txt, когда сервер не предоставляет список."/>
+                                    <LineBreak/>
+                                    <Run Text="При выключении весь трафик блокируется, если сервер не передал список разрешённых доменов."/>
+                                </TextBlock>
+                            </StackPanel>
+                        </GroupBox>
+                    </StackPanel>
                 </Grid>
             </TabItem>
 

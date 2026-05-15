@@ -285,6 +285,50 @@ public class IpcService : IDisposable
         });
     }
 
+    public async Task<bool> SetFallbackWhitelistEnabledAsync(bool enabled)
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return false;
+            try
+            {
+                var (status, _) = SendCommand("SET_FALLBACK_WHITELIST", enabled ? "1" : "0");
+                return status == "OK";
+            }
+            finally
+            {
+                Disconnect();
+            }
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
+    public async Task<bool> GetFallbackWhitelistEnabledAsync()
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return false;
+            try
+            {
+                var (status, data) = SendCommand("GET_FALLBACK_WHITELIST");
+                return status == "OK" && data.Count > 0 && data[0] == "1";
+            }
+            finally
+            {
+                Disconnect();
+            }
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
     public async Task<(string clientLog, string firewallLog)> GetLogPathAsync()
     {
         await _connectionLock.WaitAsync();

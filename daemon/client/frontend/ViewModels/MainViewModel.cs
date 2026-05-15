@@ -191,6 +191,20 @@ public class MainViewModel : ViewModelBase
         }
     }
 
+    // Setting: fallback whitelist
+    private bool _fallbackWhitelistEnabled = true;
+    public bool FallbackWhitelistEnabled
+    {
+        get => _fallbackWhitelistEnabled;
+        set
+        {
+            if (SetProperty(ref _fallbackWhitelistEnabled, value))
+            {
+                _ = _ipcService.SetFallbackWhitelistEnabledAsync(value);
+            }
+        }
+    }
+
     // Whitelist revision tracking for change detection
     private uint _lastWhitelistRevision = 0;
     private readonly System.Timers.Timer _statusTimer = new System.Timers.Timer(10000); // Poll every 10 seconds (reduced from 2s)
@@ -265,6 +279,17 @@ public class MainViewModel : ViewModelBase
         AddLog("DNS", "github.com -> 140.82.121.4");
         AddLog("BLOCKED", "TCP BLOCKED: 140.82.121.4:443");
         AddLog("INFO", "Whitelist reloaded (+3 domains)");
+
+        // Load fallback whitelist setting from backend
+        Task.Run(async () =>
+        {
+            var enabled = await _ipcService.GetFallbackWhitelistEnabledAsync();
+            System.Windows.Application.Current.Dispatcher.Invoke(() =>
+            {
+                _fallbackWhitelistEnabled = enabled;
+                OnPropertyChanged(nameof(FallbackWhitelistEnabled));
+            });
+        });
 
         // Sample whitelist entries
         var sampleWhitelist = new[]
