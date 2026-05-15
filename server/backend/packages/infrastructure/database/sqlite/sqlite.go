@@ -92,12 +92,18 @@ func (db *Database) initTables() error {
 		addr			TEXT UNIQUE NOT NULL,
 		whitelist_id	BLOB REFERENCES whitelist(id) ON DELETE SET NULL
 	)`
+	createSettingsTableSQL :=
+	`CREATE TABLE IF NOT EXISTS settings (
+		key 	TEXT NOT NULL PRIMARY KEY,
+		value	TEXT NOT NULL
+	)`
 
 	queries := []string{
 		enableForeignKeysSQL,
 		createWhitelistTableSQL,
 		createWhitelistDomainTableSQL,
 		createUserTableSQL,
+		createSettingsTableSQL,
 	}
 	for _, query := range queries {
 		if _, err := db.conn.Exec(query); err != nil {

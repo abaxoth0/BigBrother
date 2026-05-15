@@ -124,12 +124,13 @@ public class IpcService : IDisposable
             var writer = new StreamWriter(_pipe) { AutoFlush = true };
             var reader = new StreamReader(_pipe);
 
-            // Write TLV request: command\n<len>\n<arg>\n...\n (empty line terminates)
+            // Write TLV request: command\n<byte_len>\n<arg>\n...\n (empty line terminates)
             // Use Write() with explicit \n to avoid \r\n on Windows
+            // Length is UTF-8 byte count to match Go's len() (protocol.go)
             writer.Write(cmd + "\n");
             foreach (var arg in args)
             {
-                writer.Write(arg.Length + "\n");
+                writer.Write(Encoding.UTF8.GetByteCount(arg) + "\n");
                 writer.Write(arg + "\n");
             }
             writer.Write("\n"); // empty line terminates request
@@ -154,7 +155,7 @@ public class IpcService : IDisposable
 
                     var value = reader.ReadLine();
                     if (value == null) break;
-                    if (value.Length != len) break; // length mismatch
+                    if (Encoding.UTF8.GetByteCount(value) != len) break; // length mismatch
 
                     data.Add(value);
                 }
@@ -327,59 +328,68 @@ public class IpcService : IDisposable
 
     public async Task<bool> ApproveUserAsync(string name)
     {
-        return await Task.Run(() =>
+        await _connectionLock.WaitAsync();
+        try
         {
-            _connectionLock.Wait();
+            if (!await ConnectAsync()) return false;
             try
             {
-                if (!ConnectAsync().Result) return false;
                 var (status, _) = SendCommand("APPROVE", name);
-                Disconnect();
                 return status == "OK";
             }
             finally
             {
-                _connectionLock.Release();
+                Disconnect();
             }
-        });
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
     }
 
     public async Task<bool> RejectUserAsync(string name)
     {
-        return await Task.Run(() =>
+        await _connectionLock.WaitAsync();
+        try
         {
-            _connectionLock.Wait();
+            if (!await ConnectAsync()) return false;
             try
             {
-                if (!ConnectAsync().Result) return false;
                 var (status, _) = SendCommand("REJECT", name);
-                Disconnect();
                 return status == "OK";
             }
             finally
             {
-                _connectionLock.Release();
+                Disconnect();
             }
-        });
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
     }
 
     public async Task<bool> DisconnectUserAsync(string name)
     {
-        return await Task.Run(() =>
+        await _connectionLock.WaitAsync();
+        try
         {
-            _connectionLock.Wait();
+            if (!await ConnectAsync()) return false;
             try
             {
-                if (!ConnectAsync().Result) return false;
                 var (status, _) = SendCommand("DISCONNECT", name);
-                Disconnect();
                 return status == "OK";
             }
             finally
             {
-                _connectionLock.Release();
+                Disconnect();
             }
-        });
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
     }
 
     public async Task<List<WhitelistInfo>> GetWhitelistsAsync()
@@ -461,99 +471,180 @@ public class IpcService : IDisposable
 
     public async Task<bool> CreateWhitelistAsync(string name)
     {
-        return await Task.Run(() =>
+        await _connectionLock.WaitAsync();
+        try
         {
-            _connectionLock.Wait();
+            if (!await ConnectAsync()) return false;
             try
             {
-                if (!ConnectAsync().Result) return false;
                 var (status, _) = SendCommand("CREATE_WHITELIST", name);
-                Disconnect();
                 return status == "OK";
             }
             finally
             {
-                _connectionLock.Release();
+                Disconnect();
             }
-        });
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
     }
 
     public async Task<bool> DeleteWhitelistAsync(string name)
     {
-        return await Task.Run(() =>
+        await _connectionLock.WaitAsync();
+        try
         {
-            _connectionLock.Wait();
+            if (!await ConnectAsync()) return false;
             try
             {
-                if (!ConnectAsync().Result) return false;
                 var (status, _) = SendCommand("DELETE_WHITELIST", name);
-                Disconnect();
                 return status == "OK";
             }
             finally
             {
-                _connectionLock.Release();
+                Disconnect();
             }
-        });
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
     }
 
     public async Task<bool> SetActiveWhitelistAsync(string name)
     {
-        return await Task.Run(() =>
+        await _connectionLock.WaitAsync();
+        try
         {
-            _connectionLock.Wait();
+            if (!await ConnectAsync()) return false;
             try
             {
-                if (!ConnectAsync().Result) return false;
                 var (status, _) = SendCommand("SET_ACTIVE_WHITELIST", name);
-                Disconnect();
                 return status == "OK";
             }
             finally
             {
-                _connectionLock.Release();
+                Disconnect();
             }
-        });
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
     }
 
     public async Task<bool> SaveWhitelistAsync(string name, List<string> entries)
     {
         var args = new List<string> { name };
         args.AddRange(entries.Where(e => !string.IsNullOrWhiteSpace(e)));
-        return await Task.Run(() =>
+        await _connectionLock.WaitAsync();
+        try
         {
-            _connectionLock.Wait();
+            if (!await ConnectAsync()) return false;
             try
             {
-                if (!ConnectAsync().Result) return false;
                 var (status, _) = SendCommand("SAVE_WHITELIST", args.ToArray());
-                Disconnect();
                 return status == "OK";
             }
             finally
             {
-                _connectionLock.Release();
+                Disconnect();
             }
-        });
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
     }
 
     public async Task<bool> RenameWhitelistAsync(string oldName, string newName)
     {
-        return await Task.Run(() =>
+        await _connectionLock.WaitAsync();
+        try
         {
-            _connectionLock.Wait();
+            if (!await ConnectAsync()) return false;
             try
             {
-                if (!ConnectAsync().Result) return false;
                 var (status, _) = SendCommand("RENAME_WHITELIST", oldName, newName);
-                Disconnect();
                 return status == "OK";
             }
             finally
             {
-                _connectionLock.Release();
+                Disconnect();
             }
-        });
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
+    public async Task<bool> SetWhitelistSyncEnabledAsync(bool enabled)
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return false;
+            try
+            {
+                var (status, _) = SendCommand("SET_WHITELIST_SYNC", enabled ? "1" : "0");
+                return status == "OK";
+            }
+            finally
+            {
+                Disconnect();
+            }
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
+    public async Task<bool> GetWhitelistSyncEnabledAsync()
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return false;
+            try
+            {
+                var (status, data) = SendCommand("GET_WHITELIST_SYNC");
+                return status == "OK" && data.Count > 0 && data[0] == "1";
+            }
+            finally
+            {
+                Disconnect();
+            }
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
+    public async Task<string> GetActiveWhitelistAsync()
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return "";
+            try
+            {
+                var (status, data) = SendCommand("GET_ACTIVE_WHITELIST");
+                return status == "OK" && data.Count > 0 ? data[0] : "";
+            }
+            finally
+            {
+                Disconnect();
+            }
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
     }
 
     public void Dispose()

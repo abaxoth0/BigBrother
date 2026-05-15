@@ -639,6 +639,17 @@ int DaemonRun(const char* server_ip, int poll_interval_secs) {
                 g_server_session_active = 1;
                 // Also register connection on server if not already connected
                 ServerConnect(username);
+
+                // Check if server whitelist sync is disabled
+                if (strcmp(response, "SYNC_DISABLED") == 0) {
+                    if (strcmp(last_whitelist, "SYNC_DISABLED") != 0) {
+                        LOGF("[Daemon] Server whitelist sync is disabled, keeping local whitelist");
+                        strncpy(last_whitelist, "SYNC_DISABLED", sizeof(last_whitelist) - 1);
+                        last_whitelist[sizeof(last_whitelist) - 1] = '\0';
+                    }
+                    goto wait;
+                }
+
                 if (strcmp(response, last_whitelist) == 0) {
                     goto wait;
                 }

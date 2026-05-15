@@ -111,7 +111,7 @@ public class IpcService : IDisposable
             writer.Write(cmd + "\n");
             foreach (var arg in args)
             {
-                writer.Write(arg.Length + "\n");
+                writer.Write(Encoding.UTF8.GetByteCount(arg) + "\n");
                 writer.Write(arg + "\n");
             }
             writer.Write("\n"); // empty line terminates request
@@ -134,15 +134,11 @@ public class IpcService : IDisposable
                             break; // invalid TLV
                         }
 
-                        // Read the value (ReadLine strips newline, so we read the raw bytes)
-                        var valueBuffer = new char[len];
-                        int charsRead = reader.Read(valueBuffer, 0, len);
-                        if (charsRead != len) break;
-                        
-                        // Read the trailing newline
-                        reader.Read();
-                        
-                        data.Add(new string(valueBuffer));
+                        var value = reader.ReadLine();
+                        if (value == null) break;
+                        if (Encoding.UTF8.GetByteCount(value) != len) break; // length mismatch
+
+                        data.Add(value);
                     }
                 }
             else if (status == "ERROR")

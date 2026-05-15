@@ -26,18 +26,23 @@ type FrontendHandler struct {
 	activeWl 	  string // TODO refactor?
 	pendingUsers *pending.UserStorage
 	startTime    time.Time
+	whitelistSyncEnabled *bool
 }
 
 func NewFrontendHandler(
 	db database.DBInstance,
 	connManager connection.Manager,
 	pendingUsers *pending.UserStorage,
+	whitelistSyncEnabled *bool,
 ) *FrontendHandler {
+	activeWl, _ := db.GetSetting("active_whitelist")
 	return &FrontendHandler{
 		db:           db,
 		connManager:  connManager,
 		pendingUsers: pendingUsers,
+		activeWl:     activeWl,
 		startTime:    time.Now(),
+		whitelistSyncEnabled: whitelistSyncEnabled,
 	}
 }
 
@@ -161,7 +166,7 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 			var data []string
 			for _, wl := range wls {
 				entryCount := 0
-				entries, err := h.GetWhitelistEntries(wl.ID)
+				entries, err := h.db.GetWhitelistEntries(wl.Name)
 				if err == nil {
 					entryCount = len(entries)
 				}
@@ -227,6 +232,22 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 				writeOK(conn)
 			}
 
+		case "SET_WHITELIST_SYNC":
+			if len(args) < 1 {
+				writeErrorTLV(conn, "Missing value (0 or 1)")
+				continue
+			}
+			*h.whitelistSyncEnabled = args[0] == "1"
+			log.Info(fmt.Sprintf("Whitelist sync set to %v", *h.whitelistSyncEnabled), nil)
+			writeOK(conn)
+
+		case "GET_WHITELIST_SYNC":
+			val := "0"
+			if *h.whitelistSyncEnabled {
+				val = "1"
+			}
+			writeTLVResponse(conn, val)
+
 		default:
 			writeErrorTLV(conn, fmt.Sprintf("unknown command: %s", cmd))
 		}
@@ -237,16 +258,8 @@ func (h *FrontendHandler) GetWhitelists() ([]*entity.Whitelist, error) {
 	return h.db.GetWhitelists()
 }
 
-func (h *FrontendHandler) GetWhitelistEntries(whitelistID string) ([]*entity.WhitelistEntry, error) {
-	return h.db.GetWhitelistEntries(whitelistID)
-}
-
 func (h *FrontendHandler) GetWhitelist(name string) []*entity.WhitelistEntry {
-	wl, err := h.db.GetWhitelistByName(name)
-	if err != nil {
-		return nil
-	}
-	entries, err := h.db.GetWhitelistEntries(wl.ID)
+	entries, err := h.db.GetWhitelistEntries(name)
 	if err != nil {
 		return nil
 	}
@@ -266,12 +279,7 @@ func (h *FrontendHandler) ChangeWhitelistName(oldName, newName string) error {
 }
 
 func (h *FrontendHandler) SetWhitelistEntries(name string, entries []string) error {
-	wl, err := h.db.GetWhitelistByName(name)
-	if err != nil {
-		return err
-	}
-
-	existingEntries, err := h.db.GetWhitelistEntries(wl.ID)
+	existingEntries, err := h.db.GetWhitelistEntries(name)
 	if err != nil {
 		return err
 	}
@@ -354,4 +362,5 @@ func (h *FrontendHandler) GetActiveWhitelist() string {
 
 func (h *FrontendHandler) SetActiveWhitelist(name string) {
 	h.activeWl = name
+	h.db.SetSetting("active_whitelist", name)
 }

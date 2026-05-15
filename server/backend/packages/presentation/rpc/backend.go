@@ -21,17 +21,20 @@ type BackendHandler struct {
 	connManager  connection.Manager
 	activeWl 	 string // TODO refactor?
 	pendingUsers *pending.UserStorage
+	whitelistSyncEnabled *bool
 }
 
 func NewBackendHandler(
 	db database.DBInstance,
 	connManager connection.Manager,
 	pendingUsers *pending.UserStorage,
+	whitelistSyncEnabled *bool,
 ) *BackendHandler {
 	return &BackendHandler{
 		db: db,
 		connManager: connManager,
 		pendingUsers: pendingUsers,
+		whitelistSyncEnabled: whitelistSyncEnabled,
 	}
 }
 
@@ -59,6 +62,10 @@ func (h *BackendHandler) handle(conn net.Conn) {
 			}
 			if _, err := h.db.GetUserByName(args[0]); err != nil {
 				writeErrorTLV(conn, "user not found")
+				continue
+			}
+			if !*h.whitelistSyncEnabled {
+				writeTLVResponse(conn, "SYNC_DISABLED")
 				continue
 			}
 			wl := h.GetWhitelist(args[0])

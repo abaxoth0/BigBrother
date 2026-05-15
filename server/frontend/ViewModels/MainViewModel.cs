@@ -47,6 +47,7 @@ public class MainViewModel : ViewModelBase
     private string _activeWhitelist = "";
     private ObservableCollection<WhitelistInfo> _whitelists = new();
     private WhitelistInfo? _selectedWhitelist;
+    private bool _whitelistSyncEnabled = true;
 
     public MainViewModel()
     {
@@ -65,6 +66,7 @@ public class MainViewModel : ViewModelBase
         SetActiveWhitelistCommand = new RelayCommand(async o => await SetActiveWhitelistAsync(o?.ToString()!), o => o != null);
         OpenCreateWhitelistCommand = new RelayCommand(async _ => await OpenCreateWhitelistAsync());
         OpenEditWhitelistCommand = new RelayCommand(async o => await OpenEditWhitelistAsync(o as WhitelistInfo), o => o is WhitelistInfo);
+        ToggleWhitelistSyncCommand = new RelayCommand(async _ => await ToggleWhitelistSyncAsync());
 
         StartAutoRefresh();
         _ = RefreshAllAsync();
@@ -127,6 +129,12 @@ public class MainViewModel : ViewModelBase
     public string SelectedWhitelistName => SelectedWhitelist?.Name ?? "";
     public bool HasSelectedWhitelist => SelectedWhitelist != null;
 
+    public bool WhitelistSyncEnabled
+    {
+        get => _whitelistSyncEnabled;
+        set => SetProperty(ref _whitelistSyncEnabled, value);
+    }
+
     public ICommand ApproveCommand { get; }
     public ICommand RejectCommand { get; }
     public ICommand DisconnectCommand { get; }
@@ -135,6 +143,7 @@ public class MainViewModel : ViewModelBase
     public ICommand SetActiveWhitelistCommand { get; }
     public ICommand OpenCreateWhitelistCommand { get; }
     public ICommand OpenEditWhitelistCommand { get; }
+    public ICommand ToggleWhitelistSyncCommand { get; }
 
     private void StartAutoRefresh()
     {
@@ -151,6 +160,17 @@ public class MainViewModel : ViewModelBase
             await RefreshClientsAsync();
             await RefreshPendingAsync();
             await RefreshWhitelistsAsync();
+            await LoadActiveWhitelistAsync();
+            await LoadWhitelistSyncSettingAsync();
+        });
+    }
+
+    private async Task LoadActiveWhitelistAsync()
+    {
+        var wl = await _ipcService.GetActiveWhitelistAsync();
+        await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+        {
+            ActiveWhitelist = wl;
         });
     }
 
@@ -314,6 +334,7 @@ public class MainViewModel : ViewModelBase
             }
             AddLog(ok ? "INFO" : "ERROR", ok ? $"Список {name} создан" : $"Ошибка создания списка {name}");
             await RefreshWhitelistsAsync();
+            if (ok) dialog.DialogResult = true;
         };
 
         dialog.ShowDialog();
@@ -340,18 +361,54 @@ public class MainViewModel : ViewModelBase
         {
             var newName = dialog.ViewModel.WhitelistName;
             var entries = dialog.ViewModel.GetEntries();
+            var ok = true;
 
             if (dialog.ViewModel.IsEditMode() && dialog.ViewModel.GetOriginalName() != newName)
             {
-                await _ipcService.RenameWhitelistAsync(dialog.ViewModel.GetOriginalName(), newName);
+                ok = await _ipcService.RenameWhitelistAsync(dialog.ViewModel.GetOriginalName(), newName);
             }
 
-            var ok = await _ipcService.SaveWhitelistAsync(newName, entries);
+            if (ok) ok = await _ipcService.SaveWhitelistAsync(newName, entries);
             AddLog(ok ? "INFO" : "ERROR", ok ? $"Список {newName} сохранен" : $"Ошибка сохранения списка {newName}");
             await RefreshWhitelistsAsync();
+            if (ok) dialog.DialogResult = true;
         };
 
         dialog.ShowDialog();
+    }
+
+    private async Task LoadWhitelistSyncSettingAsync()
+    {
+        try
+        {
+            var enabled = await _ipcService.GetWhitelistSyncEnabledAsync();
+            await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+            {
+                WhitelistSyncEnabled = enabled;
+            });
+        }
+        catch (Exception ex)
+        {
+            await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+            {
+                AddLog("ERROR", $"Ошибка загрузки настройки синхронизации: {ex.Message}");
+            });
+        }
+    }
+
+    private async Task ToggleWhitelistSyncAsync()
+    {
+        var newValue = WhitelistSyncEnabled;
+        var ok = await _ipcService.SetWhitelistSyncEnabledAsync(newValue);
+        if (ok)
+        {
+            AddLog("INFO", $"Синхронизация списков с сервером: {(newValue ? "вкл" : "выкл")}");
+        }
+        else
+        {
+            WhitelistSyncEnabled = !newValue;
+            AddLog("ERROR", "Ошибка изменения настройки синхронизации");
+        }
     }
 
     private void AddLog(string level, string message)
