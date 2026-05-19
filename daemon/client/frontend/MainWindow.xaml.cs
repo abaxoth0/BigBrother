@@ -39,7 +39,6 @@ namespace frontend
                 if (DataContext is MainViewModel vm)
                 {
                     vm.FlushPendingLogs();
-                    vm.TrimPendingLogs(); // Prevent memory buildup
                 }
             };
             logFlushTimer.Start();

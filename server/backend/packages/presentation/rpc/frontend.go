@@ -26,14 +26,12 @@ type FrontendHandler struct {
 	activeWl 	  string // TODO refactor?
 	pendingUsers *pending.UserStorage
 	startTime    time.Time
-	whitelistSyncEnabled *bool
 }
 
 func NewFrontendHandler(
 	db database.DBInstance,
 	connManager connection.Manager,
 	pendingUsers *pending.UserStorage,
-	whitelistSyncEnabled *bool,
 ) *FrontendHandler {
 	activeWl, _ := db.GetSetting("active_whitelist")
 	return &FrontendHandler{
@@ -42,7 +40,6 @@ func NewFrontendHandler(
 		pendingUsers: pendingUsers,
 		activeWl:     activeWl,
 		startTime:    time.Now(),
-		whitelistSyncEnabled: whitelistSyncEnabled,
 	}
 }
 
@@ -231,22 +228,6 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 			} else {
 				writeOK(conn)
 			}
-
-		case "SET_WHITELIST_SYNC":
-			if len(args) < 1 {
-				writeErrorTLV(conn, "Missing value (0 or 1)")
-				continue
-			}
-			*h.whitelistSyncEnabled = args[0] == "1"
-			log.Info(fmt.Sprintf("Whitelist sync set to %v", *h.whitelistSyncEnabled), nil)
-			writeOK(conn)
-
-		case "GET_WHITELIST_SYNC":
-			val := "0"
-			if *h.whitelistSyncEnabled {
-				val = "1"
-			}
-			writeTLVResponse(conn, val)
 
 		default:
 			writeErrorTLV(conn, fmt.Sprintf("unknown command: %s", cmd))

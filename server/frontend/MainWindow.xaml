@@ -196,17 +196,6 @@
             <TabItem Header="Настройки">
                 <Grid Background="White" Margin="10">
                     <StackPanel>
-                        <GroupBox Header="Синхронизация списков" Margin="0,0,0,10" Padding="10">
-                            <StackPanel>
-                                <CheckBox IsChecked="{Binding WhitelistSyncEnabled}" Content="Синхронизировать списки с сервером"
-                                    Command="{Binding ToggleWhitelistSyncCommand}" Margin="0,5"/>
-                                <TextBlock TextWrapping="Wrap" Foreground="Gray" FontSize="11" Margin="20,0,0,0">
-                                    <Run Text="При включении клиенты будут автоматически получать список разрешённых доменов с сервера."/>
-                                    <LineBreak/>
-                                    <Run Text="При выключении используется локальный список, настроенный через клиентское приложение."/>
-                                </TextBlock>
-                            </StackPanel>
-                        </GroupBox>
                     </StackPanel>
                 </Grid>
             </TabItem>

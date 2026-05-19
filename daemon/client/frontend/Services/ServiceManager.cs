@@ -86,9 +86,13 @@ public class ServiceManager : IDisposable
             if (sc.CanStop && sc.Status == ServiceControllerStatus.Running)
             {
                 sc.Stop();
-                sc.WaitForStatus(ServiceControllerStatus.Stopped, TimeSpan.FromSeconds(30));
+                sc.WaitForStatus(ServiceControllerStatus.Stopped, TimeSpan.FromSeconds(15));
             }
             return sc.Status == ServiceControllerStatus.Stopped;
+        }
+        catch (System.ServiceProcess.TimeoutException)
+        {
+            return false;
         }
         catch
         {

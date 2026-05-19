@@ -402,17 +402,28 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
             }
             first = 0;
 
-            // Read value
-            int count = 0;
-            while (count < expected_len && remaining > 0) {
-                char c;
-                DWORD read;
-                if (!ReadFile(pipe, &c, 1, &read, NULL) || read == 0) break;
-                *out++ = c;
-                count++;
-                remaining--;
+        // Read value
+        int count = 0;
+        while (count < expected_len && remaining > 0) {
+            char c;
+            DWORD read;
+            if (!ReadFile(pipe, &c, 1, &read, NULL) || read == 0) break;
+            *out++ = c;
+            count++;
+            remaining--;
+        }
+        *out = '\0';
+
+        // Consume trailing newline after TLV value
+        {
+            char nl;
+            DWORD read;
+            if (ReadFile(pipe, &nl, 1, &read, NULL) && read == 1) {
+                if (nl == '\r') {
+                    ReadFile(pipe, &nl, 1, &read, NULL);
+                }
             }
-            *out = '\0';
+        }
         }
         result = 0;
     } else if (strcmp(status_buf, "ERROR") == 0) {
@@ -636,22 +647,21 @@ int DaemonRun(const char* server_ip, int poll_interval_secs) {
             local_ready = 0;
         }
 
+        // Refresh connection periodically
         if (server_connected && username[0] != '\0') {
-            // Refresh connection periodically
             ServerRefresh(username);
         }
 
-        if (server_connected) goto wait;
-
-        // Try to get whitelist from remote server
+        // Always try to get whitelist from remote server (detects active WL changes)
         if (username[0] != '\0') {
             const char* wl_args[1] = {username};
             char response[8192] = {0};
             if (send_to_server_tlv("GET_WHITELIST", wl_args, 1, response, sizeof(response)) == 0) {
-                server_connected = 1;
-                g_server_session_active = 1;
-                // Also register connection on server if not already connected
-                ServerConnect(username);
+                if (!server_connected) {
+                    server_connected = 1;
+                    g_server_session_active = 1;
+                    ServerConnect(username);
+                }
 
                 // Check if server whitelist sync is disabled
                 if (strcmp(response, "SYNC_DISABLED") == 0) {
@@ -671,10 +681,10 @@ int DaemonRun(const char* server_ip, int poll_interval_secs) {
                     goto wait;
                 }
 
-                // Server returned actual whitelist entries - always push them
+                // Server returned actual whitelist entries - push if changed
                 if (blocked_all_pushed) {
                     blocked_all_pushed = 0;
-                    last_whitelist[0] = '\0'; // Force push to restore from block-all
+                    last_whitelist[0] = '\0';
                 }
                 if (strcmp(response, last_whitelist) == 0) {
                     goto wait;
@@ -691,10 +701,13 @@ int DaemonRun(const char* server_ip, int poll_interval_secs) {
                     g_whitelist_revision++;
                 }
             } else {
-                LOGF("[Daemon] Cannot connect to server %s, retrying...", g_server_ip);
+                if (server_connected) {
+                    LOGF("[Daemon] Lost connection to server %s", g_server_ip);
+                } else {
+                    LOGF("[Daemon] Cannot connect to server %s, retrying...", g_server_ip);
+                }
                 server_connected = 0;
                 g_server_session_active = 0;
-                // Push empty whitelist if fallback is disabled and not already blocked
                 if (!g_fallback_whitelist_enabled && local_ready && !blocked_all_pushed) {
                     LOGF("[Daemon] Server unreachable and fallback off - blocking all traffic");
                     if (DaemonSetWhitelist("", 0, whitelist_buf, sizeof(whitelist_buf)) == 0) {

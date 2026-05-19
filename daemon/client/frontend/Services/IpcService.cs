@@ -23,6 +23,7 @@ public class IpcService : IDisposable
 {
     private const string PipeName = "BigBrother.Client.Backend";
     private const int MaxRetries = 3;
+    private const int ReadTimeoutMs = 5000;
     private NamedPipeClientStream? _pipe;
     private bool _isConnected;
     private string _lastError = "";
@@ -31,7 +32,7 @@ public class IpcService : IDisposable
     public bool IsConnected => _isConnected;
     public string LastError => _lastError;
 
-    public async Task<bool> ConnectAsync(int timeoutMs = 1000)
+    public async Task<bool> ConnectAsync(int timeoutMs = 3000)
     {
         try
         {
@@ -93,7 +94,7 @@ public class IpcService : IDisposable
         }
     }
 
-    private (string status, List<string> data) SendCommand(string cmd, params string[] args)
+    private async Task<(string status, List<string> data)> SendCommandAsync(string cmd, string[] args, CancellationToken ct = default)
     {
         if (_pipe == null || !_isConnected)
         {
@@ -106,57 +107,74 @@ public class IpcService : IDisposable
             var writer = new StreamWriter(_pipe) { AutoFlush = true };
             var reader = new StreamReader(_pipe);
 
-            // Write TLV request: command\n<len>\n<arg>\n...\n(empty line)
-            // Use Write() with explicit \n to avoid \r\n on Windows
-            writer.Write(cmd + "\n");
+            // Write TLV request
+            await writer.WriteAsync(cmd + "\n").ConfigureAwait(false);
             foreach (var arg in args)
             {
-                writer.Write(Encoding.UTF8.GetByteCount(arg) + "\n");
-                writer.Write(arg + "\n");
+                await writer.WriteAsync(Encoding.UTF8.GetByteCount(arg) + "\n").ConfigureAwait(false);
+                await writer.WriteAsync(arg + "\n").ConfigureAwait(false);
             }
-            writer.Write("\n"); // empty line terminates request
+            await writer.WriteAsync("\n").ConfigureAwait(false);
+            await writer.FlushAsync().ConfigureAwait(false);
 
-            // Read response: status\n[TLV data...\n](empty line)
-            var status = reader.ReadLine();
+            // Read response with timeout
+            var status = await reader.ReadLineAsync(ct).ConfigureAwait(false);
             if (string.IsNullOrEmpty(status)) return ("", new List<string>());
 
             var data = new List<string>();
-             if (status == "OK")
+            if (status == "OK")
+            {
+                while (true)
                 {
-                    // Read TLV data until empty line
-                    while (true)
-                    {
-                        var lenLine = reader.ReadLine();
-                        if (string.IsNullOrEmpty(lenLine)) break; // empty line terminates response
+                    var lenLine = await reader.ReadLineAsync(ct).ConfigureAwait(false);
+                    if (string.IsNullOrEmpty(lenLine)) break;
 
-                        if (!int.TryParse(lenLine, out int len) || len < 0)
-                        {
-                            break; // invalid TLV
-                        }
+                    if (!int.TryParse(lenLine, out int len) || len < 0)
+                        break;
 
-                        var value = reader.ReadLine();
-                        if (value == null) break;
-                        if (Encoding.UTF8.GetByteCount(value) != len) break; // length mismatch
+                    var value = await reader.ReadLineAsync(ct).ConfigureAwait(false);
+                    if (value == null) break;
+                    if (Encoding.UTF8.GetByteCount(value) != len) break;
 
-                        data.Add(value);
-                    }
+                    data.Add(value);
                 }
+            }
             else if (status == "ERROR")
             {
-                // Read error message as TLV
-                var lenLine = reader.ReadLine();
+                var lenLine = await reader.ReadLineAsync(ct).ConfigureAwait(false);
                 if (!string.IsNullOrEmpty(lenLine) && int.TryParse(lenLine, out int len))
                 {
-                    var errorMsg = reader.ReadLine();
+                    var errorMsg = await reader.ReadLineAsync(ct).ConfigureAwait(false);
                     _lastError = errorMsg ?? "Unknown error";
                 }
             }
 
             return (status, data);
         }
+        catch (OperationCanceledException)
+        {
+            _lastError = "Command timed out";
+            _isConnected = false;
+            return ("", new List<string>());
+        }
         catch (Exception ex)
         {
             _lastError = ex.Message;
+            _isConnected = false;
+            return ("", new List<string>());
+        }
+    }
+
+    private async Task<(string status, List<string> data)> SendCommandWithTimeoutAsync(string cmd, int timeoutMs, params string[] args)
+    {
+        using var cts = new CancellationTokenSource(timeoutMs);
+        try
+        {
+            return await SendCommandAsync(cmd, args, cts.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            _lastError = "Command timed out";
             _isConnected = false;
             return ("", new List<string>());
         }
@@ -176,7 +194,7 @@ public class IpcService : IDisposable
 
             try
             {
-                var (responseStatus, data) = SendCommand("GET_STATUS");
+                var (responseStatus, data) = await SendCommandWithTimeoutAsync("GET_STATUS", ReadTimeoutMs);
                 if (responseStatus == "OK" && data.Count >= 4)
                 {
                     status.ClientName = data[0];
@@ -228,7 +246,7 @@ public class IpcService : IDisposable
 
             try
             {
-                var (status, data) = SendCommand("GET_WHITELIST");
+                var (status, data) = await SendCommandWithTimeoutAsync("GET_WHITELIST", ReadTimeoutMs);
                 if (status == "OK")
                 {
                     whitelist.AddRange(data);
@@ -249,40 +267,34 @@ public class IpcService : IDisposable
 
     public async Task<bool> RestartClientAsync()
     {
-        return await Task.Run(() =>
+        await _connectionLock.WaitAsync();
+        try
         {
-            _connectionLock.Wait();
-            try
-            {
-                if (!ConnectAsync().Result) return false;
-                var (status, _) = SendCommand("RESTART_CLIENT");
-                Disconnect();
-                return status == "OK";
-            }
-            finally
-            {
-                _connectionLock.Release();
-            }
-        });
+            if (!await ConnectAsync()) return false;
+            var (status, _) = await SendCommandWithTimeoutAsync("RESTART_CLIENT", 3000);
+            Disconnect();
+            return status == "OK";
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
     }
 
     public async Task<bool> PingAsync()
     {
-        return await Task.Run(() =>
+        await _connectionLock.WaitAsync();
+        try
         {
-            _connectionLock.Wait();
-            try
-            {
-                if (!ConnectAsync().Result) return false;
-                var (status, _) = SendCommand("PING");
-                Disconnect();
-                return status == "OK";
-            }
-            finally
-            {
-                _connectionLock.Release();
-            }
-        });
+            if (!await ConnectAsync()) return false;
+            var (status, _) = await SendCommandWithTimeoutAsync("PING", 5000);
+            Disconnect();
+            return status == "OK";
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
     }
 
     public async Task<bool> SetFallbackWhitelistEnabledAsync(bool enabled)
@@ -293,7 +305,7 @@ public class IpcService : IDisposable
             if (!await ConnectAsync()) return false;
             try
             {
-                var (status, _) = SendCommand("SET_FALLBACK_WHITELIST", enabled ? "1" : "0");
+                var (status, _) = await SendCommandWithTimeoutAsync("SET_FALLBACK_WHITELIST", ReadTimeoutMs, enabled ? "1" : "0");
                 return status == "OK";
             }
             finally
@@ -315,7 +327,7 @@ public class IpcService : IDisposable
             if (!await ConnectAsync()) return false;
             try
             {
-                var (status, data) = SendCommand("GET_FALLBACK_WHITELIST");
+                var (status, data) = await SendCommandWithTimeoutAsync("GET_FALLBACK_WHITELIST", ReadTimeoutMs);
                 return status == "OK" && data.Count > 0 && data[0] == "1";
             }
             finally
@@ -340,9 +352,7 @@ public class IpcService : IDisposable
                 {
                     try
                     {
-                        await Task.Delay(50);
-
-                        var (status, data) = SendCommand("GET_LOG_PATH");
+                        var (status, data) = await SendCommandWithTimeoutAsync("GET_LOG_PATH", ReadTimeoutMs);
                         Disconnect();
 
                         if (status == "OK" && data.Count >= 2)

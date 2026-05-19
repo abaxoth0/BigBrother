@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Timers;
@@ -223,9 +224,9 @@ public class MainViewModel : ViewModelBase
     {
         try
         {
-            var status = await _ipcService.GetStatusAsync();
+            var status = await _ipcService.GetStatusAsync().ConfigureAwait(false);
             
-            System.Windows.Application.Current.Dispatcher.Invoke(() =>
+            System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
             {
                 ClientConnectionStatus = status.IsConnected ? "Подключено" : "Отключено";
             });
@@ -234,11 +235,11 @@ public class MainViewModel : ViewModelBase
             {
                 _lastWhitelistRevision = status.WhitelistRevision;
                 
-                var whitelist = await _ipcService.GetWhitelistAsync();
+                var whitelist = await _ipcService.GetWhitelistAsync().ConfigureAwait(false);
                 
                 if (whitelist.Count > 0)
                 {
-                    System.Windows.Application.Current.Dispatcher.Invoke(() =>
+                    System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
                     {
                         WhitelistEntries.Clear();
                         foreach (var domain in whitelist)
@@ -254,7 +255,7 @@ public class MainViewModel : ViewModelBase
         }
         catch
         {
-            System.Windows.Application.Current.Dispatcher.Invoke(() =>
+            System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
             {
                 ClientConnectionStatus = "Отключено";
             });
@@ -283,8 +284,8 @@ public class MainViewModel : ViewModelBase
         // Load fallback whitelist setting from backend
         Task.Run(async () =>
         {
-            var enabled = await _ipcService.GetFallbackWhitelistEnabledAsync();
-            System.Windows.Application.Current.Dispatcher.Invoke(() =>
+            var enabled = await _ipcService.GetFallbackWhitelistEnabledAsync().ConfigureAwait(false);
+            System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
             {
                 _fallbackWhitelistEnabled = enabled;
                 OnPropertyChanged(nameof(FallbackWhitelistEnabled));
@@ -310,25 +311,23 @@ public class MainViewModel : ViewModelBase
         LastUpdate = DateTime.Now;
     }
 
-    private readonly List<string> _pendingLogs = new();
-    private const int LogBatchSize = 10; // Smaller batches for more responsive UI
+    private readonly ConcurrentQueue<string> _pendingLogs = new();
     
     public void AddLog(string level, string message)
     {
-        _pendingLogs.Add(message);
-        
-        if (_pendingLogs.Count >= LogBatchSize)
-        {
-            FlushPendingLogs();
-        }
+        _pendingLogs.Enqueue(message);
     }
     
     public void FlushPendingLogs()
     {
-        if (_pendingLogs.Count == 0) return;
+        var toAdd = new List<string>();
+        while (_pendingLogs.TryDequeue(out var msg))
+        {
+            toAdd.Add(msg);
+            if (toAdd.Count >= 50) break;
+        }
         
-        var toAdd = new List<string>(_pendingLogs);
-        _pendingLogs.Clear();
+        if (toAdd.Count == 0) return;
         
         System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
         {
@@ -379,16 +378,6 @@ public class MainViewModel : ViewModelBase
                 ScrollToBottomRequested?.Invoke();
             }
         });
-    }
-    
-    // Clear pending logs if they get too large (prevents memory buildup)
-    public void TrimPendingLogs()
-    {
-        if (_pendingLogs.Count > MaxLogs * 2)
-        {
-            var keepCount = _pendingLogs.Count - MaxLogs;
-            _pendingLogs.RemoveRange(0, keepCount);
-        }
     }
 
     private void UpdateFilteredLogs()

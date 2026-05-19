@@ -1,6 +1,8 @@
+using System.ComponentModel;
 using System.IO;
 using System.IO.Pipes;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Text;
 
 namespace frontend.Services;
@@ -22,10 +24,24 @@ public class PendingRegistration
     public DateTime CreatedAt { get; set; }
 }
 
-public class WhitelistInfo
+public class WhitelistInfo : INotifyPropertyChanged
 {
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    private int _entryCount;
     public string Name { get; set; } = "";
-    public int EntryCount { get; set; }
+    public int EntryCount
+    {
+        get => _entryCount;
+        set
+        {
+            if (_entryCount != value)
+            {
+                _entryCount = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(EntryCount)));
+            }
+        }
+    }
     public bool IsSelected { get; set; }
 }
 
@@ -569,50 +585,6 @@ public class IpcService : IDisposable
             {
                 var (status, _) = SendCommand("RENAME_WHITELIST", oldName, newName);
                 return status == "OK";
-            }
-            finally
-            {
-                Disconnect();
-            }
-        }
-        finally
-        {
-            _connectionLock.Release();
-        }
-    }
-
-    public async Task<bool> SetWhitelistSyncEnabledAsync(bool enabled)
-    {
-        await _connectionLock.WaitAsync();
-        try
-        {
-            if (!await ConnectAsync()) return false;
-            try
-            {
-                var (status, _) = SendCommand("SET_WHITELIST_SYNC", enabled ? "1" : "0");
-                return status == "OK";
-            }
-            finally
-            {
-                Disconnect();
-            }
-        }
-        finally
-        {
-            _connectionLock.Release();
-        }
-    }
-
-    public async Task<bool> GetWhitelistSyncEnabledAsync()
-    {
-        await _connectionLock.WaitAsync();
-        try
-        {
-            if (!await ConnectAsync()) return false;
-            try
-            {
-                var (status, data) = SendCommand("GET_WHITELIST_SYNC");
-                return status == "OK" && data.Count > 0 && data[0] == "1";
             }
             finally
             {

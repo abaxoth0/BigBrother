@@ -54,11 +54,9 @@ func main() {
 
 	pendingUsersStorage := pending.NewUserStorage()
 
-	whitelistSyncEnabled := true
-
 	backendServer := rpc.NewServer(
 		"Backend",
-		rpc.NewBackendHandler(db, connManager, pendingUsersStorage, &whitelistSyncEnabled),
+		rpc.NewBackendHandler(db, connManager, pendingUsersStorage),
 		&rpc.ServerConfig{
 			InputBufferSize: 	backendPipeBufSize,
 			OutputBufferSize: 	backendPipeBufSize,
@@ -68,7 +66,7 @@ func main() {
 
 	frontendServer := rpc.NewServer(
 		"Frontend",
-		rpc.NewFrontendHandler(db, connManager, pendingUsersStorage, &whitelistSyncEnabled),
+		rpc.NewFrontendHandler(db, connManager, pendingUsersStorage),
 		&rpc.ServerConfig{
 			InputBufferSize: 	frontendPipeBufSize,
 			OutputBufferSize: 	frontendPipeBufSize,
