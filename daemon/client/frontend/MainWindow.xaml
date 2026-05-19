@@ -231,6 +231,10 @@
                                                    Style="{StaticResource ConnectionText}"
                                                    Foreground="{Binding ServerConnectionStatus, Converter={StaticResource ConnectionStatusToColor}}"/>
                                     </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Margin="0,5">
+                                        <Button Content="Подключиться" Style="{StaticResource ControlButton}" Command="{Binding ConnectCommand}"/>
+                                        <Button Content="Отключиться" Style="{StaticResource ControlButton}" Command="{Binding DisconnectCommand}"/>
+                                    </StackPanel>
                                 </StackPanel>
 
                                 <!-- Client Control -->
@@ -337,8 +341,24 @@
 
             <!-- TAB 3: Settings -->
             <TabItem Header="Настройки">
-                <Grid Margin="10">
-                    <StackPanel>
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="10">
+                        <GroupBox Header="Сервер" Margin="0,0,0,10" Padding="10">
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,5">
+                                    <TextBlock Text="Адрес сервера:" Width="120" VerticalAlignment="Center"/>
+                                    <TextBox Text="{Binding ServerAddress, UpdateSourceTrigger=PropertyChanged}" Width="200" Margin="5,0"/>
+                                    <Button Content="Сохранить" Command="{Binding SaveServerAddressCommand}" Padding="8,2"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,5">
+                                    <TextBlock Text="Пользователь:" Width="120" VerticalAlignment="Center"/>
+                                    <TextBox Text="{Binding Username, UpdateSourceTrigger=PropertyChanged}" Width="200" Margin="5,0"/>
+                                    <Button Content="Сохранить" Command="{Binding SaveUsernameCommand}" Padding="8,2"/>
+                                    <Button Content="Зарегистрироваться" Command="{Binding RegisterCommand}" Padding="8,2" Margin="5,0,0,0"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </GroupBox>
+
                         <GroupBox Header="Белый список" Margin="0,0,0,10" Padding="10">
                             <StackPanel>
                                 <CheckBox IsChecked="{Binding FallbackWhitelistEnabled}" 
@@ -352,7 +372,7 @@
                             </StackPanel>
                         </GroupBox>
                     </StackPanel>
-                </Grid>
+                </ScrollViewer>
             </TabItem>
 
         </TabControl>

@@ -78,6 +78,13 @@ void SetServerSessionActive(int active);
 int IsServerSessionActive(void);
 
 /**
+ * @brief Get the currently configured server IP address.
+ *
+ * @return Pointer to static server IP string, or empty string if not set.
+ */
+const char* GetServerIp(void);
+
+/**
  * @brief Set the server IP address for daemon mode.
  *
  * @param ip Server IP address.

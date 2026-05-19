@@ -192,7 +192,7 @@ public class MainViewModel : ViewModelBase
         }
     }
 
-    // Setting: fallback whitelist
+    // Settings
     private bool _fallbackWhitelistEnabled = true;
     public bool FallbackWhitelistEnabled
     {
@@ -206,6 +206,20 @@ public class MainViewModel : ViewModelBase
         }
     }
 
+    private string _serverAddress = "";
+    public string ServerAddress
+    {
+        get => _serverAddress;
+        set => SetProperty(ref _serverAddress, value);
+    }
+
+    private string _username = "";
+    public string Username
+    {
+        get => _username;
+        set => SetProperty(ref _username, value);
+    }
+
     // Whitelist revision tracking for change detection
     private uint _lastWhitelistRevision = 0;
     private readonly System.Timers.Timer _statusTimer = new System.Timers.Timer(10000); // Poll every 10 seconds (reduced from 2s)
@@ -216,6 +230,11 @@ public class MainViewModel : ViewModelBase
     // Commands
     public ICommand ClearLogsCommand { get; }
     public ICommand ExportLogsCommand { get; }
+    public ICommand SaveServerAddressCommand { get; }
+    public ICommand SaveUsernameCommand { get; }
+    public ICommand RegisterCommand { get; }
+    public ICommand ConnectCommand { get; }
+    public ICommand DisconnectCommand { get; }
 
     // Event for auto-scroll notification
     public event Action? ScrollToBottomRequested;
@@ -266,6 +285,11 @@ public class MainViewModel : ViewModelBase
     {
         ClearLogsCommand = new RelayCommand(_ => ClearLogs());
         ExportLogsCommand = new RelayCommand(_ => ExportLogs());
+        SaveServerAddressCommand = new RelayCommand(async _ => await SaveServerAddressAsync());
+        SaveUsernameCommand = new RelayCommand(async _ => await SaveUsernameAsync());
+        RegisterCommand = new RelayCommand(async _ => await RegisterAsync());
+        ConnectCommand = new RelayCommand(async _ => await ConnectAsync());
+        DisconnectCommand = new RelayCommand(async _ => await DisconnectAsync());
 
         // Initialize whitelist status polling timer
         _statusTimer.Elapsed += OnStatusTimerElapsed;
@@ -273,42 +297,74 @@ public class MainViewModel : ViewModelBase
         _statusTimer.Enabled = true;
 
         AddLog("INFO", "Клиент запущен");
-        AddLog("INFO", "Подключение к демону...");
-        AddLog("INFO", "Демон подключен");
-        AddLog("WARNING", "Тестовое предупреждение");
-        AddLog("ERROR", "Тестовая ошибка");
-        AddLog("DNS", "github.com -> 140.82.121.4");
-        AddLog("BLOCKED", "TCP BLOCKED: 140.82.121.4:443");
-        AddLog("INFO", "Whitelist reloaded (+3 domains)");
 
-        // Load fallback whitelist setting from backend
-        Task.Run(async () =>
+        // Load settings from backend
+        LoadSettingsAsync();
+    }
+
+    private async Task LoadSettingsAsync()
+    {
+        var addr = await _ipcService.GetServerAddressAsync();
+        var name = await _ipcService.GetUsernameAsync();
+        var enabled = await _ipcService.GetFallbackWhitelistEnabledAsync();
+
+        System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
         {
-            var enabled = await _ipcService.GetFallbackWhitelistEnabledAsync().ConfigureAwait(false);
-            System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
-            {
-                _fallbackWhitelistEnabled = enabled;
-                OnPropertyChanged(nameof(FallbackWhitelistEnabled));
-            });
+            _serverAddress = addr;
+            OnPropertyChanged(nameof(ServerAddress));
+            _username = name;
+            OnPropertyChanged(nameof(Username));
+            _fallbackWhitelistEnabled = enabled;
+            OnPropertyChanged(nameof(FallbackWhitelistEnabled));
         });
+    }
 
-        // Sample whitelist entries
-        var sampleWhitelist = new[]
-        {
-            "google.com",
-            "*.github.com",
-            "\"microsoft\"",
-            "wikipedia.org",
-            "figma.com"
-        };
+    private async Task SaveServerAddressAsync()
+    {
+        var addr = ServerAddress?.Trim() ?? "";
+        if (string.IsNullOrEmpty(addr)) return;
+        var ok = await _ipcService.SetServerAddressAsync(addr);
+        AddLog(ok ? "INFO" : "ERROR", ok ? $"Адрес сервера сохранён: {addr}" : "Ошибка сохранения адреса сервера");
+    }
 
-        foreach (var entry in sampleWhitelist)
+    private async Task SaveUsernameAsync()
+    {
+        var name = Username?.Trim() ?? "";
+        if (string.IsNullOrEmpty(name)) return;
+        var ok = await _ipcService.SetUsernameAsync(name);
+        AddLog(ok ? "INFO" : "ERROR", ok ? $"Имя пользователя сохранено: {name}" : "Ошибка сохранения имени");
+    }
+
+    private async Task RegisterAsync()
+    {
+        var name = Username?.Trim() ?? "";
+        if (string.IsNullOrEmpty(name))
         {
-            WhitelistEntries.Add(WhitelistEntry.Parse(entry));
+            AddLog("ERROR", "Укажите имя пользователя в настройках");
+            return;
         }
+        var ok = await _ipcService.RegisterAsync(name);
+        AddLog(ok ? "INFO" : "ERROR", ok ? $"Запрос на регистрацию отправлен: {name}" : "Ошибка регистрации");
+    }
 
-        UpdateWhitelistDisplay();
-        LastUpdate = DateTime.Now;
+    private async Task ConnectAsync()
+    {
+        var name = Username?.Trim() ?? "";
+        if (string.IsNullOrEmpty(name))
+        {
+            AddLog("ERROR", "Укажите имя пользователя в настройках");
+            return;
+        }
+        var ok = await _ipcService.ConnectToServerAsync(name);
+        AddLog(ok ? "INFO" : "ERROR", ok ? $"Подключено к серверу: {name}" : "Ошибка подключения");
+    }
+
+    private async Task DisconnectAsync()
+    {
+        var name = Username?.Trim() ?? "";
+        if (string.IsNullOrEmpty(name)) return;
+        var ok = await _ipcService.DisconnectFromServerAsync(name);
+        AddLog(ok ? "INFO" : "ERROR", ok ? "Отключено от сервера" : "Ошибка отключения");
     }
 
     private readonly ConcurrentQueue<string> _pendingLogs = new();

@@ -322,6 +322,36 @@ DWORD WINAPI client_handler(LPVOID param) {
         const char* data[1] = {val};
         write_response_tlv(pipe, "OK", data, 1);
 
+    } else if (strcmp(buffer, "SET_SERVER_ADDR") == 0) {
+        if (arg_count < 1 || !args[0] || strlen(args[0]) == 0) {
+            write_error_tlv(pipe, "missing server address");
+        } else {
+            SetServerIp(args[0]);
+            write_ok(pipe);
+        }
+
+    } else if (strcmp(buffer, "GET_SERVER_ADDR") == 0) {
+        const char* addr = GetServerIp();
+        const char* data[1] = {addr ? addr : ""};
+        write_response_tlv(pipe, "OK", data, 1);
+
+    } else if (strcmp(buffer, "SET_USERNAME") == 0) {
+        if (arg_count < 1 || !args[0] || strlen(args[0]) == 0) {
+            write_error_tlv(pipe, "missing username");
+        } else {
+            SaveUserName(args[0]);
+            write_ok(pipe);
+        }
+
+    } else if (strcmp(buffer, "GET_USERNAME") == 0) {
+        char buf[128] = {0};
+        const char* data[1] = {buf};
+        if (LoadUserName(buf, sizeof(buf)) == 0) {
+            write_response_tlv(pipe, "OK", data, 1);
+        } else {
+            write_response_tlv(pipe, "OK", data, 1); // empty string = not set
+        }
+
     } else if (strcmp(buffer, "CHANGE_NAME") == 0) {
         if (arg_count < 1 || !args[0] || strlen(args[0]) == 0) {
             write_error_tlv(pipe, "missing new name");

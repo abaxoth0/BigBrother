@@ -14,7 +14,8 @@
 #include <string.h>
 
 #define DAEMON_PIPE_PREFIX "\\\\.\\pipe\\"
-#define USER_CONFIG_FILENAME "config\\user.cfg"
+#define CONFIG_INI_PATH "config\\config.ini"
+#define INI_LINE_MAX 512
 
 static char g_server_ip[64] = {0};
 static int g_server_session_active = 0;
@@ -39,8 +40,6 @@ int IsFallbackWhitelistEnabled(void) {
 
 uint32_t g_whitelist_revision = 1;
 
-#define SERVER_IP_FILENAME "config\\server.cfg"
-
 static void get_exe_path(char* buffer, size_t size) {
     GetModuleFileName(NULL, buffer, (DWORD)size);
     char* p = buffer + strlen(buffer);
@@ -48,28 +47,222 @@ static void get_exe_path(char* buffer, size_t size) {
     *p = '\0';
 }
 
-void load_server_ip(void) {
-    char exe_path[MAX_PATH];
-    get_exe_path(exe_path, sizeof(exe_path));
+static void build_ini_path(char* buffer, size_t size) {
+    get_exe_path(buffer, size);
+    size_t len = strlen(buffer);
+    snprintf(buffer + len, size - len, "\\" CONFIG_INI_PATH);
+}
 
-    char config_path[MAX_PATH];
-    snprintf(config_path, sizeof(config_path), "%s\\" SERVER_IP_FILENAME, exe_path);
+static char* trim_ws(char* s) {
+    while (*s == ' ' || *s == '\t') s++;
+    char* end = s + strlen(s);
+    while (end > s && (*(end-1) == ' ' || *(end-1) == '\t' || *(end-1) == '\r' || *(end-1) == '\n')) end--;
+    *end = '\0';
+    return s;
+}
 
-    printf("[DEBUG] load_server_ip: checking %s\n", config_path);
+// Read string value from config.ini.
+// Returns 1 if found, 0 if not found.
+static int ini_get_string(const char* section, const char* key, char* out, size_t out_size) {
+    if (!out || out_size == 0) return 0;
+    out[0] = '\0';
 
-    FILE* f = fopen(config_path, "r");
+    char ini_path[MAX_PATH];
+    build_ini_path(ini_path, sizeof(ini_path));
+
+    // Ensure config directory exists
+    {
+        char dir[MAX_PATH];
+        get_exe_path(dir, sizeof(dir));
+        strncat(dir, "\\config", sizeof(dir) - strlen(dir) - 1);
+        CreateDirectory(dir, NULL);
+    }
+
+    FILE* f = fopen(ini_path, "r");
+    if (!f) {
+        // Create empty config file with header
+        f = fopen(ini_path, "w");
+        if (f) {
+            fprintf(f, "; BigBrother configuration file\n");
+            fclose(f);
+        }
+        return 0;
+    }
+
+    char line[INI_LINE_MAX];
+    int in_section = 0;
+
+    while (fgets(line, sizeof(line), f)) {
+        char* p = trim_ws(line);
+        if (p[0] == '\0' || p[0] == ';' || p[0] == '#') continue;
+
+        if (p[0] == '[') {
+            char* end = strchr(p, ']');
+            if (!end) continue;
+            *end = '\0';
+            in_section = (_stricmp(p + 1, section) == 0);
+            continue;
+        }
+
+        if (!in_section) continue;
+
+        char* eq = strchr(p, '=');
+        if (!eq) continue;
+        *eq = '\0';
+        char* k = trim_ws(p);
+        char* v = trim_ws(eq + 1);
+
+        if (_stricmp(k, key) == 0) {
+            strncpy(out, v, out_size - 1);
+            out[out_size - 1] = '\0';
+            fclose(f);
+            return 1;
+        }
+    }
+
+    fclose(f);
+    return 0;
+}
+
+// Write or update a string value in config.ini.
+// Retains all other sections and keys.
+static int ini_set_string(const char* section, const char* key, const char* value) {
+    char ini_path[MAX_PATH];
+    build_ini_path(ini_path, sizeof(ini_path));
+
+    // Ensure config directory exists
+    {
+        char dir[MAX_PATH];
+        get_exe_path(dir, sizeof(dir));
+        strncat(dir, "\\config", sizeof(dir) - strlen(dir) - 1);
+        CreateDirectory(dir, NULL);
+    }
+
+    // Read all lines
+    char** lines = NULL;
+    int line_count = 0;
+
+    FILE* f = fopen(ini_path, "r");
     if (f) {
-        if (fgets(g_server_ip, sizeof(g_server_ip), f)) {
-            size_t len = strlen(g_server_ip);
-            while (len > 0 && (g_server_ip[len-1] == '\n' || g_server_ip[len-1] == '\r')) {
-                g_server_ip[--len] = '\0';
+        char buf[INI_LINE_MAX];
+        while (fgets(buf, sizeof(buf), f)) {
+            char* copy = _strdup(buf);
+            if (copy) {
+                char** new_lines = realloc(lines, (line_count + 1) * sizeof(char*));
+                if (new_lines) {
+                    lines = new_lines;
+                    lines[line_count++] = copy;
+                } else {
+                    free(copy);
+                }
             }
-            printf("[DEBUG] load_server_ip: loaded IP = '%s'\n", g_server_ip);
         }
         fclose(f);
-    } else {
-        printf("[DEBUG] load_server_ip: no config file\n");
     }
+
+    // Walk lines to find section and key (use temp copy to preserve original for writing)
+    int section_idx = -1;
+    int key_idx = -1;
+    int last_in_section = -1;
+
+    for (int i = 0; i < line_count; i++) {
+        char tmp[INI_LINE_MAX];
+        strncpy(tmp, lines[i], sizeof(tmp) - 1);
+        tmp[sizeof(tmp) - 1] = '\0';
+        char* p = trim_ws(tmp);
+        if (p[0] == '\0' || p[0] == ';' || p[0] == '#') continue;
+
+        if (p[0] == '[') {
+            char* end = strchr(p, ']');
+            if (!end) continue;
+            *end = '\0';
+            if (_stricmp(p + 1, section) == 0) {
+                section_idx = i;
+            } else if (section_idx >= 0 && last_in_section < 0) {
+                last_in_section = i - 1;
+            }
+            continue;
+        }
+
+        if (section_idx >= 0) {
+            char* eq = strchr(p, '=');
+            if (eq) {
+                *eq = '\0';
+                char* k = trim_ws(p);
+                if (_stricmp(k, key) == 0) {
+                    key_idx = i;
+                }
+            }
+            last_in_section = i;
+        }
+    }
+
+    char new_line[INI_LINE_MAX];
+    snprintf(new_line, sizeof(new_line), "%s=%s\n", key, value ? value : "");
+
+    // Build new content
+    // We'll write directly to a temp file, then replace
+    char tmp_path[MAX_PATH];
+    snprintf(tmp_path, sizeof(tmp_path), "%s.tmp", ini_path);
+
+    FILE* out = fopen(tmp_path, "w");
+    if (!out) {
+        for (int i = 0; i < line_count; i++) free(lines[i]);
+        free(lines);
+        return -1;
+    }
+
+    if (line_count == 0) {
+        // Empty file — write section header + key
+        fprintf(out, "[%s]\n%s", section, new_line);
+    } else if (key_idx >= 0) {
+        // Key exists — replace value line
+        for (int i = 0; i < line_count; i++) {
+            if (i == key_idx) {
+                fputs(new_line, out);
+            } else {
+                fputs(lines[i], out);
+            }
+        }
+    } else if (section_idx >= 0) {
+        // Section exists but key doesn't — append after last key in section
+        for (int i = 0; i < line_count; i++) {
+            fputs(lines[i], out);
+            if (i == last_in_section) {
+                fputs(new_line, out);
+            }
+        }
+    } else {
+        // No section — append at end
+        for (int i = 0; i < line_count; i++) {
+            fputs(lines[i], out);
+        }
+        fprintf(out, "\n[%s]\n%s", section, new_line);
+    }
+
+    fclose(out);
+
+    // Replace original
+    remove(ini_path);
+    rename(tmp_path, ini_path);
+
+    for (int i = 0; i < line_count; i++) free(lines[i]);
+    free(lines);
+    return 0;
+}
+
+void load_server_ip(void) {
+    char buf[64] = {0};
+    if (ini_get_string("server", "address", buf, sizeof(buf)) && buf[0]) {
+        strncpy(g_server_ip, buf, sizeof(g_server_ip) - 1);
+        printf("[DEBUG] load_server_ip: loaded IP = '%s'\n", g_server_ip);
+    } else {
+        printf("[DEBUG] load_server_ip: no config or empty\n");
+    }
+}
+
+const char* GetServerIp(void) {
+    return g_server_ip;
 }
 
 int HasServerIp(void) {
@@ -79,77 +272,21 @@ int HasServerIp(void) {
 void SetServerIp(const char* ip) {
     if (ip) {
         strncpy(g_server_ip, ip, sizeof(g_server_ip) - 1);
-
-        // Save server IP to config file
-        char exe_path[MAX_PATH];
-        get_exe_path(exe_path, sizeof(exe_path));
-
-        char config_path[MAX_PATH];
-        snprintf(config_path, sizeof(config_path), "%s\\" SERVER_IP_FILENAME, exe_path);
-
-        char dir_path[MAX_PATH];
-        snprintf(dir_path, sizeof(dir_path), "%s\\config", exe_path);
-        CreateDirectory(dir_path, NULL);
-
-        FILE* f = fopen(config_path, "w");
-        if (f) {
-            fprintf(f, "%s\n", ip);
-            fclose(f);
-        }
+        ini_set_string("server", "address", ip);
     }
 }
 
 int LoadUserName(char* buffer, size_t size) {
     if (!buffer || size == 0) return -1;
-
-    char exe_path[MAX_PATH];
-    get_exe_path(exe_path, sizeof(exe_path));
-
-    char config_path[MAX_PATH];
-    snprintf(config_path, sizeof(config_path), "%s\\" USER_CONFIG_FILENAME, exe_path);
-
-    FILE* f = fopen(config_path, "r");
-    if (!f) {
-        return -1;
+    if (ini_get_string("client", "username", buffer, size) && buffer[0]) {
+        return 0;
     }
-
-    if (!fgets(buffer, (int)size, f)) {
-        fclose(f);
-        return -1;
-    }
-    fclose(f);
-
-    // Remove trailing newline
-    size_t len = strlen(buffer);
-    while (len > 0 && (buffer[len-1] == '\n' || buffer[len-1] == '\r')) {
-        buffer[--len] = '\0';
-    }
-
-    return 0;
+    return -1;
 }
 
 int SaveUserName(const char* name) {
     if (!name) return -1;
-
-    char exe_path[MAX_PATH];
-    get_exe_path(exe_path, sizeof(exe_path));
-
-    char config_path[MAX_PATH];
-    snprintf(config_path, sizeof(config_path), "%s\\" USER_CONFIG_FILENAME, exe_path);
-
-    // Create config directory if it doesn't exist
-    char dir_path[MAX_PATH];
-    snprintf(dir_path, sizeof(dir_path), "%s\\config", exe_path);
-    CreateDirectory(dir_path, NULL);
-
-    FILE* f = fopen(config_path, "w");
-    if (!f) {
-        return -1;
-    }
-
-    fprintf(f, "%s\n", name);
-    fclose(f);
-    return 0;
+    return ini_set_string("client", "username", name);
 }
 
 // Send command to local daemon (firewall) using old protocol format
@@ -634,6 +771,10 @@ int DaemonRun(const char* server_ip, int poll_interval_secs) {
     }
 
     while (1) {
+        // Re-read username from config on each iteration (may have been set via frontend)
+        username[0] = '\0';
+        LoadUserName(username, sizeof(username));
+
         // Check for stop event
         if (g_ServiceStopEvent != INVALID_HANDLE_VALUE) {
             if (WaitForSingleObject(g_ServiceStopEvent, 0) == WAIT_OBJECT_0) {

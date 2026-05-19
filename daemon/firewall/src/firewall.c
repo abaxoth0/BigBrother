@@ -41,7 +41,7 @@ StringView g_FilterExpr = {0};
 
 // TODO: Allow user to specify whitelist path
 static char g_WhitelistPath[MAX_PATH] = "whitelist.txt";
-static char g_ConfigPath[MAX_PATH] = "config.txt";
+static char g_ConfigPath[MAX_PATH] = "config\\config.ini";
 static char g_ServerIp[64] = {0};
 static char g_ClientExePath[MAX_PATH] = {0};
 static DWORD g_ClientPid = 0;
@@ -58,7 +58,7 @@ static void get_exe_path(char* buf, size_t size) {
 static void init_paths(void) {
     get_exe_path(g_ClientExePath, sizeof(g_ClientExePath));
     snprintf(g_WhitelistPath, sizeof(g_WhitelistPath), "%s\\whitelist.txt", g_ClientExePath);
-    snprintf(g_ConfigPath, sizeof(g_ConfigPath), "%s\\config.txt", g_ClientExePath);
+    snprintf(g_ConfigPath, sizeof(g_ConfigPath), "%s\\config\\config.ini", g_ClientExePath);
 }
 
 static void init_logging(void) {
@@ -94,35 +94,64 @@ static void init_logging(void) {
     }
 }
 
+static void ensure_config_dir(const char* full_path) {
+    char dir[MAX_PATH];
+    strncpy(dir, full_path, sizeof(dir) - 1);
+    dir[sizeof(dir) - 1] = '\0';
+    char* p = strrchr(dir, '\\');
+    if (p) {
+        *p = '\0';
+        CreateDirectory(dir, NULL);
+    }
+}
+
 static void load_config(const char* path) {
-    // Set default client exe path to same directory as daemon
     get_exe_path(g_ClientExePath, sizeof(g_ClientExePath));
     strncat(g_ClientExePath, "\\bb-client.exe", sizeof(g_ClientExePath) - strlen(g_ClientExePath) - 1);
     LOGF("[Config] Default client exe: %s", g_ClientExePath);
 
+    ensure_config_dir(path);
+
     FILE* f = fopen(path, "r");
     if (!f) {
-        LOGF("[Config] Could not open config file: %s", path);
+        // Create default config file
+        f = fopen(path, "w");
+        if (f) {
+            fprintf(f, "; BigBrother configuration file\n");
+            fclose(f);
+        }
+        LOGF("[Config] Created default config file: %s", path);
         return;
     }
 
+    int section_matched = 0;
     char line[256];
     while (fgets(line, sizeof(line), f)) {
-        char* eq = strchr(line, '=');
-        if (!eq) continue;
-        *eq = '\0';
+        char* p = line;
+        while (*p == ' ' || *p == '\t') p++;
+        char* end = p + strlen(p) - 1;
+        while (end > p && (*end == '\n' || *end == '\r' || *end == ' ' || *end == '\t')) *end-- = '\0';
+        if (*p == '\0' || *p == ';' || *p == '#') continue;
 
-        char* key = line;
-        char* value = eq + 1;
-
-        while (*value == ' ' || *value == '\t') value++;
-        char* end = value + strlen(value) - 1;
-        while (end > value && (*end == '\n' || *end == '\r' || *end == ' ' || *end == '\t')) {
-            *end = '\0';
-            end--;
+        if (*p == '[') {
+            char* close = strchr(p, ']');
+            if (!close) continue;
+            *close = '\0';
+            section_matched = (_stricmp(p + 1, "server") == 0 || _stricmp(p + 1, "daemon") == 0);
+            continue;
         }
 
-        if (strcmp(key, "server") == 0) {
+        if (!section_matched) continue;
+
+        char* eq = strchr(p, '=');
+        if (!eq) continue;
+        *eq = '\0';
+        char* key = p;
+        char* value = eq + 1;
+        while (*value == ' ' || *value == '\t') value++;
+
+        if (strcmp(key, "address") == 0 && section_matched) {
+            // [server] address
             strncpy(g_ServerIp, value, sizeof(g_ServerIp) - 1);
             LOGF("[Config] Server IP: %s", g_ServerIp);
         } else if (strcmp(key, "client_exe") == 0) {
@@ -135,18 +164,24 @@ static void load_config(const char* path) {
 }
 
 static int spawn_client_backend(void) {
-    if (g_ServerIp[0] == '\0') {
-        return -1;
-    }
-
     STARTUPINFO si = {0};
     PROCESS_INFORMATION pi = {0};
     si.cb = sizeof(si);
     si.dwFlags = STARTF_USESHOWWINDOW;
     si.wShowWindow = SW_HIDE;
 
+    // Re-discover client exe path from own exe directory
+    get_exe_path(g_ClientExePath, sizeof(g_ClientExePath));
+    strncat(g_ClientExePath, "\\bb-client.exe", sizeof(g_ClientExePath) - strlen(g_ClientExePath) - 1);
+
     char cmd[512];
-    snprintf(cmd, sizeof(cmd), "\"%s\" -d %s", g_ClientExePath, g_ServerIp);
+    if (g_ServerIp[0] != '\0') {
+        snprintf(cmd, sizeof(cmd), "\"%s\" -d %s", g_ClientExePath, g_ServerIp);
+    } else {
+        snprintf(cmd, sizeof(cmd), "\"%s\" -d", g_ClientExePath);
+    }
+
+    LOGF("[ServiceMain] Spawning: %s", cmd);
 
     if (CreateProcess(NULL, cmd, NULL, NULL, FALSE, CREATE_NO_WINDOW | INHERIT_PARENT_AFFINITY, NULL, NULL, &si, &pi)) {
         if (g_ClientProcess) {
@@ -158,7 +193,7 @@ static int spawn_client_backend(void) {
         LOGF("[ServiceMain] Client backend started, pid: %lu", g_ClientPid);
         return 0;
     } else {
-        LOGF("[ServiceMain] CreateProcess failed: %lu", GetLastError());
+        LOGF("[ServiceMain] CreateProcess failed: cmd=%s err=%lu", cmd, GetLastError());
         return -1;
     }
 }
@@ -561,19 +596,15 @@ void WINAPI ServiceMain(DWORD argc, LPTSTR *argv) {
     OutputDebugString("[ServiceMain] Starting IPC");
     IpcStart(g_ServiceStopEvent);
 
-    if (g_ServerIp[0] != '\0') {
-        g_ClientStopEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+    g_ClientStopEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
 
-        LOGF("[ServiceMain] Starting client backend, server: %s", g_ServerIp);
-        spawn_client_backend();
+    LOGF("[ServiceMain] Starting client backend, server: %s", g_ServerIp[0] ? g_ServerIp : "(not set)");
+    spawn_client_backend();
 
-        HANDLE monitor_thread = CreateThread(NULL, 0, client_monitor_thread, NULL, 0, NULL);
-        if (monitor_thread) {
-            CloseHandle(monitor_thread);
-            LOGF("[ServiceMain] Client monitor thread started");
-        }
-    } else {
-        LOGF("[ServiceMain] No server IP configured, skipping client backend");
+    HANDLE monitor_thread = CreateThread(NULL, 0, client_monitor_thread, NULL, 0, NULL);
+    if (monitor_thread) {
+        CloseHandle(monitor_thread);
+        LOGF("[ServiceMain] Client monitor thread started");
     }
 
     OutputDebugString("[ServiceMain] Creating worker thread");

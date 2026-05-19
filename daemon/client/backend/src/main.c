@@ -93,7 +93,6 @@ static void print_usage(const char* prog) {
     printf("  reload        - Reload whitelist from file\n");
     printf("  set <file>    - Set whitelist from file\n");
     printf("\nServer Commands:\n");
-    printf("  server <ip>       - Set server IP address\n");
     printf("  register <name> - Register user on server (pending approval)\n");
     printf("  connect           - Connect to server using saved username\n");
     printf("  disconnect        - Disconnect from server\n");
@@ -142,22 +141,23 @@ int main(int argc, char** argv) {
 
     // Check for daemon mode
     if (strcmp(argv[1], "-d") == 0) {
-        if (argc < 3) {
-            printf("Error: specify server IP\n");
-            return 1;
-        }
-
-        const char* server_ip = argv[2];
+        const char* server_ip = "";
         int poll_interval = 5;
+
+        if (argc >= 3 && argv[2][0] != '\0') {
+            server_ip = argv[2];
+        }
 
         if (argc >= 4) {
             poll_interval = atoi(argv[3]);
             if (poll_interval <= 0) poll_interval = 5;
         }
 
-        SetServerIp(server_ip);
+        if (server_ip[0] != '\0') {
+            SetServerIp(server_ip);
+        }
 
-        LOGF("[Main] Starting daemon mode, server: %s, poll interval: %ds", server_ip, poll_interval);
+        LOGF("[Main] Starting daemon mode, server: %s, poll interval: %ds", server_ip[0] ? server_ip : "(none)", poll_interval);
         LOGF("[Main] Starting client server...");
         StartClientServer();
 
@@ -205,14 +205,6 @@ int main(int argc, char** argv) {
         int result = DaemonSetWhitelist(data, size, buffer, sizeof(buffer));
         print_response("set", result, buffer);
         free(data);
-
-    } else if (strcmp(argv[1], "server") == 0) {
-        if (argc < 3) {
-            printf("Error: specify server IP\n");
-            return 1;
-        }
-        SetServerIp(argv[2]);
-        printf("[server] Server IP set to: %s\n", argv[2]);
 
     } else if (strcmp(argv[1], "register") == 0) {
         if (argc < 3) {
