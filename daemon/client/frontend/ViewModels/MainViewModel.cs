@@ -30,7 +30,7 @@ public class RelayCommand : ICommand
     public void Execute(object? parameter) => _execute(parameter);
 }
 
-public class MainViewModel : ViewModelBase
+public class MainViewModel : ViewModelBase, IDisposable
 {
     private const int MaxLogs = 500;
 
@@ -246,14 +246,19 @@ public class MainViewModel : ViewModelBase
     // Event for auto-scroll notification
     public event Action? ScrollToBottomRequested;
 
+    private bool _disposed;
+
     private async void OnStatusTimerElapsed(object? sender, ElapsedEventArgs e)
     {
+        if (_disposed) return;
         try
         {
             var status = await _ipcService.GetStatusAsync().ConfigureAwait(false);
+            if (_disposed) return;
             
             System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
             {
+                if (_disposed) return;
                 ClientConnectionStatus = status.IsConnected ? "Подключено" : "Отключено";
             });
 
@@ -261,6 +266,7 @@ public class MainViewModel : ViewModelBase
             {
                 System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
                 {
+                    if (_disposed) return;
                     SettingsAvailable = false;
                 });
             }
@@ -274,11 +280,13 @@ public class MainViewModel : ViewModelBase
                 _lastWhitelistRevision = status.WhitelistRevision;
                 
                 var whitelist = await _ipcService.GetWhitelistAsync().ConfigureAwait(false);
+                if (_disposed) return;
                 
                 if (whitelist.Count > 0)
                 {
                     System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
                     {
+                        if (_disposed) return;
                         WhitelistEntries.Clear();
                         foreach (var domain in whitelist)
                         {
@@ -293,8 +301,10 @@ public class MainViewModel : ViewModelBase
         }
         catch
         {
+            if (_disposed) return;
             System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
             {
+                if (_disposed) return;
                 ClientConnectionStatus = "Отключено";
             });
         }
@@ -548,4 +558,12 @@ public class MainViewModel : ViewModelBase
     public void StartClient() { }
     public void StopClient() { }
     public void RestartClient() { }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        _statusTimer?.Stop();
+        _statusTimer?.Dispose();
+    }
 }

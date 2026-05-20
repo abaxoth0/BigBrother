@@ -534,15 +534,17 @@ public class IpcService : IDisposable
 
     public void Dispose()
     {
-        _connectionLock.Wait();
         try
         {
-            Disconnect();
+            if (_pipe != null)
+            {
+                _pipe.Close();
+                _pipe.Dispose();
+            }
         }
-        finally
-        {
-            _connectionLock.Release();
-            _connectionLock.Dispose();
-        }
+        catch { }
+        _pipe = null;
+        _isConnected = false;
+        _connectionLock.Dispose();
     }
 }

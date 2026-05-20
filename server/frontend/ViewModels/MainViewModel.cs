@@ -145,7 +145,11 @@ public class MainViewModel : ViewModelBase
     private void StartAutoRefresh()
     {
         _refreshTimer = new System.Timers.Timer(5000);
-        _refreshTimer.Elapsed += async (s, e) => await RefreshAllAsync();
+        _refreshTimer.Elapsed += async (s, e) =>
+        {
+            if (_disposed) return;
+            try { await RefreshAllAsync(); } catch { }
+        };
         _refreshTimer.Start();
     }
 
@@ -187,15 +191,21 @@ public class MainViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
-            await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+            if (_disposed) return;
+            try
             {
-                IsConnected = false;
-                ServerStatus = "Не подключен";
-                Uptime = "";
-                ConnectedClients.Clear();
-                PendingRegistrations.Clear();
-                AddLog("ERROR", $"Ошибка: {ex.Message}");
-            });
+                await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+                {
+                    if (_disposed) return;
+                    IsConnected = false;
+                    ServerStatus = "Не подключен";
+                    Uptime = "";
+                    ConnectedClients.Clear();
+                    PendingRegistrations.Clear();
+                    AddLog("ERROR", $"Ошибка: {ex.Message}");
+                });
+            }
+            catch { }
         }
     }
 
@@ -404,8 +414,12 @@ public class MainViewModel : ViewModelBase
         });
     }
 
+    private bool _disposed;
+
     public void Dispose()
     {
+        if (_disposed) return;
+        _disposed = true;
         _refreshTimer?.Stop();
         _refreshTimer?.Dispose();
         _ipcService.Dispose();

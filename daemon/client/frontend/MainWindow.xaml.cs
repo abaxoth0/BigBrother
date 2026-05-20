@@ -346,5 +346,16 @@ namespace frontend
             var viewWindow = new LogViewWindow(sources) { Owner = this };
             viewWindow.Show();
         }
+
+        protected override void OnClosed(EventArgs e)
+        {
+            _refreshTimer?.Stop();
+            _ipcService.Dispose();
+            _clientLogReader.Stop();
+            _firewallLogReader.Stop();
+            if (DataContext is IDisposable disposable)
+                disposable.Dispose();
+            base.OnClosed(e);
+        }
     }
 }
