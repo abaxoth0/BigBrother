@@ -343,34 +343,42 @@
             <TabItem Header="Настройки">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="10">
-                        <GroupBox Header="Сервер" Margin="0,0,0,10" Padding="10">
-                            <StackPanel>
-                                <StackPanel Orientation="Horizontal" Margin="0,5">
-                                    <TextBlock Text="Адрес сервера:" Width="120" VerticalAlignment="Center"/>
-                                    <TextBox Text="{Binding ServerAddress, UpdateSourceTrigger=PropertyChanged}" Width="200" Margin="5,0"/>
-                                    <Button Content="Сохранить" Command="{Binding SaveServerAddressCommand}" Padding="8,2"/>
+                        <StackPanel Visibility="{Binding SettingsAvailable, Converter={StaticResource BoolToVisibility}}">
+                            <GroupBox Header="Сервер" Margin="0,0,0,10" Padding="10">
+                                <StackPanel>
+                                    <StackPanel Orientation="Horizontal" Margin="0,5">
+                                        <TextBlock Text="Адрес сервера:" Width="120" VerticalAlignment="Center"/>
+                                        <TextBox Text="{Binding ServerAddress, UpdateSourceTrigger=PropertyChanged}" Width="200" Margin="5,0"/>
+                                        <Button Content="Сохранить" Command="{Binding SaveServerAddressCommand}" Padding="8,2"/>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Margin="0,5">
+                                        <TextBlock Text="Пользователь:" Width="120" VerticalAlignment="Center"/>
+                                        <TextBox Text="{Binding Username, UpdateSourceTrigger=PropertyChanged}" Width="200" Margin="5,0"/>
+                                        <Button Content="Сохранить" Command="{Binding SaveUsernameCommand}" Padding="8,2"/>
+                                        <Button Content="Зарегистрироваться" Command="{Binding RegisterCommand}" Padding="8,2" Margin="5,0,0,0"/>
+                                    </StackPanel>
                                 </StackPanel>
-                                <StackPanel Orientation="Horizontal" Margin="0,5">
-                                    <TextBlock Text="Пользователь:" Width="120" VerticalAlignment="Center"/>
-                                    <TextBox Text="{Binding Username, UpdateSourceTrigger=PropertyChanged}" Width="200" Margin="5,0"/>
-                                    <Button Content="Сохранить" Command="{Binding SaveUsernameCommand}" Padding="8,2"/>
-                                    <Button Content="Зарегистрироваться" Command="{Binding RegisterCommand}" Padding="8,2" Margin="5,0,0,0"/>
-                                </StackPanel>
-                            </StackPanel>
-                        </GroupBox>
+                            </GroupBox>
 
-                        <GroupBox Header="Белый список" Margin="0,0,0,10" Padding="10">
-                            <StackPanel>
-                                <CheckBox IsChecked="{Binding FallbackWhitelistEnabled}" 
-                                          Content="Использовать локальный список при отключении синхронизации"
-                                          Margin="0,5"/>
-                                <TextBlock TextWrapping="Wrap" Foreground="Gray" FontSize="11" Margin="20,0,0,0">
-                                    <Run Text="При включении используется список из файла whitelist.txt, когда сервер не предоставляет список."/>
-                                    <LineBreak/>
-                                    <Run Text="При выключении весь трафик блокируется, если сервер не передал список разрешённых доменов."/>
-                                </TextBlock>
-                            </StackPanel>
-                        </GroupBox>
+                            <GroupBox Header="Белый список" Margin="0,0,0,10" Padding="10">
+                                <StackPanel>
+                                    <CheckBox IsChecked="{Binding FallbackWhitelistEnabled}" 
+                                              Content="Использовать локальный список при отключении синхронизации"
+                                              Margin="0,5"/>
+                                    <TextBlock TextWrapping="Wrap" Foreground="Gray" FontSize="11" Margin="20,0,0,0">
+                                        <Run Text="При включении используется список из файла whitelist.txt, когда сервер не предоставляет список."/>
+                                        <LineBreak/>
+                                        <Run Text="При выключении весь трафик блокируется, если сервер не передал список разрешённых доменов."/>
+                                    </TextBlock>
+                                </StackPanel>
+                            </GroupBox>
+                        </StackPanel>
+
+                        <StackPanel Visibility="{Binding SettingsAvailable, Converter={StaticResource InverseBoolToVisibility}}">
+                            <TextBlock Text="Нет соединения с Клиентом. Настройки не доступны."
+                                       Foreground="Gray" FontSize="14" Margin="20"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </StackPanel>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>

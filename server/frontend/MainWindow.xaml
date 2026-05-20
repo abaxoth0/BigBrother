@@ -79,6 +79,8 @@
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
 
+
+
                     <!-- Connected Clients -->
                     <Grid Grid.Row="0" Background="{StaticResource HeaderBackground}" Margin="0,0,0,2">
                         <Grid.ColumnDefinitions>
@@ -149,6 +151,7 @@
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
 
+
                     <!-- Active Whitelist -->
                     <Grid Grid.Row="0" Background="{StaticResource HeaderBackground}" Margin="0,0,0,5">
                         <Grid.ColumnDefinitions>
@@ -195,8 +198,10 @@
             <!-- Settings Tab -->
             <TabItem Header="Настройки">
                 <Grid Background="White" Margin="10">
-                    <StackPanel>
-                    </StackPanel>
+                    <TextBlock Text="Нет соединения с Сервером. Настройки недоступны."
+                               Foreground="Gray" FontSize="14"
+                               Visibility="{Binding NotConnectedVisibility}"
+                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
                 </Grid>
             </TabItem>
         </TabControl>

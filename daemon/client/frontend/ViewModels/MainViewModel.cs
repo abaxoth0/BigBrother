@@ -220,6 +220,13 @@ public class MainViewModel : ViewModelBase
         set => SetProperty(ref _username, value);
     }
 
+    private bool _settingsAvailable;
+    public bool SettingsAvailable
+    {
+        get => _settingsAvailable;
+        set => SetProperty(ref _settingsAvailable, value);
+    }
+
     // Whitelist revision tracking for change detection
     private uint _lastWhitelistRevision = 0;
     private readonly System.Timers.Timer _statusTimer = new System.Timers.Timer(10000); // Poll every 10 seconds (reduced from 2s)
@@ -249,6 +256,18 @@ public class MainViewModel : ViewModelBase
             {
                 ClientConnectionStatus = status.IsConnected ? "Подключено" : "Отключено";
             });
+
+            if (!status.IsConnected && SettingsAvailable)
+            {
+                System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
+                {
+                    SettingsAvailable = false;
+                });
+            }
+            else if (status.IsConnected && !SettingsAvailable)
+            {
+                await LoadSettingsAsync();
+            }
             
             if (status.WhitelistRevision != 0 && status.WhitelistRevision != _lastWhitelistRevision)
             {
@@ -307,6 +326,7 @@ public class MainViewModel : ViewModelBase
         var addr = await _ipcService.GetServerAddressAsync();
         var name = await _ipcService.GetUsernameAsync();
         var enabled = await _ipcService.GetFallbackWhitelistEnabledAsync();
+        var available = addr != "" || name != "" || enabled;
 
         System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
         {
@@ -316,6 +336,7 @@ public class MainViewModel : ViewModelBase
             OnPropertyChanged(nameof(Username));
             _fallbackWhitelistEnabled = enabled;
             OnPropertyChanged(nameof(FallbackWhitelistEnabled));
+            SettingsAvailable = available;
         });
     }
 

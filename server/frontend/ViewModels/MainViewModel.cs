@@ -101,8 +101,16 @@ public class MainViewModel : ViewModelBase
     public bool IsConnected
     {
         get => _isConnected;
-        set => SetProperty(ref _isConnected, value);
+        set
+        {
+            if (SetProperty(ref _isConnected, value))
+            {
+                OnPropertyChanged(nameof(NotConnectedVisibility));
+            }
+        }
     }
+
+    public Visibility NotConnectedVisibility => IsConnected ? Visibility.Collapsed : Visibility.Visible;
 
     public string ActiveWhitelist
     {
@@ -184,6 +192,8 @@ public class MainViewModel : ViewModelBase
                 IsConnected = false;
                 ServerStatus = "Не подключен";
                 Uptime = "";
+                ConnectedClients.Clear();
+                PendingRegistrations.Clear();
                 AddLog("ERROR", $"Ошибка: {ex.Message}");
             });
         }
@@ -271,6 +281,11 @@ public class MainViewModel : ViewModelBase
         {
             await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
             {
+                if (!IsConnected)
+                {
+                    Whitelists.Clear();
+                    ActiveWhitelist = "";
+                }
                 AddLog("ERROR", $"Ошибка загрузки списков: {ex.Message}");
             });
         }
