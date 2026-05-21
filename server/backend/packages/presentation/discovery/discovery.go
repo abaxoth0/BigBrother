@@ -14,6 +14,8 @@ import (
 	"github.com/abaxoth0/Ain/logger"
 )
 
+type discLogger = *logger.Source[*logger.FileLogger]
+
 const (
 	Port          = 42069
 	DiscoveryMagic = "BIGBROTHER_DISCOVERY"
@@ -26,7 +28,7 @@ type Listener struct {
 	conn   *net.UDPConn
 	stopCh chan struct{}
 	doneCh chan struct{}
-	logger *logger.Source
+	logger discLogger
 }
 
 func New(db database.DBInstance) *Listener {
