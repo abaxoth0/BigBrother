@@ -398,16 +398,28 @@ int DiscoverServers(const char* bcast_addr, int port, int timeout_ms, char* out,
     bind_addr.sin_port = 0;
     bind(sock, (struct sockaddr*)&bind_addr, sizeof(bind_addr));
 
-    // Send discovery broadcast
-    struct sockaddr_in dest;
-    memset(&dest, 0, sizeof(dest));
-    dest.sin_family = AF_INET;
-    dest.sin_port = htons((short)port);
-    inet_pton(AF_INET, bcast_addr, &dest.sin_addr);
-
     char request[128];
     snprintf(request, sizeof(request), "%s\n1\n", DISCOVERY_MAGIC);
-    sendto(sock, request, (int)strlen(request), 0, (struct sockaddr*)&dest, sizeof(dest));
+
+    // Send discovery broadcast
+    {
+        struct sockaddr_in dest;
+        memset(&dest, 0, sizeof(dest));
+        dest.sin_family = AF_INET;
+        dest.sin_port = htons((short)port);
+        inet_pton(AF_INET, bcast_addr, &dest.sin_addr);
+        sendto(sock, request, (int)strlen(request), 0, (struct sockaddr*)&dest, sizeof(dest));
+    }
+
+    // Also send directly to localhost and local machine IP (for same-machine discovery)
+    {
+        struct sockaddr_in dest;
+        memset(&dest, 0, sizeof(dest));
+        dest.sin_family = AF_INET;
+        dest.sin_port = htons((short)port);
+        inet_pton(AF_INET, "127.0.0.1", &dest.sin_addr);
+        sendto(sock, request, (int)strlen(request), 0, (struct sockaddr*)&dest, sizeof(dest));
+    }
 
     // Collect responses
     int count = 0;

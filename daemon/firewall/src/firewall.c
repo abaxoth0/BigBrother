@@ -462,9 +462,9 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
             }
         }
 
-        // Extract source and destination IPs
-        uint32_t src_ip = ip_hdr->SrcAddr;
-        uint32_t dest_ip = ip_hdr->DstAddr;
+        // Extract source and destination IPs (convert from network to host byte order)
+        uint32_t src_ip = ntohl(ip_hdr->SrcAddr);
+        uint32_t dest_ip = ntohl(ip_hdr->DstAddr);
 
         /* Check if source/destination is a local IP address.
          * Local IPs must not be blocked:

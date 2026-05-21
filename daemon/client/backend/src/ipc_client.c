@@ -368,6 +368,16 @@ DWORD WINAPI client_handler(LPVOID param) {
         } else {
             char response[8192] = {0};
             int count = DiscoverServers(bcast_addr, 42069, timeout_ms, response, sizeof(response));
+
+            // If broadcast found nothing, also try local IP directly (same-machine case)
+            if (count == 0 && local_ip[0] != '\0') {
+                char probe_response[8192] = {0};
+                count = DiscoverServers(local_ip, 42069, 1000, probe_response, sizeof(probe_response));
+                if (count > 0) {
+                    strncpy(response, probe_response, sizeof(response) - 1);
+                }
+            }
+
             if (count > 0) {
                 // Parse "name|ip\n..." lines into TLV values
                 char* lines[DISCOVERY_MAX_SERVERS];
