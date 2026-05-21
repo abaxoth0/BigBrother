@@ -248,13 +248,23 @@ static DWORD WINAPI client_monitor_thread(LPVOID param) {
 int LoadWhiteList(char* path) {
     if (!path) path = g_WhitelistPath;
     LOGF("[INFO] Reading whitelist at: %s", path);
-    FILE *f = fopen(path, "r");
-    if (!f) {
-        return STATUS_FAILED_TO_READ_WHITELIST;
-    }
 
     WhitelistInit(&g_Whitelist);
     IpAllowlistInit(&g_IpAllowlist);
+
+    FILE *f = fopen(path, "r");
+    if (!f) {
+        // Create empty whitelist file so service doesn't fail on missing file
+        f = fopen(path, "w");
+        if (f) {
+            fprintf(f, "; BigBrother whitelist - add domains one per line\n");
+            fclose(f);
+            LOGF("[INFO] Created empty whitelist file: %s", path);
+        } else {
+            LOGF("[WARN] Could not create whitelist file: %s, continuing with empty whitelist", path);
+        }
+        return STATUS_OK;
+    }
 
     char line[256];
     while (fgets(line, sizeof(line), f)) {
@@ -647,11 +657,7 @@ int main(int argc, char** argv) {
     
     LOGF("[Firewall] Started");
     
-    int err = LoadWhiteList(NULL);
-    if (err) {
-        log_shutdown();
-        return err;
-    }
+    LoadWhiteList(NULL);
 
     SERVICE_TABLE_ENTRY serviceTable[] = {
         {SERVICE_NAME, ServiceMain},
