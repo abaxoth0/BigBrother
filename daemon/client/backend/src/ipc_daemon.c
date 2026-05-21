@@ -609,8 +609,10 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
     printf("[send_to_server] Connecting to: %s\n", pipe_path);
     fflush(stdout);
 
+    int is_local_pipe = (strcmp(g_server_ip, ".") == 0 || strcmp(g_server_ip, "127.0.0.1") == 0);
     HANDLE pipe = INVALID_HANDLE_VALUE;
-    int retries = 3;
+    int max_retries = is_local_pipe ? 30 : 3; // retry longer for local pipes
+    int retries = max_retries;
 
     while (retries > 0 && pipe == INVALID_HANDLE_VALUE) {
         pipe = CreateFile(
@@ -625,7 +627,7 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
 
         if (pipe == INVALID_HANDLE_VALUE) {
             DWORD err = GetLastError();
-            printf("[send_to_server] Attempt failed, err=%lu\n", err);
+            printf("[send_to_server] Attempt failed, err=%lu (retries left: %d)\n", err, retries);
 
             if (err == 2 || err == 5) { // ERROR_FILE_NOT_FOUND or ERROR_ACCESS_DENIED
                 printf("[send_to_server] Waiting for server...\n");
@@ -1074,8 +1076,14 @@ int DaemonRun(const char* server_ip, int poll_interval_secs) {
                                     if (pipe) {
                                         *pipe = '\0';
                                         if (strcmp(line, expected_name) == 0) {
-                                            SetServerIp(pipe + 1);
-                                            LOGF("[Daemon] Server '%s' found at new IP: %s", expected_name, pipe + 1);
+                                            char* server_ip = pipe + 1;
+                                            // If server is on the same machine, use "." (local pipe)
+                                            if (local_ip[0] != '\0' && strcmp(server_ip, local_ip) == 0) {
+                                                SetServerIp(".");
+                                            } else {
+                                                SetServerIp(server_ip);
+                                            }
+                                            LOGF("[Daemon] Server '%s' found at new IP: %s", expected_name, server_ip);
                                             consecutive_failures = 0;
                                             break;
                                         }
