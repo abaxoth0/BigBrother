@@ -170,6 +170,7 @@ namespace frontend
             if (!string.IsNullOrEmpty(clientLog) && File.Exists(clientLog))
             {
                 _clientLogReader.Stop();
+                _clientLogReader.OnNewLine -= OnLogLineReceived;
                 _clientLogReader.OnNewLine += OnLogLineReceived;
                 _clientLogReader.Start(clientLog, LogSource.Client);
             }
@@ -177,6 +178,7 @@ namespace frontend
             if (!string.IsNullOrEmpty(firewallLog) && File.Exists(firewallLog))
             {
                 _firewallLogReader.Stop();
+                _firewallLogReader.OnNewLine -= OnLogLineReceived;
                 _firewallLogReader.OnNewLine += OnLogLineReceived;
                 _firewallLogReader.Start(firewallLog, LogSource.Firewall);
             }

@@ -456,7 +456,23 @@ int DiscoverServers(const char* bcast_addr, int port, int timeout_ms, char* out,
         nl = strchr(line, '\n');
         if (nl) *nl = '\0';
 
-        // Write "name|ip\n" to output
+        // Deduplicate by IP: skip if we already have this server
+        int dup = 0;
+        char* check = out;
+        while (check && check < out_pos) {
+            char* pipe = strchr(check, '|');
+            if (pipe) {
+                char* check_ip = pipe + 1;
+                char* nl = strchr(check_ip, '\n');
+                if (nl) *nl = '\0';
+                if (strcmp(check_ip, ip) == 0) { dup = 1; if (nl) *nl = '\n'; break; }
+                if (nl) *nl = '\n';
+            }
+            char* next_nl = strchr(check, '\n');
+            check = next_nl ? next_nl + 1 : NULL;
+        }
+        if (dup) continue;
+
         int written = snprintf(out_pos, remaining, "%s|%s\n", name, ip);
         if (written > 0 && written < (int)remaining) {
             out_pos += written;
@@ -584,7 +600,12 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
     }
 
     char pipe_path[128];
-    snprintf(pipe_path, sizeof(pipe_path), "\\\\%s\\pipe\\BigBrother.Server.Backend", g_server_ip);
+    // If server IP is localhost or ".", use local pipe path
+    if (strcmp(g_server_ip, "127.0.0.1") == 0 || strcmp(g_server_ip, ".") == 0) {
+        snprintf(pipe_path, sizeof(pipe_path), "\\\\.\\pipe\\BigBrother.Server.Backend");
+    } else {
+        snprintf(pipe_path, sizeof(pipe_path), "\\\\%s\\pipe\\BigBrother.Server.Backend", g_server_ip);
+    }
     printf("[send_to_server] Connecting to: %s\n", pipe_path);
     fflush(stdout);
 

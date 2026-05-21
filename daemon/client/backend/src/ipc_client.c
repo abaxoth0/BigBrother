@@ -379,6 +379,28 @@ DWORD WINAPI client_handler(LPVOID param) {
             }
 
             if (count > 0) {
+                // Replace server IP with "." if it matches local machine IP (use local pipe)
+                if (local_ip[0] != '\0') {
+                    char* line = response;
+                    while (line && *line) {
+                        char* pipe_c = strchr(line, '|');
+                        if (pipe_c) {
+                            char* ip = pipe_c + 1;
+                            char* nl = strchr(ip, '\n');
+                            if (nl) *nl = '\0';
+                            if (strcmp(ip, local_ip) == 0) {
+                                // Replace IP with "." for local pipe access
+                                memmove(pipe_c + 2, pipe_c + strlen(pipe_c + 1) + 1,
+                                    strlen(pipe_c + 1) + 1);
+                                pipe_c[1] = '.';
+                            }
+                            if (nl) *nl = '\n';
+                        }
+                        char* next = strchr(line, '\n');
+                        line = next ? next + 1 : NULL;
+                    }
+                }
+
                 // Parse "name|ip\n..." lines into TLV values
                 char* lines[DISCOVERY_MAX_SERVERS];
                 int line_count = 0;
