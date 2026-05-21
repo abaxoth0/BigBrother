@@ -220,6 +220,13 @@ public class MainViewModel : ViewModelBase, IDisposable
         set => SetProperty(ref _username, value);
     }
 
+    private string _serverName = "";
+    public string ServerName
+    {
+        get => _serverName;
+        set => SetProperty(ref _serverName, value);
+    }
+
     private bool _settingsAvailable;
     public bool SettingsAvailable
     {
@@ -242,6 +249,7 @@ public class MainViewModel : ViewModelBase, IDisposable
     public ICommand RegisterCommand { get; }
     public ICommand ConnectCommand { get; }
     public ICommand DisconnectCommand { get; }
+    public ICommand ChangeServerCommand { get; }
 
     // Event for auto-scroll notification
     public event Action? ScrollToBottomRequested;
@@ -319,6 +327,7 @@ public class MainViewModel : ViewModelBase, IDisposable
         RegisterCommand = new RelayCommand(async _ => await RegisterAsync());
         ConnectCommand = new RelayCommand(async _ => await ConnectAsync());
         DisconnectCommand = new RelayCommand(async _ => await DisconnectAsync());
+        ChangeServerCommand = new RelayCommand(async _ => await ChangeServerAsync());
 
         // Initialize whitelist status polling timer
         _statusTimer.Elapsed += OnStatusTimerElapsed;
@@ -336,7 +345,8 @@ public class MainViewModel : ViewModelBase, IDisposable
         var addr = await _ipcService.GetServerAddressAsync();
         var name = await _ipcService.GetUsernameAsync();
         var enabled = await _ipcService.GetFallbackWhitelistEnabledAsync();
-        var available = addr != "" || name != "" || enabled;
+        var srvName = await _ipcService.GetServerNameAsync();
+        var available = addr != "" || name != "" || enabled || srvName != "";
 
         System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
         {
@@ -344,6 +354,8 @@ public class MainViewModel : ViewModelBase, IDisposable
             OnPropertyChanged(nameof(ServerAddress));
             _username = name;
             OnPropertyChanged(nameof(Username));
+            _serverName = srvName;
+            OnPropertyChanged(nameof(ServerName));
             _fallbackWhitelistEnabled = enabled;
             OnPropertyChanged(nameof(FallbackWhitelistEnabled));
             SettingsAvailable = available;
@@ -396,6 +408,52 @@ public class MainViewModel : ViewModelBase, IDisposable
         if (string.IsNullOrEmpty(name)) return;
         var ok = await _ipcService.DisconnectFromServerAsync(name);
         AddLog(ok ? "INFO" : "ERROR", ok ? "Отключено от сервера" : "Ошибка отключения");
+    }
+
+    private async Task ChangeServerAsync()
+    {
+        var servers = await _ipcService.DiscoverServersAsync();
+        if (servers.Count == 0)
+        {
+            AddLog("ERROR", "Серверы не найдены в сети");
+            return;
+        }
+
+        var list = servers.Select(s =>
+        {
+            var parts = s.Split('|');
+            return new ServerInfo
+            {
+                Name = parts.Length > 0 ? parts[0] : "",
+                Ip = parts.Length > 1 ? parts[1] : ""
+            };
+        }).ToList();
+
+        ServerInfo? selected = null;
+        System.Windows.Application.Current.Dispatcher.Invoke(() =>
+        {
+            var dialog = new ServerSelectWindow(list)
+            {
+                Owner = System.Windows.Application.Current.MainWindow
+            };
+            if (dialog.ShowDialog() == true)
+            {
+                selected = dialog.SelectedServer;
+            }
+        });
+
+        if (selected == null || string.IsNullOrEmpty(selected.Ip)) return;
+
+        await _ipcService.SetServerAddressAsync(selected.Ip);
+        await _ipcService.SetServerNameAsync(selected.Name);
+
+        System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
+        {
+            ServerAddress = selected.Ip;
+            ServerName = selected.Name;
+        });
+
+        AddLog("INFO", $"Выбран сервер: {selected.Name} ({selected.Ip})");
     }
 
     private readonly ConcurrentQueue<string> _pendingLogs = new();

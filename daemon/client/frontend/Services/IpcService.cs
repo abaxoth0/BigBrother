@@ -429,6 +429,72 @@ public class IpcService : IDisposable
         }
     }
 
+    public async Task<List<string>> DiscoverServersAsync(int timeoutMs = 2000)
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return new List<string>();
+            try
+            {
+                var (status, data) = await SendCommandWithTimeoutAsync("DISCOVER_SERVERS", ReadTimeoutMs, timeoutMs.ToString());
+                return status == "OK" ? data : new List<string>();
+            }
+            finally
+            {
+                Disconnect();
+            }
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
+    public async Task<bool> SetServerNameAsync(string name)
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return false;
+            try
+            {
+                var (status, _) = await SendCommandWithTimeoutAsync("SET_SERVER_NAME", ReadTimeoutMs, name);
+                return status == "OK";
+            }
+            finally
+            {
+                Disconnect();
+            }
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
+    public async Task<string> GetServerNameAsync()
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return "";
+            try
+            {
+                var (status, data) = await SendCommandWithTimeoutAsync("GET_SERVER_NAME", ReadTimeoutMs);
+                return status == "OK" && data.Count > 0 ? data[0] : "";
+            }
+            finally
+            {
+                Disconnect();
+            }
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
     public async Task<bool> RegisterAsync(string username)
     {
         await _connectionLock.WaitAsync();

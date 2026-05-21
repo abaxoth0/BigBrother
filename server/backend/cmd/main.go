@@ -8,6 +8,7 @@ import (
 	"bigbrother_server_backend/packages/infrastructure/connection"
 	"bigbrother_server_backend/packages/infrastructure/database/sqlite"
 	"bigbrother_server_backend/packages/infrastructure/pending"
+	"bigbrother_server_backend/packages/presentation/discovery"
 	"bigbrother_server_backend/packages/presentation/rpc"
 	"time"
 
@@ -53,6 +54,12 @@ func main() {
 	defer db.Disconnect()
 
 	pendingUsersStorage := pending.NewUserStorage()
+
+	discoveryListener := discovery.New(db)
+	if err := discoveryListener.Start(); err != nil {
+		mainLogger.Fatal("Discovery listener error", err.Error(), nil)
+	}
+	defer discoveryListener.Stop()
 
 	backendServer := rpc.NewServer(
 		"Backend",

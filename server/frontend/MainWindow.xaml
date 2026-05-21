@@ -198,6 +198,17 @@
             <!-- Settings Tab -->
             <TabItem Header="Настройки">
                 <Grid Background="White" Margin="10">
+                    <StackPanel Visibility="{Binding ConnectedVisibility}">
+                        <GroupBox Header="Сервер" Margin="0,0,0,10" Padding="10">
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,5">
+                                    <TextBlock Text="Имя сервера:" Width="120" VerticalAlignment="Center"/>
+                                    <TextBox Text="{Binding ServerName, UpdateSourceTrigger=PropertyChanged}" Width="200" Margin="5,0"/>
+                                    <Button Content="Сохранить" Command="{Binding SaveServerNameCommand}" Padding="8,2"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </GroupBox>
+                    </StackPanel>
                     <TextBlock Text="Нет соединения с Сервером. Настройки недоступны."
                                Foreground="Gray" FontSize="14"
                                Visibility="{Binding NotConnectedVisibility}"

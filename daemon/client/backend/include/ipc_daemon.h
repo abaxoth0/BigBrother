@@ -199,4 +199,30 @@ int ServerRefresh(const char* name);
  */
 int ServerChangeName(const char* oldName, const char* newName);
 
+/**
+ * @brief Discover servers via UDP broadcast.
+ *
+ * @param bcast_addr Broadcast address (e.g. "192.168.1.255").
+ * @param port UDP port (default 42069).
+ * @param timeout_ms Receive timeout in milliseconds.
+ * @param out Output buffer for "name|ip\n..." lines.
+ * @param out_size Size of output buffer.
+ *
+ * @return Number of servers found, or 0 on error/timeout.
+ */
+int DiscoverServers(const char* bcast_addr, int port, int timeout_ms, char* out, size_t out_size);
+
+/**
+ * @brief Auto-detect local IP, subnet mask, and broadcast address.
+ *
+ * @param ip_str Output buffer for local IP string.
+ * @param ip_size Size of IP buffer.
+ * @param mask Output subnet mask.
+ * @param bcast_str Output buffer for broadcast address string.
+ * @param bcast_size Size of broadcast buffer.
+ *
+ * @return 0 on success, -1 on error.
+ */
+int GetLocalIPAndMask(char* ip_str, size_t ip_size, uint32_t* mask, char* bcast_str, size_t bcast_size);
+
 #endif // IPC_H

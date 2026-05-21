@@ -229,6 +229,21 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 				writeOK(conn)
 			}
 
+		case "GET_SERVER_NAME":
+			name, _ := h.db.GetSetting("server_name")
+			if name == "" {
+				name = "BigBrother Server"
+			}
+			writeTLVResponse(conn, name)
+
+		case "SET_SERVER_NAME":
+			if len(args) < 1 {
+				writeErrorTLV(conn, "Missing server name")
+				continue
+			}
+			h.db.SetSetting("server_name", args[0])
+			writeOK(conn)
+
 		default:
 			writeErrorTLV(conn, fmt.Sprintf("unknown command: %s", cmd))
 		}

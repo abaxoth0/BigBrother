@@ -5,6 +5,7 @@
 
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#include <iphlpapi.h>
 
 #include "../include/ipc_daemon.h"
 #include "../../../common/log/log.h"
@@ -287,6 +288,174 @@ int LoadUserName(char* buffer, size_t size) {
 int SaveUserName(const char* name) {
     if (!name) return -1;
     return ini_set_string("client", "username", name);
+}
+
+#define DISCOVERY_PORT 42069
+#define DISCOVERY_MAGIC "BIGBROTHER_DISCOVERY"
+#define DISCOVERY_RESPONSE_MAGIC "BIGBROTHER_DISCOVERY_RESPONSE"
+#define DISCOVERY_TIMEOUT_MS 2000
+#define DISCOVERY_MAX_SERVERS 32
+#define DISCOVERY_BUF_SIZE 4096
+
+// Auto-detect local IP address and subnet mask using Windows IP helper API.
+// Returns 0 on success with ip_str, mask, and broadcast_str filled.
+static int GetLocalIPAndMask(char* ip_str, size_t ip_size, uint32_t* mask, char* bcast_str, size_t bcast_size) {
+    ULONG buf_len = 0;
+    GetAdaptersAddresses(AF_INET, 0, NULL, NULL, &buf_len);
+    if (buf_len == 0) goto fallback;
+
+    IP_ADAPTER_ADDRESSES* adapters = (IP_ADAPTER_ADDRESSES*)malloc(buf_len);
+    if (!adapters) goto fallback;
+
+    ULONG ret = GetAdaptersAddresses(AF_INET, 0, NULL, adapters, &buf_len);
+    if (ret != NO_ERROR) {
+        free(adapters);
+        goto fallback;
+    }
+
+    for (IP_ADAPTER_ADDRESSES* a = adapters; a; a = a->Next) {
+        if (a->OperStatus != IfOperStatusUp) continue;
+        if (a->FirstUnicastAddress == NULL) continue;
+
+        SOCKET_ADDRESS* addr = &a->FirstUnicastAddress->Address;
+        struct sockaddr_in* sin = (struct sockaddr_in*)addr->lpSockaddr;
+        if (!sin) continue;
+
+        ULONG ip = ntohl(sin->sin_addr.s_addr);
+        if (ip == 0x7f000001) continue; // skip loopback
+
+        // Get subnet mask from the unicast address's OnLinkPrefixLength
+        ULONG prefix = a->FirstUnicastAddress->OnLinkPrefixLength;
+        ULONG mask_val = prefix ? (0xFFFFFFFF << (32 - prefix)) : 0x00FFFFFF; // default /24
+
+        // Format IP
+        snprintf(ip_str, ip_size, "%lu.%lu.%lu.%lu",
+            (ip >> 24) & 0xFF, (ip >> 16) & 0xFF, (ip >> 8) & 0xFF, ip & 0xFF);
+
+        // Compute broadcast: ip | ~mask
+        ULONG bcast = ip | ~mask_val;
+        snprintf(bcast_str, bcast_size, "%lu.%lu.%lu.%lu",
+            (bcast >> 24) & 0xFF, (bcast >> 16) & 0xFF, (bcast >> 8) & 0xFF, bcast & 0xFF);
+
+        if (mask) *mask = mask_val;
+        free(adapters);
+        return 0;
+    }
+
+    free(adapters);
+
+fallback:
+    // Fallback: use get_local_ip() and assume /24
+    {
+        char local_ip[64] = {0};
+        get_local_ip("8.8.8.8", local_ip, sizeof(local_ip));
+        if (local_ip[0]) {
+            snprintf(ip_str, ip_size, "%s", local_ip);
+
+            // Compute /24 broadcast: keep first 3 octets, set last to 255
+            unsigned int a, b, c, d;
+            if (sscanf(local_ip, "%u.%u.%u.%u", &a, &b, &c, &d) == 4) {
+                snprintf(bcast_str, bcast_size, "%u.%u.%u.255", a, b, c);
+                if (mask) *mask = 0x00FFFFFF; // /24
+                return 0;
+            }
+        }
+    }
+
+    return -1;
+}
+
+// UDP broadcast: send discovery magic, collect all server responses.
+// Returns number of servers found (written to out as "name|ip\n..." lines).
+static int DiscoverServers(const char* bcast_addr, int port, int timeout_ms, char* out, size_t out_size) {
+    if (!out || out_size == 0) return 0;
+    out[0] = '\0';
+
+    WSADATA wsa;
+    if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) return 0;
+
+    SOCKET sock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sock == INVALID_SOCKET) {
+        WSACleanup();
+        return 0;
+    }
+
+    // Enable broadcast
+    int bcast_opt = 1;
+    setsockopt(sock, SOL_SOCKET, SO_BROADCAST, (const char*)&bcast_opt, sizeof(bcast_opt));
+
+    // Set receive timeout
+    DWORD rcv_timeout = timeout_ms > 0 ? timeout_ms : DISCOVERY_TIMEOUT_MS;
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&rcv_timeout, sizeof(rcv_timeout));
+
+    // Bind to any port
+    struct sockaddr_in bind_addr;
+    memset(&bind_addr, 0, sizeof(bind_addr));
+    bind_addr.sin_family = AF_INET;
+    bind_addr.sin_addr.s_addr = INADDR_ANY;
+    bind_addr.sin_port = 0;
+    bind(sock, (struct sockaddr*)&bind_addr, sizeof(bind_addr));
+
+    // Send discovery broadcast
+    struct sockaddr_in dest;
+    memset(&dest, 0, sizeof(dest));
+    dest.sin_family = AF_INET;
+    dest.sin_port = htons((short)port);
+    inet_pton(AF_INET, bcast_addr, &dest.sin_addr);
+
+    char request[128];
+    snprintf(request, sizeof(request), "%s\n1\n", DISCOVERY_MAGIC);
+    sendto(sock, request, (int)strlen(request), 0, (struct sockaddr*)&dest, sizeof(dest));
+
+    // Collect responses
+    int count = 0;
+    char* out_pos = out;
+    size_t remaining = out_size - 1;
+
+    while (count < DISCOVERY_MAX_SERVERS) {
+        struct sockaddr_in from;
+        int from_len = sizeof(from);
+        char buf[DISCOVERY_BUF_SIZE];
+        int n = recvfrom(sock, buf, sizeof(buf) - 1, 0, (struct sockaddr*)&from, &from_len);
+        if (n <= 0) break; // timeout or error
+
+        buf[n] = '\0';
+
+        // Parse response: "BIGBROTHER_DISCOVERY_RESPONSE\n<name>\n<ip>\n"
+        char* line = buf;
+        if (strncmp(line, DISCOVERY_RESPONSE_MAGIC, strlen(DISCOVERY_RESPONSE_MAGIC)) != 0) continue;
+
+        // Skip magic line
+        line = strchr(line, '\n');
+        if (!line) continue;
+        line++;
+
+        // Server name
+        char* name = line;
+        char* nl = strchr(line, '\n');
+        if (!nl) continue;
+        *nl = '\0';
+        line = nl + 1;
+
+        // Server IP
+        char* ip = line;
+        nl = strchr(line, '\n');
+        if (nl) *nl = '\0';
+
+        // Write "name|ip\n" to output
+        int written = snprintf(out_pos, remaining, "%s|%s\n", name, ip);
+        if (written > 0 && written < (int)remaining) {
+            out_pos += written;
+            remaining -= written;
+            count++;
+        } else {
+            break;
+        }
+    }
+
+    closesocket(sock);
+    WSACleanup();
+    return count;
 }
 
 // Send command to local daemon (firewall) using old protocol format
@@ -734,6 +903,7 @@ int DaemonRun(const char* server_ip, int poll_interval_secs) {
 
     // Track whether we've pushed an empty whitelist for block-all mode
     int blocked_all_pushed = 0;
+    int consecutive_failures = 0;
 
     LOGF("[Daemon] Waiting for local daemon to be ready...");
     int local_ready = 0;
@@ -798,6 +968,7 @@ int DaemonRun(const char* server_ip, int poll_interval_secs) {
             const char* wl_args[1] = {username};
             char response[8192] = {0};
             if (send_to_server_tlv("GET_WHITELIST", wl_args, 1, response, sizeof(response)) == 0) {
+                consecutive_failures = 0;
                 if (!server_connected) {
                     server_connected = 1;
                     g_server_session_active = 1;
@@ -849,6 +1020,40 @@ int DaemonRun(const char* server_ip, int poll_interval_secs) {
                 }
                 server_connected = 0;
                 g_server_session_active = 0;
+
+                consecutive_failures++;
+                if (consecutive_failures >= 3) {
+                    LOGF("[Daemon] %d consecutive failures, trying server discovery...", consecutive_failures);
+                    char expected_name[128] = {0};
+                    ini_get_string("server", "name", expected_name, sizeof(expected_name));
+                    if (expected_name[0] != '\0') {
+                        char local_ip[64] = {0}, bcast[64] = {0};
+                        uint32_t mask = 0;
+                        if (GetLocalIPAndMask(local_ip, sizeof(local_ip), &mask, bcast, sizeof(bcast)) == 0) {
+                            char disco_resp[8192] = {0};
+                            int found = DiscoverServers(bcast, 42069, 2000, disco_resp, sizeof(disco_resp));
+                            if (found > 0) {
+                                char* line = disco_resp;
+                                for (int i = 0; i < found && line && *line; i++) {
+                                    char* pipe = strchr(line, '|');
+                                    if (pipe) {
+                                        *pipe = '\0';
+                                        if (strcmp(line, expected_name) == 0) {
+                                            SetServerIp(pipe + 1);
+                                            LOGF("[Daemon] Server '%s' found at new IP: %s", expected_name, pipe + 1);
+                                            consecutive_failures = 0;
+                                            break;
+                                        }
+                                        *pipe = '|';
+                                    }
+                                    char* nl = strchr(line, '\n');
+                                    if (nl) line = nl + 1; else break;
+                                }
+                            }
+                        }
+                    }
+                }
+
                 if (!g_fallback_whitelist_enabled && local_ready && !blocked_all_pushed) {
                     LOGF("[Daemon] Server unreachable and fallback off - blocking all traffic");
                     if (DaemonSetWhitelist("", 0, whitelist_buf, sizeof(whitelist_buf)) == 0) {
