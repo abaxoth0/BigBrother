@@ -64,7 +64,7 @@ static char* trim_ws(char* s) {
 
 // Read string value from config.ini.
 // Returns 1 if found, 0 if not found.
-static int ini_get_string(const char* section, const char* key, char* out, size_t out_size) {
+int ini_get_string(const char* section, const char* key, char* out, size_t out_size) {
     if (!out || out_size == 0) return 0;
     out[0] = '\0';
 
@@ -127,7 +127,7 @@ static int ini_get_string(const char* section, const char* key, char* out, size_
 
 // Write or update a string value in config.ini.
 // Retains all other sections and keys.
-static int ini_set_string(const char* section, const char* key, const char* value) {
+int ini_set_string(const char* section, const char* key, const char* value) {
     char ini_path[MAX_PATH];
     build_ini_path(ini_path, sizeof(ini_path));
 
@@ -290,16 +290,18 @@ int SaveUserName(const char* name) {
     return ini_set_string("client", "username", name);
 }
 
+// Forward declare get_local_ip (defined later in this file)
+static int get_local_ip(const char* server_ip, char* buffer, size_t buffer_size);
+
 #define DISCOVERY_PORT 42069
 #define DISCOVERY_MAGIC "BIGBROTHER_DISCOVERY"
 #define DISCOVERY_RESPONSE_MAGIC "BIGBROTHER_DISCOVERY_RESPONSE"
 #define DISCOVERY_TIMEOUT_MS 2000
-#define DISCOVERY_MAX_SERVERS 32
 #define DISCOVERY_BUF_SIZE 4096
 
 // Auto-detect local IP address and subnet mask using Windows IP helper API.
 // Returns 0 on success with ip_str, mask, and broadcast_str filled.
-static int GetLocalIPAndMask(char* ip_str, size_t ip_size, uint32_t* mask, char* bcast_str, size_t bcast_size) {
+int GetLocalIPAndMask(char* ip_str, size_t ip_size, uint32_t* mask, char* bcast_str, size_t bcast_size) {
     ULONG buf_len = 0;
     GetAdaptersAddresses(AF_INET, 0, NULL, NULL, &buf_len);
     if (buf_len == 0) goto fallback;
@@ -367,7 +369,7 @@ fallback:
 
 // UDP broadcast: send discovery magic, collect all server responses.
 // Returns number of servers found (written to out as "name|ip\n..." lines).
-static int DiscoverServers(const char* bcast_addr, int port, int timeout_ms, char* out, size_t out_size) {
+int DiscoverServers(const char* bcast_addr, int port, int timeout_ms, char* out, size_t out_size) {
     if (!out || out_size == 0) return 0;
     out[0] = '\0';
 
