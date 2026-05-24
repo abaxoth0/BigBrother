@@ -69,6 +69,7 @@ public class MainViewModel : ViewModelBase
         SaveServerNameCommand = new RelayCommand(async _ => await SaveServerNameAsync());
         StartAutoRefresh();
         _ = RefreshAllAsync();
+        _ = LoadServerNameAsync();
     }
 
     public ObservableCollection<ConnectedClient> ConnectedClients { get; }
@@ -173,7 +174,6 @@ public class MainViewModel : ViewModelBase
             await RefreshPendingAsync();
             await RefreshWhitelistsAsync();
             await LoadActiveWhitelistAsync();
-            await LoadServerNameAsync();
         });
     }
 

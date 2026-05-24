@@ -278,11 +278,11 @@ int LoadWhiteList(char* path) {
             p[--len] = '\0';
         }
 
-        if (p[0] == '#' || p[0] == '\0') continue;
+        if (p[0] == '#' || p[0] == ';' || p[0] == '\0') continue;
 
         struct in_addr addr;
         if (inet_pton(AF_INET, p, &addr) == 1) {
-            IpAllowlistAdd(&g_IpAllowlist, addr.s_addr, p, 0);
+            IpAllowlistAdd(&g_IpAllowlist, ntohl(addr.s_addr), p, 0);
             LOGF("[INFO] Added IP to allowlist: %s", p);
 
         } else {
@@ -450,7 +450,7 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
                         }
 
 #ifdef DEBUG
-                        struct in_addr addr_ip = { .s_addr = resolved_ip };
+                        struct in_addr addr_ip = { .s_addr = htonl(resolved_ip) };
                         DLOGF("[DNS-RESPONSE] %s -> %s (whitelisted: %d)",
                               dns.question.domain, inet_ntoa(addr_ip), domain_whitelisted);
 #endif
@@ -462,7 +462,7 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
             }
         }
 
-        // Extract source and destination IPs (convert from network to host byte order)
+        // IP header fields are in network byte order, convert to host for comparisons
         uint32_t src_ip = ntohl(ip_hdr->SrcAddr);
         uint32_t dest_ip = ntohl(ip_hdr->DstAddr);
 
@@ -478,7 +478,7 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
         int is_local_dst = ((dest_ip & 0xFF000000) == 0x7F000000) ||
             ((dest_ip & 0xFFF00000) == 0xAC100000) || ((dest_ip & 0xFFFF0000) == 0xC0A80000) ||
             ((dest_ip & 0xFF000000) == 0x0A000000);
-        int is_local = is_local_src || is_local_dst;
+        int is_local = is_local_src && is_local_dst;
 
         /*
          * Blocking logic:
@@ -488,6 +488,11 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
          * - Allow packets to IPs that were resolved from whitelisted domains
          * - Block everything else
          */
+        // Track stats for diagnostics
+        static int packet_count = 0;
+        static int blocked_count = 0;
+        packet_count++;
+
         if (addr.Outbound && !IsAllowed(dest_ip) && !is_local) {
             int is_dns_udp = (udp_hdr && (ntohs(udp_hdr->DstPort) == 53));
             int is_dns_tcp = (tcp_hdr && (ntohs(tcp_hdr->DstPort) == 53));
@@ -508,6 +513,7 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
             }
 
             if (!domain_whitelisted) {
+                blocked_count++;
                 if (domain) {
                     LOGB("Packet to %s blocked (domain: %s not whitelisted)", dst, domain);
                 } else {
@@ -515,6 +521,12 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
                 }
                 continue;
             }
+        }
+
+        if (packet_count % 100 == 0) {
+            DLOGF("[STATS] processed=%d blocked=%d allowlist=%zu whitelist=%zu outbound=%d local=%d",
+                  packet_count, blocked_count, g_IpAllowlist.count, g_Whitelist.count,
+                  addr.Outbound, is_local);
         }
 
         WinDivertSend(handle, packet, recv_len, NULL, &addr);
@@ -658,6 +670,8 @@ int main(int argc, char** argv) {
     LOGF("[Firewall] Started");
     
     LoadWhiteList(NULL);
+    LOGF("[Firewall] Started with %zu whitelisted domains and %zu allowed IPs",
+          g_Whitelist.count, g_IpAllowlist.count);
 
     SERVICE_TABLE_ENTRY serviceTable[] = {
         {SERVICE_NAME, ServiceMain},
