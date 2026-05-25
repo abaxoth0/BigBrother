@@ -238,16 +238,15 @@ int ServerChangeName(const char* oldName, const char* newName);
 int DiscoverServers(const char* bcast_addr, int port, int timeout_ms, char* out, size_t out_size);
 
 /**
- * @brief Auto-detect local IP, subnet mask, and broadcast address.
+ * @brief Get all active broadcast addresses, one per line.
  *
- * @param ip_str Output buffer for local IP string.
+ * @param ip_str Output buffer for first non-loopback local IP.
  * @param ip_size Size of IP buffer.
- * @param mask Output subnet mask.
- * @param bcast_str Output buffer for broadcast address string.
+ * @param bcast_out Output buffer for newline-separated broadcast addresses.
  * @param bcast_size Size of broadcast buffer.
  *
- * @return 0 on success, -1 on error.
+ * @return Number of broadcast addresses found, or 0 on failure.
  */
-int GetLocalIPAndMask(char* ip_str, size_t ip_size, uint32_t* mask, char* bcast_str, size_t bcast_size);
+int GetAllBroadcastAddresses(char* ip_str, size_t ip_size, char* bcast_out, size_t bcast_size);
 
 #endif // IPC_H

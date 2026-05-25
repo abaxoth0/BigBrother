@@ -18,11 +18,9 @@ import (
 var mainLogger = logger.NewSource("MAIN", log.DefaultLogger)
 
 const frontendPipePath = `\\.\pipe\BigBrother.Server.Frontend`
-const backendPipePath  = `\\.\pipe\BigBrother.Server.Backend`
 const frontendPipeBufSize = 65536
-const backendPipeBufSize  = 65536
 
-const backendSecurityDescriptor = "D:P(A;;GA;;;AU)(A;;GA;;;SY)"
+const backendTCPAddr = ":42070"
 
 func main() {
 	log.DefaultLoggerConfig.Trace = true
@@ -65,9 +63,7 @@ func main() {
 		"Backend",
 		rpc.NewBackendHandler(db, connManager, pendingUsersStorage),
 		&rpc.ServerConfig{
-			InputBufferSize: 	backendPipeBufSize,
-			OutputBufferSize: 	backendPipeBufSize,
-			SecurityDescriptor: backendSecurityDescriptor,
+			Network: rpc.NetworkTCP,
 		},
 	)
 
@@ -75,8 +71,9 @@ func main() {
 		"Frontend",
 		rpc.NewFrontendHandler(db, connManager, pendingUsersStorage),
 		&rpc.ServerConfig{
-			InputBufferSize: 	frontendPipeBufSize,
-			OutputBufferSize: 	frontendPipeBufSize,
+			Network:          rpc.NetworkPipe,
+			InputBufferSize:  frontendPipeBufSize,
+			OutputBufferSize: frontendPipeBufSize,
 		},
 	)
 
@@ -88,7 +85,7 @@ func main() {
 		}
 	}()
 
-	if err := backendServer.Start(backendPipePath); err != nil {
+	if err := backendServer.Start(backendTCPAddr); err != nil {
 		mainLogger.Fatal("Backend RPC Handler error", err.Error(), nil)
 	}
 }

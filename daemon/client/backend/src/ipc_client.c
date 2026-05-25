@@ -360,26 +360,17 @@ DWORD WINAPI client_handler(LPVOID param) {
         }
 
         char local_ip[64] = {0};
-        char bcast_addr[64] = {0};
-        uint32_t mask = 0;
+        char bcast_list[512] = {0};
 
-        if (GetLocalIPAndMask(local_ip, sizeof(local_ip), &mask, bcast_addr, sizeof(bcast_addr)) != 0) {
+        int bcast_count = GetAllBroadcastAddresses(local_ip, sizeof(local_ip), bcast_list, sizeof(bcast_list));
+        if (bcast_count == 0) {
             write_error_tlv(pipe, "failed to detect network");
         } else {
             char response[8192] = {0};
-            int count = DiscoverServers(bcast_addr, 42069, timeout_ms, response, sizeof(response));
-
-            // If broadcast found nothing, also try local IP directly (same-machine case)
-            if (count == 0 && local_ip[0] != '\0') {
-                char probe_response[8192] = {0};
-                count = DiscoverServers(local_ip, 42069, 1000, probe_response, sizeof(probe_response));
-                if (count > 0) {
-                    strncpy(response, probe_response, sizeof(response) - 1);
-                }
-            }
+            int count = DiscoverServers(bcast_list, 42069, timeout_ms, response, sizeof(response));
 
             if (count > 0) {
-                // Replace server IP with "." if it matches local machine IP (use local pipe)
+                // Replace server IP with "." if it matches local machine IP (use local loopback TCP)
                 if (local_ip[0] != '\0') {
                     char* line = response;
                     while (line && *line) {
@@ -389,7 +380,7 @@ DWORD WINAPI client_handler(LPVOID param) {
                             char* nl = strchr(ip, '\n');
                             if (nl) *nl = '\0';
                             if (strcmp(ip, local_ip) == 0) {
-                                // Replace IP with "." for local pipe access
+                                // Replace IP with "." for localhost TCP
                                 memmove(pipe_c + 2, pipe_c + strlen(pipe_c + 1) + 1,
                                     strlen(pipe_c + 1) + 1);
                                 pipe_c[1] = '.';
