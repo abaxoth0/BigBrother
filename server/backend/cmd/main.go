@@ -24,18 +24,6 @@ const frontendPipeBufSize = 65536
 
 const defaultBackendPort = 1984
 
-func getBackendAddr() string {
-	port := defaultBackendPort
-	for i, arg := range os.Args {
-		if arg == "--port" && i+1 < len(os.Args) {
-			if _, err := fmt.Sscanf(os.Args[i+1], "%d", &port); err == nil && port > 0 && port < 65536 {
-				break
-			}
-		}
-	}
-	return fmt.Sprintf(":%d", port)
-}
-
 func main() {
 	log.DefaultLoggerConfig.Trace = true
 	log.DefaultLoggerConfig.Debug = true
@@ -91,6 +79,26 @@ func main() {
 		},
 	)
 
+	// Determine backend port: CLI --port flag overrides DB, DB overrides default
+	backendPort := defaultBackendPort
+	cliPortSet := false
+	for i, arg := range os.Args {
+		if arg == "--port" && i+1 < len(os.Args) {
+			if _, err := fmt.Sscanf(os.Args[i+1], "%d", &backendPort); err == nil && backendPort > 0 && backendPort < 65536 {
+				cliPortSet = true
+				break
+			}
+		}
+	}
+	if !cliPortSet {
+		if dbPort, err := db.GetSetting("server_port"); err == nil && dbPort != "" {
+			if p, e := fmt.Sscanf(dbPort, "%d", &backendPort); e == nil && p == 1 && backendPort > 0 && backendPort < 65536 {
+				// use db port
+			}
+		}
+	}
+	backendAddr := fmt.Sprintf(":%d", backendPort)
+
 	// TODO make this thread a hypervisor which will track status of those servers and restart them if anything
 
 	go func() {
@@ -99,7 +107,6 @@ func main() {
 		}
 	}()
 
-	backendAddr := getBackendAddr()
 	mainLogger.Info("Backend TCP address: "+backendAddr, nil)
 	if err := backendServer.Start(backendAddr); err != nil {
 		mainLogger.Fatal("Backend RPC Handler error", err.Error(), nil)
