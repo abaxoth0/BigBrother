@@ -492,13 +492,22 @@ int DiscoverServers(const char* bcast_list, int port, int timeout_ms, char* out,
         int dup = 0;
         char* check = out;
         while (check && check < out_pos) {
-            char* pipe = strchr(check, '|');
-            if (pipe) {
-                char* check_ip = pipe + 1;
-                char* nl = strchr(check_ip, '\n');
-                if (nl) *nl = '\0';
-                if (strcmp(check_ip, ip) == 0) { dup = 1; if (nl) *nl = '\n'; break; }
-                if (nl) *nl = '\n';
+            // Find the IP portion: skip name (skip first |)
+            char* first_pipe = strchr(check, '|');
+            if (first_pipe) {
+                char* check_ip_start = first_pipe + 1;
+                // IP ends at the next | or \n
+                char* ip_end = strchr(check_ip_start, '|');
+                char* nl = strchr(check_ip_start, '\n');
+                char saved = 0;
+                char* term = NULL;
+                if (ip_end && (!nl || ip_end < nl)) {
+                    term = ip_end; saved = *term; *term = '\0';
+                } else if (nl) {
+                    term = nl; saved = *term; *term = '\0';
+                }
+                if (strcmp(check_ip_start, ip) == 0) { dup = 1; if (term) *term = saved; break; }
+                if (term) *term = saved;
             }
             char* next_nl = strchr(check, '\n');
             check = next_nl ? next_nl + 1 : NULL;
