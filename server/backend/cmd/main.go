@@ -10,6 +10,8 @@ import (
 	"bigbrother_server_backend/packages/infrastructure/pending"
 	"bigbrother_server_backend/packages/presentation/discovery"
 	"bigbrother_server_backend/packages/presentation/rpc"
+	"fmt"
+	"os"
 	"time"
 
 	"github.com/abaxoth0/Ain/logger"
@@ -20,7 +22,19 @@ var mainLogger = logger.NewSource("MAIN", log.DefaultLogger)
 const frontendPipePath = `\\.\pipe\BigBrother.Server.Frontend`
 const frontendPipeBufSize = 65536
 
-const backendTCPAddr = ":1984"
+const defaultBackendPort = 1984
+
+func getBackendAddr() string {
+	port := defaultBackendPort
+	for i, arg := range os.Args {
+		if arg == "--port" && i+1 < len(os.Args) {
+			if _, err := fmt.Sscanf(os.Args[i+1], "%d", &port); err == nil && port > 0 && port < 65536 {
+				break
+			}
+		}
+	}
+	return fmt.Sprintf(":%d", port)
+}
 
 func main() {
 	log.DefaultLoggerConfig.Trace = true
@@ -85,7 +99,9 @@ func main() {
 		}
 	}()
 
-	if err := backendServer.Start(backendTCPAddr); err != nil {
+	backendAddr := getBackendAddr()
+	mainLogger.Info("Backend TCP address: "+backendAddr, nil)
+	if err := backendServer.Start(backendAddr); err != nil {
 		mainLogger.Fatal("Backend RPC Handler error", err.Error(), nil)
 	}
 }

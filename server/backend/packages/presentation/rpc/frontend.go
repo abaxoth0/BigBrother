@@ -244,6 +244,21 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 			h.db.SetSetting("server_name", args[0])
 			writeOK(conn)
 
+		case "GET_SERVER_PORT":
+			port, _ := h.db.GetSetting("server_port")
+			if port == "" {
+				port = "1984"
+			}
+			writeTLVResponse(conn, port)
+
+		case "SET_SERVER_PORT":
+			if len(args) < 1 {
+				writeErrorTLV(conn, "Missing port number")
+				continue
+			}
+			h.db.SetSetting("server_port", args[0])
+			writeOK(conn)
+
 		default:
 			writeErrorTLV(conn, fmt.Sprintf("unknown command: %s", cmd))
 		}

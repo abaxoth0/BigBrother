@@ -46,6 +46,7 @@ public class MainViewModel : ViewModelBase
 
     private string _activeWhitelist = "";
     private string _serverName = "";
+    private string _serverPort = "1984";
     private ObservableCollection<WhitelistInfo> _whitelists = new();
     private WhitelistInfo? _selectedWhitelist;
 
@@ -67,9 +68,11 @@ public class MainViewModel : ViewModelBase
         OpenCreateWhitelistCommand = new RelayCommand(async _ => await OpenCreateWhitelistAsync());
         OpenEditWhitelistCommand = new RelayCommand(async o => await OpenEditWhitelistAsync(o as WhitelistInfo), o => o is WhitelistInfo);
         SaveServerNameCommand = new RelayCommand(async _ => await SaveServerNameAsync());
+        SaveServerPortCommand = new RelayCommand(async _ => await SaveServerPortAsync());
         StartAutoRefresh();
         _ = RefreshAllAsync();
         _ = LoadServerNameAsync();
+        _ = LoadServerPortAsync();
     }
 
     public ObservableCollection<ConnectedClient> ConnectedClients { get; }
@@ -129,6 +132,12 @@ public class MainViewModel : ViewModelBase
         set => SetProperty(ref _serverName, value);
     }
 
+    public string ServerPort
+    {
+        get => _serverPort;
+        set => SetProperty(ref _serverPort, value);
+    }
+
     public WhitelistInfo? SelectedWhitelist
     {
         get => _selectedWhitelist;
@@ -154,6 +163,7 @@ public class MainViewModel : ViewModelBase
     public ICommand OpenCreateWhitelistCommand { get; }
     public ICommand OpenEditWhitelistCommand { get; }
     public ICommand SaveServerNameCommand { get; }
+    public ICommand SaveServerPortCommand { get; }
     private void StartAutoRefresh()
     {
         _refreshTimer = new System.Timers.Timer(5000);
@@ -195,6 +205,15 @@ public class MainViewModel : ViewModelBase
         });
     }
 
+    private async Task LoadServerPortAsync()
+    {
+        var port = await _ipcService.GetServerPortAsync();
+        await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+        {
+            ServerPort = port;
+        });
+    }
+
     private async Task SaveServerNameAsync()
     {
         var name = ServerName?.Trim() ?? "";
@@ -203,6 +222,16 @@ public class MainViewModel : ViewModelBase
             AddLog("INFO", $"Имя сервера сохранено: {name}");
         else
             AddLog("ERROR", "Ошибка сохранения имени сервера");
+    }
+
+    private async Task SaveServerPortAsync()
+    {
+        var port = ServerPort?.Trim() ?? "";
+        if (string.IsNullOrEmpty(port)) return;
+        if (await _ipcService.SetServerPortAsync(port))
+            AddLog("INFO", $"Порт сервера сохранён: {port}");
+        else
+            AddLog("ERROR", "Ошибка сохранения порта сервера");
     }
 
     private async Task RefreshServerStatusAsync()

@@ -220,6 +220,12 @@ public class MainViewModel : ViewModelBase, IDisposable
         set => SetProperty(ref _username, value);
     }
 
+    public string ServerPort
+    {
+        get => _serverPort;
+        set => SetProperty(ref _serverPort, value);
+    }
+
     private string _serverName = "";
     public string ServerName
     {
@@ -250,6 +256,7 @@ public class MainViewModel : ViewModelBase, IDisposable
     public ICommand ConnectCommand { get; }
     public ICommand DisconnectCommand { get; }
     public ICommand ChangeServerCommand { get; }
+    public ICommand SaveServerPortCommand { get; }
 
     // Event for auto-scroll notification
     public event Action? ScrollToBottomRequested;
@@ -328,6 +335,7 @@ public class MainViewModel : ViewModelBase, IDisposable
         ConnectCommand = new RelayCommand(async _ => await ConnectAsync());
         DisconnectCommand = new RelayCommand(async _ => await DisconnectAsync());
         ChangeServerCommand = new RelayCommand(async _ => await ChangeServerAsync());
+        SaveServerPortCommand = new RelayCommand(async _ => await SaveServerPortAsync());
 
         // Initialize whitelist status polling timer
         _statusTimer.Elapsed += OnStatusTimerElapsed;
@@ -346,6 +354,7 @@ public class MainViewModel : ViewModelBase, IDisposable
         var name = await _ipcService.GetUsernameAsync();
         var enabled = await _ipcService.GetFallbackWhitelistEnabledAsync();
         var srvName = await _ipcService.GetServerNameAsync();
+        var port = await _ipcService.GetServerPortAsync();
         var available = addr != "" || name != "" || enabled || srvName != "";
 
         System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
@@ -356,6 +365,8 @@ public class MainViewModel : ViewModelBase, IDisposable
             OnPropertyChanged(nameof(Username));
             _serverName = srvName;
             OnPropertyChanged(nameof(ServerName));
+            _serverPort = port;
+            OnPropertyChanged(nameof(ServerPort));
             _fallbackWhitelistEnabled = enabled;
             OnPropertyChanged(nameof(FallbackWhitelistEnabled));
             SettingsAvailable = available;
@@ -368,6 +379,14 @@ public class MainViewModel : ViewModelBase, IDisposable
         if (string.IsNullOrEmpty(addr)) return;
         var ok = await _ipcService.SetServerAddressAsync(addr);
         AddLog(ok ? "INFO" : "ERROR", ok ? $"Адрес сервера сохранён: {addr}" : "Ошибка сохранения адреса сервера");
+    }
+
+    private async Task SaveServerPortAsync()
+    {
+        var port = ServerPort?.Trim() ?? "";
+        if (string.IsNullOrEmpty(port)) return;
+        var ok = await _ipcService.SetServerPortAsync(port);
+        AddLog(ok ? "INFO" : "ERROR", ok ? $"Порт сервера сохранён: {port}" : "Ошибка сохранения порта");
     }
 
     private async Task SaveUsernameAsync()

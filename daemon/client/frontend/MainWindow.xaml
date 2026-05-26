@@ -357,6 +357,11 @@
                                         <Button Content="Сохранить" Command="{Binding SaveUsernameCommand}" Padding="8,2"/>
                                         <Button Content="Зарегистрироваться" Command="{Binding RegisterCommand}" Padding="8,2" Margin="5,0,0,0"/>
                                     </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Margin="0,5">
+                                        <TextBlock Text="Порт:" Width="120" VerticalAlignment="Center"/>
+                                        <TextBox Text="{Binding ServerPort, UpdateSourceTrigger=PropertyChanged}" Width="100" Margin="5,0"/>
+                                        <Button Content="Сохранить" Command="{Binding SaveServerPortCommand}" Padding="8,2"/>
+                                    </StackPanel>
                                     <Separator Margin="0,10"/>
                                     <StackPanel Orientation="Horizontal" Margin="0,5">
                                         <TextBlock Text="Сервер:" Width="120" VerticalAlignment="Center"/>

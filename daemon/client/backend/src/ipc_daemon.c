@@ -617,7 +617,14 @@ int DaemonGetLogPath(char* out_buffer, size_t buffer_size) {
     return send_command_tlv("GET_LOG_PATH", NULL, 0, out_buffer, buffer_size);
 }
 
-#define SERVER_TCP_PORT 1984
+int get_server_port(void) {
+    char buf[16] = {0};
+    if (ini_get_string("server", "port", buf, sizeof(buf)) && buf[0]) {
+        int p = atoi(buf);
+        if (p > 0 && p < 65536) return p;
+    }
+    return 1984; // default
+}
 
 static int send_to_server_tlv(const char* command, const char** args, size_t arg_count,
                               char* out_buffer, size_t buffer_size) {
@@ -639,7 +646,8 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
         target_ip = "127.0.0.1";
     }
 
-    printf("[send_to_server] Connecting to %s:%d...\n", target_ip, SERVER_TCP_PORT);
+    int port = get_server_port();
+    printf("[send_to_server] Connecting to %s:%d...\n", target_ip, port);
     fflush(stdout);
 
     // TCP socket
@@ -657,7 +665,7 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
         struct sockaddr_in addr;
         memset(&addr, 0, sizeof(addr));
         addr.sin_family = AF_INET;
-        addr.sin_port = htons(SERVER_TCP_PORT);
+        addr.sin_port = htons((short)port);
         inet_pton(AF_INET, target_ip, &addr.sin_addr);
 
         if (connect(sock, (struct sockaddr*)&addr, sizeof(addr)) != 0) {
