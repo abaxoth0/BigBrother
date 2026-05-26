@@ -220,6 +220,7 @@ public class MainViewModel : ViewModelBase, IDisposable
         set => SetProperty(ref _username, value);
     }
 
+    private string _serverPort = "1984";
     public string ServerPort
     {
         get => _serverPort;
