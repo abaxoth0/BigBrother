@@ -617,7 +617,7 @@ int DaemonGetLogPath(char* out_buffer, size_t buffer_size) {
     return send_command_tlv("GET_LOG_PATH", NULL, 0, out_buffer, buffer_size);
 }
 
-#define SERVER_TCP_PORT 42070
+#define SERVER_TCP_PORT 1984
 
 static int send_to_server_tlv(const char* command, const char** args, size_t arg_count,
                               char* out_buffer, size_t buffer_size) {

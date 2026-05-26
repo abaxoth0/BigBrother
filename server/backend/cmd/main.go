@@ -20,7 +20,7 @@ var mainLogger = logger.NewSource("MAIN", log.DefaultLogger)
 const frontendPipePath = `\\.\pipe\BigBrother.Server.Frontend`
 const frontendPipeBufSize = 65536
 
-const backendTCPAddr = ":42070"
+const backendTCPAddr = ":1984"
 
 func main() {
 	log.DefaultLoggerConfig.Trace = true
