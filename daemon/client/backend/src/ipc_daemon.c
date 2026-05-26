@@ -5,6 +5,7 @@
 
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#include <iphlpapi.h>
 
 #include "../include/ipc_daemon.h"
 #include "../../../common/log/log.h"
@@ -63,7 +64,7 @@ static char* trim_ws(char* s) {
 
 // Read string value from config.ini.
 // Returns 1 if found, 0 if not found.
-static int ini_get_string(const char* section, const char* key, char* out, size_t out_size) {
+int ini_get_string(const char* section, const char* key, char* out, size_t out_size) {
     if (!out || out_size == 0) return 0;
     out[0] = '\0';
 
@@ -126,7 +127,7 @@ static int ini_get_string(const char* section, const char* key, char* out, size_
 
 // Write or update a string value in config.ini.
 // Retains all other sections and keys.
-static int ini_set_string(const char* section, const char* key, const char* value) {
+int ini_set_string(const char* section, const char* key, const char* value) {
     char ini_path[MAX_PATH];
     build_ini_path(ini_path, sizeof(ini_path));
 
@@ -289,6 +290,229 @@ int SaveUserName(const char* name) {
     return ini_set_string("client", "username", name);
 }
 
+// Forward declare get_local_ip (defined later in this file)
+static int get_local_ip(const char* server_ip, char* buffer, size_t buffer_size);
+
+#define DISCOVERY_PORT 42069
+#define DISCOVERY_MAGIC "BIGBROTHER_DISCOVERY"
+#define DISCOVERY_RESPONSE_MAGIC "BIGBROTHER_DISCOVERY_RESPONSE"
+#define DISCOVERY_TIMEOUT_MS 2000
+#define DISCOVERY_BUF_SIZE 4096
+
+// Auto-detect local IP address and subnet mask using Windows IP helper API.
+// Returns 0 on success with ip_str, mask, and broadcast_str filled.
+// Get all active broadcast addresses, one per line in bcast_out.
+// Also returns the first non-loopback IP in ip_str.
+// Returns number of broadcast addresses found, or 0 on failure.
+int GetAllBroadcastAddresses(char* ip_str, size_t ip_size, char* bcast_out, size_t bcast_size) {
+    if (ip_str) ip_str[0] = '\0';
+    if (bcast_out) bcast_out[0] = '\0';
+
+    ULONG buf_len = 0;
+    GetAdaptersAddresses(AF_INET, 0, NULL, NULL, &buf_len);
+    if (buf_len == 0) return 0;
+
+    IP_ADAPTER_ADDRESSES* adapters = (IP_ADAPTER_ADDRESSES*)malloc(buf_len);
+    if (!adapters) return 0;
+
+    ULONG ret = GetAdaptersAddresses(AF_INET, 0, NULL, adapters, &buf_len);
+    if (ret != NO_ERROR) {
+        free(adapters);
+        return 0;
+    }
+
+    int count = 0;
+    char* out = bcast_out;
+    size_t remaining = bcast_size;
+    int first_ip_set = 0;
+
+    for (IP_ADAPTER_ADDRESSES* a = adapters; a; a = a->Next) {
+        if (a->OperStatus != IfOperStatusUp) continue;
+        if (a->FirstUnicastAddress == NULL) continue;
+
+        SOCKET_ADDRESS* saddr = &a->FirstUnicastAddress->Address;
+        struct sockaddr_in* sin = (struct sockaddr_in*)saddr->lpSockaddr;
+        if (!sin) continue;
+
+        ULONG ip = ntohl(sin->sin_addr.s_addr);
+        if (ip == 0x7f000001) continue; // skip loopback
+
+        // Save first IP
+        if (!first_ip_set && ip_str) {
+            snprintf(ip_str, ip_size, "%lu.%lu.%lu.%lu",
+                (ip >> 24) & 0xFF, (ip >> 16) & 0xFF, (ip >> 8) & 0xFF, ip & 0xFF);
+            first_ip_set = 1;
+        }
+
+        // Compute broadcast: ip | ~mask
+        ULONG prefix = a->FirstUnicastAddress->OnLinkPrefixLength;
+        ULONG mask_val = prefix ? (0xFFFFFFFF << (32 - prefix)) : 0x00FFFFFF;
+        ULONG bcast = ip | ~mask_val;
+
+        if (out && remaining > 0) {
+            int written = snprintf(out, remaining, "%lu.%lu.%lu.%lu\n",
+                (bcast >> 24) & 0xFF, (bcast >> 16) & 0xFF, (bcast >> 8) & 0xFF, bcast & 0xFF);
+            if (written > 0 && written < (int)remaining) {
+                out += written;
+                remaining -= written;
+                count++;
+            }
+        }
+    }
+
+    free(adapters);
+
+    // Fallback: if no adapters found, try get_local_ip and assume /24
+    if (count == 0) {
+        char local_ip[64] = {0};
+        get_local_ip("8.8.8.8", local_ip, sizeof(local_ip));
+        if (local_ip[0]) {
+            if (ip_str) snprintf(ip_str, ip_size, "%s", local_ip);
+            unsigned int a, b, c, d;
+            if (sscanf(local_ip, "%u.%u.%u.%u", &a, &b, &c, &d) == 4 && bcast_out && bcast_size > 0) {
+                snprintf(bcast_out, bcast_size, "%u.%u.%u.255\n", a, b, c);
+                count = 1;
+            }
+        }
+    }
+
+    return count;
+}
+
+// UDP broadcast: send discovery magic to all broadcast addresses, collect all server responses.
+// bcast_list is a newline-separated list of broadcast addresses (e.g. "192.168.1.255\n10.0.0.255\n").
+// Returns number of servers found (written to out as "name|ip\n..." lines).
+int DiscoverServers(const char* bcast_list, int port, int timeout_ms, char* out, size_t out_size) {
+    if (!out || out_size == 0) return 0;
+    out[0] = '\0';
+
+    WSADATA wsa;
+    if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) return 0;
+
+    SOCKET sock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sock == INVALID_SOCKET) {
+        WSACleanup();
+        return 0;
+    }
+
+    // Enable broadcast
+    int bcast_opt = 1;
+    setsockopt(sock, SOL_SOCKET, SO_BROADCAST, (const char*)&bcast_opt, sizeof(bcast_opt));
+
+    // Set receive timeout
+    DWORD rcv_timeout = timeout_ms > 0 ? timeout_ms : DISCOVERY_TIMEOUT_MS;
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&rcv_timeout, sizeof(rcv_timeout));
+
+    // Bind to any port
+    struct sockaddr_in bind_addr;
+    memset(&bind_addr, 0, sizeof(bind_addr));
+    bind_addr.sin_family = AF_INET;
+    bind_addr.sin_addr.s_addr = INADDR_ANY;
+    bind_addr.sin_port = 0;
+    bind(sock, (struct sockaddr*)&bind_addr, sizeof(bind_addr));
+
+    char request[128];
+    snprintf(request, sizeof(request), "%s\n1\n", DISCOVERY_MAGIC);
+
+    // Send discovery broadcast to each address in the list
+    {
+        char list_copy[512] = {0};
+        strncpy(list_copy, bcast_list ? bcast_list : "127.0.0.1", sizeof(list_copy) - 1);
+
+        struct sockaddr_in dest;
+        memset(&dest, 0, sizeof(dest));
+        dest.sin_family = AF_INET;
+        dest.sin_port = htons((short)port);
+
+        char* line = list_copy;
+        while (line && *line) {
+            char* nl = strchr(line, '\n');
+            if (nl) *nl = '\0';
+            if (line[0] != '\0') {
+                inet_pton(AF_INET, line, &dest.sin_addr);
+                sendto(sock, request, (int)strlen(request), 0, (struct sockaddr*)&dest, sizeof(dest));
+            }
+            if (nl) line = nl + 1; else break;
+        }
+    }
+
+    // Also send directly to localhost (for same-machine discovery)
+    {
+        struct sockaddr_in dest;
+        memset(&dest, 0, sizeof(dest));
+        dest.sin_family = AF_INET;
+        dest.sin_port = htons((short)port);
+        inet_pton(AF_INET, "127.0.0.1", &dest.sin_addr);
+        sendto(sock, request, (int)strlen(request), 0, (struct sockaddr*)&dest, sizeof(dest));
+    }
+
+    // Collect responses
+    int count = 0;
+    char* out_pos = out;
+    size_t remaining = out_size - 1;
+
+    while (count < DISCOVERY_MAX_SERVERS) {
+        struct sockaddr_in from;
+        int from_len = sizeof(from);
+        char buf[DISCOVERY_BUF_SIZE];
+        int n = recvfrom(sock, buf, sizeof(buf) - 1, 0, (struct sockaddr*)&from, &from_len);
+        if (n <= 0) break; // timeout or error
+
+        buf[n] = '\0';
+
+        // Parse response: "BIGBROTHER_DISCOVERY_RESPONSE\n<name>\n<ip>\n"
+        char* line = buf;
+        if (strncmp(line, DISCOVERY_RESPONSE_MAGIC, strlen(DISCOVERY_RESPONSE_MAGIC)) != 0) continue;
+
+        // Skip magic line
+        line = strchr(line, '\n');
+        if (!line) continue;
+        line++;
+
+        // Server name
+        char* name = line;
+        char* nl = strchr(line, '\n');
+        if (!nl) continue;
+        *nl = '\0';
+        line = nl + 1;
+
+        // Server IP
+        char* ip = line;
+        nl = strchr(line, '\n');
+        if (nl) *nl = '\0';
+
+        // Deduplicate by IP: skip if we already have this server
+        int dup = 0;
+        char* check = out;
+        while (check && check < out_pos) {
+            char* pipe = strchr(check, '|');
+            if (pipe) {
+                char* check_ip = pipe + 1;
+                char* nl = strchr(check_ip, '\n');
+                if (nl) *nl = '\0';
+                if (strcmp(check_ip, ip) == 0) { dup = 1; if (nl) *nl = '\n'; break; }
+                if (nl) *nl = '\n';
+            }
+            char* next_nl = strchr(check, '\n');
+            check = next_nl ? next_nl + 1 : NULL;
+        }
+        if (dup) continue;
+
+        int written = snprintf(out_pos, remaining, "%s|%s\n", name, ip);
+        if (written > 0 && written < (int)remaining) {
+            out_pos += written;
+            remaining -= written;
+            count++;
+        } else {
+            break;
+        }
+    }
+
+    closesocket(sock);
+    WSACleanup();
+    return count;
+}
+
 // Send command to local daemon (firewall) using old protocol format
 static int send_command_tlv(const char* command, const char** args, size_t arg_count,
                            char* out_buffer, size_t buffer_size) {
@@ -393,6 +617,8 @@ int DaemonGetLogPath(char* out_buffer, size_t buffer_size) {
     return send_command_tlv("GET_LOG_PATH", NULL, 0, out_buffer, buffer_size);
 }
 
+#define SERVER_TCP_PORT 1984
+
 static int send_to_server_tlv(const char* command, const char** args, size_t arg_count,
                               char* out_buffer, size_t buffer_size) {
     if (!g_server_ip[0] || !command || !out_buffer || buffer_size == 0) {
@@ -400,42 +626,53 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
         return -1;
     }
 
-    char pipe_path[128];
-    snprintf(pipe_path, sizeof(pipe_path), "\\\\%s\\pipe\\BigBrother.Server.Backend", g_server_ip);
-    printf("[send_to_server] Connecting to: %s\n", pipe_path);
+    // Ensure Winsock is initialized
+    WSADATA wsa;
+    if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) {
+        printf("[send_to_server] WSAStartup failed\n");
+        return -1;
+    }
+
+    // Resolve target IP: "." or "127.0.0.1" means localhost
+    const char* target_ip = g_server_ip;
+    if (strcmp(g_server_ip, ".") == 0 || strcmp(g_server_ip, "127.0.0.1") == 0) {
+        target_ip = "127.0.0.1";
+    }
+
+    printf("[send_to_server] Connecting to %s:%d...\n", target_ip, SERVER_TCP_PORT);
     fflush(stdout);
 
-    HANDLE pipe = INVALID_HANDLE_VALUE;
-    int retries = 3;
+    // TCP socket
+    SOCKET sock = INVALID_SOCKET;
+    int retries = 10;
 
-    while (retries > 0 && pipe == INVALID_HANDLE_VALUE) {
-        pipe = CreateFile(
-            pipe_path,
-            GENERIC_READ | GENERIC_WRITE,
-            0,
-            NULL,
-            OPEN_EXISTING,
-            0,
-            NULL
-        );
+    while (retries > 0 && sock == INVALID_SOCKET) {
+        sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+        if (sock == INVALID_SOCKET) {
+            printf("[send_to_server] socket() failed: %lu\n", (unsigned long)WSAGetLastError());
+            WSACleanup();
+            return -1;
+        }
 
-        if (pipe == INVALID_HANDLE_VALUE) {
-            DWORD err = GetLastError();
-            printf("[send_to_server] Attempt failed, err=%lu\n", err);
+        struct sockaddr_in addr;
+        memset(&addr, 0, sizeof(addr));
+        addr.sin_family = AF_INET;
+        addr.sin_port = htons(SERVER_TCP_PORT);
+        inet_pton(AF_INET, target_ip, &addr.sin_addr);
 
-            if (err == 2 || err == 5) { // ERROR_FILE_NOT_FOUND or ERROR_ACCESS_DENIED
-                printf("[send_to_server] Waiting for server...\n");
-                Sleep(500);
-                retries--;
-            } else {
-                break;
-            }
+        if (connect(sock, (struct sockaddr*)&addr, sizeof(addr)) != 0) {
+            printf("[send_to_server] connect() failed: %lu (retries left: %d)\n", (unsigned long)WSAGetLastError(), retries);
+            closesocket(sock);
+            sock = INVALID_SOCKET;
+            Sleep(500);
+            retries--;
         }
     }
 
-    if (pipe == INVALID_HANDLE_VALUE) {
-        printf("[send_to_server] Error: failed to connect after retries, err=%lu\n", GetLastError());
+    if (sock == INVALID_SOCKET) {
+        printf("[send_to_server] Error: failed to connect, err=%lu\n", (unsigned long)WSAGetLastError());
         fflush(stdout);
+        WSACleanup();
         return -1;
     }
 
@@ -444,7 +681,7 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
 
     // Build TLV request
     size_t cmd_len = strlen(command);
-    size_t total_size = cmd_len + 1; // command + newline
+    size_t total_size = cmd_len + 1;
     for (size_t i = 0; i < arg_count; i++) {
         if (args[i]) {
             total_size += snprintf(NULL, 0, "%zu", strlen(args[i])) + 1;
@@ -455,37 +692,37 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
 
     char* send_buf = malloc(total_size);
     if (!send_buf) {
-        CloseHandle(pipe);
+        closesocket(sock);
+        WSACleanup();
         return -1;
     }
 
-    char* p = send_buf;
-    memcpy(p, command, cmd_len);
-    p += cmd_len;
-    *p++ = '\n';
+    char* sp = send_buf;
+    memcpy(sp, command, cmd_len);
+    sp += cmd_len;
+    *sp++ = '\n';
 
     for (size_t i = 0; i < arg_count; i++) {
         if (args[i]) {
             size_t arg_len = strlen(args[i]);
-            int len = snprintf(p, total_size - (p - send_buf), "%zu", arg_len);
-            p += len;
-            *p++ = '\n';
-            memcpy(p, args[i], arg_len);
-            p += arg_len;
-            *p++ = '\n';
+            int len = snprintf(sp, total_size - (sp - send_buf), "%zu", arg_len);
+            sp += len;
+            *sp++ = '\n';
+            memcpy(sp, args[i], arg_len);
+            sp += arg_len;
+            *sp++ = '\n';
         }
     }
-    *p++ = '\n';
+    *sp++ = '\n';
 
-    DWORD written;
-    if (!WriteFile(pipe, send_buf, (DWORD)(p - send_buf), &written, NULL)) {
-        free(send_buf);
-        CloseHandle(pipe);
+    int sent = send(sock, send_buf, (int)(sp - send_buf), 0);
+    free(send_buf);
+    if (sent <= 0) {
+        printf("[send_to_server] send() failed: %lu\n", (unsigned long)WSAGetLastError());
+        closesocket(sock);
+        WSACleanup();
         return -1;
     }
-    free(send_buf);
-
-    FlushFileBuffers(pipe);
 
     // Read response: status\n[TLV data...\n]<empty line>
     char status_buf[32] = {0};
@@ -493,8 +730,8 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
     size_t status_remaining = sizeof(status_buf) - 1;
     while (status_remaining > 0) {
         char c;
-        DWORD read;
-        if (!ReadFile(pipe, &c, 1, &read, NULL) || read == 0) break;
+        int n = recv(sock, &c, 1, 0);
+        if (n <= 0) break;
         if (c == '\n') break;
         *status_out++ = c;
         status_remaining--;
@@ -506,22 +743,20 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
 
     int result = -1;
 
-    // If status is OK, read TLV data until empty line
     if (strcmp(status_buf, "OK") == 0) {
         char* out = out_buffer;
         size_t remaining = buffer_size - 1;
         int first = 1;
 
         while (1) {
-            // Read length line
             char len_line[32] = {0};
-            char* p = len_line;
+            char* lp = len_line;
             while (1) {
                 char c;
-                DWORD read;
-                if (!ReadFile(pipe, &c, 1, &read, NULL) || read == 0) break;
+                int n = recv(sock, &c, 1, 0);
+                if (n <= 0) break;
                 if (c == '\n') break;
-                *p++ = c;
+                *lp++ = c;
             }
 
             // Empty line terminates response
@@ -543,8 +778,8 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
         int count = 0;
         while (count < expected_len && remaining > 0) {
             char c;
-            DWORD read;
-            if (!ReadFile(pipe, &c, 1, &read, NULL) || read == 0) break;
+            int n = recv(sock, &c, 1, 0);
+            if (n <= 0) break;
             *out++ = c;
             count++;
             remaining--;
@@ -554,39 +789,41 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
         // Consume trailing newline after TLV value
         {
             char nl;
-            DWORD read;
-            if (ReadFile(pipe, &nl, 1, &read, NULL) && read == 1) {
-                if (nl == '\r') {
-                    ReadFile(pipe, &nl, 1, &read, NULL);
-                }
+            int n = recv(sock, &nl, 1, 0);
+            if (n == 1 && nl == '\r') {
+                recv(sock, &nl, 1, 0); // consume \n after \r
             }
         }
         }
         result = 0;
     } else if (strcmp(status_buf, "ERROR") == 0) {
-        // Read error message as TLV
         char len_line[32] = {0};
-        char* p = len_line;
+        char* lp = len_line;
         while (1) {
             char c;
-            DWORD read;
-            if (!ReadFile(pipe, &c, 1, &read, NULL) || read == 0) break;
+            int n = recv(sock, &c, 1, 0);
+            if (n <= 0) break;
             if (c == '\n') break;
-            *p++ = c;
+            *lp++ = c;
         }
 
         if (strlen(len_line) > 0) {
             int expected_len = atoi(len_line);
             if (expected_len > 0 && expected_len < (int)buffer_size) {
-                DWORD bytes_read = 0;
-                ReadFile(pipe, out_buffer, expected_len, &bytes_read, NULL);
+                int bytes_read = 0;
+                while (bytes_read < expected_len) {
+                    int n = recv(sock, out_buffer + bytes_read, expected_len - bytes_read, 0);
+                    if (n <= 0) break;
+                    bytes_read += n;
+                }
                 out_buffer[bytes_read] = '\0';
             }
         }
         result = -1;
     }
 
-    CloseHandle(pipe);
+    closesocket(sock);
+    WSACleanup();
     return result;
 }
 
@@ -734,6 +971,7 @@ int DaemonRun(const char* server_ip, int poll_interval_secs) {
 
     // Track whether we've pushed an empty whitelist for block-all mode
     int blocked_all_pushed = 0;
+    int consecutive_failures = 0;
 
     LOGF("[Daemon] Waiting for local daemon to be ready...");
     int local_ready = 0;
@@ -798,6 +1036,7 @@ int DaemonRun(const char* server_ip, int poll_interval_secs) {
             const char* wl_args[1] = {username};
             char response[8192] = {0};
             if (send_to_server_tlv("GET_WHITELIST", wl_args, 1, response, sizeof(response)) == 0) {
+                consecutive_failures = 0;
                 if (!server_connected) {
                     server_connected = 1;
                     g_server_session_active = 1;
@@ -849,6 +1088,46 @@ int DaemonRun(const char* server_ip, int poll_interval_secs) {
                 }
                 server_connected = 0;
                 g_server_session_active = 0;
+
+                consecutive_failures++;
+                if (consecutive_failures >= 3) {
+                    LOGF("[Daemon] %d consecutive failures, trying server discovery...", consecutive_failures);
+                    char expected_name[128] = {0};
+                    ini_get_string("server", "name", expected_name, sizeof(expected_name));
+                    if (expected_name[0] != '\0') {
+                        char local_ip[64] = {0}, bcast_list[512] = {0};
+                        GetAllBroadcastAddresses(local_ip, sizeof(local_ip), bcast_list, sizeof(bcast_list));
+                        if (bcast_list[0] != '\0') {
+                            char disco_resp[8192] = {0};
+                            int found = DiscoverServers(bcast_list, 42069, 2000, disco_resp, sizeof(disco_resp));
+                            if (found > 0) {
+                                char* line = disco_resp;
+                                for (int i = 0; i < found && line && *line; i++) {
+                                    char* pipe = strchr(line, '|');
+                                    if (pipe) {
+                                        *pipe = '\0';
+                                        if (strcmp(line, expected_name) == 0) {
+                                            char* server_ip = pipe + 1;
+                                            // If server is on the same machine, use "." (localhost TCP)
+                                            if (local_ip[0] != '\0' && strcmp(server_ip, local_ip) == 0) {
+                                                SetServerIp(".");
+                                            } else {
+                                                SetServerIp(server_ip);
+                                            }
+                                            LOGF("[Daemon] Server '%s' found at new IP: %s", expected_name, server_ip);
+                                            consecutive_failures = 0;
+                                            break;
+                                        }
+                                        *pipe = '|';
+                                    }
+                                    char* nl = strchr(line, '\n');
+                                    if (nl) line = nl + 1; else break;
+                                }
+                            }
+                        }
+                    }
+                }
+
                 if (!g_fallback_whitelist_enabled && local_ready && !blocked_all_pushed) {
                     LOGF("[Daemon] Server unreachable and fallback off - blocking all traffic");
                     if (DaemonSetWhitelist("", 0, whitelist_buf, sizeof(whitelist_buf)) == 0) {

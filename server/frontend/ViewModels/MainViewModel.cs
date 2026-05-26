@@ -45,6 +45,7 @@ public class MainViewModel : ViewModelBase
     private bool _isConnected;
 
     private string _activeWhitelist = "";
+    private string _serverName = "";
     private ObservableCollection<WhitelistInfo> _whitelists = new();
     private WhitelistInfo? _selectedWhitelist;
 
@@ -65,8 +66,10 @@ public class MainViewModel : ViewModelBase
         SetActiveWhitelistCommand = new RelayCommand(async o => await SetActiveWhitelistAsync(o?.ToString()!), o => o != null);
         OpenCreateWhitelistCommand = new RelayCommand(async _ => await OpenCreateWhitelistAsync());
         OpenEditWhitelistCommand = new RelayCommand(async o => await OpenEditWhitelistAsync(o as WhitelistInfo), o => o is WhitelistInfo);
+        SaveServerNameCommand = new RelayCommand(async _ => await SaveServerNameAsync());
         StartAutoRefresh();
         _ = RefreshAllAsync();
+        _ = LoadServerNameAsync();
     }
 
     public ObservableCollection<ConnectedClient> ConnectedClients { get; }
@@ -106,16 +109,24 @@ public class MainViewModel : ViewModelBase
             if (SetProperty(ref _isConnected, value))
             {
                 OnPropertyChanged(nameof(NotConnectedVisibility));
+                OnPropertyChanged(nameof(ConnectedVisibility));
             }
         }
     }
 
     public Visibility NotConnectedVisibility => IsConnected ? Visibility.Collapsed : Visibility.Visible;
+    public Visibility ConnectedVisibility => IsConnected ? Visibility.Visible : Visibility.Collapsed;
 
     public string ActiveWhitelist
     {
         get => _activeWhitelist;
         set => SetProperty(ref _activeWhitelist, value);
+    }
+
+    public string ServerName
+    {
+        get => _serverName;
+        set => SetProperty(ref _serverName, value);
     }
 
     public WhitelistInfo? SelectedWhitelist
@@ -142,6 +153,7 @@ public class MainViewModel : ViewModelBase
     public ICommand SetActiveWhitelistCommand { get; }
     public ICommand OpenCreateWhitelistCommand { get; }
     public ICommand OpenEditWhitelistCommand { get; }
+    public ICommand SaveServerNameCommand { get; }
     private void StartAutoRefresh()
     {
         _refreshTimer = new System.Timers.Timer(5000);
@@ -172,6 +184,25 @@ public class MainViewModel : ViewModelBase
         {
             ActiveWhitelist = wl;
         });
+    }
+
+    private async Task LoadServerNameAsync()
+    {
+        var name = await _ipcService.GetServerNameAsync();
+        await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+        {
+            ServerName = name;
+        });
+    }
+
+    private async Task SaveServerNameAsync()
+    {
+        var name = ServerName?.Trim() ?? "";
+        if (string.IsNullOrEmpty(name)) return;
+        if (await _ipcService.SetServerNameAsync(name))
+            AddLog("INFO", $"Имя сервера сохранено: {name}");
+        else
+            AddLog("ERROR", "Ошибка сохранения имени сервера");
     }
 
     private async Task RefreshServerStatusAsync()

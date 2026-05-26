@@ -13,6 +13,8 @@
 #define DAEMON_PIPE_NAME "BigBrother.Firewall"
 #define DAEMON_PIPE_BUFFER_SIZE 4096
 
+#define DISCOVERY_MAX_SERVERS 32
+
 extern uint32_t g_whitelist_revision;
 extern HANDLE g_ServiceStopEvent;
 
@@ -135,6 +137,29 @@ void SetFallbackWhitelistEnabled(int enabled);
 int IsFallbackWhitelistEnabled(void);
 
 /**
+ * @brief Read a string value from config.ini.
+ *
+ * @param section Section name.
+ * @param key Key name.
+ * @param out Output buffer.
+ * @param out_size Buffer size.
+ *
+ * @return 1 if found, 0 if not found.
+ */
+int ini_get_string(const char* section, const char* key, char* out, size_t out_size);
+
+/**
+ * @brief Write or update a string value in config.ini.
+ *
+ * @param section Section name.
+ * @param key Key name.
+ * @param value Value to write.
+ *
+ * @return 0 on success, -1 on error.
+ */
+int ini_set_string(const char* section, const char* key, const char* value);
+
+/**
  * @brief Load username from config file.
  *
  * @param buffer Output buffer for username.
@@ -198,5 +223,30 @@ int ServerRefresh(const char* name);
  * @return 0 on success, -1 on error.
  */
 int ServerChangeName(const char* oldName, const char* newName);
+
+/**
+ * @brief Discover servers via UDP broadcast.
+ *
+ * @param bcast_addr Broadcast address (e.g. "192.168.1.255").
+ * @param port UDP port (default 42069).
+ * @param timeout_ms Receive timeout in milliseconds.
+ * @param out Output buffer for "name|ip\n..." lines.
+ * @param out_size Size of output buffer.
+ *
+ * @return Number of servers found, or 0 on error/timeout.
+ */
+int DiscoverServers(const char* bcast_addr, int port, int timeout_ms, char* out, size_t out_size);
+
+/**
+ * @brief Get all active broadcast addresses, one per line.
+ *
+ * @param ip_str Output buffer for first non-loopback local IP.
+ * @param ip_size Size of IP buffer.
+ * @param bcast_out Output buffer for newline-separated broadcast addresses.
+ * @param bcast_size Size of broadcast buffer.
+ *
+ * @return Number of broadcast addresses found, or 0 on failure.
+ */
+int GetAllBroadcastAddresses(char* ip_str, size_t ip_size, char* bcast_out, size_t bcast_size);
 
 #endif // IPC_H

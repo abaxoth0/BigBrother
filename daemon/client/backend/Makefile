@@ -13,11 +13,11 @@ t-units = src/main.c src/common.c src/ipc_daemon.c src/ipc_client.c $(ROOT)/comm
 all: debug
 
 debug: CFLAGS = $(COMMON_FLAGS) $(DEBUG_FLAGS)
-debug: LDFLAGS = -lws2_32
+debug: LDFLAGS = -lws2_32 -liphlpapi
 debug: bb-client.exe
 
 release: CFLAGS = $(COMMON_FLAGS) $(RELEASE_FLAGS)
-release: LDFLAGS = -lws2_32
+release: LDFLAGS = -lws2_32 -liphlpapi
 release: bb-client.exe
 
 bb-client.exe: $(t-units)

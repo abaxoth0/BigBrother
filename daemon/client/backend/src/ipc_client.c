@@ -352,6 +352,83 @@ DWORD WINAPI client_handler(LPVOID param) {
             write_response_tlv(pipe, "OK", data, 1); // empty string = not set
         }
 
+    } else if (strcmp(buffer, "DISCOVER_SERVERS") == 0) {
+        int timeout_ms = 2000;
+        if (arg_count >= 1 && args[0]) {
+            timeout_ms = atoi(args[0]);
+            if (timeout_ms <= 0) timeout_ms = 2000;
+        }
+
+        char local_ip[64] = {0};
+        char bcast_list[512] = {0};
+
+        int bcast_count = GetAllBroadcastAddresses(local_ip, sizeof(local_ip), bcast_list, sizeof(bcast_list));
+        if (bcast_count == 0) {
+            write_error_tlv(pipe, "failed to detect network");
+        } else {
+            char response[8192] = {0};
+            int count = DiscoverServers(bcast_list, 42069, timeout_ms, response, sizeof(response));
+
+            if (count > 0) {
+                // Replace server IP with "." if it matches local machine IP (use local loopback TCP)
+                if (local_ip[0] != '\0') {
+                    char* line = response;
+                    while (line && *line) {
+                        char* pipe_c = strchr(line, '|');
+                        if (pipe_c) {
+                            char* ip = pipe_c + 1;
+                            char* nl = strchr(ip, '\n');
+                            if (nl) *nl = '\0';
+                            if (strcmp(ip, local_ip) == 0) {
+                                // Replace IP with "." for localhost TCP
+                                memmove(pipe_c + 2, pipe_c + strlen(pipe_c + 1) + 1,
+                                    strlen(pipe_c + 1) + 1);
+                                pipe_c[1] = '.';
+                            }
+                            if (nl) *nl = '\n';
+                        }
+                        char* next = strchr(line, '\n');
+                        line = next ? next + 1 : NULL;
+                    }
+                }
+
+                // Parse "name|ip\n..." lines into TLV values
+                char* lines[DISCOVERY_MAX_SERVERS];
+                int line_count = 0;
+                char* p = response;
+                while (p && *p && line_count < DISCOVERY_MAX_SERVERS) {
+                    lines[line_count++] = p;
+                    char* nl = strchr(p, '\n');
+                    if (nl) {
+                        *nl = '\0';
+                        p = nl + 1;
+                    } else {
+                        break;
+                    }
+                }
+                write_response_tlv(pipe, "OK", (const char**)lines, line_count);
+            } else {
+                write_error_tlv(pipe, "no servers found");
+            }
+        }
+
+    } else if (strcmp(buffer, "SET_SERVER_NAME") == 0) {
+        if (arg_count < 1 || !args[0] || strlen(args[0]) == 0) {
+            write_error_tlv(pipe, "missing server name");
+        } else {
+            ini_set_string("server", "name", args[0]);
+            write_ok(pipe);
+        }
+
+    } else if (strcmp(buffer, "GET_SERVER_NAME") == 0) {
+        char buf[128] = {0};
+        if (ini_get_string("server", "name", buf, sizeof(buf)) && buf[0]) {
+            const char* data[1] = {buf};
+            write_response_tlv(pipe, "OK", data, 1);
+        } else {
+            write_error_tlv(pipe, "no server name set");
+        }
+
     } else if (strcmp(buffer, "CHANGE_NAME") == 0) {
         if (arg_count < 1 || !args[0] || strlen(args[0]) == 0) {
             write_error_tlv(pipe, "missing new name");

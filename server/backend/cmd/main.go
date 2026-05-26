@@ -8,6 +8,7 @@ import (
 	"bigbrother_server_backend/packages/infrastructure/connection"
 	"bigbrother_server_backend/packages/infrastructure/database/sqlite"
 	"bigbrother_server_backend/packages/infrastructure/pending"
+	"bigbrother_server_backend/packages/presentation/discovery"
 	"bigbrother_server_backend/packages/presentation/rpc"
 	"time"
 
@@ -17,11 +18,9 @@ import (
 var mainLogger = logger.NewSource("MAIN", log.DefaultLogger)
 
 const frontendPipePath = `\\.\pipe\BigBrother.Server.Frontend`
-const backendPipePath  = `\\.\pipe\BigBrother.Server.Backend`
 const frontendPipeBufSize = 65536
-const backendPipeBufSize  = 65536
 
-const backendSecurityDescriptor = "D:P(A;;GA;;;AU)(A;;GA;;;SY)"
+const backendTCPAddr = ":1984"
 
 func main() {
 	log.DefaultLoggerConfig.Trace = true
@@ -54,13 +53,17 @@ func main() {
 
 	pendingUsersStorage := pending.NewUserStorage()
 
+	discoveryListener := discovery.New(db)
+	if err := discoveryListener.Start(); err != nil {
+		mainLogger.Fatal("Discovery listener error", err.Error(), nil)
+	}
+	defer discoveryListener.Stop()
+
 	backendServer := rpc.NewServer(
 		"Backend",
 		rpc.NewBackendHandler(db, connManager, pendingUsersStorage),
 		&rpc.ServerConfig{
-			InputBufferSize: 	backendPipeBufSize,
-			OutputBufferSize: 	backendPipeBufSize,
-			SecurityDescriptor: backendSecurityDescriptor,
+			Network: rpc.NetworkTCP,
 		},
 	)
 
@@ -68,8 +71,9 @@ func main() {
 		"Frontend",
 		rpc.NewFrontendHandler(db, connManager, pendingUsersStorage),
 		&rpc.ServerConfig{
-			InputBufferSize: 	frontendPipeBufSize,
-			OutputBufferSize: 	frontendPipeBufSize,
+			Network:          rpc.NetworkPipe,
+			InputBufferSize:  frontendPipeBufSize,
+			OutputBufferSize: frontendPipeBufSize,
 		},
 	)
 
@@ -81,7 +85,7 @@ func main() {
 		}
 	}()
 
-	if err := backendServer.Start(backendPipePath); err != nil {
+	if err := backendServer.Start(backendTCPAddr); err != nil {
 		mainLogger.Fatal("Backend RPC Handler error", err.Error(), nil)
 	}
 }
