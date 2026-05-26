@@ -225,6 +225,13 @@ int ServerRefresh(const char* name);
 int ServerChangeName(const char* oldName, const char* newName);
 
 /**
+ * @brief Get the configured server TCP port (from config.ini or default 1984).
+ *
+ * @return Port number.
+ */
+int get_server_port(void);
+
+/**
  * @brief Discover servers via UDP broadcast.
  *
  * @param bcast_addr Broadcast address (e.g. "192.168.1.255").

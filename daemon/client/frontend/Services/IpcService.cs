@@ -495,6 +495,50 @@ public class IpcService : IDisposable
         }
     }
 
+    public async Task<bool> SetServerPortAsync(string port)
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return false;
+            try
+            {
+                var (status, _) = await SendCommandWithTimeoutAsync("SET_SERVER_PORT", ReadTimeoutMs, port);
+                return status == "OK";
+            }
+            finally
+            {
+                Disconnect();
+            }
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
+    public async Task<string> GetServerPortAsync()
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return "";
+            try
+            {
+                var (status, data) = await SendCommandWithTimeoutAsync("GET_SERVER_PORT", ReadTimeoutMs);
+                return status == "OK" && data.Count > 0 ? data[0] : "1984";
+            }
+            finally
+            {
+                Disconnect();
+            }
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
     public async Task<bool> RegisterAsync(string username)
     {
         await _connectionLock.WaitAsync();

@@ -412,6 +412,21 @@ DWORD WINAPI client_handler(LPVOID param) {
             }
         }
 
+    } else if (strcmp(buffer, "SET_SERVER_PORT") == 0) {
+        if (arg_count < 1 || !args[0] || strlen(args[0]) == 0) {
+            write_error_tlv(pipe, "missing port number");
+        } else {
+            ini_set_string("server", "port", args[0]);
+            write_ok(pipe);
+        }
+
+    } else if (strcmp(buffer, "GET_SERVER_PORT") == 0) {
+        char buf[16] = {0};
+        int port = get_server_port();
+        snprintf(buf, sizeof(buf), "%d", port);
+        const char* data[1] = {buf};
+        write_response_tlv(pipe, "OK", data, 1);
+
     } else if (strcmp(buffer, "SET_SERVER_NAME") == 0) {
         if (arg_count < 1 || !args[0] || strlen(args[0]) == 0) {
             write_error_tlv(pipe, "missing server name");

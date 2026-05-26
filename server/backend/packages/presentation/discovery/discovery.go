@@ -101,10 +101,14 @@ func (l *Listener) serve() {
 				if serverName == "" {
 					serverName = "BigBrother Server"
 				}
+				serverPort, _ := l.db.GetSetting("server_port")
+				if serverPort == "" {
+					serverPort = "1984"
+				}
 				localIP := l.GetLocalIP()
-				response := fmt.Sprintf("%s\n%s\n%s\n", ResponseMagic, serverName, localIP)
+				response := fmt.Sprintf("%s\n%s\n%s\n%s\n", ResponseMagic, serverName, localIP, serverPort)
 				l.conn.WriteToUDP([]byte(response), rAddr)
-				l.logger.Debug(fmt.Sprintf("Discovery response sent to %s: name=%s ip=%s", rAddr.String(), serverName, localIP), nil)
+				l.logger.Debug(fmt.Sprintf("Discovery response sent to %s: name=%s ip=%s port=%s", rAddr.String(), serverName, localIP, serverPort), nil)
 			}
 		}
 	}

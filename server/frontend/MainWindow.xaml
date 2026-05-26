@@ -206,6 +206,11 @@
                                     <TextBox Text="{Binding ServerName, UpdateSourceTrigger=PropertyChanged}" Width="200" Margin="5,0"/>
                                     <Button Content="Сохранить" Command="{Binding SaveServerNameCommand}" Padding="8,2"/>
                                 </StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,5">
+                                    <TextBlock Text="Порт:" Width="120" VerticalAlignment="Center"/>
+                                    <TextBox Text="{Binding ServerPort, UpdateSourceTrigger=PropertyChanged}" Width="100" Margin="5,0"/>
+                                    <Button Content="Сохранить" Command="{Binding SaveServerPortCommand}" Padding="8,2"/>
+                                </StackPanel>
                             </StackPanel>
                         </GroupBox>
                     </StackPanel>

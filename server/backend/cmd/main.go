@@ -10,6 +10,8 @@ import (
 	"bigbrother_server_backend/packages/infrastructure/pending"
 	"bigbrother_server_backend/packages/presentation/discovery"
 	"bigbrother_server_backend/packages/presentation/rpc"
+	"fmt"
+	"os"
 	"time"
 
 	"github.com/abaxoth0/Ain/logger"
@@ -20,7 +22,7 @@ var mainLogger = logger.NewSource("MAIN", log.DefaultLogger)
 const frontendPipePath = `\\.\pipe\BigBrother.Server.Frontend`
 const frontendPipeBufSize = 65536
 
-const backendTCPAddr = ":1984"
+const defaultBackendPort = 1984
 
 func main() {
 	log.DefaultLoggerConfig.Trace = true
@@ -77,6 +79,26 @@ func main() {
 		},
 	)
 
+	// Determine backend port: CLI --port flag overrides DB, DB overrides default
+	backendPort := defaultBackendPort
+	cliPortSet := false
+	for i, arg := range os.Args {
+		if arg == "--port" && i+1 < len(os.Args) {
+			if _, err := fmt.Sscanf(os.Args[i+1], "%d", &backendPort); err == nil && backendPort > 0 && backendPort < 65536 {
+				cliPortSet = true
+				break
+			}
+		}
+	}
+	if !cliPortSet {
+		if dbPort, err := db.GetSetting("server_port"); err == nil && dbPort != "" {
+			if p, e := fmt.Sscanf(dbPort, "%d", &backendPort); e == nil && p == 1 && backendPort > 0 && backendPort < 65536 {
+				// use db port
+			}
+		}
+	}
+	backendAddr := fmt.Sprintf(":%d", backendPort)
+
 	// TODO make this thread a hypervisor which will track status of those servers and restart them if anything
 
 	go func() {
@@ -85,7 +107,8 @@ func main() {
 		}
 	}()
 
-	if err := backendServer.Start(backendTCPAddr); err != nil {
+	mainLogger.Info("Backend TCP address: "+backendAddr, nil)
+	if err := backendServer.Start(backendAddr); err != nil {
 		mainLogger.Fatal("Backend RPC Handler error", err.Error(), nil)
 	}
 }
