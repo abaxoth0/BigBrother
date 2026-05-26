@@ -626,6 +626,13 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
         return -1;
     }
 
+    // Ensure Winsock is initialized
+    WSADATA wsa;
+    if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) {
+        printf("[send_to_server] WSAStartup failed\n");
+        return -1;
+    }
+
     // Resolve target IP: "." or "127.0.0.1" means localhost
     const char* target_ip = g_server_ip;
     if (strcmp(g_server_ip, ".") == 0 || strcmp(g_server_ip, "127.0.0.1") == 0) {
@@ -643,6 +650,7 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
         sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
         if (sock == INVALID_SOCKET) {
             printf("[send_to_server] socket() failed: %lu\n", (unsigned long)WSAGetLastError());
+            WSACleanup();
             return -1;
         }
 
@@ -664,6 +672,7 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
     if (sock == INVALID_SOCKET) {
         printf("[send_to_server] Error: failed to connect, err=%lu\n", (unsigned long)WSAGetLastError());
         fflush(stdout);
+        WSACleanup();
         return -1;
     }
 
@@ -684,6 +693,7 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
     char* send_buf = malloc(total_size);
     if (!send_buf) {
         closesocket(sock);
+        WSACleanup();
         return -1;
     }
 
@@ -710,6 +720,7 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
     if (sent <= 0) {
         printf("[send_to_server] send() failed: %lu\n", (unsigned long)WSAGetLastError());
         closesocket(sock);
+        WSACleanup();
         return -1;
     }
 
@@ -812,6 +823,7 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
     }
 
     closesocket(sock);
+    WSACleanup();
     return result;
 }
 
