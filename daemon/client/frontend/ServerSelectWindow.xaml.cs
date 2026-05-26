@@ -7,7 +7,8 @@ public class ServerInfo
 {
     public string Name { get; set; } = "";
     public string Ip { get; set; } = "";
-    public string DisplayText => $"{Name} ({Ip})";
+    public string Port { get; set; } = "1984";
+    public string DisplayText => $"{Name} ({Ip}:{Port})";
 }
 
 public partial class ServerSelectWindow : Window

@@ -445,7 +445,8 @@ public class MainViewModel : ViewModelBase, IDisposable
             return new ServerInfo
             {
                 Name = parts.Length > 0 ? parts[0] : "",
-                Ip = parts.Length > 1 ? parts[1] : ""
+                Ip = parts.Length > 1 ? parts[1] : "",
+                Port = parts.Length > 2 ? parts[2] : "1984"
             };
         }).ToList();
 
@@ -466,14 +467,16 @@ public class MainViewModel : ViewModelBase, IDisposable
 
         await _ipcService.SetServerAddressAsync(selected.Ip);
         await _ipcService.SetServerNameAsync(selected.Name);
+        await _ipcService.SetServerPortAsync(selected.Port);
 
         System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
         {
             ServerAddress = selected.Ip;
             ServerName = selected.Name;
+            ServerPort = selected.Port;
         });
 
-        AddLog("INFO", $"Выбран сервер: {selected.Name} ({selected.Ip})");
+        AddLog("INFO", $"Выбран сервер: {selected.Name} ({selected.Ip}:{selected.Port})");
     }
 
     private readonly ConcurrentQueue<string> _pendingLogs = new();

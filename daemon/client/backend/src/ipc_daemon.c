@@ -479,6 +479,13 @@ int DiscoverServers(const char* bcast_list, int port, int timeout_ms, char* out,
         // Server IP
         char* ip = line;
         nl = strchr(line, '\n');
+        if (!nl) continue;
+        *nl = '\0';
+        line = nl + 1;
+
+        // Server port
+        char* port = line;
+        nl = strchr(line, '\n');
         if (nl) *nl = '\0';
 
         // Deduplicate by IP: skip if we already have this server
@@ -498,7 +505,7 @@ int DiscoverServers(const char* bcast_list, int port, int timeout_ms, char* out,
         }
         if (dup) continue;
 
-        int written = snprintf(out_pos, remaining, "%s|%s\n", name, ip);
+        int written = snprintf(out_pos, remaining, "%s|%s|%s\n", name, ip, port && port[0] ? port : "1984");
         if (written > 0 && written < (int)remaining) {
             out_pos += written;
             remaining -= written;
@@ -1111,23 +1118,38 @@ int DaemonRun(const char* server_ip, int poll_interval_secs) {
                             if (found > 0) {
                                 char* line = disco_resp;
                                 for (int i = 0; i < found && line && *line; i++) {
-                                    char* pipe = strchr(line, '|');
-                                    if (pipe) {
-                                        *pipe = '\0';
-                                        if (strcmp(line, expected_name) == 0) {
-                                            char* server_ip = pipe + 1;
-                                            // If server is on the same machine, use "." (localhost TCP)
-                                            if (local_ip[0] != '\0' && strcmp(server_ip, local_ip) == 0) {
-                                                SetServerIp(".");
-                                            } else {
-                                                SetServerIp(server_ip);
-                                            }
-                                            LOGF("[Daemon] Server '%s' found at new IP: %s", expected_name, server_ip);
-                                            consecutive_failures = 0;
-                                            break;
+                                    char* first_pipe = strchr(line, '|');
+                                    if (!first_pipe) { char* nl = strchr(line, '\n'); if (nl) line = nl + 1; else break; continue; }
+                                    *first_pipe = '\0';
+                                    char* name = line;
+                                    char* rest = first_pipe + 1;
+                                    if (strcmp(name, expected_name) == 0) {
+                                        // Parse "ip|port"
+                                        char* second_pipe = strchr(rest, '|');
+                                        char* server_ip = rest;
+                                        char* server_port = "1984";
+                                        if (second_pipe) {
+                                            *second_pipe = '\0';
+                                            server_port = second_pipe + 1;
+                                            char* nl = strchr(server_port, '\n');
+                                            if (nl) *nl = '\0';
+                                        } else {
+                                            char* nl = strchr(server_ip, '\n');
+                                            if (nl) *nl = '\0';
                                         }
-                                        *pipe = '|';
+
+                                        // If server is on the same machine, use "." (localhost TCP)
+                                        if (local_ip[0] != '\0' && strcmp(server_ip, local_ip) == 0) {
+                                            SetServerIp(".");
+                                        } else {
+                                            SetServerIp(server_ip);
+                                        }
+                                        ini_set_string("server", "port", server_port);
+                                        LOGF("[Daemon] Server '%s' found at %s:%s", expected_name, server_ip, server_port);
+                                        consecutive_failures = 0;
+                                        break;
                                     }
+                                    *first_pipe = '|';
                                     char* nl = strchr(line, '\n');
                                     if (nl) line = nl + 1; else break;
                                 }
