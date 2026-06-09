@@ -12,6 +12,7 @@ import (
 	"bigbrother_server_backend/packages/presentation/rpc"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/abaxoth0/Ain/logger"
@@ -47,7 +48,18 @@ func main() {
 	time.Sleep(time.Millisecond * 50)
 
 	connManager := connection.NewMemoryResidentConnectionManager()
-	db := sqlite.New("bb-server.db")
+	dbPath := "bb-server.db"
+	if exe, err := os.Executable(); err == nil {
+		exeDir := filepath.Dir(exe)
+		programData := filepath.Join(os.Getenv("PROGRAMDATA"), "BigBrother")
+		if _, err := os.Stat(programData); err == nil {
+			dbPath = filepath.Join(programData, "bb-server.db")
+		} else {
+			dbPath = filepath.Join(exeDir, "bb-server.db")
+		}
+	}
+	mainLogger.Info("Database path: "+dbPath, nil)
+	db := sqlite.New(dbPath)
 	if err := db.Connect(); err != nil {
 		mainLogger.Fatal("Database connection error", err.Error(), nil)
 	}
