@@ -575,7 +575,7 @@ void WINAPI ServiceControlHandler(DWORD CtrlCode) {
     }
 }
 
-#define SERVICE_NAME "BigBrother"
+#define SERVICE_NAME "BigBrother Firewall"
 #define UpdateServiceStatus() SetServiceStatus(g_StatusHandle, &g_ServiceStatus)
 
 /**

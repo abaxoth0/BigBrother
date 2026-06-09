@@ -33,15 +33,15 @@ Section "Firewall Daemon" SecFirewall
     CreateDirectory "${PRODUCT_DATA}\logs"
 
     GetFullPathName $0 "$INSTDIR\BigBrother Firewall.exe"
-    nsExec::ExecToStack '"net stop BigBrother"'
+    nsExec::ExecToStack '"net stop BigBrother Firewall"'
     Pop $1
-    nsExec::ExecToStack '"sc.exe delete BigBrother"'
+    nsExec::ExecToStack '"sc.exe delete BigBrother Firewall"'
     Pop $1
-    nsExec::ExecToStack '"sc.exe create BigBrother binPath= $0 start= auto DisplayName= BigBrother Firewall"'
+    nsExec::ExecToStack '"sc.exe create BigBrother Firewall binPath= $0 start= auto DisplayName= BigBrother Firewall"'
     Pop $1
-    nsExec::ExecToStack '"sc.exe description BigBrother Distributed firewall. Filters traffic based on whitelisted domains."'
+    nsExec::ExecToStack '"sc.exe description BigBrother Firewall Distributed firewall. Filters traffic based on whitelisted domains."'
     Pop $1
-    nsExec::ExecToStack '"sc.exe start BigBrother"'
+    nsExec::ExecToStack '"sc.exe start BigBrother Firewall"'
     Pop $1
 SectionEnd
 
@@ -101,9 +101,9 @@ SectionEnd
 ; Uninstaller
 
 Section "Uninstall"
-    nsExec::ExecToStack '"net stop BigBrother"'
+    nsExec::ExecToStack '"net stop BigBrother Firewall"'
     Pop $1
-    nsExec::ExecToStack '"sc.exe delete BigBrother"'
+    nsExec::ExecToStack '"sc.exe delete BigBrother Firewall"'
     Pop $1
     nsExec::ExecToStack '"net stop BigBrotherServer"'
     Pop $1

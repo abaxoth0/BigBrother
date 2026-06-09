@@ -13,7 +13,7 @@ public class ServiceInfo
 
 public class ServiceManager : IDisposable
 {
-    private const string DefaultServiceName = "BigBrother";
+    private const string DefaultServiceName = "BigBrother Firewall";
 
     public string ServiceName { get; set; } = DefaultServiceName;
 
