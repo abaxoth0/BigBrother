@@ -14,15 +14,15 @@ mkdir -p "$OUTPUT_DIR"
 
 echo "Building firewall daemon..."
 cd "$SCRIPT_DIR/daemon/firewall" && make clean && make
-cp build/firewall-service.exe "$OUTPUT_DIR/"
+cp build/*.exe "$OUTPUT_DIR/"
 
 echo "Building client backend..."
 cd "$SCRIPT_DIR/daemon/client/backend" && make clean && make
-cp build/bb-client.exe "$OUTPUT_DIR/"
+cp build/*.exe "$OUTPUT_DIR/"
 
 echo "Building server backend..."
 cd "$SCRIPT_DIR/server/backend"
-CGO_ENABLED=1 CC=clang GOOS=windows GOARCH=amd64 go build -o "$OUTPUT_DIR/bb-server.exe" ./cmd
+CGO_ENABLED=1 CC=clang GOOS=windows GOARCH=amd64 go build -o "$OUTPUT_DIR/BigBrother Server Daemon.exe" ./CMD
 
 if [ -f "$SCRIPT_DIR/daemon/firewall/include/third-party/WinDivert-2.2.2-A/x64/WinDivert.dll" ]; then
     cp "$SCRIPT_DIR/daemon/firewall/include/third-party/WinDivert-2.2.2-A/x64/WinDivert.dll" "$OUTPUT_DIR/"

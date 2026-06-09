@@ -13,17 +13,18 @@ t-units = src/firewall.c src/common.c src/dns.c src/allowlist.c src/ipc.c \
 	$(CURDIR)/../common/encoding/encoding.c \
 	$(CURDIR)/../common/log/log.c
 
+FW_NAME = BigBrother Firewall
 all: debug
 
 debug: CFLAGS = $(COMMON_FLAGS) $(DEBUG_FLAGS)
-debug: firewall-service.exe
+debug: $(FW_NAME)
 
 release: CFLAGS = $(COMMON_FLAGS) $(RELEASE_FLAGS)
-release: firewall-service.exe
+release: $(FW_NAME)
 
-firewall-service.exe: $(t-units)
+$(FW_NAME): $(t-units)
 	mkdir -p build
-	$(CC) $(CFLAGS) -o build/$@ $(t-units) $(LDFLAGS)
+	$(CC) $(CFLAGS) -o "build/$(FW_NAME).exe" $(t-units) $(LDFLAGS)
 
 clean:
 	rm -rf build

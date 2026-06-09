@@ -107,7 +107,7 @@ static void ensure_config_dir(const char* full_path) {
 
 static void load_config(const char* path) {
     get_exe_path(g_ClientExePath, sizeof(g_ClientExePath));
-    strncat(g_ClientExePath, "\\bb-client.exe", sizeof(g_ClientExePath) - strlen(g_ClientExePath) - 1);
+    strncat(g_ClientExePath, "\\BigBrother Client Daemon.exe", sizeof(g_ClientExePath) - strlen(g_ClientExePath) - 1);
     LOGF("[Config] Default client exe: %s", g_ClientExePath);
 
     ensure_config_dir(path);
@@ -172,7 +172,7 @@ static int spawn_client_backend(void) {
 
     // Re-discover client exe path from own exe directory
     get_exe_path(g_ClientExePath, sizeof(g_ClientExePath));
-    strncat(g_ClientExePath, "\\bb-client.exe", sizeof(g_ClientExePath) - strlen(g_ClientExePath) - 1);
+    strncat(g_ClientExePath, "\\BigBrother Client Daemon.exe", sizeof(g_ClientExePath) - strlen(g_ClientExePath) - 1);
 
     char cmd[512];
     if (g_ServerIp[0] != '\0') {

@@ -23,16 +23,16 @@ UninstPage instfiles
 ;--------------------------------
 ; Install sections
 
-Section "Firewall Service" SecFirewall
+Section "Firewall Daemon" SecFirewall
     SectionIn RO
     SetOutPath "$INSTDIR"
-    File /nonfatal "dist\firewall-service.exe"
+    File /nonfatal "dist\BigBrother Firewall.exe"
     File /nonfatal "dist\WinDivert.dll"
 
     CreateDirectory "${PRODUCT_DATA}"
     CreateDirectory "${PRODUCT_DATA}\logs"
 
-    GetFullPathName $0 "$INSTDIR\firewall-service.exe"
+    GetFullPathName $0 "$INSTDIR\BigBrother Firewall.exe"
     nsExec::ExecToStack '"net stop BigBrother"'
     Pop $1
     nsExec::ExecToStack '"sc.exe delete BigBrother"'
@@ -45,12 +45,17 @@ Section "Firewall Service" SecFirewall
     Pop $1
 SectionEnd
 
+Section "Client Daemon" SecClientDaemon
+    SetOutPath "$INSTDIR"
+    File /nonfatal "dist\BigBrother Client Daemon.exe"
+SectionEnd
+
 Section "Server Backend" SecServer
     SetOutPath "$INSTDIR"
-    File /nonfatal "dist\bb-server.exe"
+    File /nonfatal "dist\BigBrother Server Daemon.exe"
     CreateDirectory "${PRODUCT_DATA}"
 
-    GetFullPathName $0 "$INSTDIR\bb-server.exe"
+    GetFullPathName $0 "$INSTDIR\BigBrother Server Daemon.exe"
     nsExec::ExecToStack '"net stop BigBrotherServer"'
     Pop $1
     nsExec::ExecToStack '"sc.exe delete BigBrotherServer"'
@@ -63,21 +68,25 @@ Section "Server Backend" SecServer
     Pop $1
 SectionEnd
 
-Section "Client Backend" SecClientBackend
-    SetOutPath "$INSTDIR"
-    File /nonfatal "dist\bb-client.exe"
-SectionEnd
-
-Section "Client Frontend" SecClientGUI
-    SetOutPath "$INSTDIR"
+Section "Client GUI" SecClientGUI
+    SetOutPath "$INSTDIR\GUI\Client"
     File /nonfatal /r "dist\client-frontend\*.*"
-    CreateShortCut "$DESKTOP\BigBrother Client.lnk" "$INSTDIR\bb-client-gui.exe"
+    CreateShortCut "$DESKTOP\BigBrother Client.lnk" "$INSTDIR\GUI\Client\BigBrother Client.exe"
+    SetOutPath "$INSTDIR"
 SectionEnd
 
-Section "Server Frontend" SecServerGUI
-    SetOutPath "$INSTDIR"
+Section "Server GUI" SecServerGUI
+    SetOutPath "$INSTDIR\GUI\Server"
     File /nonfatal /r "dist\server-frontend\*.*"
-    CreateShortCut "$DESKTOP\BigBrother Server.lnk" "$INSTDIR\bb-server-gui.exe"
+    CreateShortCut "$DESKTOP\BigBrother Server.lnk" "$INSTDIR\GUI\Server\BigBrother Server.exe"
+    SetOutPath "$INSTDIR"
+SectionEnd
+
+Section "Windows Firewall Rules" SecRules
+    nsExec::ExecToStack '"netsh advfirewall firewall add rule name= BigBrotherServer dir=in action=allow protocol=tcp localport=1984 profile=private,domain"'
+    Pop $1
+    nsExec::ExecToStack '"netsh advfirewall firewall add rule name= BigBrotherDiscovery dir=in action=allow protocol=udp localport=42069 profile=private,domain"'
+    Pop $1
 SectionEnd
 
 Section -PostInstall
@@ -86,13 +95,6 @@ Section -PostInstall
         "DisplayName" "${PRODUCT_NAME}"
     WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_NAME}" \
         "UninstallString" "$INSTDIR\uninstall.exe"
-SectionEnd
-
-Section "Windows Firewall Rules" SecRules
-    nsExec::ExecToStack '"netsh advfirewall firewall add rule name= BigBrotherServer dir=in action=allow protocol=tcp localport=1984 profile=private,domain"'
-    Pop $1
-    nsExec::ExecToStack '"netsh advfirewall firewall add rule name= BigBrotherDiscovery dir=in action=allow protocol=udp localport=42069 profile=private,domain"'
-    Pop $1
 SectionEnd
 
 ;--------------------------------
