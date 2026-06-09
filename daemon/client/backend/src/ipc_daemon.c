@@ -290,244 +290,7 @@ int SaveUserName(const char* name) {
     return ini_set_string("client", "username", name);
 }
 
-// Forward declare get_local_ip (defined later in this file)
-static int get_local_ip(const char* server_ip, char* buffer, size_t buffer_size);
-
-#define DISCOVERY_PORT 42069
-#define DISCOVERY_MAGIC "BIGBROTHER_DISCOVERY"
-#define DISCOVERY_RESPONSE_MAGIC "BIGBROTHER_DISCOVERY_RESPONSE"
-#define DISCOVERY_TIMEOUT_MS 2000
-#define DISCOVERY_BUF_SIZE 4096
-
-// Auto-detect local IP address and subnet mask using Windows IP helper API.
-// Returns 0 on success with ip_str, mask, and broadcast_str filled.
-// Get all active broadcast addresses, one per line in bcast_out.
-// Also returns the first non-loopback IP in ip_str.
-// Returns number of broadcast addresses found, or 0 on failure.
-int GetAllBroadcastAddresses(char* ip_str, size_t ip_size, char* bcast_out, size_t bcast_size) {
-    if (ip_str) ip_str[0] = '\0';
-    if (bcast_out) bcast_out[0] = '\0';
-
-    ULONG buf_len = 0;
-    GetAdaptersAddresses(AF_INET, 0, NULL, NULL, &buf_len);
-    if (buf_len == 0) return 0;
-
-    IP_ADAPTER_ADDRESSES* adapters = (IP_ADAPTER_ADDRESSES*)malloc(buf_len);
-    if (!adapters) return 0;
-
-    ULONG ret = GetAdaptersAddresses(AF_INET, 0, NULL, adapters, &buf_len);
-    if (ret != NO_ERROR) {
-        free(adapters);
-        return 0;
-    }
-
-    int count = 0;
-    char* out = bcast_out;
-    size_t remaining = bcast_size;
-    int first_ip_set = 0;
-
-    for (IP_ADAPTER_ADDRESSES* a = adapters; a; a = a->Next) {
-        if (a->OperStatus != IfOperStatusUp) continue;
-        if (a->FirstUnicastAddress == NULL) continue;
-
-        SOCKET_ADDRESS* saddr = &a->FirstUnicastAddress->Address;
-        struct sockaddr_in* sin = (struct sockaddr_in*)saddr->lpSockaddr;
-        if (!sin) continue;
-
-        ULONG ip = ntohl(sin->sin_addr.s_addr);
-        if (ip == 0x7f000001) continue; // skip loopback
-
-        // Save first IP
-        if (!first_ip_set && ip_str) {
-            snprintf(ip_str, ip_size, "%lu.%lu.%lu.%lu",
-                (ip >> 24) & 0xFF, (ip >> 16) & 0xFF, (ip >> 8) & 0xFF, ip & 0xFF);
-            first_ip_set = 1;
-        }
-
-        // Compute broadcast: ip | ~mask
-        ULONG prefix = a->FirstUnicastAddress->OnLinkPrefixLength;
-        ULONG mask_val = prefix ? (0xFFFFFFFF << (32 - prefix)) : 0x00FFFFFF;
-        ULONG bcast = ip | ~mask_val;
-
-        if (out && remaining > 0) {
-            int written = snprintf(out, remaining, "%lu.%lu.%lu.%lu\n",
-                (bcast >> 24) & 0xFF, (bcast >> 16) & 0xFF, (bcast >> 8) & 0xFF, bcast & 0xFF);
-            if (written > 0 && written < (int)remaining) {
-                out += written;
-                remaining -= written;
-                count++;
-            }
-        }
-    }
-
-    free(adapters);
-
-    // Fallback: if no adapters found, try get_local_ip and assume /24
-    if (count == 0) {
-        char local_ip[64] = {0};
-        get_local_ip("8.8.8.8", local_ip, sizeof(local_ip));
-        if (local_ip[0]) {
-            if (ip_str) snprintf(ip_str, ip_size, "%s", local_ip);
-            unsigned int a, b, c, d;
-            if (sscanf(local_ip, "%u.%u.%u.%u", &a, &b, &c, &d) == 4 && bcast_out && bcast_size > 0) {
-                snprintf(bcast_out, bcast_size, "%u.%u.%u.255\n", a, b, c);
-                count = 1;
-            }
-        }
-    }
-
-    return count;
-}
-
-// UDP broadcast: send discovery magic to all broadcast addresses, collect all server responses.
-// bcast_list is a newline-separated list of broadcast addresses (e.g. "192.168.1.255\n10.0.0.255\n").
-// Returns number of servers found (written to out as "name|ip\n..." lines).
-int DiscoverServers(const char* bcast_list, int port, int timeout_ms, char* out, size_t out_size) {
-    if (!out || out_size == 0) return 0;
-    out[0] = '\0';
-
-    WSADATA wsa;
-    if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) return 0;
-
-    SOCKET sock = socket(AF_INET, SOCK_DGRAM, 0);
-    if (sock == INVALID_SOCKET) {
-        WSACleanup();
-        return 0;
-    }
-
-    // Enable broadcast
-    int bcast_opt = 1;
-    setsockopt(sock, SOL_SOCKET, SO_BROADCAST, (const char*)&bcast_opt, sizeof(bcast_opt));
-
-    // Set receive timeout
-    DWORD rcv_timeout = timeout_ms > 0 ? timeout_ms : DISCOVERY_TIMEOUT_MS;
-    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&rcv_timeout, sizeof(rcv_timeout));
-
-    // Bind to any port
-    struct sockaddr_in bind_addr;
-    memset(&bind_addr, 0, sizeof(bind_addr));
-    bind_addr.sin_family = AF_INET;
-    bind_addr.sin_addr.s_addr = INADDR_ANY;
-    bind_addr.sin_port = 0;
-    bind(sock, (struct sockaddr*)&bind_addr, sizeof(bind_addr));
-
-    char request[128];
-    snprintf(request, sizeof(request), "%s\n1\n", DISCOVERY_MAGIC);
-
-    // Send discovery broadcast to each address in the list
-    {
-        char list_copy[512] = {0};
-        strncpy(list_copy, bcast_list ? bcast_list : "127.0.0.1", sizeof(list_copy) - 1);
-
-        struct sockaddr_in dest;
-        memset(&dest, 0, sizeof(dest));
-        dest.sin_family = AF_INET;
-        dest.sin_port = htons((short)port);
-
-        char* line = list_copy;
-        while (line && *line) {
-            char* nl = strchr(line, '\n');
-            if (nl) *nl = '\0';
-            if (line[0] != '\0') {
-                inet_pton(AF_INET, line, &dest.sin_addr);
-                sendto(sock, request, (int)strlen(request), 0, (struct sockaddr*)&dest, sizeof(dest));
-            }
-            if (nl) line = nl + 1; else break;
-        }
-    }
-
-    // Also send directly to localhost (for same-machine discovery)
-    {
-        struct sockaddr_in dest;
-        memset(&dest, 0, sizeof(dest));
-        dest.sin_family = AF_INET;
-        dest.sin_port = htons((short)port);
-        inet_pton(AF_INET, "127.0.0.1", &dest.sin_addr);
-        sendto(sock, request, (int)strlen(request), 0, (struct sockaddr*)&dest, sizeof(dest));
-    }
-
-    // Collect responses
-    int count = 0;
-    char* out_pos = out;
-    size_t remaining = out_size - 1;
-
-    while (count < DISCOVERY_MAX_SERVERS) {
-        struct sockaddr_in from;
-        int from_len = sizeof(from);
-        char buf[DISCOVERY_BUF_SIZE];
-        int n = recvfrom(sock, buf, sizeof(buf) - 1, 0, (struct sockaddr*)&from, &from_len);
-        if (n <= 0) break; // timeout or error
-
-        buf[n] = '\0';
-
-        // Parse response: "BIGBROTHER_DISCOVERY_RESPONSE\n<name>\n<ip>\n"
-        char* line = buf;
-        if (strncmp(line, DISCOVERY_RESPONSE_MAGIC, strlen(DISCOVERY_RESPONSE_MAGIC)) != 0) continue;
-
-        // Skip magic line
-        line = strchr(line, '\n');
-        if (!line) continue;
-        line++;
-
-        // Server name
-        char* name = line;
-        char* nl = strchr(line, '\n');
-        if (!nl) continue;
-        *nl = '\0';
-        line = nl + 1;
-
-        // Server IP
-        char* ip = line;
-        nl = strchr(line, '\n');
-        if (!nl) continue;
-        *nl = '\0';
-        line = nl + 1;
-
-        // Server port
-        char* port = line;
-        nl = strchr(line, '\n');
-        if (nl) *nl = '\0';
-
-        // Deduplicate by IP: skip if we already have this server
-        int dup = 0;
-        char* check = out;
-        while (check && check < out_pos) {
-            // Find the IP portion: skip name (skip first |)
-            char* first_pipe = strchr(check, '|');
-            if (first_pipe) {
-                char* check_ip_start = first_pipe + 1;
-                // IP ends at the next | or \n
-                char* ip_end = strchr(check_ip_start, '|');
-                char* nl = strchr(check_ip_start, '\n');
-                char saved = 0;
-                char* term = NULL;
-                if (ip_end && (!nl || ip_end < nl)) {
-                    term = ip_end; saved = *term; *term = '\0';
-                } else if (nl) {
-                    term = nl; saved = *term; *term = '\0';
-                }
-                if (strcmp(check_ip_start, ip) == 0) { dup = 1; if (term) *term = saved; break; }
-                if (term) *term = saved;
-            }
-            char* next_nl = strchr(check, '\n');
-            check = next_nl ? next_nl + 1 : NULL;
-        }
-        if (dup) continue;
-
-        int written = snprintf(out_pos, remaining, "%s|%s|%s\n", name, ip, port && port[0] ? port : "1984");
-        if (written > 0 && written < (int)remaining) {
-            out_pos += written;
-            remaining -= written;
-            count++;
-        } else {
-            break;
-        }
-    }
-
-    closesocket(sock);
-    WSACleanup();
-    return count;
-}
+#include "../include/net_client.h"
 
 // Send command to local daemon (firewall) using old protocol format
 static int send_command_tlv(const char* command, const char** args, size_t arg_count,
@@ -633,15 +396,6 @@ int DaemonGetLogPath(char* out_buffer, size_t buffer_size) {
     return send_command_tlv("GET_LOG_PATH", NULL, 0, out_buffer, buffer_size);
 }
 
-int get_server_port(void) {
-    char buf[16] = {0};
-    if (ini_get_string("server", "port", buf, sizeof(buf)) && buf[0]) {
-        int p = atoi(buf);
-        if (p > 0 && p < 65536) return p;
-    }
-    return 1984; // default
-}
-
 static int send_to_server_tlv(const char* command, const char** args, size_t arg_count,
                               char* out_buffer, size_t buffer_size) {
     if (!g_server_ip[0] || !command || !out_buffer || buffer_size == 0) {
@@ -681,7 +435,7 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
         struct sockaddr_in addr;
         memset(&addr, 0, sizeof(addr));
         addr.sin_family = AF_INET;
-        addr.sin_port = htons((short)port);
+        addr.sin_port = htons((unsigned short)port);
         inet_pton(AF_INET, target_ip, &addr.sin_addr);
 
         if (connect(sock, (struct sockaddr*)&addr, sizeof(addr)) != 0) {
@@ -851,80 +605,11 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
     return result;
 }
 
-static int get_local_ip(const char* server_ip, char* buffer, size_t buffer_size) {
-    if (!buffer || buffer_size == 0) return -1;
-    buffer[0] = '\0';
-
-    WSADATA wsaData;
-    if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0)
-        return -1;
-
-    int ret = -1;
-
-    // Try route-based detection using the server IP
-    if (server_ip && server_ip[0]) {
-        SOCKET sock = socket(AF_INET, SOCK_DGRAM, 0);
-        if (sock != INVALID_SOCKET) {
-            struct sockaddr_in addr;
-            addr.sin_family = AF_INET;
-            addr.sin_port = htons(445);
-            addr.sin_addr.s_addr = inet_addr(server_ip);
-
-            if (connect(sock, (struct sockaddr*)&addr, sizeof(addr)) == 0) {
-                struct sockaddr_in local_addr;
-                int len = sizeof(local_addr);
-                if (getsockname(sock, (struct sockaddr*)&local_addr, &len) == 0) {
-                    char* ip = inet_ntoa(local_addr.sin_addr);
-                    if (ip) {
-                        strncpy(buffer, ip, buffer_size - 1);
-                        buffer[buffer_size - 1] = '\0';
-                        ret = 0;
-                    }
-                }
-            }
-            closesocket(sock);
-        }
-    }
-
-    // Fallback: resolve local hostname
-    if (ret != 0) {
-        char hostname[256];
-        if (gethostname(hostname, sizeof(hostname)) == 0) {
-            struct addrinfo hints, *res = NULL;
-            memset(&hints, 0, sizeof(hints));
-            hints.ai_family = AF_INET;
-            hints.ai_socktype = SOCK_STREAM;
-            if (getaddrinfo(hostname, NULL, &hints, &res) == 0 && res) {
-                struct sockaddr_in* sa = (struct sockaddr_in*)res->ai_addr;
-                char* ip = inet_ntoa(sa->sin_addr);
-                if (ip) {
-                    strncpy(buffer, ip, buffer_size - 1);
-                    buffer[buffer_size - 1] = '\0';
-                    ret = 0;
-                }
-                freeaddrinfo(res);
-            }
-        }
-    }
-
-    WSACleanup();
-    return ret;
-}
-
 int ServerRegister(const char* name) {
     if (!name) return -1;
-    printf("[DEBUG] ServerRegister: START name='%s', g_server_ip='%s'\n", name, g_server_ip);
-    fflush(stdout);
-
-    if (!g_server_ip[0]) {
-        printf("[DEBUG] ServerRegister: no server IP set\n");
-        fflush(stdout);
-        return -1;
-    }
 
     char local_ip[64] = {0};
-    get_local_ip(g_server_ip, local_ip, sizeof(local_ip));
-
+    GetLocalIp(g_server_ip, local_ip, sizeof(local_ip));
     const char* args[2] = {name, local_ip};
     char response[256];
     memset(response, 0, sizeof(response));
@@ -948,7 +633,7 @@ int ServerRegister(const char* name) {
 int ServerConnect(const char* name) {
     if (!name) return -1;
     char local_ip[64] = {0};
-    get_local_ip(g_server_ip, local_ip, sizeof(local_ip));
+    GetLocalIp(g_server_ip, local_ip, sizeof(local_ip));
     const char* args[2] = {name, local_ip};
     char response[256];
     int result = send_to_server_tlv("CONNECT", args, local_ip[0] ? 2 : 1, response, sizeof(response));
@@ -1119,7 +804,7 @@ int DaemonRun(const char* server_ip, int poll_interval_secs) {
                     char expected_name[128] = {0};
                     ini_get_string("server", "name", expected_name, sizeof(expected_name));
                     if (expected_name[0] != '\0') {
-                        char local_ip[64] = {0}, bcast_list[512] = {0};
+                        char local_ip[64] = {0}, bcast_list[4096] = {0};
                         GetAllBroadcastAddresses(local_ip, sizeof(local_ip), bcast_list, sizeof(bcast_list));
                         if (bcast_list[0] != '\0') {
                             char disco_resp[8192] = {0};

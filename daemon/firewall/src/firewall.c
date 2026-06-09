@@ -496,7 +496,8 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
         if (addr.Outbound && !IsAllowed(dest_ip) && !is_local) {
             int is_dns_udp = (udp_hdr && (ntohs(udp_hdr->DstPort) == 53));
             int is_dns_tcp = (tcp_hdr && (ntohs(tcp_hdr->DstPort) == 53));
-            if (is_dns_udp || is_dns_tcp) {
+            int is_discovery = (udp_hdr && (ntohs(udp_hdr->SrcPort) == 42069 || ntohs(udp_hdr->DstPort) == 42069));
+            if (is_dns_udp || is_dns_tcp || is_discovery) {
                 WinDivertSend(handle, packet, recv_len, NULL, &addr);
                 continue;
             }

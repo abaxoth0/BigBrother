@@ -5,6 +5,8 @@
 
 #include "../include/ipc_client.h"
 #include "../include/ipc_daemon.h"
+#include "../include/net_client.h"
+#include "../../../common/log/log.h"
 #include <windows.h>
 #include <stdio.h>
 #include <string.h>
@@ -185,7 +187,7 @@ DWORD WINAPI client_handler(LPVOID param) {
     // Parse command
     if (strcmp(buffer, "GET_STATUS") == 0) {
         int daemon_ok = (PingDaemon() == 0);
-        int server_ok = (PingServer() == 0);
+        int server_ok = IsServerSessionActive();
 
         // Get client name from config
         char client_name[128] = {0};
@@ -326,6 +328,17 @@ DWORD WINAPI client_handler(LPVOID param) {
         if (arg_count < 1 || !args[0] || strlen(args[0]) == 0) {
             write_error_tlv(pipe, "missing server address");
         } else {
+            const char* new_ip = args[0];
+            // If this is the local machine's IP, use "." (localhost TCP)
+            if (strcmp(new_ip, "127.0.0.1") != 0 && strcmp(new_ip, ".") != 0) {
+                char local_ip[64] = {0};
+                GetLocalIp(new_ip, local_ip, sizeof(local_ip));
+                if (local_ip[0] && strcmp(new_ip, local_ip) == 0) {
+                    SetServerIp(".");
+                    write_ok(pipe);
+                    return 0;
+                }
+            }
             SetServerIp(args[0]);
             write_ok(pipe);
         }
@@ -360,16 +373,19 @@ DWORD WINAPI client_handler(LPVOID param) {
         }
 
         char local_ip[64] = {0};
-        char bcast_list[512] = {0};
+        char bcast_list[4096] = {0};
 
-        int bcast_count = GetAllBroadcastAddresses(local_ip, sizeof(local_ip), bcast_list, sizeof(bcast_list));
-        if (bcast_count == 0) {
-            write_error_tlv(pipe, "failed to detect network");
-        } else {
+        GetAllBroadcastAddresses(local_ip, sizeof(local_ip), bcast_list, sizeof(bcast_list));
+        {
             char response[8192] = {0};
             int count = DiscoverServers(bcast_list, 42069, timeout_ms, response, sizeof(response));
+            if (count == 0) {
+                LOGF("[Discovery] UDP returned 0, trying TCP subnet scan...");
+                count = DiscoverServersTCP(response, sizeof(response), timeout_ms);
+            }
 
             if (count > 0) {
+                LOGF("[Discovery] local_ip='%s', first result: %s", local_ip, response);
                 // Replace server IP with "." if it matches local machine IP (use local loopback TCP)
                 if (local_ip[0] != '\0') {
                     char* line = response;
@@ -379,7 +395,9 @@ DWORD WINAPI client_handler(LPVOID param) {
                             char* ip = pipe_c + 1;
                             char* nl = strchr(ip, '\n');
                             if (nl) *nl = '\0';
+                            LOGF("[Discovery] Checking IP='%s' vs local_ip='%s'", ip, local_ip);
                             if (strcmp(ip, local_ip) == 0) {
+                                LOGF("[Discovery] Replacing %s with '.'", ip);
                                 // Replace IP with "." for localhost TCP
                                 memmove(pipe_c + 2, pipe_c + strlen(pipe_c + 1) + 1,
                                     strlen(pipe_c + 1) + 1);
@@ -392,7 +410,7 @@ DWORD WINAPI client_handler(LPVOID param) {
                     }
                 }
 
-                // Parse "name|ip\n..." lines into TLV values
+                // Parse "name|ip|port\n..." lines into TLV values
                 char* lines[DISCOVERY_MAX_SERVERS];
                 int line_count = 0;
                 char* p = response;
@@ -424,6 +442,63 @@ DWORD WINAPI client_handler(LPVOID param) {
         char buf[16] = {0};
         int port = get_server_port();
         snprintf(buf, sizeof(buf), "%d", port);
+        const char* data[1] = {buf};
+        write_response_tlv(pipe, "OK", data, 1);
+
+    } else if (strcmp(buffer, "SET_DISCOVERY_ENABLED") == 0) {
+        if (arg_count < 1 || !args[0]) {
+            write_error_tlv(pipe, "missing value (0 or 1)");
+        } else {
+            ini_set_string("discovery", "enabled", args[0]);
+            write_ok(pipe);
+        }
+
+    } else if (strcmp(buffer, "GET_DISCOVERY_ENABLED") == 0) {
+        const char* val = is_discovery_enabled() ? "1" : "0";
+        const char* data[1] = {val};
+        write_response_tlv(pipe, "OK", data, 1);
+
+    } else if (strcmp(buffer, "SET_NETWORK_AUTO") == 0) {
+        if (arg_count < 1 || !args[0]) {
+            write_error_tlv(pipe, "missing value (0 or 1)");
+        } else {
+            ini_set_string("network", "auto", args[0]);
+            write_ok(pipe);
+        }
+
+    } else if (strcmp(buffer, "GET_NETWORK_AUTO") == 0) {
+        char buf[8] = {0};
+        int auto_val = 1;
+        if (ini_get_string("network", "auto", buf, sizeof(buf)) && buf[0])
+            auto_val = (buf[0] == '1' || buf[0] == 't' || buf[0] == 'y');
+        const char* data[1] = {auto_val ? "1" : "0"};
+        write_response_tlv(pipe, "OK", data, 1);
+
+    } else if (strcmp(buffer, "SET_NETWORK_GATEWAY") == 0) {
+        if (arg_count < 1 || !args[0] || strlen(args[0]) == 0) {
+            write_error_tlv(pipe, "missing gateway address");
+        } else {
+            ini_set_string("network", "gateway", args[0]);
+            write_ok(pipe);
+        }
+
+    } else if (strcmp(buffer, "GET_NETWORK_GATEWAY") == 0) {
+        char buf[64] = {0};
+        ini_get_string("network", "gateway", buf, sizeof(buf));
+        const char* data[1] = {buf};
+        write_response_tlv(pipe, "OK", data, 1);
+
+    } else if (strcmp(buffer, "SET_NETWORK_MASK") == 0) {
+        if (arg_count < 1 || !args[0] || strlen(args[0]) == 0) {
+            write_error_tlv(pipe, "missing subnet mask");
+        } else {
+            ini_set_string("network", "mask", args[0]);
+            write_ok(pipe);
+        }
+
+    } else if (strcmp(buffer, "GET_NETWORK_MASK") == 0) {
+        char buf[64] = {0};
+        ini_get_string("network", "mask", buf, sizeof(buf));
         const char* data[1] = {buf};
         write_response_tlv(pipe, "OK", data, 1);
 
