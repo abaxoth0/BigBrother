@@ -61,14 +61,34 @@ func (l *Listener) Stop() {
 	<-l.doneCh
 }
 
-func (l *Listener) GetLocalIP() string {
-	conn, err := net.Dial("udp", "8.8.8.8:80")
+func (l *Listener) getLocalIP() string {
+	interfaces, err := net.Interfaces()
 	if err != nil {
 		return "0.0.0.0"
 	}
-	defer conn.Close()
-	addr := conn.LocalAddr().(*net.UDPAddr)
-	return addr.IP.String()
+	for _, iface := range interfaces {
+		if iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		if iface.Flags&net.FlagUp == 0 {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			ipnet, ok := addr.(*net.IPNet)
+			if !ok {
+				continue
+			}
+			ipv4 := ipnet.IP.To4()
+			if ipv4 != nil {
+				return ipv4.String()
+			}
+		}
+	}
+	return "0.0.0.0"
 }
 
 func (l *Listener) serve() {
@@ -105,7 +125,7 @@ func (l *Listener) serve() {
 				if serverPort == "" {
 					serverPort = "1984"
 				}
-				localIP := l.GetLocalIP()
+				localIP := l.getLocalIP()
 				response := fmt.Sprintf("%s\n%s\n%s\n%s\n", ResponseMagic, serverName, localIP, serverPort)
 				l.conn.WriteToUDP([]byte(response), rAddr)
 				l.logger.Debug(fmt.Sprintf("Discovery response sent to %s: name=%s ip=%s port=%s", rAddr.String(), serverName, localIP, serverPort), nil)

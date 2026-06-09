@@ -227,6 +227,50 @@ public class MainViewModel : ViewModelBase, IDisposable
         set => SetProperty(ref _serverPort, value);
     }
 
+    private bool _discoveryEnabled = true;
+    public bool DiscoveryEnabled
+    {
+        get => _discoveryEnabled;
+        set
+        {
+            if (SetProperty(ref _discoveryEnabled, value))
+            {
+                _ = _ipcService.SetDiscoveryEnabledAsync(value);
+                System.Windows.Input.CommandManager.InvalidateRequerySuggested();
+            }
+        }
+    }
+
+    private bool _networkAuto = true;
+    public bool NetworkAuto
+    {
+        get => _networkAuto;
+        set
+        {
+            if (SetProperty(ref _networkAuto, value))
+            {
+                _ = _ipcService.SetNetworkAutoAsync(value);
+                OnPropertyChanged(nameof(NetworkManualMode));
+            }
+        }
+    }
+
+    public bool NetworkManualMode => !_networkAuto;
+
+    private string _networkGateway = "";
+    public string NetworkGateway
+    {
+        get => _networkGateway;
+        set => SetProperty(ref _networkGateway, value);
+    }
+
+    private string _networkMask = "";
+    public string NetworkMask
+    {
+        get => _networkMask;
+        set => SetProperty(ref _networkMask, value);
+    }
+
     private string _serverName = "";
     public string ServerName
     {
@@ -258,6 +302,10 @@ public class MainViewModel : ViewModelBase, IDisposable
     public ICommand DisconnectCommand { get; }
     public ICommand ChangeServerCommand { get; }
     public ICommand SaveServerPortCommand { get; }
+    public ICommand SaveDiscoveryEnabledCommand { get; }
+    public ICommand SaveNetworkAutoCommand { get; }
+    public ICommand SaveNetworkGatewayCommand { get; }
+    public ICommand SaveNetworkMaskCommand { get; }
 
     // Event for auto-scroll notification
     public event Action? ScrollToBottomRequested;
@@ -335,8 +383,12 @@ public class MainViewModel : ViewModelBase, IDisposable
         RegisterCommand = new RelayCommand(async _ => await RegisterAsync());
         ConnectCommand = new RelayCommand(async _ => await ConnectAsync());
         DisconnectCommand = new RelayCommand(async _ => await DisconnectAsync());
-        ChangeServerCommand = new RelayCommand(async _ => await ChangeServerAsync());
+        ChangeServerCommand = new RelayCommand(async _ => await ChangeServerAsync(), _ => DiscoveryEnabled);
         SaveServerPortCommand = new RelayCommand(async _ => await SaveServerPortAsync());
+        SaveDiscoveryEnabledCommand = new RelayCommand(_ => { /* handled by property setter */ });
+        SaveNetworkAutoCommand = new RelayCommand(_ => { /* handled by property setter */ });
+        SaveNetworkGatewayCommand = new RelayCommand(async _ => await SaveNetworkGatewayAsync());
+        SaveNetworkMaskCommand = new RelayCommand(async _ => await SaveNetworkMaskAsync());
 
         // Initialize whitelist status polling timer
         _statusTimer.Elapsed += OnStatusTimerElapsed;
@@ -356,6 +408,10 @@ public class MainViewModel : ViewModelBase, IDisposable
         var enabled = await _ipcService.GetFallbackWhitelistEnabledAsync();
         var srvName = await _ipcService.GetServerNameAsync();
         var port = await _ipcService.GetServerPortAsync();
+        var discEnabled = await _ipcService.GetDiscoveryEnabledAsync();
+        var netAuto = await _ipcService.GetNetworkAutoAsync();
+        var netGw = await _ipcService.GetNetworkGatewayAsync();
+        var netMask = await _ipcService.GetNetworkMaskAsync();
         var available = addr != "" || name != "" || enabled || srvName != "";
 
         System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
@@ -368,6 +424,14 @@ public class MainViewModel : ViewModelBase, IDisposable
             OnPropertyChanged(nameof(ServerName));
             _serverPort = port;
             OnPropertyChanged(nameof(ServerPort));
+            _discoveryEnabled = discEnabled;
+            OnPropertyChanged(nameof(DiscoveryEnabled));
+            _networkAuto = netAuto;
+            OnPropertyChanged(nameof(NetworkAuto));
+            _networkGateway = netGw;
+            OnPropertyChanged(nameof(NetworkGateway));
+            _networkMask = netMask;
+            OnPropertyChanged(nameof(NetworkMask));
             _fallbackWhitelistEnabled = enabled;
             OnPropertyChanged(nameof(FallbackWhitelistEnabled));
             SettingsAvailable = available;
@@ -388,6 +452,22 @@ public class MainViewModel : ViewModelBase, IDisposable
         if (string.IsNullOrEmpty(port)) return;
         var ok = await _ipcService.SetServerPortAsync(port);
         AddLog(ok ? "INFO" : "ERROR", ok ? $"Порт сервера сохранён: {port}" : "Ошибка сохранения порта");
+    }
+
+    private async Task SaveNetworkGatewayAsync()
+    {
+        var gw = NetworkGateway?.Trim() ?? "";
+        if (string.IsNullOrEmpty(gw)) return;
+        var ok = await _ipcService.SetNetworkGatewayAsync(gw);
+        AddLog(ok ? "INFO" : "ERROR", ok ? $"Шлюз сохранён: {gw}" : "Ошибка сохранения шлюза");
+    }
+
+    private async Task SaveNetworkMaskAsync()
+    {
+        var mask = NetworkMask?.Trim() ?? "";
+        if (string.IsNullOrEmpty(mask)) return;
+        var ok = await _ipcService.SetNetworkMaskAsync(mask);
+        AddLog(ok ? "INFO" : "ERROR", ok ? $"Маска сохранена: {mask}" : "Ошибка сохранения маски");
     }
 
     private async Task SaveUsernameAsync()

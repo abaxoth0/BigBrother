@@ -17,15 +17,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Auto admin elevation (app.manifest `requireAdministrator` + runtime fallback) for both frontends
 - Startup and periodic stats diagnostics in firewall
 - `CHANGELOG.md`
+- TCP subnet scan fallback (parallel /24 scan ~1.6s)
+- Manual network settings: gateway IP, subnet mask, auto/manual toggle (`[network]` section in config.ini)
+- Discovery toggle (`[discovery] enabled`)
+- `NetClient.c`/`NetClient.h` — networking code extracted from `ipc_daemon.c`
 
 ### Changed
-- Client <-> server transport: SMB named pipes replaced with TCP on port 1984
+- Client ↔ server transport: SMB named pipes replaced with TCP on port 1984
 - Server RPC supports both `"pipe"` and `"tcp"` networks (`ServerConfig.Network`)
 - Discovery response format: `name|ip|port` (was `name|ip`)
 - Unified config files into single `config\config.ini` (replaced `server.cfg`, `user.cfg`, `config.txt`)
 - Whitelist file automatically created with header if missing (firewall no longer crashes)
 - Server backend reads port from DB on startup (CLI `--port` overrides, DB fallback, default 1984)
 - Removed CLI `server <ip>` command (replaced by frontend settings UI)
+- `GET_STATUS` IPC uses cached `IsServerSessionActive()` instead of blocking `PingServer()`
 
 ### Fixed
 - Firewall blocking all local traffic due to byte order mismatch (`ntohl` on `ip_hdr->DstAddr`)
@@ -46,6 +51,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Synchronous `.Result` deadlocks in `RestartClientAsync`/`PingAsync`
 - Missing `_serverPort` field declaration in client frontend ViewModel
 - `;` comments not handled in whitelist file parser
+- Server discovery across LAN (server firewall blocked outbound UDP response to non-local client IP)
+- TCP scan: WSAStartup missing, response parsing (skipped length line), graceful close (shutdown+closesocket)
+- TCP scan: 127.0.0.1 dedup (skip if same server already found on adapter IP)
+- TCP scan: buffer full now breaks scan loop
+- `GetAdaptersAddresses` now uses `GAA_FLAG_INCLUDE_GATEWAYS` to return gateway info
+- `htons` cast changed from `(short)` to `(unsigned short)` to avoid overflow on ports > 32767
 
 ## [0.0.0] - 20-05-2026
 

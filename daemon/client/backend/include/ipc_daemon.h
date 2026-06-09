@@ -224,36 +224,4 @@ int ServerRefresh(const char* name);
  */
 int ServerChangeName(const char* oldName, const char* newName);
 
-/**
- * @brief Get the configured server TCP port (from config.ini or default 1984).
- *
- * @return Port number.
- */
-int get_server_port(void);
-
-/**
- * @brief Discover servers via UDP broadcast.
- *
- * @param bcast_addr Broadcast address (e.g. "192.168.1.255").
- * @param port UDP port (default 42069).
- * @param timeout_ms Receive timeout in milliseconds.
- * @param out Output buffer for "name|ip\n..." lines.
- * @param out_size Size of output buffer.
- *
- * @return Number of servers found, or 0 on error/timeout.
- */
-int DiscoverServers(const char* bcast_addr, int port, int timeout_ms, char* out, size_t out_size);
-
-/**
- * @brief Get all active broadcast addresses, one per line.
- *
- * @param ip_str Output buffer for first non-loopback local IP.
- * @param ip_size Size of IP buffer.
- * @param bcast_out Output buffer for newline-separated broadcast addresses.
- * @param bcast_size Size of broadcast buffer.
- *
- * @return Number of broadcast addresses found, or 0 on failure.
- */
-int GetAllBroadcastAddresses(char* ip_str, size_t ip_size, char* bcast_out, size_t bcast_size);
-
 #endif // IPC_H

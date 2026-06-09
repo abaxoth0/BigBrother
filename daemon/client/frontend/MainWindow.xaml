@@ -386,6 +386,39 @@
                                     </TextBlock>
                                 </StackPanel>
                             </GroupBox>
+
+                            <GroupBox Header="Обнаружение сервера" Margin="0,0,0,10" Padding="10">
+                                <StackPanel>
+                                    <CheckBox IsChecked="{Binding DiscoveryEnabled}" 
+                                              Content="Автоматическое обнаружение сервера в сети"
+                                              Margin="0,5"/>
+                                    <TextBlock TextWrapping="Wrap" Foreground="Gray" FontSize="11" Margin="20,0,0,0">
+                                        <Run Text="Отключите, если сервер использует статический IP. При отключении используйте ручной ввод адреса сервера."/>
+                                    </TextBlock>
+                                </StackPanel>
+                            </GroupBox>
+
+                            <GroupBox Header="Сеть" Margin="0,0,0,10" Padding="10">
+                                <StackPanel>
+                                    <CheckBox IsChecked="{Binding NetworkAuto}" 
+                                              Content="Автоматическое определение сети"
+                                              Margin="0,5"/>
+                                    <StackPanel Orientation="Horizontal" Margin="0,5">
+                                        <TextBlock Text="Шлюз:" Width="120" VerticalAlignment="Center"/>
+                                        <TextBox Text="{Binding NetworkGateway, UpdateSourceTrigger=PropertyChanged}" Width="200" Margin="5,0" IsEnabled="{Binding NetworkManualMode}"/>
+                                        <Button Content="Сохранить" Command="{Binding SaveNetworkGatewayCommand}" Padding="8,2" IsEnabled="{Binding NetworkManualMode}"/>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Margin="0,5">
+                                        <TextBlock Text="Маска подсети:" Width="120" VerticalAlignment="Center"/>
+                                        <TextBox Text="{Binding NetworkMask, UpdateSourceTrigger=PropertyChanged}" Width="200" Margin="5,0" IsEnabled="{Binding NetworkManualMode}"/>
+                                        <Button Content="Сохранить" Command="{Binding SaveNetworkMaskCommand}" Padding="8,2" IsEnabled="{Binding NetworkManualMode}"/>
+                                    </StackPanel>
+                                    <TextBlock TextWrapping="Wrap" Foreground="Gray" FontSize="11" Margin="20,0,0,0"
+                                               Visibility="{Binding NetworkAuto, Converter={StaticResource BoolToVisibility}}">
+                                        <Run Text="Автоматический режим. Отключите, чтобы задать шлюз и маску вручную."/>
+                                    </TextBlock>
+                                </StackPanel>
+                            </GroupBox>
                         </StackPanel>
 
                         <StackPanel Visibility="{Binding SettingsAvailable, Converter={StaticResource InverseBoolToVisibility}}">
