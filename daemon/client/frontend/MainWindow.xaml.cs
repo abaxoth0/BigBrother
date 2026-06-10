@@ -199,7 +199,7 @@ namespace frontend
                 vm.AddLog("INFO", "Запуск демона...");
                 try
                 {
-                    var result = await _serviceManager.StartServiceAsync("BigBrother");
+                    var result = await _serviceManager.StartServiceAsync();
                     vm.AddLog(result ? "INFO" : "ERROR", result ? "Демон запущен" : "Не удалось запустить демон");
                     await Task.Delay(2000);
                     await RefreshStatusAsync();
@@ -218,7 +218,7 @@ namespace frontend
                 vm.AddLog("INFO", "Остановка демона...");
                 try
                 {
-                    var result = await _serviceManager.StopServiceAsync("BigBrother");
+                    var result = await _serviceManager.StopServiceAsync();
                     vm.AddLog(result ? "INFO" : "ERROR", result ? "Демон остановлен" : "Не удалось остановить демон");
                     await RefreshStatusAsync();
                 }
@@ -236,7 +236,7 @@ namespace frontend
                 vm.AddLog("INFO", "Рестарт демона...");
                 try
                 {
-                    var result = await _serviceManager.RestartServiceAsync("BigBrother");
+                    var result = await _serviceManager.RestartServiceAsync();
                     vm.AddLog(result ? "INFO" : "ERROR", result ? "Демон перезапущен" : "Не удалось перезапустить демон");
                     await Task.Delay(3000);
                     await RefreshStatusAsync();
