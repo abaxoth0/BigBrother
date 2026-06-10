@@ -28,21 +28,18 @@ Section "Firewall Daemon" SecFirewall
     SetOutPath "$INSTDIR"
     File /nonfatal "dist\BigBrother Firewall.exe"
     File /nonfatal "dist\WinDivert.dll"
+    File /nonfatal "dist\WinDivert64.sys"
+    File /nonfatal "dist\WinDivert.lib"
 
     CreateDirectory "${PRODUCT_DATA}"
     CreateDirectory "${PRODUCT_DATA}\logs"
 
-    GetFullPathName $0 "$INSTDIR\BigBrother Firewall.exe"
-    nsExec::ExecToStack '"net stop BigBrother Firewall"'
-    Pop $1
-    nsExec::ExecToStack '"sc.exe delete BigBrother Firewall"'
-    Pop $1
-    nsExec::ExecToStack '"sc.exe create BigBrother Firewall binPath= $0 start= auto DisplayName= BigBrother Firewall"'
-    Pop $1
-    nsExec::ExecToStack '"sc.exe description BigBrother Firewall Distributed firewall. Filters traffic based on whitelisted domains."'
-    Pop $1
-    nsExec::ExecToStack '"sc.exe start BigBrother Firewall"'
-    Pop $1
+    DetailPrint "Installing firewall service..."
+    ExecWait '"$SYSDIR\net.exe" stop "BigBrother Firewall"'
+    ExecWait '"$SYSDIR\sc.exe" delete "BigBrother Firewall"'
+    ExecWait '"$SYSDIR\sc.exe" create "BigBrother Firewall" binPath= "$INSTDIR\BigBrother Firewall.exe" start= auto DisplayName= "BigBrother Firewall"'
+    ExecWait '"$SYSDIR\sc.exe" description "BigBrother Firewall" "Distributed firewall. Filters traffic based on whitelisted domains."'
+    ExecWait '"$SYSDIR\net.exe" start "BigBrother Firewall"'
 SectionEnd
 
 Section "Client Daemon" SecClientDaemon
@@ -55,17 +52,12 @@ Section "Server Backend" SecServer
     File /nonfatal "dist\BigBrother Server Daemon.exe"
     CreateDirectory "${PRODUCT_DATA}"
 
-    GetFullPathName $0 "$INSTDIR\BigBrother Server Daemon.exe"
-    nsExec::ExecToStack '"net stop BigBrotherServer"'
-    Pop $1
-    nsExec::ExecToStack '"sc.exe delete BigBrotherServer"'
-    Pop $1
-    nsExec::ExecToStack '"sc.exe create BigBrotherServer binPath= $0 start= auto DisplayName= BigBrother Server"'
-    Pop $1
-    nsExec::ExecToStack '"sc.exe description BigBrotherServer Manages whitelists, clients, and serves discovery."'
-    Pop $1
-    nsExec::ExecToStack '"sc.exe start BigBrotherServer"'
-    Pop $1
+    DetailPrint "Installing server service..."
+;    ExecWait '"$SYSDIR\net.exe" stop "BigBrotherServer"'
+;    ExecWait '"$SYSDIR\sc.exe" delete "BigBrotherServer"'
+;    ExecWait '"$SYSDIR\sc.exe" create "BigBrotherServer" binPath= "$INSTDIR\BigBrother Server Daemon.exe" start= auto DisplayName= "BigBrother Server"'
+;    ExecWait '"$SYSDIR\sc.exe" description "BigBrotherServer" "Manages whitelists, clients, and serves discovery."'
+;    ExecWait '"$SYSDIR\net.exe" start "BigBrotherServer"'
 SectionEnd
 
 Section "Client GUI" SecClientGUI
@@ -83,10 +75,9 @@ Section "Server GUI" SecServerGUI
 SectionEnd
 
 Section "Windows Firewall Rules" SecRules
-    nsExec::ExecToStack '"netsh advfirewall firewall add rule name= BigBrotherServer dir=in action=allow protocol=tcp localport=1984 profile=private,domain"'
-    Pop $1
-    nsExec::ExecToStack '"netsh advfirewall firewall add rule name= BigBrotherDiscovery dir=in action=allow protocol=udp localport=42069 profile=private,domain"'
-    Pop $1
+    DetailPrint "Adding firewall rules..."
+    ExecWait '"$SYSDIR\netsh.exe" advfirewall firewall add rule name= "BigBrother Server (TCP 1984)" dir=in action=allow protocol=tcp localport=1984 profile=private,domain'
+    ExecWait '"$SYSDIR\netsh.exe" advfirewall firewall add rule name= "BigBrother Discovery (UDP 42069)" dir=in action=allow protocol=udp localport=42069 profile=private,domain'
 SectionEnd
 
 Section -PostInstall
@@ -101,18 +92,12 @@ SectionEnd
 ; Uninstaller
 
 Section "Uninstall"
-    nsExec::ExecToStack '"net stop BigBrother Firewall"'
-    Pop $1
-    nsExec::ExecToStack '"sc.exe delete BigBrother Firewall"'
-    Pop $1
-    nsExec::ExecToStack '"net stop BigBrotherServer"'
-    Pop $1
-    nsExec::ExecToStack '"sc.exe delete BigBrotherServer"'
-    Pop $1
-    nsExec::ExecToStack '"netsh advfirewall firewall delete rule name= BigBrotherServer"'
-    Pop $1
-    nsExec::ExecToStack '"netsh advfirewall firewall delete rule name= BigBrotherDiscovery"'
-    Pop $1
+    ExecWait '"$SYSDIR\net.exe" stop "BigBrother Firewall"'
+    ExecWait '"$SYSDIR\sc.exe" delete "BigBrother Firewall"'
+    ExecWait '"$SYSDIR\net.exe" stop "BigBrotherServer"'
+    ExecWait '"$SYSDIR\sc.exe" delete "BigBrotherServer"'
+    ExecWait '"$SYSDIR\netsh.exe" advfirewall firewall delete rule name= "BigBrother Server (TCP 1984)"'
+    ExecWait '"$SYSDIR\netsh.exe" advfirewall firewall delete rule name= "BigBrother Discovery (UDP 42069)"'
     Delete "$DESKTOP\BigBrother Client.lnk"
     Delete "$DESKTOP\BigBrother Server.lnk"
     RMDir /r "$INSTDIR"
