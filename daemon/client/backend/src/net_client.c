@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <wchar.h>
 
 // ---------------------------------------------------------------------------
 // Local IP helper
@@ -171,6 +172,70 @@ static int find_adapter_by_gateway(const char* gateway_str, char* ip_str, size_t
     return found;
 }
 
+// ---------------------------------------------------------------------------
+// Virtual adapter detection & local IP check
+// ---------------------------------------------------------------------------
+
+static const WCHAR* wcsistr(const WCHAR* haystack, const WCHAR* needle) {
+    if (!haystack || !needle) return NULL;
+    size_t needle_len = wcslen(needle);
+    if (needle_len == 0) return haystack;
+    size_t haystack_len = wcslen(haystack);
+    if (needle_len > haystack_len) return NULL;
+    for (size_t i = 0; i <= haystack_len - needle_len; i++) {
+        size_t j;
+        for (j = 0; j < needle_len; j++) {
+            WCHAR h = haystack[i + j];
+            WCHAR n = needle[j];
+            if (h >= L'A' && h <= L'Z') h += L'a' - L'A';
+            if (n >= L'A' && n <= L'Z') n += L'a' - L'A';
+            if (h != n) break;
+        }
+        if (j == needle_len) return haystack + i;
+    }
+    return NULL;
+}
+
+static int is_virtual_adapter(const IP_ADAPTER_ADDRESSES* a) {
+    if (!a || !a->Description) return 0;
+    static const WCHAR* keywords[] = {
+        L"hyper-v",
+        L"virtual",
+        L"vmware",
+        L"vbox",
+    };
+    for (int i = 0; i < (int)(sizeof(keywords) / sizeof(keywords[0])); i++) {
+        if (wcsistr(a->Description, keywords[i])) return 1;
+    }
+    return 0;
+}
+
+static int is_local_ip(uint32_t ip) {
+    ULONG buf_len = 0;
+    GetAdaptersAddresses(AF_INET, GAA_FLAG_INCLUDE_GATEWAYS, NULL, NULL, &buf_len);
+    if (buf_len == 0) return 0;
+
+    IP_ADAPTER_ADDRESSES* adapters = (IP_ADAPTER_ADDRESSES*)malloc(buf_len);
+    if (!adapters) return 0;
+
+    ULONG ret = GetAdaptersAddresses(AF_INET, GAA_FLAG_INCLUDE_GATEWAYS, NULL, adapters, &buf_len);
+    if (ret != NO_ERROR) { free(adapters); return 0; }
+
+    int found = 0;
+    for (IP_ADAPTER_ADDRESSES* a = adapters; a; a = a->Next) {
+        if (a->OperStatus != IfOperStatusUp) continue;
+        if (a->FirstUnicastAddress == NULL) continue;
+        struct sockaddr_in* sin = (struct sockaddr_in*)a->FirstUnicastAddress->Address.lpSockaddr;
+        if (!sin) continue;
+        uint32_t adapter_ip = ntohl(sin->sin_addr.s_addr);
+        if (adapter_ip == ip) { found = 1; break; }
+        if (adapter_ip == 0x7f000001) continue;
+    }
+
+    free(adapters);
+    return found;
+}
+
 int GetAllBroadcastAddresses(char* ip_str, size_t ip_size, char* bcast_out, size_t bcast_size) {
     if (ip_str) ip_str[0] = '\0';
     if (bcast_out) bcast_out[0] = '\0';
@@ -230,6 +295,7 @@ int GetAllBroadcastAddresses(char* ip_str, size_t ip_size, char* bcast_out, size
         if (a->OperStatus != IfOperStatusUp) continue;
         if (a->FirstUnicastAddress == NULL) continue;
         if (a->FirstGatewayAddress == NULL || a->FirstGatewayAddress->Address.lpSockaddr == NULL) continue;
+        if (is_virtual_adapter(a)) continue;
 
         SOCKET_ADDRESS* saddr = &a->FirstUnicastAddress->Address;
         struct sockaddr_in* sin = (struct sockaddr_in*)saddr->lpSockaddr;
@@ -237,30 +303,6 @@ int GetAllBroadcastAddresses(char* ip_str, size_t ip_size, char* bcast_out, size
 
         ULONG ip = ntohl(sin->sin_addr.s_addr);
         if (ip == 0x7f000001) continue;
-
-        if (!first_ip_set && ip_str) {
-            snprintf(ip_str, ip_size, "%lu.%lu.%lu.%lu",
-                (unsigned long)((ip >> 24) & 0xFF), (unsigned long)((ip >> 16) & 0xFF),
-                (unsigned long)((ip >> 8) & 0xFF), (unsigned long)(ip & 0xFF));
-            first_ip_set = 1;
-            // Save detected gateway and mask to config (for frontend display)
-            char gw_buf[64] = {0}, mask_buf[64] = {0};
-            if (a->FirstGatewayAddress && a->FirstGatewayAddress->Address.lpSockaddr) {
-                struct sockaddr_in* gws = (struct sockaddr_in*)a->FirstGatewayAddress->Address.lpSockaddr;
-                uint32_t gw_ip = ntohl(gws->sin_addr.s_addr);
-                snprintf(gw_buf, sizeof(gw_buf), "%u.%u.%u.%u",
-                    (gw_ip >> 24) & 0xFF, (gw_ip >> 16) & 0xFF, (gw_ip >> 8) & 0xFF, gw_ip & 0xFF);
-                ini_set_string("network", "gateway", gw_buf);
-            }
-            ULONG p = a->FirstUnicastAddress->OnLinkPrefixLength;
-            if (p) {
-                uint32_t m = (0xFFFFFFFF << (32 - p));
-                snprintf(mask_buf, sizeof(mask_buf), "%lu.%lu.%lu.%lu",
-                    (unsigned long)((m >> 24) & 0xFF), (unsigned long)((m >> 16) & 0xFF),
-                    (unsigned long)((m >> 8) & 0xFF), (unsigned long)(m & 0xFF));
-                ini_set_string("network", "mask", mask_buf);
-            }
-        }
 
         if (discovery_enabled) {
             ULONG prefix = a->FirstUnicastAddress->OnLinkPrefixLength;
@@ -356,18 +398,6 @@ int DiscoverServers(const char* bcast_list, int port, int timeout_ms, char* out,
         }
     }
 
-    {
-        struct sockaddr_in dest;
-        memset(&dest, 0, sizeof(dest));
-        dest.sin_family = AF_INET;
-        dest.sin_port = htons((unsigned short)port);
-        inet_pton(AF_INET, "127.0.0.1", &dest.sin_addr);
-        int sent = sendto(sock, request, (int)strlen(request), 0, (struct sockaddr*)&dest, sizeof(dest));
-        if (sent == SOCKET_ERROR) {
-            LOGF("[Discovery] sendto to 127.0.0.1 failed: %lu", (unsigned long)WSAGetLastError());
-        }
-    }
-
     LOGF("[Discovery] Waiting %d ms for responses...", timeout_ms);
 
     int count = 0;
@@ -408,6 +438,14 @@ int DiscoverServers(const char* bcast_list, int port, int timeout_ms, char* out,
         if (!nl) continue;
         *nl = '\0';
         line = nl + 1;
+
+        {
+            uint32_t ip_addr = parse_ip(ip);
+            if (ip_addr && is_local_ip(ip_addr)) {
+                LOGF("[Discovery] Server IP %s is local, replacing with 127.0.0.1", ip);
+                ip = "127.0.0.1";
+            }
+        }
 
         char* port = line;
         nl = strchr(line, '\n');
@@ -576,7 +614,7 @@ int DiscoverServersTCP(char* out, size_t out_size, int timeout_ms) {
             }
             LOGF("[Discovery] No adapter found for gateway %s", gw_buf);
         }
-        goto done;
+        goto probe_localhost;
     }
 
     // Auto mode: scan all physical adapters
@@ -584,6 +622,7 @@ int DiscoverServersTCP(char* out, size_t out_size, int timeout_ms) {
         if (a->OperStatus != IfOperStatusUp) continue;
         if (a->FirstUnicastAddress == NULL) continue;
         if (a->FirstGatewayAddress == NULL || a->FirstGatewayAddress->Address.lpSockaddr == NULL) continue;
+        if (is_virtual_adapter(a)) continue;
 
         SOCKET_ADDRESS* saddr = &a->FirstUnicastAddress->Address;
         struct sockaddr_in* sin = (struct sockaddr_in*)saddr->lpSockaddr;
@@ -711,6 +750,7 @@ int DiscoverServersTCP(char* out, size_t out_size, int timeout_ms) {
         }
     }
 
+probe_localhost:
     // Probe 127.0.0.1 directly for same-machine discovery
     if (count < DISCOVERY_MAX_SERVERS) {
         SOCKET lsock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
