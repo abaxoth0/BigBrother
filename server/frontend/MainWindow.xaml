@@ -163,7 +163,11 @@
                             <TextBlock Text="Активный: " VerticalAlignment="Center" FontWeight="Bold"/>
                             <TextBlock Text="{Binding ActiveWhitelist}" VerticalAlignment="Center" Foreground="Gray"/>
                         </StackPanel>
-                        <Button Grid.Column="2" Content="Создать" Style="{StaticResource ControlButton}" Command="{Binding OpenCreateWhitelistCommand}" Margin="10,5"/>
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" Margin="10,5">
+                            <Button Content="Импорт" Style="{StaticResource ControlButton}" Command="{Binding ImportWhitelistsCommand}"/>
+                            <Button Content="Экспорт" Style="{StaticResource ControlButton}" Command="{Binding ExportWhitelistsCommand}"/>
+                            <Button Content="Создать" Style="{StaticResource ControlButton}" Command="{Binding OpenCreateWhitelistCommand}"/>
+                        </StackPanel>
                     </Grid>
 
                     <!-- Whitelists List -->
@@ -173,6 +177,7 @@
                             SelectedItem="{Binding SelectedWhitelist}"
                             GridLinesVisibility="Horizontal" HeadersVisibility="Column">
                         <DataGrid.Columns>
+                            <DataGridCheckBoxColumn Header=" " Binding="{Binding IsSelected, UpdateSourceTrigger=PropertyChanged}" Width="30"/>
                             <DataGridTextColumn Header="Название" Binding="{Binding Name}" Width="200"/>
                             <DataGridTextColumn Header="Записей" Binding="{Binding EntryCount}" Width="100"/>
                         </DataGrid.Columns>

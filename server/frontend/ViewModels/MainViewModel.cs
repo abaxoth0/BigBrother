@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.IO;
 using System.Windows;
 using System.Windows.Input;
 using frontend.Services;
@@ -69,6 +70,8 @@ public class MainViewModel : ViewModelBase
         OpenEditWhitelistCommand = new RelayCommand(async o => await OpenEditWhitelistAsync(o as WhitelistInfo), o => o is WhitelistInfo);
         SaveServerNameCommand = new RelayCommand(async _ => await SaveServerNameAsync());
         SaveServerPortCommand = new RelayCommand(async _ => await SaveServerPortAsync());
+        ImportWhitelistsCommand = new RelayCommand(async _ => await ImportWhitelistsAsync());
+        ExportWhitelistsCommand = new RelayCommand(async _ => await ExportWhitelistsAsync());
         StartAutoRefresh();
         _ = RefreshAllAsync();
         _ = LoadServerNameAsync();
@@ -164,6 +167,8 @@ public class MainViewModel : ViewModelBase
     public ICommand OpenEditWhitelistCommand { get; }
     public ICommand SaveServerNameCommand { get; }
     public ICommand SaveServerPortCommand { get; }
+    public ICommand ImportWhitelistsCommand { get; }
+    public ICommand ExportWhitelistsCommand { get; }
     private void StartAutoRefresh()
     {
         _refreshTimer = new System.Timers.Timer(5000);
@@ -460,6 +465,147 @@ public class MainViewModel : ViewModelBase
         };
 
         dialog.ShowDialog();
+    }
+
+    private async Task ImportWhitelistsAsync()
+    {
+        var dialog = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = "Импорт списков",
+            Filter = "Whitelist files (*.wl)|*.wl|Text files (*.txt)|*.txt|All files (*.*)|*.*",
+            Multiselect = true
+        };
+
+        if (dialog.ShowDialog() != true) return;
+
+        var imported = new List<string>();
+        var errors = new List<string>();
+
+        foreach (var filePath in dialog.FileNames)
+        {
+            try
+            {
+                var lines = File.ReadAllLines(filePath);
+                string? currentName = null;
+                var currentEntries = new List<string>();
+
+                foreach (var rawLine in lines)
+                {
+                    var line = rawLine.Trim();
+                    if (line.Length == 0 || line.StartsWith('#'))
+                    {
+                        if (line.StartsWith("# Whitelist:", StringComparison.OrdinalIgnoreCase))
+                        {
+                            if (currentName != null)
+                            {
+                                await SaveWhitelistFromImport(currentName, currentEntries, imported, errors);
+                            }
+                            currentName = line.Substring("# Whitelist:".Length).Trim();
+                            currentEntries = new List<string>();
+                        }
+                        continue;
+                    }
+                    currentEntries.Add(line);
+                }
+
+                if (currentName != null)
+                {
+                    await SaveWhitelistFromImport(currentName, currentEntries, imported, errors);
+                }
+            }
+            catch (Exception ex)
+            {
+                errors.Add($"{Path.GetFileName(filePath)}: {ex.Message}");
+            }
+        }
+
+        await RefreshWhitelistsAsync();
+        await LoadActiveWhitelistAsync();
+
+        var msg = imported.Count > 0
+            ? $"Импортировано списков: {imported.Count} ({string.Join(", ", imported)})"
+            : "Не импортировано ни одного списка";
+        if (errors.Count > 0)
+            msg += $"\nОшибок: {errors.Count}";
+        AddLog(imported.Count > 0 ? "INFO" : "WARNING", msg);
+
+        if (errors.Count > 0)
+        {
+            MessageBox.Show(
+                $"Импортировано: {imported.Count}\nОшибок: {errors.Count}\n\n{string.Join("\n", errors)}",
+                "Импорт списков",
+                MessageBoxButton.OK,
+                errors.Count > 0 ? MessageBoxImage.Warning : MessageBoxImage.Information);
+        }
+    }
+
+    private async Task SaveWhitelistFromImport(string name, List<string> entries, List<string> imported, List<string> errors)
+    {
+        try
+        {
+            var ok = await _ipcService.CreateWhitelistAsync(name);
+            if (ok && entries.Count > 0)
+            {
+                ok = await _ipcService.SaveWhitelistAsync(name, entries);
+            }
+            if (ok)
+                imported.Add(name);
+            else
+                errors.Add($"{name}: не удалось создать список");
+        }
+        catch (Exception ex)
+        {
+            errors.Add($"{name}: {ex.Message}");
+        }
+    }
+
+    private async Task ExportWhitelistsAsync()
+    {
+        var selected = Whitelists.Where(w => w.IsSelected).ToList();
+        if (selected.Count == 0)
+        {
+            selected = Whitelists.ToList();
+        }
+
+        if (selected.Count == 0)
+        {
+            AddLog("WARNING", "Нет списков для экспорта");
+            return;
+        }
+
+        var dialog = new Microsoft.Win32.SaveFileDialog
+        {
+            Title = "Экспорт списков",
+            Filter = "Whitelist files (*.wl)|*.wl|Text files (*.txt)|*.txt",
+            FileName = "whitelists.wl"
+        };
+
+        if (dialog.ShowDialog() != true) return;
+
+        try
+        {
+            var lines = new List<string>();
+
+            foreach (var wl in selected)
+            {
+                lines.Add($"# Whitelist: {wl.Name}");
+                var entries = await _ipcService.GetWhitelistEntriesAsync(wl.Name);
+                foreach (var entry in entries)
+                {
+                    lines.Add(entry);
+                }
+                lines.Add("");
+            }
+
+            File.WriteAllLines(dialog.FileName, lines);
+            AddLog("INFO", $"Экспортировано списков: {selected.Count} в {dialog.FileName}");
+        }
+        catch (Exception ex)
+        {
+            AddLog("ERROR", $"Ошибка экспорта: {ex.Message}");
+            MessageBox.Show($"Ошибка экспорта: {ex.Message}", "Экспорт списков",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+        }
     }
 
     private void AddLog(string level, string message)
