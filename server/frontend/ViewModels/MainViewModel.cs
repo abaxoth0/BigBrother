@@ -49,6 +49,7 @@ public class MainViewModel : ViewModelBase
     private string _activeWhitelist = "";
     private string _serverName = "";
     private string _serverPort = "1984";
+    private bool _isAllSelected;
     private ObservableCollection<WhitelistInfo> _whitelists = new();
     private WhitelistInfo? _selectedWhitelist;
 
@@ -72,8 +73,8 @@ public class MainViewModel : ViewModelBase
         SaveServerNameCommand = new RelayCommand(async _ => await SaveServerNameAsync());
         SaveServerPortCommand = new RelayCommand(async _ => await SaveServerPortAsync());
         ImportWhitelistsCommand = new RelayCommand(async _ => await ImportWhitelistsAsync());
-        ExportWhitelistsCommand = new RelayCommand(async _ => await ExportWhitelistsAsync());
-        DeleteSelectedWhitelistsCommand = new RelayCommand(async _ => await DeleteSelectedWhitelistsAsync());
+        ExportWhitelistsCommand = new RelayCommand(async _ => await ExportWhitelistsAsync(), _ => Whitelists.Any(w => w.IsSelected));
+        DeleteSelectedWhitelistsCommand = new RelayCommand(async _ => await DeleteSelectedWhitelistsAsync(), _ => Whitelists.Any(w => w.IsSelected));
         StartAutoRefresh();
         _ = RefreshAllAsync();
         _ = LoadServerNameAsync();
@@ -158,6 +159,20 @@ public class MainViewModel : ViewModelBase
 
     public string SelectedWhitelistName => SelectedWhitelist?.Name ?? "";
     public bool HasSelectedWhitelist => SelectedWhitelist != null;
+
+    public bool IsAllSelected
+    {
+        get => _isAllSelected;
+        set
+        {
+            if (SetProperty(ref _isAllSelected, value))
+            {
+                foreach (var wl in Whitelists)
+                    wl.IsSelected = value;
+                CommandManager.InvalidateRequerySuggested();
+            }
+        }
+    }
 
     public ICommand ApproveCommand { get; }
     public ICommand RejectCommand { get; }
@@ -349,9 +364,11 @@ public class MainViewModel : ViewModelBase
                     }
                     else
                     {
+                        SubscribeWhitelistSelection(nw);
                         Whitelists.Add(nw);
                     }
                 }
+                UpdateAllSelectedState();
                 AddLog("INFO", $"Списков: {whitelists.Count}");
             });
         }
@@ -423,6 +440,7 @@ public class MainViewModel : ViewModelBase
 
         AddLog(deleted > 0 ? "INFO" : "ERROR",
             $"Удалено списков: {deleted}" + (errors > 0 ? $", ошибок: {errors}" : ""));
+        IsAllSelected = false;
         await RefreshWhitelistsAsync();
     }
 
@@ -565,6 +583,23 @@ public class MainViewModel : ViewModelBase
                 MessageBoxButton.OK,
                 errors.Count > 0 ? MessageBoxImage.Warning : MessageBoxImage.Information);
         }
+    }
+
+    private void SubscribeWhitelistSelection(WhitelistInfo wl)
+    {
+        wl.PropertyChanged += (s, e) =>
+        {
+            if (e.PropertyName == nameof(WhitelistInfo.IsSelected))
+            {
+                CommandManager.InvalidateRequerySuggested();
+            }
+        };
+    }
+
+    private void UpdateAllSelectedState()
+    {
+        _isAllSelected = Whitelists.Count > 0 && Whitelists.All(w => w.IsSelected);
+        OnPropertyChanged(nameof(IsAllSelected));
     }
 
     private async Task SaveWhitelistFromImport(string name, List<string> entries, HashSet<string> existingNames, List<string> imported, List<string> errors)
