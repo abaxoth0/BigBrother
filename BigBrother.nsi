@@ -53,11 +53,11 @@ Section "Server Backend" SecServer
     CreateDirectory "${PRODUCT_DATA}"
 
     DetailPrint "Installing server service..."
-;    ExecWait '"$SYSDIR\net.exe" stop "BigBrotherServer"'
-;    ExecWait '"$SYSDIR\sc.exe" delete "BigBrotherServer"'
-;    ExecWait '"$SYSDIR\sc.exe" create "BigBrotherServer" binPath= "$INSTDIR\BigBrother Server Daemon.exe" start= auto DisplayName= "BigBrother Server"'
-;    ExecWait '"$SYSDIR\sc.exe" description "BigBrotherServer" "Manages whitelists, clients, and serves discovery."'
-;    ExecWait '"$SYSDIR\net.exe" start "BigBrotherServer"'
+    ExecWait '"$SYSDIR\net.exe" stop "BigBrotherServer"'
+    ExecWait '"$SYSDIR\sc.exe" delete "BigBrotherServer"'
+    ExecWait '"$SYSDIR\sc.exe" create "BigBrotherServer" binPath= "$INSTDIR\BigBrother Server Daemon.exe" start= auto DisplayName= "BigBrother Server"'
+    ExecWait '"$SYSDIR\sc.exe" description "BigBrotherServer" "Manages whitelists, clients, and serves discovery."'
+    ExecWait '"$SYSDIR\net.exe" start "BigBrotherServer"'
 SectionEnd
 
 Section "Client GUI" SecClientGUI
