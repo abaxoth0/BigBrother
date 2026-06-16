@@ -25,6 +25,11 @@
             <Setter Property="MinWidth" Value="70"/>
         </Style>
 
+        <Style x:Key="DangerButton" TargetType="Button" BasedOn="{StaticResource ControlButton}">
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Background" Value="#F44336"/>
+        </Style>
+
         <Style TargetType="TextBox">
             <Setter Property="Padding" Value="4,2"/>
             <Setter Property="Height" Value="22"/>
@@ -166,6 +171,7 @@
                         <StackPanel Grid.Column="2" Orientation="Horizontal" Margin="10,5">
                             <Button Content="Импорт" Style="{StaticResource ControlButton}" Command="{Binding ImportWhitelistsCommand}"/>
                             <Button Content="Экспорт" Style="{StaticResource ControlButton}" Command="{Binding ExportWhitelistsCommand}"/>
+                            <Button Content="Удалить" Style="{StaticResource DangerButton}" Command="{Binding DeleteSelectedWhitelistsCommand}"/>
                             <Button Content="Создать" Style="{StaticResource ControlButton}" Command="{Binding OpenCreateWhitelistCommand}"/>
                         </StackPanel>
                     </Grid>
@@ -173,13 +179,34 @@
                     <!-- Whitelists List -->
                     <DataGrid Grid.Row="1" ItemsSource="{Binding Whitelists}" AutoGenerateColumns="False"
                             Background="White" Foreground="Black" BorderBrush="{StaticResource BorderBrush}"
-                            CanUserAddRows="False" CanUserDeleteRows="False" IsReadOnly="True"
+                            CanUserAddRows="False" CanUserDeleteRows="False"
                             SelectedItem="{Binding SelectedWhitelist}"
-                            GridLinesVisibility="Horizontal" HeadersVisibility="Column">
+                            GridLinesVisibility="Horizontal" HeadersVisibility="Column"
+                            RowHeight="30">
+                        <DataGrid.CellStyle>
+                            <Style TargetType="DataGridCell">
+                                <Setter Property="VerticalAlignment" Value="Center"/>
+                                <Setter Property="Padding" Value="4,0"/>
+                            </Style>
+                        </DataGrid.CellStyle>
                         <DataGrid.Columns>
-                            <DataGridCheckBoxColumn Header=" " Binding="{Binding IsSelected, UpdateSourceTrigger=PropertyChanged}" Width="30"/>
-                            <DataGridTextColumn Header="Название" Binding="{Binding Name}" Width="200"/>
-                            <DataGridTextColumn Header="Записей" Binding="{Binding EntryCount}" Width="100"/>
+                            <DataGridTemplateColumn Header=" " Width="30">
+                                <DataGridTemplateColumn.HeaderTemplate>
+                                    <DataTemplate>
+                                        <CheckBox x:Name="SelectAllCheckBox"
+                                                  HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                  Click="SelectAllCheckBox_Click"/>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.HeaderTemplate>
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <CheckBox IsChecked="{Binding IsSelected, UpdateSourceTrigger=PropertyChanged}"
+                                                  HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTextColumn Header="Название" Binding="{Binding Name}" Width="200" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="Записей" Binding="{Binding EntryCount}" Width="100" IsReadOnly="True"/>
                         </DataGrid.Columns>
                         <DataGrid.ContextMenu>
                             <ContextMenu>

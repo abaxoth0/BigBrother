@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Controls;
 using frontend.ViewModels;
 
 namespace frontend;
@@ -17,5 +18,17 @@ public partial class MainWindow : Window
             vm.Dispose();
         }
         base.OnClosed(e);
+    }
+
+    private void SelectAllCheckBox_Click(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is MainViewModel vm && sender is CheckBox checkBox)
+        {
+            bool isChecked = checkBox.IsChecked == true;
+            foreach (var wl in vm.Whitelists)
+            {
+                wl.IsSelected = isChecked;
+            }
+        }
     }
 }

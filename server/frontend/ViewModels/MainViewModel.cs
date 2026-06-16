@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.IO;
+using System.Linq;
 using System.Windows;
 using System.Windows.Input;
 using frontend.Services;
@@ -72,6 +73,7 @@ public class MainViewModel : ViewModelBase
         SaveServerPortCommand = new RelayCommand(async _ => await SaveServerPortAsync());
         ImportWhitelistsCommand = new RelayCommand(async _ => await ImportWhitelistsAsync());
         ExportWhitelistsCommand = new RelayCommand(async _ => await ExportWhitelistsAsync());
+        DeleteSelectedWhitelistsCommand = new RelayCommand(async _ => await DeleteSelectedWhitelistsAsync());
         StartAutoRefresh();
         _ = RefreshAllAsync();
         _ = LoadServerNameAsync();
@@ -169,6 +171,7 @@ public class MainViewModel : ViewModelBase
     public ICommand SaveServerPortCommand { get; }
     public ICommand ImportWhitelistsCommand { get; }
     public ICommand ExportWhitelistsCommand { get; }
+    public ICommand DeleteSelectedWhitelistsCommand { get; }
     private void StartAutoRefresh()
     {
         _refreshTimer = new System.Timers.Timer(5000);
@@ -399,6 +402,30 @@ public class MainViewModel : ViewModelBase
         await RefreshWhitelistsAsync();
     }
 
+    private async Task DeleteSelectedWhitelistsAsync()
+    {
+        var selected = Whitelists.Where(w => w.IsSelected).Select(w => w.Name).ToList();
+        if (selected.Count == 0) return;
+
+        var result = MessageBox.Show($"Удалить выбранные списки ({selected.Count})?",
+            "Удаление списков", MessageBoxButton.YesNo, MessageBoxImage.Question);
+        if (result != MessageBoxResult.Yes) return;
+
+        var deleted = 0;
+        var errors = 0;
+        foreach (var name in selected)
+        {
+            if (await _ipcService.DeleteWhitelistAsync(name))
+                deleted++;
+            else
+                errors++;
+        }
+
+        AddLog(deleted > 0 ? "INFO" : "ERROR",
+            $"Удалено списков: {deleted}" + (errors > 0 ? $", ошибок: {errors}" : ""));
+        await RefreshWhitelistsAsync();
+    }
+
     private async Task SetActiveWhitelistAsync(string? name)
     {
         if (string.IsNullOrEmpty(name)) return;
@@ -478,6 +505,7 @@ public class MainViewModel : ViewModelBase
 
         if (dialog.ShowDialog() != true) return;
 
+        var existingNames = new HashSet<string>(Whitelists.Select(w => w.Name));
         var imported = new List<string>();
         var errors = new List<string>();
 
@@ -498,7 +526,7 @@ public class MainViewModel : ViewModelBase
                         {
                             if (currentName != null)
                             {
-                                await SaveWhitelistFromImport(currentName, currentEntries, imported, errors);
+                                await SaveWhitelistFromImport(currentName, currentEntries, existingNames, imported, errors);
                             }
                             currentName = line.Substring("# Whitelist:".Length).Trim();
                             currentEntries = new List<string>();
@@ -510,7 +538,7 @@ public class MainViewModel : ViewModelBase
 
                 if (currentName != null)
                 {
-                    await SaveWhitelistFromImport(currentName, currentEntries, imported, errors);
+                    await SaveWhitelistFromImport(currentName, currentEntries, existingNames, imported, errors);
                 }
             }
             catch (Exception ex)
@@ -539,17 +567,25 @@ public class MainViewModel : ViewModelBase
         }
     }
 
-    private async Task SaveWhitelistFromImport(string name, List<string> entries, List<string> imported, List<string> errors)
+    private async Task SaveWhitelistFromImport(string name, List<string> entries, HashSet<string> existingNames, List<string> imported, List<string> errors)
     {
         try
         {
+            if (existingNames.Contains(name))
+            {
+                errors.Add($"{name}: список с таким именем уже существует");
+                return;
+            }
             var ok = await _ipcService.CreateWhitelistAsync(name);
             if (ok && entries.Count > 0)
             {
                 ok = await _ipcService.SaveWhitelistAsync(name, entries);
             }
             if (ok)
+            {
                 imported.Add(name);
+                existingNames.Add(name);
+            }
             else
                 errors.Add($"{name}: не удалось создать список");
         }
