@@ -29,6 +29,7 @@ public class WhitelistInfo : INotifyPropertyChanged
     public event PropertyChangedEventHandler? PropertyChanged;
 
     private int _entryCount;
+    private bool _isSelected;
     public string Name { get; set; } = "";
     public int EntryCount
     {
@@ -42,7 +43,18 @@ public class WhitelistInfo : INotifyPropertyChanged
             }
         }
     }
-    public bool IsSelected { get; set; }
+    public bool IsSelected
+    {
+        get => _isSelected;
+        set
+        {
+            if (_isSelected != value)
+            {
+                _isSelected = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsSelected)));
+            }
+        }
+    }
 }
 
 public class ServerStatus

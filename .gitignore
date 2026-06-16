@@ -4,3 +4,4 @@ dist
 **/.vs
 **/*.db
 *.exe
+**/Properties/PublishProfiles

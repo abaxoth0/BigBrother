@@ -163,18 +163,40 @@
                             <TextBlock Text="Активный: " VerticalAlignment="Center" FontWeight="Bold"/>
                             <TextBlock Text="{Binding ActiveWhitelist}" VerticalAlignment="Center" Foreground="Gray"/>
                         </StackPanel>
-                        <Button Grid.Column="2" Content="Создать" Style="{StaticResource ControlButton}" Command="{Binding OpenCreateWhitelistCommand}" Margin="10,5"/>
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" Margin="10,5">
+                            <Button Content="Импорт" Style="{StaticResource ControlButton}" Command="{Binding ImportWhitelistsCommand}"/>
+                            <Button Content="Экспорт" Style="{StaticResource ControlButton}" Command="{Binding ExportWhitelistsCommand}"/>
+                            <Button Content="Удалить" Style="{StaticResource ControlButton}" Command="{Binding DeleteSelectedWhitelistsCommand}"/>
+                            <Button Content="Создать" Style="{StaticResource ControlButton}" Command="{Binding OpenCreateWhitelistCommand}"/>
+                        </StackPanel>
                     </Grid>
 
                     <!-- Whitelists List -->
                     <DataGrid Grid.Row="1" ItemsSource="{Binding Whitelists}" AutoGenerateColumns="False"
                             Background="White" Foreground="Black" BorderBrush="{StaticResource BorderBrush}"
-                            CanUserAddRows="False" CanUserDeleteRows="False" IsReadOnly="True"
+                            CanUserAddRows="False" CanUserDeleteRows="False"
                             SelectedItem="{Binding SelectedWhitelist}"
-                            GridLinesVisibility="Horizontal" HeadersVisibility="Column">
+                            GridLinesVisibility="Horizontal" HeadersVisibility="Column"
+                            VerticalContentAlignment="Center" MinRowHeight="26">
                         <DataGrid.Columns>
-                            <DataGridTextColumn Header="Название" Binding="{Binding Name}" Width="200"/>
-                            <DataGridTextColumn Header="Записей" Binding="{Binding EntryCount}" Width="100"/>
+                            <DataGridTemplateColumn Header=" " Width="34">
+                                <DataGridTemplateColumn.HeaderTemplate>
+                                    <DataTemplate>
+                                        <CheckBox IsChecked="{Binding DataContext.IsAllSelected, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                  HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.HeaderTemplate>
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <Grid>
+                                            <CheckBox IsChecked="{Binding IsSelected, UpdateSourceTrigger=PropertyChanged}"
+                                                      HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Grid>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTextColumn Header="Название" Binding="{Binding Name}" Width="200" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="Записей" Binding="{Binding EntryCount}" Width="100" IsReadOnly="True"/>
                         </DataGrid.Columns>
                         <DataGrid.ContextMenu>
                             <ContextMenu>

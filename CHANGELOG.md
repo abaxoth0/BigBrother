@@ -21,6 +21,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Manual network settings: gateway IP, subnet mask, auto/manual toggle (`[network]` section in config.ini)
 - Discovery toggle (`[discovery] enabled`)
 - `NetClient.c`/`NetClient.h` — networking code extracted from `ipc_daemon.c`
+- Whitelist import from `.wl` files (multi-select, parses `# Whitelist: Name` sections)
+- Whitelist export to `.wl` files (checked items or all if none checked)
+- Bulk delete button for whitelists with confirmation dialog
+- Select-all checkbox in whitelist DataGrid header (bound to `IsAllSelected`)
+- Virtual adapter detection: skip Hyper-V, VMware, VirtualBox adapters in auto-mode discovery
+- Local IP detection in UDP discovery responses: replace matching local IPs with `127.0.0.1`
 
 ### Changed
 - Client ↔ server transport: SMB named pipes replaced with TCP on port 1984
@@ -31,6 +37,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Server backend reads port from DB on startup (CLI `--port` overrides, DB fallback, default 1984)
 - Removed CLI `server <ip>` command (replaced by frontend settings UI)
 - `GET_STATUS` IPC uses cached `IsServerSessionActive()` instead of blocking `PingServer()`
+- Whitelist DataGrid: added checkbox column for multi-select, adjusted row height (26px min), fixed vertical alignment
+- Export/delete buttons disabled when no whitelist items are selected (CanExecute predicates)
 
 ### Fixed
 - Firewall blocking all local traffic due to byte order mismatch (`ntohl` on `ip_hdr->DstAddr`)
@@ -57,6 +65,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - TCP scan: buffer full now breaks scan loop
 - `GetAdaptersAddresses` now uses `GAA_FLAG_INCLUDE_GATEWAYS` to return gateway info
 - `htons` cast changed from `(short)` to `(unsigned short)` to avoid overflow on ports > 32767
+- Server discovery picking wrong adapter when server is on same machine: removed unconditional `127.0.0.1` UDP probe, fixed TCP manual mode skipping localhost probe
+- Name collision error on whitelist import now reports explicit duplicate name message
+- `WhitelistInfo.IsSelected` now fires `PropertyChanged` (checkbox binding actually works)
+- Import/export buttons layout fixed (orphaned tags, button overlap)
 
 ## [0.0.0] - 20-05-2026
 
