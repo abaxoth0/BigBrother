@@ -46,24 +46,38 @@
 
         <!-- Header -->
         <Border Grid.Row="0" Background="{StaticResource HeaderBackground}" Padding="10,5">
-            <StackPanel Orientation="Horizontal">
-                <TextBlock Text="Сервер: " Foreground="Black" VerticalAlignment="Center" FontSize="14"/>
-                <Ellipse Width="10" Height="10" VerticalAlignment="Center" Margin="0,0,5,0">
-                    <Ellipse.Style>
-                        <Style TargetType="Ellipse">
-                            <Setter Property="Fill" Value="{StaticResource StatusDisconnected}"/>
-                            <Style.Triggers>
-                                <DataTrigger Binding="{Binding IsConnected}" Value="True">
-                                    <Setter Property="Fill" Value="{StaticResource StatusRunning}"/>
-                                </DataTrigger>
-                            </Style.Triggers>
-                        </Style>
-                    </Ellipse.Style>
-                </Ellipse>
-                <TextBlock Text="{Binding ServerStatus}" Foreground="Black" VerticalAlignment="Center" FontSize="14" FontWeight="Bold"/>
-                <TextBlock Text="  |  " Foreground="Gray" VerticalAlignment="Center"/>
-                <TextBlock Text="{Binding Uptime}" Foreground="Gray" VerticalAlignment="Center"/>
-            </StackPanel>
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0" Orientation="Horizontal">
+                    <TextBlock Text="Сервер: " Foreground="Black" VerticalAlignment="Center" FontSize="14"/>
+                    <Ellipse Width="10" Height="10" VerticalAlignment="Center" Margin="0,0,5,0">
+                        <Ellipse.Style>
+                            <Style TargetType="Ellipse">
+                                <Setter Property="Fill" Value="{StaticResource StatusDisconnected}"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsConnected}" Value="True">
+                                        <Setter Property="Fill" Value="{StaticResource StatusRunning}"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Ellipse.Style>
+                    </Ellipse>
+                    <TextBlock Text="{Binding ServerStatus}" Foreground="Black" VerticalAlignment="Center" FontSize="14" FontWeight="Bold"/>
+                    <TextBlock Text="  |  " Foreground="Gray" VerticalAlignment="Center"/>
+                    <TextBlock Text="{Binding Uptime}" Foreground="Gray" VerticalAlignment="Center"/>
+                </StackPanel>
+                <StackPanel Grid.Column="2" Orientation="Horizontal">
+                    <TextBlock Text="Служба: " Foreground="Black" VerticalAlignment="Center" FontSize="11" Margin="0,0,3,0"/>
+                    <TextBlock Text="{Binding ServiceStatus}" Foreground="Gray" VerticalAlignment="Center" FontSize="11" MinWidth="50"/>
+                    <Button Content="Пуск" Style="{StaticResource ControlButton}" Command="{Binding StartServiceCommand}" MinWidth="40" Padding="5,2" FontSize="11"/>
+                    <Button Content="Стоп" Style="{StaticResource ControlButton}" Command="{Binding StopServiceCommand}" MinWidth="40" Padding="5,2" FontSize="11"/>
+                    <Button Content="Рест" Style="{StaticResource ControlButton}" Command="{Binding RestartServiceCommand}" MinWidth="40" Padding="5,2" FontSize="11"/>
+                </StackPanel>
+            </Grid>
         </Border>
 
         <!-- Tabs -->

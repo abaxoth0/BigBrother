@@ -53,11 +53,11 @@ Section "Server Backend" SecServer
     CreateDirectory "${PRODUCT_DATA}"
 
     DetailPrint "Installing server service..."
-    ExecWait '"$SYSDIR\net.exe" stop "BigBrotherServer"'
-    ExecWait '"$SYSDIR\sc.exe" delete "BigBrotherServer"'
-    ExecWait '"$SYSDIR\sc.exe" create "BigBrotherServer" binPath= "$INSTDIR\BigBrother Server Daemon.exe" start= auto DisplayName= "BigBrother Server"'
-    ExecWait '"$SYSDIR\sc.exe" description "BigBrotherServer" "Manages whitelists, clients, and serves discovery."'
-    ExecWait '"$SYSDIR\net.exe" start "BigBrotherServer"'
+    ExecWait '"$SYSDIR\net.exe" stop "BigBrother Server"'
+    ExecWait '"$SYSDIR\sc.exe" delete "BigBrother Server"'
+    ExecWait '"$SYSDIR\sc.exe" create "BigBrother Server" binPath= "$INSTDIR\BigBrother Server Daemon.exe" start= auto DisplayName= "BigBrother Server"'
+    ExecWait '"$SYSDIR\sc.exe" description "BigBrother Server" "Manages whitelists, clients, and serves discovery."'
+    ExecWait '"$SYSDIR\net.exe" start "BigBrother Server"'
 SectionEnd
 
 Section "Client GUI" SecClientGUI
@@ -94,8 +94,8 @@ SectionEnd
 Section "Uninstall"
     ExecWait '"$SYSDIR\net.exe" stop "BigBrother Firewall"'
     ExecWait '"$SYSDIR\sc.exe" delete "BigBrother Firewall"'
-    ExecWait '"$SYSDIR\net.exe" stop "BigBrotherServer"'
-    ExecWait '"$SYSDIR\sc.exe" delete "BigBrotherServer"'
+    ExecWait '"$SYSDIR\net.exe" stop "BigBrother Server"'
+    ExecWait '"$SYSDIR\sc.exe" delete "BigBrother Server"'
     ExecWait '"$SYSDIR\netsh.exe" advfirewall firewall delete rule name= "BigBrother Server (TCP 1984)"'
     ExecWait '"$SYSDIR\netsh.exe" advfirewall firewall delete rule name= "BigBrother Discovery (UDP 42069)"'
     Delete "$DESKTOP\BigBrother Client.lnk"
