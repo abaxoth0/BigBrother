@@ -38,18 +38,20 @@ void WhitelistInit(Whitelist* wl) {
     memset(wl, 0, sizeof(Whitelist));
 }
 
-int WhitelistAdd(Whitelist* wl, const char* domain) {
+int WhitelistAdd(Whitelist* wl, const char* domain, int is_exception) {
     if (!wl || !domain || wl->count >= MAX_WHITELIST_DOMAINS) {
         return -1;
     }
     for (size_t i = 0; i < wl->count; i++) {
-        if (strcmp(wl->entries[i].domain, domain) == 0) {
+        if (strcmp(wl->entries[i].domain, domain) == 0 &&
+            wl->entries[i].is_exception == is_exception) {
             return 0;
         }
     }
     strncpy(wl->entries[wl->count].domain, domain, MAX_DOMAIN_LEN - 1);
     wl->entries[wl->count].domain[MAX_DOMAIN_LEN - 1] = '\0';
     wl->entries[wl->count].added_time = time(NULL);
+    wl->entries[wl->count].is_exception = is_exception;
     wl->count++;
     return 0;
 }
@@ -57,7 +59,17 @@ int WhitelistAdd(Whitelist* wl, const char* domain) {
 int WhitelistContains(Whitelist* wl, const char* domain) {
     if (!wl || !domain) return 0;
     for (size_t i = 0; i < wl->count; i++) {
-        if (match_domain(domain, wl->entries[i].domain)) {
+        if (!wl->entries[i].is_exception && match_domain(domain, wl->entries[i].domain)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+int WhitelistContainsException(Whitelist* wl, const char* domain) {
+    if (!wl || !domain) return 0;
+    for (size_t i = 0; i < wl->count; i++) {
+        if (wl->entries[i].is_exception && match_domain(domain, wl->entries[i].domain)) {
             return 1;
         }
     }
@@ -89,7 +101,9 @@ int WhitelistLoadFromData(Whitelist* wl, const char* data, size_t size) {
         }
 
         if (len > 0 && line[0] != '#') {
-            WhitelistAdd(wl, line);
+            int is_exception = (line[0] == '!');
+            const char* domain = is_exception ? line + 1 : line;
+            WhitelistAdd(wl, domain, is_exception);
         }
 
         line = strtok(NULL, "\n");

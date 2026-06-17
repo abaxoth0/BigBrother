@@ -52,7 +52,11 @@ static void write_whitelist(HANDLE pipe) {
     if (n > 0) pos += n;
 
     for (size_t i = 0; i < g_Whitelist.count && pos < sizeof(buffer) - 1; i++) {
-        n = snprintf(buffer + pos, sizeof(buffer) - pos, "%s\n", domains[i]);
+        if (g_Whitelist.entries[i].is_exception) {
+            n = snprintf(buffer + pos, sizeof(buffer) - pos, "!%s\n", domains[i]);
+        } else {
+            n = snprintf(buffer + pos, sizeof(buffer) - pos, "%s\n", domains[i]);
+        }
         if (n > 0) pos += n;
     }
 

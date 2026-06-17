@@ -286,7 +286,9 @@ int LoadWhiteList(char* path) {
             LOGF("[INFO] Added IP to allowlist: %s", p);
 
         } else {
-            WhitelistAdd(&g_Whitelist, p);
+            int is_exception = (p[0] == '!');
+            const char* domain = is_exception ? p + 1 : p;
+            WhitelistAdd(&g_Whitelist, domain, is_exception);
         }
     }
 
@@ -434,18 +436,28 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
 
                 int domain_whitelisted = 0;
                 for (size_t w = 0; w < g_Whitelist.count; w++) {
-                    if (DnsCheckDomain(dns.question.domain, g_Whitelist.entries[w].domain)) {
+                    if (!g_Whitelist.entries[w].is_exception &&
+                        DnsCheckDomain(dns.question.domain, g_Whitelist.entries[w].domain)) {
                         domain_whitelisted = 1;
                         break;
                     }
                 }
 
-                // Add IPs to allowlist if domain is whitelisted
+                int domain_excepted = 0;
+                for (size_t w = 0; w < g_Whitelist.count; w++) {
+                    if (g_Whitelist.entries[w].is_exception &&
+                        DnsCheckDomain(dns.question.domain, g_Whitelist.entries[w].domain)) {
+                        domain_excepted = 1;
+                        break;
+                    }
+                }
+
+                // Add IPs to allowlist if domain is whitelisted and not excepted
                 for (uint32_t i = 0; i < dns.answer_count; i++) {
                     for (uint32_t j = 0; j < dns.answers[i].ip_count; j++) {
                         uint32_t resolved_ip = dns.answers[i].ips[j];
 
-                        if (domain_whitelisted) {
+                        if (domain_whitelisted && !domain_excepted) {
                             IpAllowlistAdd(&g_IpAllowlist, resolved_ip, dns.question.domain, dns.answers[i].ttl);
                         }
 
