@@ -12,7 +12,9 @@ import (
 	"bigbrother_server_backend/packages/presentation/rpc"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/abaxoth0/Ain/logger"
@@ -22,8 +24,8 @@ var mainLogger = logger.NewSource("MAIN", log.DefaultLogger)
 
 const frontendPipePath = `\\.\pipe\BigBrother.Server.Frontend`
 const frontendPipeBufSize = 65536
-
 const defaultBackendPort = 1984
+const serviceName = "BigBrother Server"
 
 func main() {
 	log.DefaultLoggerConfig.Trace = true
@@ -44,7 +46,6 @@ func main() {
 		}
 	}()
 
-	// Reserve some time for logger to start up
 	time.Sleep(time.Millisecond * 50)
 
 	connManager := connection.NewMemoryResidentConnectionManager()
@@ -68,10 +69,6 @@ func main() {
 	pendingUsersStorage := pending.NewUserStorage()
 
 	discoveryListener := discovery.New(db)
-	if err := discoveryListener.Start(); err != nil {
-		mainLogger.Fatal("Discovery listener error", err.Error(), nil)
-	}
-	defer discoveryListener.Stop()
 
 	backendServer := rpc.NewServer(
 		"Backend",
@@ -113,6 +110,20 @@ func main() {
 
 	// TODO make this thread a hypervisor which will track status of those servers and restart them if anything
 
+	if isService() {
+		mainLogger.Info("Starting as Windows service...", nil)
+		runService(backendAddr, frontendPipePath, discoveryListener, backendServer, frontendServer)
+	} else {
+		mainLogger.Info("Starting in console mode...", nil)
+		runConsole(backendAddr, frontendPipePath, discoveryListener, backendServer, frontendServer)
+	}
+}
+
+func startAndWait(backendAddr, frontendPipePath string, discoveryListener *discovery.Listener, backendServer, frontendServer *rpc.Server, stopCh <-chan struct{}) {
+	if err := discoveryListener.Start(); err != nil {
+		mainLogger.Fatal("Discovery listener error", err.Error(), nil)
+	}
+
 	go func() {
 		if err := frontendServer.Start(frontendPipePath); err != nil {
 			mainLogger.Fatal("Frontend RPC Handler error", err.Error(), nil)
@@ -120,7 +131,26 @@ func main() {
 	}()
 
 	mainLogger.Info("Backend TCP address: "+backendAddr, nil)
-	if err := backendServer.Start(backendAddr); err != nil {
-		mainLogger.Fatal("Backend RPC Handler error", err.Error(), nil)
-	}
+	go func() {
+		if err := backendServer.Start(backendAddr); err != nil {
+			mainLogger.Fatal("Backend RPC Handler error", err.Error(), nil)
+		}
+	}()
+
+	<-stopCh
+	mainLogger.Info("Shutting down servers...", nil)
+	discoveryListener.Stop()
+	frontendServer.Stop(0)
+	backendServer.Stop(0)
+}
+
+func runConsole(backendAddr, frontendPipePath string, discoveryListener *discovery.Listener, backendServer, frontendServer *rpc.Server) {
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	stopCh := make(chan struct{}, 1)
+	go func() {
+		<-sigCh
+		close(stopCh)
+	}()
+	startAndWait(backendAddr, frontendPipePath, discoveryListener, backendServer, frontendServer, stopCh)
 }

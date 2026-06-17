@@ -38,7 +38,9 @@ public class RelayCommand : ICommand
 public class MainViewModel : ViewModelBase
 {
     private readonly IpcService _ipcService;
+    private readonly ServiceManager _serviceManager;
     private System.Timers.Timer? _refreshTimer;
+    private System.Timers.Timer? _serviceStatusTimer;
 
     private string _serverStatus = "Подключение...";
     private string _uptime = "";
@@ -46,6 +48,7 @@ public class MainViewModel : ViewModelBase
     private int _pendingCount;
     private bool _isConnected;
 
+    private string _serviceStatus = "Проверка...";
     private string _activeWhitelist = "";
     private string _serverName = "";
     private string _serverPort = "1984";
@@ -56,6 +59,7 @@ public class MainViewModel : ViewModelBase
     public MainViewModel()
     {
         _ipcService = new IpcService();
+        _serviceManager = new ServiceManager();
 
         ConnectedClients = new ObservableCollection<ConnectedClient>();
         PendingRegistrations = new ObservableCollection<PendingRegistration>();
@@ -75,7 +79,11 @@ public class MainViewModel : ViewModelBase
         ImportWhitelistsCommand = new RelayCommand(async _ => await ImportWhitelistsAsync());
         ExportWhitelistsCommand = new RelayCommand(async _ => await ExportWhitelistsAsync(), _ => Whitelists.Any(w => w.IsSelected));
         DeleteSelectedWhitelistsCommand = new RelayCommand(async _ => await DeleteSelectedWhitelistsAsync(), _ => Whitelists.Any(w => w.IsSelected));
+        StartServiceCommand = new RelayCommand(async _ => await StartServiceAsync());
+        StopServiceCommand = new RelayCommand(async _ => await StopServiceAsync());
+        RestartServiceCommand = new RelayCommand(async _ => await RestartServiceAsync());
         StartAutoRefresh();
+        StartServiceStatusPolling();
         _ = RefreshAllAsync();
         _ = LoadServerNameAsync();
         _ = LoadServerPortAsync();
@@ -125,6 +133,12 @@ public class MainViewModel : ViewModelBase
 
     public Visibility NotConnectedVisibility => IsConnected ? Visibility.Collapsed : Visibility.Visible;
     public Visibility ConnectedVisibility => IsConnected ? Visibility.Visible : Visibility.Collapsed;
+
+    public string ServiceStatus
+    {
+        get => _serviceStatus;
+        set => SetProperty(ref _serviceStatus, value);
+    }
 
     public string ActiveWhitelist
     {
@@ -187,6 +201,9 @@ public class MainViewModel : ViewModelBase
     public ICommand ImportWhitelistsCommand { get; }
     public ICommand ExportWhitelistsCommand { get; }
     public ICommand DeleteSelectedWhitelistsCommand { get; }
+    public ICommand StartServiceCommand { get; }
+    public ICommand StopServiceCommand { get; }
+    public ICommand RestartServiceCommand { get; }
     private void StartAutoRefresh()
     {
         _refreshTimer = new System.Timers.Timer(5000);
@@ -196,6 +213,47 @@ public class MainViewModel : ViewModelBase
             try { await RefreshAllAsync(); } catch { }
         };
         _refreshTimer.Start();
+    }
+
+    private void StartServiceStatusPolling()
+    {
+        _serviceStatusTimer = new System.Timers.Timer(2000);
+        _serviceStatusTimer.Elapsed += (s, e) =>
+        {
+            if (_disposed) return;
+            try
+            {
+                var info = _serviceManager.GetServiceInfo();
+                var status = info?.Status.ToString() ?? "Not Found";
+                System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+                {
+                    ServiceStatus = status;
+                });
+            }
+            catch { }
+        };
+        _serviceStatusTimer.Start();
+    }
+
+    private async Task StartServiceAsync()
+    {
+        AddLog("INFO", "Запуск службы...");
+        var ok = await _serviceManager.StartServiceAsync();
+        AddLog(ok ? "INFO" : "ERROR", ok ? "Служба запущена" : "Ошибка запуска службы");
+    }
+
+    private async Task StopServiceAsync()
+    {
+        AddLog("INFO", "Остановка службы...");
+        var ok = await _serviceManager.StopServiceAsync();
+        AddLog(ok ? "INFO" : "ERROR", ok ? "Служба остановлена" : "Ошибка остановки службы");
+    }
+
+    private async Task RestartServiceAsync()
+    {
+        AddLog("INFO", "Перезапуск службы...");
+        var ok = await _serviceManager.RestartServiceAsync();
+        AddLog(ok ? "INFO" : "ERROR", ok ? "Служба перезапущена" : "Ошибка перезапуска службы");
     }
 
     public async Task RefreshAllAsync()
@@ -699,6 +757,9 @@ public class MainViewModel : ViewModelBase
         _disposed = true;
         _refreshTimer?.Stop();
         _refreshTimer?.Dispose();
+        _serviceStatusTimer?.Stop();
+        _serviceStatusTimer?.Dispose();
         _ipcService.Dispose();
+        _serviceManager.Dispose();
     }
 }

@@ -69,6 +69,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Name collision error on whitelist import now reports explicit duplicate name message
 - `WhitelistInfo.IsSelected` now fires `PropertyChanged` (checkbox binding actually works)
 - Import/export buttons layout fixed (orphaned tags, button overlap)
+- Server backend runs as Windows service (`BigBrother Server`) with console fallback (detects service mode via `svc.IsWindowsService()`)
+- NSIS installer creates server service (was previously commented out)
+- Server frontend: service start/stop/restart buttons with 2s status polling
 
 ## [0.0.0] - 20-05-2026
 
