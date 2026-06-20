@@ -18,6 +18,7 @@
 typedef struct {
     char domain[MAX_DOMAIN_LEN];
     time_t added_time;
+    int is_exception;
 } WhitelistEntry;
 
 /** @brief Container for whitelisted domains. */
@@ -46,10 +47,13 @@ typedef struct {
 void WhitelistInit(Whitelist* wl);
 
 /** @brief Add a domain to the whitelist. */
-int WhitelistAdd(Whitelist* wl, const char* domain);
+int WhitelistAdd(Whitelist* wl, const char* domain, int is_exception);
 
-/** @brief Check if a domain is in the whitelist. */
+/** @brief Check if a domain is in the whitelist (non-exception entries only). */
 int WhitelistContains(Whitelist* wl, const char* domain);
+
+/** @brief Check if a domain matches any exception entry in the whitelist. */
+int WhitelistContainsException(Whitelist* wl, const char* domain);
 
 /** @brief Clear all entries from the whitelist. */
 void WhitelistClear(Whitelist* wl);

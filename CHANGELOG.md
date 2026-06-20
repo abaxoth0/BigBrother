@@ -72,6 +72,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Server backend runs as Windows service (`BigBrother Server`) with console fallback (detects service mode via `svc.IsWindowsService()`)
 - NSIS installer creates server service (was previously commented out)
 - Server frontend: service start/stop/restart buttons with 2s status polling
+- Whitelist exception rules: `!domain` entries exclude subdomains from wildcard matches
 
 ## [0.0.0] - 20-05-2026
 
