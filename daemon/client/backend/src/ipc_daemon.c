@@ -637,7 +637,10 @@ int ServerConnect(const char* name) {
     const char* args[2] = {name, local_ip};
     char response[256];
     int result = send_to_server_tlv("CONNECT", args, local_ip[0] ? 2 : 1, response, sizeof(response));
-    if (result == 0) g_server_session_active = 1;
+    if (result == 0 || strstr(response, "already connected") != NULL) {
+        g_server_session_active = 1;
+        return 0;
+    }
     return result;
 }
 

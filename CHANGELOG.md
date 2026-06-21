@@ -73,6 +73,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - NSIS installer creates server service (was previously commented out)
 - Server frontend: service start/stop/restart buttons with 2s status polling
 - Whitelist exception rules: `!domain` entries exclude subdomains from wildcard matches
+- Client connection to local server no longer fails with "already connected" when daemon auto-connects first
 
 ## [0.0.0] - 20-05-2026
 
