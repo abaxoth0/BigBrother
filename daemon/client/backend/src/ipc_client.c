@@ -285,10 +285,15 @@ DWORD WINAPI client_handler(LPVOID param) {
         char username[128];
         if (LoadUserName(username, sizeof(username)) != 0) {
             write_error_tlv(pipe, "no saved username");
-        } else if (ServerConnect(username) != 0) {
-            write_error_tlv(pipe, "failed to connect (not registered/approved)");
         } else {
-            write_ok(pipe);
+            int r = ServerConnect(username);
+            if (r == 0) {
+                write_ok(pipe);
+            } else {
+                char err_msg[256];
+                snprintf(err_msg, sizeof(err_msg), "connect failed: server error (or see log)");
+                write_error_tlv(pipe, err_msg);
+            }
         }
 
     } else if (strcmp(buffer, "DISCONNECT") == 0) {

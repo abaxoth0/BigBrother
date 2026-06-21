@@ -635,11 +635,16 @@ int ServerConnect(const char* name) {
     char local_ip[64] = {0};
     GetLocalIp(g_server_ip, local_ip, sizeof(local_ip));
     const char* args[2] = {name, local_ip};
-    char response[256];
+    char response[256] = {0};
     int result = send_to_server_tlv("CONNECT", args, local_ip[0] ? 2 : 1, response, sizeof(response));
     if (result == 0 || strstr(response, "already connected") != NULL) {
         g_server_session_active = 1;
         return 0;
+    }
+    if (response[0]) {
+        LOGF("[ServerConnect] Server error: '%s'", response);
+    } else {
+        LOGF("[ServerConnect] TCP connection to %s:%d failed", g_server_ip, get_server_port());
     }
     return result;
 }
