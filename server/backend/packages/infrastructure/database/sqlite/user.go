@@ -9,6 +9,7 @@ import (
 	"slices"
 
 	"github.com/abaxoth0/Ain/common"
+	"github.com/abaxoth0/Ain/errs"
 	"github.com/google/uuid"
 	_ "github.com/ncruces/go-sqlite3/driver"
 )
@@ -61,6 +62,36 @@ func (db *Database) GetUserByAddr(userAddr string) (*entity.User, error) {
 func (db *Database) CreateUser(name string, addr string) (string, error) {
 	dbcommon.Log.Info("Creating new user - \""+name+"\" | \""+addr+"\" ...", nil)
 
+	// Check if a user with this name already exists — update addr
+	if existing, err := db.GetUserByName(name); err == nil {
+		dbcommon.Log.Info("User with name \""+name+"\" already exists, updating addr to \""+addr+"\"", nil)
+		_, err := db.conn.Exec(
+			"UPDATE user SET addr = ? WHERE id = ?",
+			addr, existing.Id,
+		)
+		if err != nil {
+			dbcommon.Log.Error("Updating existing user addr", err.Error(), nil)
+			return "", err
+		}
+		dbcommon.Log.Info("Updating existing user addr: OK", nil)
+		return existing.Id, nil
+	}
+
+	// Check if a user with this addr already exists — update name
+	if existing, err := db.GetUserByAddr(addr); err == nil {
+		dbcommon.Log.Info("User with addr \""+addr+"\" already exists, updating name to \""+name+"\"", nil)
+		_, err := db.conn.Exec(
+			"UPDATE user SET name = ? WHERE id = ?",
+			name, existing.Id,
+		)
+		if err != nil {
+			dbcommon.Log.Error("Updating existing user name", err.Error(), nil)
+			return "", err
+		}
+		dbcommon.Log.Info("Updating existing user name: OK", nil)
+		return existing.Id, nil
+	}
+
 	id := uuid.New()
 
 	_, err := db.conn.Exec(
@@ -77,7 +108,8 @@ func (db *Database) CreateUser(name string, addr string) (string, error) {
 	return id.String(), nil
 }
 
-var userProperties  = []string{"name", "addr", "whitelist_id"}
+var userProperties  	  = []string{"name", "addr", "whitelist_id"}
+var uniqueUserProperties  = []string{"name", "addr"}
 
 func (db *Database) changeUserProperty(property string, username string, newValue any, tx *sql.Tx) error {
 	var executor dbcommon.Executor = common.Ternary(tx == nil, dbcommon.Executor(db.conn), dbcommon.Executor(tx))
@@ -87,11 +119,39 @@ func (db *Database) changeUserProperty(property string, username string, newValu
 	if !slices.Contains(userProperties, property) {
 		return errors.New("invalid user property: " + property)
 	}
-	if _, err := db.GetUserByName(username); err != nil {
+	_, err := db.GetUserByName(username)
+	if err != nil {
 		return err
 	}
 
-	_, err := executor.Exec(
+	if slices.Contains(uniqueUserProperties, property) {
+		var curUser *entity.User
+		var value any
+		switch property {
+		case "name":
+			curUser, err = db.GetUserByName(newValue.(string))
+			value = curUser.Name
+		case "addr":
+			curUser, err = db.GetUserByAddr(newValue.(string))
+			value = curUser.Addr
+		}
+
+		if errors.Is(err, sql.ErrNoRows) {
+			goto update
+		}
+		if err != nil {
+			return err
+		}
+		if value == newValue && curUser.Name != username {
+			return errs.NewStatusError(
+				fmt.Sprintf("Unique constraint violation for attribute %s with value \"%s\"", property, newValue),
+				errs.StatusConflict.Status(),
+			)
+		}
+	}
+	update:
+
+	_, err = executor.Exec(
 		"UPDATE user SET "+property+" = ? WHERE name = ?",
 		newValue, username,
 	)
@@ -109,13 +169,6 @@ func (db *Database) ChangeUserAddr(username string, newAddr string) error {
 }
 
 func (db *Database) ChangeUserName(username string, newUsername string) error {
-	_, err := db.GetUserByName(newUsername)
-	if !errors.Is(err, sql.ErrNoRows) {
-		if err != nil {
-			return err
-		}
-		return fmt.Errorf("User name \"%s\" already in use", newUsername)
-	}
 	return db.changeUserProperty("name", username, newUsername, nil)
 }
 
