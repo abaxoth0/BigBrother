@@ -74,6 +74,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Server frontend: service start/stop/restart buttons with 2s status polling
 - Whitelist exception rules: `!domain` entries exclude subdomains from wildcard matches
 - Client connection to local server no longer fails with "already connected" when daemon auto-connects first
+- Server user registration: overwrite existing user by name or addr instead of failing on UNIQUE constraint
+- Server `changeUserProperty` checks unique constraints on name/addr before updating (returns conflict error if already claimed by another user)
 
 ## [0.0.0] - 20-05-2026
 
