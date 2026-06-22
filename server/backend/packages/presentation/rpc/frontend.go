@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
+	"path/filepath"
 	"time"
 
 	"bigbrother_server_backend/packages/domain/entity"
@@ -259,6 +261,9 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 			h.db.SetSetting("server_port", args[0])
 			writeOK(conn)
 
+		case "GET_LOG_PATH":
+			writeTLVResponse(conn, h.getLogPath())
+
 		default:
 			writeErrorTLV(conn, fmt.Sprintf("unknown command: %s", cmd))
 		}
@@ -388,4 +393,12 @@ func (h *FrontendHandler) GetActiveWhitelist() string {
 func (h *FrontendHandler) SetActiveWhitelist(name string) {
 	h.activeWl = name
 	h.db.SetSetting("active_whitelist", name)
+}
+
+func (h *FrontendHandler) getLogPath() string {
+	programData := os.Getenv("PROGRAMDATA")
+	if programData == "" {
+		programData = "."
+	}
+	return filepath.Join(programData, "BigBrother", "server")
 }

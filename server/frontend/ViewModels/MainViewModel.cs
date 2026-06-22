@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Input;
 using frontend.Services;
@@ -35,12 +36,21 @@ public class RelayCommand : ICommand
     }
 }
 
+public class ServerLogEntry
+{
+    public string Timestamp { get; set; } = "";
+    public string Level { get; set; } = "";
+    public string Source { get; set; } = "";
+    public string Message { get; set; } = "";
+}
+
 public class MainViewModel : ViewModelBase
 {
     private readonly IpcService _ipcService;
     private readonly ServiceManager _serviceManager;
     private System.Timers.Timer? _refreshTimer;
     private System.Timers.Timer? _serviceStatusTimer;
+    private System.Timers.Timer? _logReaderTimer;
 
     private string _serverStatus = "Подключение...";
     private string _uptime = "";
@@ -55,6 +65,17 @@ public class MainViewModel : ViewModelBase
     private bool _isAllSelected;
     private ObservableCollection<WhitelistInfo> _whitelists = new();
     private WhitelistInfo? _selectedWhitelist;
+
+    private string _logPath = "";
+    private string _lastLogFile = "";
+    private long _lastLogPosition;
+    private string _logSearchText = "";
+    private bool _autoScroll = true;
+    private ObservableCollection<ServerLogEntry> _serverLogs = new();
+    private ObservableCollection<ServerLogEntry> _filteredServerLogs = new();
+
+    public ObservableCollection<ServerLogEntry> ServerLogs => _serverLogs;
+    public ObservableCollection<ServerLogEntry> FilteredServerLogs => _filteredServerLogs;
 
     public MainViewModel()
     {
@@ -82,11 +103,15 @@ public class MainViewModel : ViewModelBase
         StartServiceCommand = new RelayCommand(async _ => await StartServiceAsync());
         StopServiceCommand = new RelayCommand(async _ => await StopServiceAsync());
         RestartServiceCommand = new RelayCommand(async _ => await RestartServiceAsync());
+        ClearServerLogsCommand = new RelayCommand(_ => ClearServerLogs());
+        ExportServerLogsCommand = new RelayCommand(_ => ExportServerLogs());
         StartAutoRefresh();
         StartServiceStatusPolling();
+        StartLogReader();
         _ = RefreshAllAsync();
         _ = LoadServerNameAsync();
         _ = LoadServerPortAsync();
+        _ = LoadLogPathAsync();
     }
 
     public ObservableCollection<ConnectedClient> ConnectedClients { get; }
@@ -188,6 +213,22 @@ public class MainViewModel : ViewModelBase
         }
     }
 
+    public string LogSearchText
+    {
+        get => _logSearchText;
+        set
+        {
+            if (SetProperty(ref _logSearchText, value))
+                FilterServerLogs();
+        }
+    }
+
+    public bool AutoScroll
+    {
+        get => _autoScroll;
+        set => SetProperty(ref _autoScroll, value);
+    }
+
     public ICommand ApproveCommand { get; }
     public ICommand RejectCommand { get; }
     public ICommand DisconnectCommand { get; }
@@ -204,6 +245,10 @@ public class MainViewModel : ViewModelBase
     public ICommand StartServiceCommand { get; }
     public ICommand StopServiceCommand { get; }
     public ICommand RestartServiceCommand { get; }
+    public ICommand ClearServerLogsCommand { get; }
+    public ICommand ExportServerLogsCommand { get; }
+
+    public event Action? AutoScrollRequested;
     private void StartAutoRefresh()
     {
         _refreshTimer = new System.Timers.Timer(5000);
@@ -254,6 +299,185 @@ public class MainViewModel : ViewModelBase
         AddLog("INFO", "Перезапуск службы...");
         var ok = await _serviceManager.RestartServiceAsync();
         AddLog(ok ? "INFO" : "ERROR", ok ? "Служба перезапущена" : "Ошибка перезапуска службы");
+    }
+
+    private async Task LoadLogPathAsync()
+    {
+        var path = await _ipcService.GetLogPathAsync();
+        if (!string.IsNullOrEmpty(path))
+        {
+            _logPath = path;
+        }
+    }
+
+    private void StartLogReader()
+    {
+        _logReaderTimer = new System.Timers.Timer(500);
+        _logReaderTimer.Elapsed += (s, e) =>
+        {
+            if (_disposed) return;
+            ReadServerLogs();
+        };
+        _logReaderTimer.Start();
+    }
+
+    private void ReadServerLogs()
+    {
+        if (string.IsNullOrEmpty(_logPath))
+        {
+            AddServerLogEntry("DEBUG", "Лог-путь не задан (IPC ещё не ответил)");
+            return;
+        }
+
+        try
+        {
+            var dir = new DirectoryInfo(_logPath);
+            if (!dir.Exists)
+            {
+                AddServerLogEntry("DEBUG", $"Директория логов не найдена: {_logPath}");
+                return;
+            }
+
+            var files = dir.GetFiles("*.log");
+            if (files.Length == 0)
+            {
+                AddServerLogEntry("DEBUG", $"Файлы *.log не найдены в {_logPath}");
+                return;
+            }
+
+            var file = files.OrderByDescending(f => f.LastWriteTime).First();
+
+            using var stream = new FileStream(file.FullName, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+
+            // New log file (e.g., after restart) — read from near the end
+            if (_lastLogFile != file.FullName)
+            {
+                _lastLogFile = file.FullName;
+                _lastLogPosition = Math.Max(0, stream.Length - 512 * 1024);
+            }
+
+            if (_lastLogPosition >= stream.Length) return;
+
+            stream.Seek(_lastLogPosition, SeekOrigin.Begin);
+            using var reader = new StreamReader(stream);
+            var newEntries = new List<ServerLogEntry>();
+            long lastPos = _lastLogPosition;
+
+            while (true)
+            {
+                var line = reader.ReadLine();
+                if (line == null) break;
+                lastPos = stream.Position;
+
+                try
+                {
+                    using var doc = JsonDocument.Parse(line);
+                    var root = doc.RootElement;
+
+                    var ts = root.TryGetProperty("ts", out var tse) ? tse.GetString() ?? "" : "";
+                    var level = root.TryGetProperty("level", out var le) ? le.GetString() ?? "" : "";
+                    var src = root.TryGetProperty("source", out var se) ? se.GetString() ?? "" : "";
+                    var msg = root.TryGetProperty("msg", out var me) ? me.GetString() ?? "" : "";
+
+                    if (!string.IsNullOrEmpty(msg))
+                    {
+                        var time = ts.Length >= 19 ? ts.Substring(11, 8) : ts;
+                        newEntries.Add(new ServerLogEntry
+                        {
+                            Timestamp = time,
+                            Level = level,
+                            Source = src,
+                            Message = msg
+                        });
+                    }
+                }
+                catch { }
+            }
+
+            _lastLogPosition = lastPos;
+
+            if (newEntries.Count > 0)
+            {
+                System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+                {
+                    foreach (var entry in newEntries)
+                    {
+                        _serverLogs.Add(entry);
+                    }
+                    while (_serverLogs.Count > 2000)
+                        _serverLogs.RemoveAt(0);
+                    FilterServerLogs();
+                    if (_autoScroll) AutoScrollRequested?.Invoke();
+                });
+            }
+        }
+        catch { }
+    }
+
+    private void FilterServerLogs()
+    {
+        if (string.IsNullOrEmpty(_logSearchText))
+        {
+            _filteredServerLogs.Clear();
+            foreach (var e in _serverLogs)
+                _filteredServerLogs.Add(e);
+        }
+        else
+        {
+            var filtered = _serverLogs
+                .Where(e => e.Message.Contains(_logSearchText, StringComparison.OrdinalIgnoreCase)
+                         || e.Level.Contains(_logSearchText, StringComparison.OrdinalIgnoreCase)
+                         || e.Source.Contains(_logSearchText, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            _filteredServerLogs.Clear();
+            foreach (var e in filtered)
+                _filteredServerLogs.Add(e);
+        }
+    }
+
+    private void AddServerLogEntry(string level, string message)
+    {
+        System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+        {
+            _serverLogs.Add(new ServerLogEntry
+            {
+                Timestamp = DateTime.Now.ToString("HH:mm:ss"),
+                Level = level,
+                Message = message
+            });
+            FilterServerLogs();
+            if (_autoScroll) AutoScrollRequested?.Invoke();
+        });
+    }
+
+    private void ClearServerLogs()
+    {
+        _serverLogs.Clear();
+        _filteredServerLogs.Clear();
+    }
+
+    private void ExportServerLogs()
+    {
+        var dialog = new Microsoft.Win32.SaveFileDialog
+        {
+            Title = "Экспорт логов сервера",
+            Filter = "Text files (*.txt)|*.txt",
+            FileName = $"server-logs-{DateTime.Now:yyyy-MM-dd}.txt"
+        };
+
+        if (dialog.ShowDialog() != true) return;
+
+        try
+        {
+            var lines = _filteredServerLogs.Select(e =>
+                $"[{e.Timestamp}] [{e.Level}]{(string.IsNullOrEmpty(e.Source) ? "" : $" [{e.Source}]")} {e.Message}");
+            File.WriteAllLines(dialog.FileName, lines);
+            AddLog("INFO", $"Логи сервера экспортированы: {dialog.FileName}");
+        }
+        catch (Exception ex)
+        {
+            AddLog("ERROR", $"Ошибка экспорта: {ex.Message}");
+        }
     }
 
     public async Task RefreshAllAsync()
@@ -759,6 +983,8 @@ public class MainViewModel : ViewModelBase
         _refreshTimer?.Dispose();
         _serviceStatusTimer?.Stop();
         _serviceStatusTimer?.Dispose();
+        _logReaderTimer?.Stop();
+        _logReaderTimer?.Dispose();
         _ipcService.Dispose();
         _serviceManager.Dispose();
     }

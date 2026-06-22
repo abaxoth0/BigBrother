@@ -14,7 +14,13 @@ var (
 )
 
 var DefaultLoggerConfig = &logger.FileLoggerConfig{
-	Path: path.Join(".", "logs", "server"),
+	Path: func() string {
+		programData := os.Getenv("PROGRAMDATA")
+		if programData == "" {
+			programData = "."
+		}
+		return path.Join(programData, "BigBrother", "server")
+	}(),
 	FilePerm: 0600, // Group and Other bits are ignored on windows
 	LoggerConfig: &logger.LoggerConfig{
 		ApplicationName: "big-brother-server",
