@@ -20,6 +20,7 @@
 #include "../include/common.h"
 #include "../include/allowlist.h"
 #include "../include/dns.h"
+#include "../include/dns_etw.h"
 #include "../include/ipc.h"
 #include "../../common/log/log.h"
 
@@ -630,6 +631,9 @@ void WINAPI ServiceMain(DWORD argc, LPTSTR *argv) {
 
     OutputDebugString("[ServiceMain] Starting IPC");
     IpcStart(g_ServiceStopEvent);
+
+    OutputDebugString("[ServiceMain] Starting ETW DNS monitor");
+    DnsEtwStart(g_ServiceStopEvent);
 
     g_ClientStopEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
 
