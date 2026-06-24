@@ -7,9 +7,9 @@ COMMON_FLAGS = -Wall -Wno-format-truncation -mconsole \
 DEBUG_FLAGS = -DDEBUG -g3 -O0
 RELEASE_FLAGS = -O2
 
-LDFLAGS = -L$(CURDIR)/include/third-party/WinDivert-2.2.2-A/x64 -lWinDivert -lws2_32 -lwevtapi -static
+LDFLAGS = -L$(CURDIR)/include/third-party/WinDivert-2.2.2-A/x64 -lWinDivert -lws2_32 -static
 
-t-units = src/firewall.c src/common.c src/dns.c src/dns_etw.c src/allowlist.c src/ipc.c \
+t-units = src/firewall.c src/common.c src/dns.c src/allowlist.c src/ipc.c \
 	$(CURDIR)/../common/encoding/encoding.c \
 	$(CURDIR)/../common/log/log.c
 
