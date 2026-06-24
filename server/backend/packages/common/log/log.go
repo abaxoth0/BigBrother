@@ -17,9 +17,9 @@ var DefaultLoggerConfig = &logger.FileLoggerConfig{
 	Path: func() string {
 		exe, err := os.Executable()
 		if err == nil {
-			return path.Join(path.Dir(exe), "server")
+			return path.Join(path.Dir(exe), "logs", "server")
 		}
-		return path.Join(".", "server")
+		return path.Join(".", "logs", "server")
 	}(),
 	FilePerm: 0600, // Group and Other bits are ignored on windows
 	LoggerConfig: &logger.LoggerConfig{

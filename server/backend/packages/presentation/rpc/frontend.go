@@ -398,7 +398,7 @@ func (h *FrontendHandler) SetActiveWhitelist(name string) {
 func (h *FrontendHandler) getLogPath() string {
 	exe, err := os.Executable()
 	if err == nil {
-		return filepath.Join(filepath.Dir(exe), "server")
+		return filepath.Join(filepath.Dir(exe), "logs", "server")
 	}
-	return filepath.Join(".", "server")
+	return filepath.Join(".", "logs", "server")
 }
