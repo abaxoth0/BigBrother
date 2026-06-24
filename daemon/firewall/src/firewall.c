@@ -234,13 +234,45 @@ static DWORD WINAPI client_monitor_thread(LPVOID param) {
     return 0;
 }
 
+void PreResolveWhitelist(void) {
+    WSADATA wsa;
+    if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) return;
+
+    int resolved = 0;
+    for (size_t i = 0; i < g_Whitelist.count; i++) {
+        const char* domain = g_Whitelist.entries[i].domain;
+        if (g_Whitelist.entries[i].is_exception) continue;
+
+        if (domain[0] == '*' || domain[0] == '"') continue;
+
+        struct addrinfo hints;
+        memset(&hints, 0, sizeof(hints));
+        hints.ai_family = AF_INET;
+        hints.ai_socktype = SOCK_STREAM;
+
+        struct addrinfo* result = NULL;
+        int ret = getaddrinfo(domain, NULL, &hints, &result);
+        if (ret != 0 || !result) continue;
+
+        for (struct addrinfo* rp = result; rp; rp = rp->ai_next) {
+            if (rp->ai_family == AF_INET) {
+                struct sockaddr_in* sin = (struct sockaddr_in*)rp->ai_addr;
+                uint32_t ip = ntohl(sin->sin_addr.s_addr);
+                IpAllowlistAdd(&g_IpAllowlist, ip, domain, 300);
+                resolved++;
+            }
+        }
+        freeaddrinfo(result);
+    }
+
+    WSACleanup();
+    if (resolved > 0) {
+        LOGF("[INFO] Pre-resolved %d IPs for whitelisted domains", resolved);
+    }
+}
+
 /**
- * @brief Load whitelist domains and IPs from file.
- *
- * Reads entries from a text file (one per line, lines starting
- * with # are comments). Supports both:
- * - Plain IPs (e.g., "1.2.3.4") - added directly to allowlist
- * - Domain names (e.g., "example.com") - added to domain whitelist
+ * @brief Load the whitelist from the specified file path.
  *
  * @param[in] path Path to whitelist file. If NULL, uses default path.
  *
@@ -295,6 +327,9 @@ int LoadWhiteList(char* path) {
 
     fclose(f);
     LOGF("[INFO] Loaded %zu whitelisted domains and %zu IPs", g_Whitelist.count, g_IpAllowlist.count);
+
+    // Pre-resolve exact-match domains via system DNS (handles DoH)
+    PreResolveWhitelist();
 
     return STATUS_OK;
 }
