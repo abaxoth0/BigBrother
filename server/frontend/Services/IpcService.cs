@@ -719,6 +719,28 @@ public class IpcService : IDisposable
         }
     }
 
+    public async Task<string> GetLogPathAsync()
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return "";
+            try
+            {
+                var (status, data) = SendCommand("GET_LOG_PATH");
+                return status == "OK" && data.Count > 0 ? data[0] : "";
+            }
+            finally
+            {
+                Disconnect();
+            }
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
     public void Dispose()
     {
         try

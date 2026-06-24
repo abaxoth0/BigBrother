@@ -76,6 +76,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Client connection to local server no longer fails with "already connected" when daemon auto-connects first
 - Server user registration: overwrite existing user by name or addr instead of failing on UNIQUE constraint
 - Server `changeUserProperty` checks unique constraints on name/addr before updating (returns conflict error if already claimed by another user)
+- Server frontend rework: new "Главная" tab with server status panel and live server backend log viewer (JSON-lines), old "Логи" tab removed
+- Server backend: added `GET_LOG_PATH` IPC command for frontend log access
 
 ## [0.0.0] - 20-05-2026
 

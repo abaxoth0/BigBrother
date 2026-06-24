@@ -51,6 +51,7 @@ Section "Server Backend" SecServer
     SetOutPath "$INSTDIR"
     File /nonfatal "dist\BigBrother Server Daemon.exe"
     CreateDirectory "${PRODUCT_DATA}"
+    CreateDirectory "$INSTDIR\logs\server"
 
     DetailPrint "Installing server service..."
     ExecWait '"$SYSDIR\net.exe" stop "BigBrother Server"'
