@@ -22,10 +22,11 @@ import (
 
 var mainLogger = logger.NewSource("MAIN", log.DefaultLogger)
 
-const frontendPipePath = `\\.\pipe\BigBrother.Server.Frontend`
-const frontendPipeBufSize = 65536
-const defaultBackendPort = 1984
-const serviceName = "BigBrother Server"
+	const frontendPipePath = `\\.\pipe\BigBrother.Server.Frontend`
+	const frontendPipeBufSize = 65536
+	const defaultBackendPort = 1984
+	const serviceName = "BigBrother Server"
+	const pipeSecurityDescriptor = "D:(A;;GA;;;WD)"
 
 func main() {
 	log.DefaultLoggerConfig.Trace = true
@@ -85,6 +86,7 @@ func main() {
 			Network:          rpc.NetworkPipe,
 			InputBufferSize:  frontendPipeBufSize,
 			OutputBufferSize: frontendPipeBufSize,
+			SecurityDescriptor: pipeSecurityDescriptor,
 		},
 	)
 

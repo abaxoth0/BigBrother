@@ -15,11 +15,11 @@ var (
 
 var DefaultLoggerConfig = &logger.FileLoggerConfig{
 	Path: func() string {
-		programData := os.Getenv("PROGRAMDATA")
-		if programData == "" {
-			programData = "."
+		exe, err := os.Executable()
+		if err == nil {
+			return path.Join(path.Dir(exe), "server")
 		}
-		return path.Join(programData, "BigBrother", "server")
+		return path.Join(".", "server")
 	}(),
 	FilePerm: 0600, // Group and Other bits are ignored on windows
 	LoggerConfig: &logger.LoggerConfig{
