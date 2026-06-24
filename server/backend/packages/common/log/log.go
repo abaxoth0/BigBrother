@@ -3,7 +3,7 @@ package log
 import (
 	"fmt"
 	"os"
-	"path"
+	"path/filepath"
 
 	"github.com/abaxoth0/Ain/logger"
 )
@@ -17,9 +17,9 @@ var DefaultLoggerConfig = &logger.FileLoggerConfig{
 	Path: func() string {
 		exe, err := os.Executable()
 		if err == nil {
-			return path.Join(path.Dir(exe), "logs", "server")
+			return filepath.ToSlash(filepath.Join(filepath.Dir(exe), "logs", "server"))
 		}
-		return path.Join(".", "logs", "server")
+		return filepath.ToSlash(filepath.Join(".", "logs", "server"))
 	}(),
 	FilePerm: 0600, // Group and Other bits are ignored on windows
 	LoggerConfig: &logger.LoggerConfig{
