@@ -465,6 +465,84 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
                     goto filtering;
                 }
 
+                // Spoof DoH canary domains: respond with 127.0.0.1 to tell
+                // browsers (Chrome/Edge) that this network provides DNS,
+                // causing them to disable DoH and fall back to standard DNS.
+                if (!dns.is_response) {
+                    static const char* canary_domains[] = {"use-application-dns.net"};
+                    int is_canary = 0;
+                    for (size_t c = 0; c < sizeof(canary_domains)/sizeof(canary_domains[0]); c++) {
+                        if (DnsCheckDomain(dns.question.domain, canary_domains[c])) {
+                            is_canary = 1;
+                            break;
+                        }
+                    }
+                    if (is_canary) {
+                        // Build spoofed response by cloning and modifying the query packet
+                        char* spoof = malloc(recv_len + 64);
+                        if (spoof) {
+                            memcpy(spoof, packet, recv_len);
+                            WINDIVERT_IPHDR* sip = NULL;
+                            WINDIVERT_UDPHDR* sudp = NULL;
+                            UINT spoof_payload_len = 0;
+                            void* spoof_payload = NULL;
+
+                            WinDivertHelperParsePacket(spoof, recv_len, &sip, NULL, NULL, NULL, NULL,
+                                                        NULL, &sudp, &spoof_payload, &spoof_payload_len, NULL, NULL);
+
+                            if (sip && sudp && spoof_payload && spoof_payload_len >= 12) {
+                                // Swap IP addresses
+                                UINT32 tmp_ip = sip->SrcAddr;
+                                sip->SrcAddr = sip->DstAddr;
+                                sip->DstAddr = tmp_ip;
+
+                                // Swap UDP ports
+                                UINT16 tmp_port = sudp->SrcPort;
+                                sudp->SrcPort = sudp->DstPort;
+                                sudp->DstPort = tmp_port;
+
+                                // Build DNS response header (12 bytes) + fake A record (16 bytes)
+                                uint8_t* dns_out = (uint8_t*)spoof_payload;
+                                // Keep transaction ID from query
+                                // Set flags: response=1, opcode=0, AA=0, TC=0, RD=1, RA=1, Z=0, rcode=0
+                                // 0x8180 = 1000 0001 1000 0000
+                                dns_out[2] = 0x81;
+                                dns_out[3] = 0x80;
+                                // Questions: 1, Answers: 1, Authority: 0, Additional: 0
+                                dns_out[4] = 0x00; dns_out[5] = 0x01;
+                                dns_out[6] = 0x00; dns_out[7] = 0x01;
+                                dns_out[8] = 0x00; dns_out[9] = 0x00;
+                                dns_out[10] = 0x00; dns_out[11] = 0x00;
+
+                                // Answer: name pointer 0xC00C (points to question), type A, class IN, TTL 300
+                                dns_out[12] = 0xC0; dns_out[13] = 0x0C;
+                                dns_out[14] = 0x00; dns_out[15] = 0x01; // TYPE A
+                                dns_out[16] = 0x00; dns_out[17] = 0x01; // CLASS IN
+                                // TTL = 300 seconds
+                                dns_out[18] = 0x00; dns_out[19] = 0x00;
+                                dns_out[20] = 0x01; dns_out[21] = 0x2C;
+                                // RDATA length = 4
+                                dns_out[22] = 0x00; dns_out[23] = 0x04;
+                                // IP = 127.0.0.1 (network byte order: 0x7F000001)
+                                dns_out[24] = 0x7F; dns_out[25] = 0x00;
+                                dns_out[26] = 0x00; dns_out[27] = 0x01;
+
+                                // Fix IP total length and recalculate checksums
+                                UINT new_len = (UINT)((uint8_t*)&dns_out[28] - (uint8_t*)spoof);
+                                sip->Length = htons(new_len);
+                                WinDivertHelperCalcChecksums(spoof, new_len, NULL, 0);
+
+                                // Inject spoofed response
+                                WinDivertSend(handle, spoof, new_len, NULL, &addr);
+                                DLOGF("[DNS-SPOOF] Spoofed A record for %s -> 127.0.0.1",
+                                      dns.question.domain);
+                            }
+                            free(spoof);
+                        }
+                        goto filtering;
+                    }
+                }
+
                 // Only process DNS responses (not queries) with answer records
                 if (!dns.is_response || dns.answer_count == 0) {
                     goto filtering;
