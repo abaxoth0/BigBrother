@@ -220,5 +220,7 @@ int IpcSetWhitelist(const char* data, size_t size) {
     WhitelistLoadFromData(&g_Whitelist, data, size);
     IpAllowlistClear(&g_IpAllowlist);
 
+    PreResolveWhitelist();
+
     return 0;
 }

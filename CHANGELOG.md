@@ -78,6 +78,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Server `changeUserProperty` checks unique constraints on name/addr before updating (returns conflict error if already claimed by another user)
 - Server frontend rework: new "Главная" tab with server status panel and live server backend log viewer (JSON-lines), old "Логи" tab removed
 - Server backend: added `GET_LOG_PATH` IPC command for frontend log access
+- Firewall: enforce minimum 300s TTL for all DNS-resolved IPs (prevents CDN IPs from expiring mid-session)
+- Firewall: pre-resolve exact-match whitelist domains via `getaddrinfo` at startup and IPC update (handles DoH)
+- Firewall: spoof `use-application-dns.net` DNS queries with `127.0.0.1` to force browsers to disable DoH and fall back to port-53 DNS
 
 ## [0.0.0] - 20-05-2026
 
