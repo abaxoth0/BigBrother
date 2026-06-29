@@ -25,8 +25,10 @@ static void write_str(HANDLE pipe, const char* str) {
 
 static void write_status(HANDLE pipe) {
     char buffer[IPC_BUFFER_SIZE];
+    AcquireSRWLockShared(&g_AllowlistLock);
     snprintf(buffer, sizeof(buffer), "STATUS\n%zu\n%zu\nrunning\n",
              g_Whitelist.count, g_IpAllowlist.count);
+    ReleaseSRWLockShared(&g_AllowlistLock);
     write_str(pipe, buffer);
 }
 
@@ -42,6 +44,7 @@ static void write_error(HANDLE pipe, const char* error) {
 
 static void write_whitelist(HANDLE pipe) {
     char* domains[256];
+    AcquireSRWLockShared(&g_AllowlistLock);
     for (size_t i = 0; i < g_Whitelist.count && i < 256; i++) {
         domains[i] = g_Whitelist.entries[i].domain;
     }
@@ -59,6 +62,7 @@ static void write_whitelist(HANDLE pipe) {
         }
         if (n > 0) pos += n;
     }
+    ReleaseSRWLockShared(&g_AllowlistLock);
 
     write_str(pipe, buffer);
 }
@@ -206,19 +210,27 @@ int IpcStart(HANDLE stop_event) {
 }
 
 int IpcReloadWhitelist(void) {
-    return reload_whitelist();
+    AcquireSRWLockExclusive(&g_AllowlistLock);
+    int ret = reload_whitelist();
+    ReleaseSRWLockExclusive(&g_AllowlistLock);
+    return ret;
 }
 
 int IpcSetWhitelist(const char* data, size_t size) {
     if (!data || size == 0) {
         // Empty data means clear the whitelist (block all)
+        AcquireSRWLockExclusive(&g_AllowlistLock);
         WhitelistClear(&g_Whitelist);
         IpAllowlistClear(&g_IpAllowlist);
+        ReleaseSRWLockExclusive(&g_AllowlistLock);
         return 0;
     }
 
+    AcquireSRWLockExclusive(&g_AllowlistLock);
     WhitelistLoadFromData(&g_Whitelist, data, size);
-    IpAllowlistClear(&g_IpAllowlist);
+    // Don't clear the IP allowlist — existing connections keep working.
+    // New IPs will be added via DNS responses or PreResolveWhitelist.
+    ReleaseSRWLockExclusive(&g_AllowlistLock);
 
     PreResolveWhitelist();
 

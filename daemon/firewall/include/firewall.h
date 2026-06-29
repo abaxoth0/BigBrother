@@ -7,6 +7,7 @@
 extern Whitelist g_Whitelist;
 extern IpAllowlist g_IpAllowlist;
 extern HANDLE g_ServiceStopEvent;
+extern SRWLOCK g_AllowlistLock;
 
 int LoadWhiteList(char* path);
 void PreResolveWhitelist(void);
