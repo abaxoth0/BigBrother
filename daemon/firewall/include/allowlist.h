@@ -12,7 +12,7 @@
 
 #define MAX_WHITELIST_DOMAINS 256
 #define MAX_DOMAIN_LEN 256
-#define MAX_ALLOWED_IPS 1024
+#define MAX_ALLOWED_IPS 32768
 
 /** @brief Single whitelist entry containing a domain name. */
 typedef struct {

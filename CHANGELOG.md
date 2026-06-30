@@ -84,7 +84,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Firewall: add SRWLOCK thread safety for `g_Whitelist`/`g_IpAllowlist` (fixes race between filter loop and IPC updates that could block all traffic)
 - Firewall: copy domain from `IpAllowlistGetDomain` to local buffer before use (fixes dangling pointer when IPC thread clears allowlist concurrently)
 - Firewall: don't clear IP allowlist on non-empty whitelist updates (existing connections keep working)
-- Firewall: force cleanup and retry when IP allowlist is full (1024 entries)
+- Firewall: increase IP allowlist size from 1024 to 32768 entries
+- Firewall: force cleanup and retry when IP allowlist is full
 
 ## [0.0.0] - 20-05-2026
 
