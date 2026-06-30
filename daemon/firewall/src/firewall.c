@@ -29,6 +29,7 @@ HANDLE g_ServiceStopEvent = INVALID_HANDLE_VALUE;
 
 Whitelist g_Whitelist = {0};
 IpAllowlist g_IpAllowlist = {0};
+SRWLOCK g_AllowlistLock = SRWLOCK_INIT;
 
 StringView g_FilterExpr = {0};
 
@@ -237,6 +238,7 @@ void PreResolveWhitelist(void) {
     WSADATA wsa;
     if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) return;
 
+    AcquireSRWLockExclusive(&g_AllowlistLock);
     int resolved = 0;
     for (size_t i = 0; i < g_Whitelist.count; i++) {
         const char* domain = g_Whitelist.entries[i].domain;
@@ -264,6 +266,7 @@ void PreResolveWhitelist(void) {
         freeaddrinfo(result);
     }
 
+    ReleaseSRWLockExclusive(&g_AllowlistLock);
     WSACleanup();
     if (resolved > 0) {
         LOGF("[INFO] Pre-resolved %d IPs for whitelisted domains", resolved);
@@ -548,6 +551,7 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
                 }
 
                 int domain_whitelisted = 0;
+                AcquireSRWLockShared(&g_AllowlistLock);
                 for (size_t w = 0; w < g_Whitelist.count; w++) {
                     if (!g_Whitelist.entries[w].is_exception &&
                         DnsCheckDomain(dns.question.domain, g_Whitelist.entries[w].domain)) {
@@ -564,22 +568,17 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
                         break;
                     }
                 }
+                ReleaseSRWLockShared(&g_AllowlistLock);
 
                 // Add IPs to allowlist if domain is whitelisted and not excepted
-                for (uint32_t i = 0; i < dns.answer_count; i++) {
-                    for (uint32_t j = 0; j < dns.answers[i].ip_count; j++) {
-                        uint32_t resolved_ip = dns.answers[i].ips[j];
-
-                        if (domain_whitelisted && !domain_excepted) {
-                            IpAllowlistAdd(&g_IpAllowlist, resolved_ip, dns.question.domain, dns.answers[i].ttl);
+                if (domain_whitelisted && !domain_excepted) {
+                    AcquireSRWLockExclusive(&g_AllowlistLock);
+                    for (uint32_t i = 0; i < dns.answer_count; i++) {
+                        for (uint32_t j = 0; j < dns.answers[i].ip_count; j++) {
+                            IpAllowlistAdd(&g_IpAllowlist, dns.answers[i].ips[j], dns.question.domain, dns.answers[i].ttl);
                         }
-
-#ifdef DEBUG
-                        struct in_addr addr_ip = { .s_addr = htonl(resolved_ip) };
-                        DLOGF("[DNS-RESPONSE] %s -> %s (whitelisted: %d)",
-                              dns.question.domain, inet_ntoa(addr_ip), domain_whitelisted);
-#endif
                     }
+                    ReleaseSRWLockExclusive(&g_AllowlistLock);
                 }
 
             filtering:
@@ -627,21 +626,30 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
                 continue;
             }
 
-            const char* domain = IpAllowlistGetDomain(&g_IpAllowlist, dest_ip);
+            // Copy domain to local buffer to avoid dangling pointer if IPC thread
+            // modifies the allowlist between GetDomain and the whitelist iteration.
+            char domain_buf[MAX_DOMAIN_LEN] = {0};
+            AcquireSRWLockShared(&g_AllowlistLock);
+            const char* dom = IpAllowlistGetDomain(&g_IpAllowlist, dest_ip);
+            if (dom) {
+                strncpy(domain_buf, dom, sizeof(domain_buf) - 1);
+            }
+
             int domain_whitelisted = 0;
-            if (domain && domain[0]) {
+            if (domain_buf[0]) {
                 for (size_t w = 0; w < g_Whitelist.count; w++) {
-                    if (DnsCheckDomain(domain, g_Whitelist.entries[w].domain)) {
+                    if (DnsCheckDomain(domain_buf, g_Whitelist.entries[w].domain)) {
                         domain_whitelisted = 1;
                         break;
                     }
                 }
             }
+            ReleaseSRWLockShared(&g_AllowlistLock);
 
             if (!domain_whitelisted) {
                 blocked_count++;
-                if (domain) {
-                    LOGB("Packet to %s blocked (domain: %s not whitelisted)", dst, domain);
+                if (domain_buf[0]) {
+                    LOGB("Packet to %s blocked (domain: %s not whitelisted)", dst, domain_buf);
                 } else {
                     LOGB("Packet to %s blocked", dst);
                 }
@@ -650,9 +658,11 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
         }
 
         if (packet_count % 100 == 0) {
+            AcquireSRWLockShared(&g_AllowlistLock);
             DLOGF("[STATS] processed=%d blocked=%d allowlist=%zu whitelist=%zu outbound=%d local=%d",
                   packet_count, blocked_count, g_IpAllowlist.count, g_Whitelist.count,
                   addr.Outbound, is_local);
+            ReleaseSRWLockShared(&g_AllowlistLock);
         }
 
         WinDivertSend(handle, packet, recv_len, NULL, &addr);

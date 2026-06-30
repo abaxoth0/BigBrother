@@ -81,6 +81,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Firewall: enforce minimum 300s TTL for all DNS-resolved IPs (prevents CDN IPs from expiring mid-session)
 - Firewall: pre-resolve exact-match whitelist domains via `getaddrinfo` at startup and IPC update (handles DoH)
 - Firewall: spoof `use-application-dns.net` DNS queries with `127.0.0.1` to force browsers to disable DoH and fall back to port-53 DNS
+- Firewall: add SRWLOCK thread safety for `g_Whitelist`/`g_IpAllowlist` (fixes race between filter loop and IPC updates that could block all traffic)
+- Firewall: copy domain from `IpAllowlistGetDomain` to local buffer before use (fixes dangling pointer when IPC thread clears allowlist concurrently)
+- Firewall: don't clear IP allowlist on non-empty whitelist updates (existing connections keep working)
+- Firewall: increase IP allowlist size from 1024 to 32768 entries
+- Firewall: force cleanup and retry when IP allowlist is full
 
 ## [0.0.0] - 20-05-2026
 

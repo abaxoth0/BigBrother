@@ -144,7 +144,12 @@ int IpAllowlistAdd(IpAllowlist* al, uint32_t ip, const char* domain, uint32_t tt
     IpAllowlistCleanup(al);
 
     if (al->count >= MAX_ALLOWED_IPS) {
-        return -1;
+        // Force cleanup and retry once before giving up
+        al->last_cleared_at = 0;
+        IpAllowlistCleanup(al);
+        if (al->count >= MAX_ALLOWED_IPS) {
+            return -1;
+        }
     }
 
     // Enforce a minimum TTL of 5 minutes to prevent rapid expiry
