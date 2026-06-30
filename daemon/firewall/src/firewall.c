@@ -30,6 +30,7 @@ HANDLE g_ServiceStopEvent = INVALID_HANDLE_VALUE;
 Whitelist g_Whitelist = {0};
 IpAllowlist g_IpAllowlist = {0};
 SRWLOCK g_AllowlistLock = SRWLOCK_INIT;
+int g_FiltrationEnabled = 1;
 
 StringView g_FilterExpr = {0};
 
@@ -617,7 +618,7 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
         static int blocked_count = 0;
         packet_count++;
 
-        if (addr.Outbound && !IsAllowed(dest_ip) && !is_local) {
+        if (g_FiltrationEnabled && addr.Outbound && !IsAllowed(dest_ip) && !is_local) {
             int is_dns_udp = (udp_hdr && (ntohs(udp_hdr->DstPort) == 53));
             int is_dns_tcp = (tcp_hdr && (ntohs(tcp_hdr->DstPort) == 53));
             int is_discovery = (udp_hdr && (ntohs(udp_hdr->SrcPort) == 42069 || ntohs(udp_hdr->DstPort) == 42069));

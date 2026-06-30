@@ -209,6 +209,11 @@
                                                    Foreground="{Binding DaemonConnectionStatus, Converter={StaticResource ConnectionStatusToColor}}"/>
                                     </StackPanel>
                                     <StackPanel Orientation="Horizontal" Margin="0,5">
+                                        <TextBlock Text="Фильтрация:" Width="100" Foreground="Gray" VerticalAlignment="Center"/>
+                                        <CheckBox IsChecked="{Binding FiltrationEnabled}" IsEnabled="False" VerticalAlignment="Center"/>
+                                        <Button Content="Вкл/Выкл" Style="{StaticResource ControlButton}" Command="{Binding ToggleFiltrationCommand}" MinWidth="50" Padding="5,2" FontSize="11" Margin="5,0,0,0"/>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Margin="0,5">
                                         <Button Content="Старт" Style="{StaticResource ControlButton}" Click="StartDaemon_Click"/>
                                         <Button Content="Стоп" Style="{StaticResource ControlButton}" Click="StopDaemon_Click"/>
                                         <Button Content="Рестарт" Style="{StaticResource ControlButton}" Click="RestartDaemon_Click"/>

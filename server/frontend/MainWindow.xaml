@@ -54,6 +54,7 @@
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
@@ -90,8 +91,17 @@
                             </StackPanel>
                         </StackPanel>
 
+                        <!-- Filtration -->
+                        <StackPanel Grid.Column="2" Margin="0,0,30,0" VerticalAlignment="Center">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="Фильтрация: " FontSize="14" FontWeight="Bold" VerticalAlignment="Center"/>
+                                <TextBlock Text="{Binding FiltrationStatus}" FontSize="14" VerticalAlignment="Center"/>
+                            </StackPanel>
+                            <Button Content="Вкл/Выкл" Style="{StaticResource ControlButton}" Command="{Binding ToggleFiltrationCommand}" MinWidth="60" Padding="6,2" FontSize="12" Margin="0,2,0,0"/>
+                        </StackPanel>
+
                         <!-- Service control -->
-                        <StackPanel Grid.Column="3" VerticalAlignment="Center">
+                        <StackPanel Grid.Column="4" VerticalAlignment="Center">
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                                 <TextBlock Text="Служба:" Foreground="Black" FontSize="12" FontWeight="Bold" VerticalAlignment="Center"/>
                                 <TextBlock Text="{Binding ServiceStatus}" Foreground="Gray" FontSize="11" Margin="4,0,0,0" VerticalAlignment="Center"/>

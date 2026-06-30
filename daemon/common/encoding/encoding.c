@@ -19,6 +19,8 @@ IpcMessageType EncodingParseMessageType(const char* str) {
     if (strcmp(str, "STATUS") == 0) return MSG_STATUS;
     if (strcmp(str, "OK") == 0) return MSG_OK;
     if (strcmp(str, "ERROR") == 0) return MSG_ERROR;
+    if (strcmp(str, "GET_FILTRATION") == 0) return MSG_GET_FILTRATION;
+    if (strcmp(str, "SET_FILTRATION") == 0) return MSG_SET_FILTRATION;
 
     return -1;
 }

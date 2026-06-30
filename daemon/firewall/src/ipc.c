@@ -26,8 +26,8 @@ static void write_str(HANDLE pipe, const char* str) {
 static void write_status(HANDLE pipe) {
     char buffer[IPC_BUFFER_SIZE];
     AcquireSRWLockShared(&g_AllowlistLock);
-    snprintf(buffer, sizeof(buffer), "STATUS\n%zu\n%zu\nrunning\n",
-             g_Whitelist.count, g_IpAllowlist.count);
+    snprintf(buffer, sizeof(buffer), "STATUS\n%zu\n%zu\nrunning\n%d\n",
+             g_Whitelist.count, g_IpAllowlist.count, g_FiltrationEnabled);
     ReleaseSRWLockShared(&g_AllowlistLock);
     write_str(pipe, buffer);
 }
@@ -111,6 +111,20 @@ static int parse_and_execute(HANDLE pipe, char* buffer, size_t size) {
         case MSG_PING:
             write_ok(pipe);
             break;
+
+        case MSG_GET_FILTRATION: {
+            char buf[32];
+            snprintf(buf, sizeof(buf), "%d\n", g_FiltrationEnabled);
+            write_str(pipe, buf);
+            break;
+        }
+
+        case MSG_SET_FILTRATION: {
+            char* data = newline ? newline + 1 : buffer + strlen(buffer);
+            g_FiltrationEnabled = (data[0] == '1');
+            write_ok(pipe);
+            break;
+        }
 
         default:
             write_error(pipe, "unknown command");

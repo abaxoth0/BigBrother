@@ -22,6 +22,7 @@ static char g_server_ip[64] = {0};
 static int g_server_session_active = 0;
 static int g_registration_tried = 0;
 static int g_fallback_whitelist_enabled = 1;
+static int g_filtration_enabled = 1;
 
 void SetServerSessionActive(int active) {
     g_server_session_active = active;
@@ -394,6 +395,28 @@ int PingDaemon(void) {
 
 int DaemonGetLogPath(char* out_buffer, size_t buffer_size) {
     return send_command_tlv("GET_LOG_PATH", NULL, 0, out_buffer, buffer_size);
+}
+
+int DaemonGetFiltration(void) {
+    char buf[16] = {0};
+    if (send_command_tlv("GET_FILTRATION", NULL, 0, buf, sizeof(buf)) == 0) {
+        g_filtration_enabled = (buf[0] == '1');
+    }
+    return g_filtration_enabled;
+}
+
+int DaemonSetFiltration(int enabled) {
+    const char* args[1] = {enabled ? "1" : "0"};
+    char buf[16] = {0};
+    if (send_command_tlv("SET_FILTRATION", args, 1, buf, sizeof(buf)) == 0) {
+        g_filtration_enabled = enabled;
+        return 0;
+    }
+    return -1;
+}
+
+int IsFiltrationEnabled(void) {
+    return g_filtration_enabled;
 }
 
 static int send_to_server_tlv(const char* command, const char** args, size_t arg_count,

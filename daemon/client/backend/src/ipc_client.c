@@ -189,21 +189,23 @@ DWORD WINAPI client_handler(LPVOID param) {
         int daemon_ok = (PingDaemon() == 0);
         int server_ok = IsServerSessionActive();
 
-        // Get client name from config
         char client_name[128] = {0};
         LoadUserName(client_name, sizeof(client_name));
 
-        // Build response with separate TLV values
         // data[0] = ClientName, data[1] = IpAddress, data[2] = DaemonStatus
         // data[3] = Backend status ("running"), data[4] = WhitelistRevision
         // data[5] = PID, data[6] = ServerRunning, data[7] = ServerSession
+        // data[8] = FiltrationEnabled
         char pid_str[32];
         snprintf(pid_str, sizeof(pid_str), "%lu", GetCurrentProcessId());
 
         char rev_str[32];
         snprintf(rev_str, sizeof(rev_str), "%u", g_whitelist_revision);
 
-        const char* data[8] = {
+        char filt_str[8];
+        snprintf(filt_str, sizeof(filt_str), "%d", DaemonGetFiltration());
+
+        const char* data[9] = {
             client_name[0] ? client_name : "unknown",
             "127.0.0.1",
             daemon_ok ? "running" : "not_running",
@@ -211,9 +213,10 @@ DWORD WINAPI client_handler(LPVOID param) {
             rev_str,
             pid_str,
             server_ok ? "running" : "not_running",
-            IsServerSessionActive() ? "connected" : "not_connected"
+            IsServerSessionActive() ? "connected" : "not_connected",
+            filt_str
         };
-        write_response_tlv(pipe, "OK", data, 8);
+        write_response_tlv(pipe, "OK", data, 9);
 
     } else if (strcmp(buffer, "GET_WHITELIST") == 0) {
         char whitelist_buf[8192];
@@ -368,6 +371,25 @@ DWORD WINAPI client_handler(LPVOID param) {
             write_response_tlv(pipe, "OK", data, 1);
         } else {
             write_response_tlv(pipe, "OK", data, 1); // empty string = not set
+        }
+
+    } else if (strcmp(buffer, "GET_FILTRATION") == 0) {
+        char val[8];
+        int enabled = IsFiltrationEnabled();
+        snprintf(val, sizeof(val), "%d", enabled);
+        const char* data[1] = {val};
+        write_response_tlv(pipe, "OK", data, 1);
+
+    } else if (strcmp(buffer, "SET_FILTRATION") == 0) {
+        if (arg_count < 1 || !args[0]) {
+            write_error_tlv(pipe, "missing value (0 or 1)");
+        } else {
+            int enabled = (args[0][0] == '1');
+            if (DaemonSetFiltration(enabled) == 0) {
+                write_ok(pipe);
+            } else {
+                write_error_tlv(pipe, "failed to set filtration");
+            }
         }
 
     } else if (strcmp(buffer, "DISCOVER_SERVERS") == 0) {
