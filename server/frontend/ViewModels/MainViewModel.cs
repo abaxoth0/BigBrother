@@ -312,12 +312,20 @@ public class MainViewModel : ViewModelBase
 
     private async Task ToggleFiltrationAsync()
     {
-        var newState = FiltrationStatus == "Вкл" ? "0" : "1";
-        var ok = await _ipcService.SetFiltrationEnabledAsync(newState == "1");
-        AddLog(ok ? "INFO" : "ERROR", ok
-            ? $"Фильтрация {(newState == "1" ? "включена" : "отключена")}"
-            : "Ошибка переключения фильтрации");
-        await RefreshServerStatusAsync();
+        try
+        {
+            var newState = FiltrationStatus == "Вкл" ? "0" : "1";
+            AddLog("DEBUG", $"ToggleFiltration: current='{FiltrationStatus}', newState='{newState}'");
+            var ok = await _ipcService.SetFiltrationEnabledAsync(newState == "1");
+            AddLog(ok ? "INFO" : "ERROR", ok
+                ? $"Фильтрация {(newState == "1" ? "включена" : "отключена")}"
+                : "Ошибка переключения фильтрации");
+            await RefreshServerStatusAsync();
+        }
+        catch (Exception ex)
+        {
+            AddLog("ERROR", $"Ошибка: {ex.Message}");
+        }
     }
 
     private async Task LoadLogPathAsync()
