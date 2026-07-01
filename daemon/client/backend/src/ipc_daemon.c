@@ -786,12 +786,18 @@ int DaemonRun(const char* server_ip, int poll_interval_secs) {
                 // Sync filtration state from server
                 {
                     char filt_buf[16] = {0};
-                    if (send_to_server_tlv("GET_FILTRATION", NULL, 0, filt_buf, sizeof(filt_buf)) == 0) {
+                    int tlv_ret = send_to_server_tlv("GET_FILTRATION", NULL, 0, filt_buf, sizeof(filt_buf));
+                    if (tlv_ret == 0) {
                         int server_filt = (filt_buf[0] == '1');
+                        LOGF("[Daemon] Server GET_FILTRATION returned '%s' (server_filt=%d, local=%d)",
+                             filt_buf, server_filt, g_filtration_enabled);
                         if (server_filt != g_filtration_enabled) {
                             LOGF("[Daemon] Server filtration %s, updating local firewall", server_filt ? "enabled" : "disabled");
-                            DaemonSetFiltration(server_filt);
+                            int df_ret = DaemonSetFiltration(server_filt);
+                            LOGF("[Daemon] DaemonSetFiltration returned %d", df_ret);
                         }
+                    } else {
+                        LOGF("[Daemon] GET_FILTRATION from server failed (ret=%d)", tlv_ret);
                     }
                 }
 

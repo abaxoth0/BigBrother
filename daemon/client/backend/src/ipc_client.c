@@ -203,7 +203,9 @@ DWORD WINAPI client_handler(LPVOID param) {
         snprintf(rev_str, sizeof(rev_str), "%u", g_whitelist_revision);
 
         char filt_str[8];
-        snprintf(filt_str, sizeof(filt_str), "%d", DaemonGetFiltration());
+        int filt_val = DaemonGetFiltration();
+        snprintf(filt_str, sizeof(filt_str), "%d", filt_val);
+        LOGF("[IPC] GET_STATUS: filtration=%d (from DaemonGetFiltration)", filt_val);
 
         const char* data[9] = {
             client_name[0] ? client_name : "unknown",
