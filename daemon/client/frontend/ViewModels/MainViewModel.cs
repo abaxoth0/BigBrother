@@ -332,6 +332,7 @@ public class MainViewModel : ViewModelBase, IDisposable
             {
                 if (_disposed) return;
                 ClientConnectionStatus = status.IsConnected ? "Подключено" : "Отключено";
+                FiltrationEnabled = status.FiltrationEnabled;
             });
 
             if (!status.IsConnected && SettingsAvailable)

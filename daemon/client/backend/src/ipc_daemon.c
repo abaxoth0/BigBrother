@@ -783,6 +783,18 @@ int DaemonRun(const char* server_ip, int poll_interval_secs) {
                     ServerConnect(username);
                 }
 
+                // Sync filtration state from server
+                {
+                    char filt_buf[16] = {0};
+                    if (send_to_server_tlv("GET_FILTRATION", NULL, 0, filt_buf, sizeof(filt_buf)) == 0) {
+                        int server_filt = (filt_buf[0] == '1');
+                        if (server_filt != g_filtration_enabled) {
+                            LOGF("[Daemon] Server filtration %s, updating local firewall", server_filt ? "enabled" : "disabled");
+                            DaemonSetFiltration(server_filt);
+                        }
+                    }
+                }
+
                 // Check if server whitelist sync is disabled
                 if (strcmp(response, "SYNC_DISABLED") == 0) {
                     if (strcmp(last_whitelist, "SYNC_DISABLED") != 0) {
