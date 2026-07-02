@@ -867,6 +867,50 @@ public class IpcService : IDisposable
         }
     }
 
+    public async Task<bool> GetFiltrationAutoDisableAsync()
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return false;
+            try
+            {
+                var (status, data) = await SendCommandWithTimeoutAsync("GET_FILTRATION_AUTO_DISABLE", ReadTimeoutMs);
+                return status == "OK" && data.Count > 0 && data[0] == "1";
+            }
+            finally
+            {
+                Disconnect();
+            }
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
+    public async Task<bool> SetFiltrationAutoDisableAsync(bool enabled)
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return false;
+            try
+            {
+                var (status, _) = await SendCommandWithTimeoutAsync("SET_FILTRATION_AUTO_DISABLE", ReadTimeoutMs, enabled ? "1" : "0");
+                return status == "OK";
+            }
+            finally
+            {
+                Disconnect();
+            }
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
     public void Dispose()
     {
         try

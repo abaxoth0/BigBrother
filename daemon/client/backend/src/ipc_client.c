@@ -394,6 +394,20 @@ DWORD WINAPI client_handler(LPVOID param) {
             }
         }
 
+    } else if (strcmp(buffer, "GET_FILTRATION_AUTO_DISABLE") == 0) {
+        char val[8];
+        snprintf(val, sizeof(val), "%d", IsFiltrationAutoDisableEnabled());
+        const char* data[1] = {val};
+        write_response_tlv(pipe, "OK", data, 1);
+
+    } else if (strcmp(buffer, "SET_FILTRATION_AUTO_DISABLE") == 0) {
+        if (arg_count < 1 || !args[0]) {
+            write_error_tlv(pipe, "missing value (0 or 1)");
+        } else {
+            SetFiltrationAutoDisableEnabled(args[0][0] == '1');
+            write_ok(pipe);
+        }
+
     } else if (strcmp(buffer, "DISCOVER_SERVERS") == 0) {
         int timeout_ms = 2000;
         if (arg_count >= 1 && args[0]) {

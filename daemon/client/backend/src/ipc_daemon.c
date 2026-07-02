@@ -23,6 +23,7 @@ static int g_server_session_active = 0;
 static int g_registration_tried = 0;
 static int g_fallback_whitelist_enabled = 1;
 static int g_filtration_enabled = 1;
+static int g_filtration_auto_disable = 0;
 
 void SetServerSessionActive(int active) {
     g_server_session_active = active;
@@ -419,6 +420,31 @@ int IsFiltrationEnabled(void) {
     return g_filtration_enabled;
 }
 
+int IsFiltrationAutoDisableEnabled(void) {
+    char buf[8] = {0};
+    if (ini_get_string("filtration", "auto_disable", buf, sizeof(buf)) && buf[0])
+        return buf[0] == '1';
+    return 0;
+}
+
+void SetFiltrationAutoDisableEnabled(int enabled) {
+    ini_set_string("filtration", "auto_disable", enabled ? "1" : "0");
+}
+
+static void apply_auto_disable(void) {
+    if (IsFiltrationAutoDisableEnabled()) {
+        LOGF("[Daemon] Auto-disable: disabling filtration (server disconnected)");
+        DaemonSetFiltration(0);
+    }
+}
+
+static void apply_auto_enable(void) {
+    if (IsFiltrationAutoDisableEnabled()) {
+        LOGF("[Daemon] Auto-disable: enabling filtration (server connected)");
+        DaemonSetFiltration(1);
+    }
+}
+
 static int send_to_server_tlv(const char* command, const char** args, size_t arg_count,
                               char* out_buffer, size_t buffer_size) {
     if (!g_server_ip[0] || !command || !out_buffer || buffer_size == 0) {
@@ -736,8 +762,10 @@ int DaemonRun(const char* server_ip, int poll_interval_secs) {
         if (ServerConnect(username) == 0) {
             LOGF("[Daemon] Connected to server successfully");
             server_connected = 1;
+            apply_auto_enable();
         } else {
             LOGF("[Daemon] Failed to connect to server (may not be registered/approved yet)");
+            apply_auto_disable();
             if (!g_registration_tried) {
                 LOGF("[Daemon] Attempting to register...");
                 ServerRegister(username);
@@ -746,6 +774,7 @@ int DaemonRun(const char* server_ip, int poll_interval_secs) {
         }
     } else {
         LOGF("[Daemon] No saved username found, skipping server connection");
+        apply_auto_disable();
     }
 
     while (1) {
@@ -781,6 +810,7 @@ int DaemonRun(const char* server_ip, int poll_interval_secs) {
                     server_connected = 1;
                     g_server_session_active = 1;
                     ServerConnect(username);
+                    apply_auto_enable();
                 }
 
                 // Sync filtration state from server
@@ -841,6 +871,7 @@ int DaemonRun(const char* server_ip, int poll_interval_secs) {
             } else {
                 if (server_connected) {
                     LOGF("[Daemon] Lost connection to server %s", g_server_ip);
+                    apply_auto_disable();
                 } else {
                     LOGF("[Daemon] Cannot connect to server %s, retrying...", g_server_ip);
                 }

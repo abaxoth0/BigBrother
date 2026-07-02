@@ -207,9 +207,19 @@ public class MainViewModel : ViewModelBase, IDisposable
         set
         {
             if (SetProperty(ref _fallbackWhitelistEnabled, value))
-            {
                 _ = _ipcService.SetFallbackWhitelistEnabledAsync(value);
-            }
+        }
+    }
+
+    private bool _filtrationAutoDisable;
+
+    public bool FiltrationAutoDisable
+    {
+        get => _filtrationAutoDisable;
+        set
+        {
+            if (SetProperty(ref _filtrationAutoDisable, value))
+                _ = _ipcService.SetFiltrationAutoDisableAsync(value);
         }
     }
 
@@ -422,6 +432,7 @@ public class MainViewModel : ViewModelBase, IDisposable
         var netAuto = await _ipcService.GetNetworkAutoAsync();
         var netGw = await _ipcService.GetNetworkGatewayAsync();
         var netMask = await _ipcService.GetNetworkMaskAsync();
+        var filtAuto = await _ipcService.GetFiltrationAutoDisableAsync();
         var available = addr != "" || name != "" || enabled || srvName != "";
 
         System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
@@ -444,6 +455,8 @@ public class MainViewModel : ViewModelBase, IDisposable
             OnPropertyChanged(nameof(NetworkMask));
             _fallbackWhitelistEnabled = enabled;
             OnPropertyChanged(nameof(FallbackWhitelistEnabled));
+            _filtrationAutoDisable = filtAuto;
+            OnPropertyChanged(nameof(FiltrationAutoDisable));
             SettingsAvailable = available;
         });
     }
