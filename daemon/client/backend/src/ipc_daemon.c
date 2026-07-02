@@ -22,6 +22,8 @@ static char g_server_ip[64] = {0};
 static int g_server_session_active = 0;
 static int g_registration_tried = 0;
 static int g_fallback_whitelist_enabled = 1;
+static int g_filtration_enabled = 1;
+static int g_filtration_auto_disable = 0;
 
 void SetServerSessionActive(int active) {
     g_server_session_active = active;
@@ -396,6 +398,53 @@ int DaemonGetLogPath(char* out_buffer, size_t buffer_size) {
     return send_command_tlv("GET_LOG_PATH", NULL, 0, out_buffer, buffer_size);
 }
 
+int DaemonGetFiltration(void) {
+    char buf[16] = {0};
+    if (send_command_tlv("GET_FILTRATION", NULL, 0, buf, sizeof(buf)) == 0) {
+        g_filtration_enabled = (buf[0] == '1');
+    }
+    return g_filtration_enabled;
+}
+
+int DaemonSetFiltration(int enabled) {
+    const char* args[1] = {enabled ? "1" : "0"};
+    char buf[16] = {0};
+    if (send_command_tlv("SET_FILTRATION", args, 1, buf, sizeof(buf)) == 0) {
+        g_filtration_enabled = enabled;
+        return 0;
+    }
+    return -1;
+}
+
+int IsFiltrationEnabled(void) {
+    return g_filtration_enabled;
+}
+
+int IsFiltrationAutoDisableEnabled(void) {
+    char buf[8] = {0};
+    if (ini_get_string("filtration", "auto_disable", buf, sizeof(buf)) && buf[0])
+        return buf[0] == '1';
+    return 0;
+}
+
+void SetFiltrationAutoDisableEnabled(int enabled) {
+    ini_set_string("filtration", "auto_disable", enabled ? "1" : "0");
+}
+
+static void apply_auto_disable(void) {
+    if (IsFiltrationAutoDisableEnabled()) {
+        LOGF("[Daemon] Auto-disable: disabling filtration (server disconnected)");
+        DaemonSetFiltration(0);
+    }
+}
+
+static void apply_auto_enable(void) {
+    if (IsFiltrationAutoDisableEnabled()) {
+        LOGF("[Daemon] Auto-disable: enabling filtration (server connected)");
+        DaemonSetFiltration(1);
+    }
+}
+
 static int send_to_server_tlv(const char* command, const char** args, size_t arg_count,
                               char* out_buffer, size_t buffer_size) {
     if (!g_server_ip[0] || !command || !out_buffer || buffer_size == 0) {
@@ -713,8 +762,10 @@ int DaemonRun(const char* server_ip, int poll_interval_secs) {
         if (ServerConnect(username) == 0) {
             LOGF("[Daemon] Connected to server successfully");
             server_connected = 1;
+            apply_auto_enable();
         } else {
             LOGF("[Daemon] Failed to connect to server (may not be registered/approved yet)");
+            apply_auto_disable();
             if (!g_registration_tried) {
                 LOGF("[Daemon] Attempting to register...");
                 ServerRegister(username);
@@ -723,6 +774,7 @@ int DaemonRun(const char* server_ip, int poll_interval_secs) {
         }
     } else {
         LOGF("[Daemon] No saved username found, skipping server connection");
+        apply_auto_disable();
     }
 
     while (1) {
@@ -758,6 +810,25 @@ int DaemonRun(const char* server_ip, int poll_interval_secs) {
                     server_connected = 1;
                     g_server_session_active = 1;
                     ServerConnect(username);
+                    apply_auto_enable();
+                }
+
+                // Sync filtration state from server
+                {
+                    char filt_buf[16] = {0};
+                    int tlv_ret = send_to_server_tlv("GET_FILTRATION", NULL, 0, filt_buf, sizeof(filt_buf));
+                    if (tlv_ret == 0) {
+                        int server_filt = (filt_buf[0] == '1');
+                        LOGF("[Daemon] Server GET_FILTRATION returned '%s' (server_filt=%d, local=%d)",
+                             filt_buf, server_filt, g_filtration_enabled);
+                        if (server_filt != g_filtration_enabled) {
+                            LOGF("[Daemon] Server filtration %s, updating local firewall", server_filt ? "enabled" : "disabled");
+                            int df_ret = DaemonSetFiltration(server_filt);
+                            LOGF("[Daemon] DaemonSetFiltration returned %d", df_ret);
+                        }
+                    } else {
+                        LOGF("[Daemon] GET_FILTRATION from server failed (ret=%d)", tlv_ret);
+                    }
                 }
 
                 // Check if server whitelist sync is disabled
@@ -800,6 +871,7 @@ int DaemonRun(const char* server_ip, int poll_interval_secs) {
             } else {
                 if (server_connected) {
                     LOGF("[Daemon] Lost connection to server %s", g_server_ip);
+                    apply_auto_disable();
                 } else {
                     LOGF("[Daemon] Cannot connect to server %s, retrying...", g_server_ip);
                 }

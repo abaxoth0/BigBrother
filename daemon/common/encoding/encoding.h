@@ -28,7 +28,9 @@ typedef enum {
     MSG_WHITELIST,
     MSG_STATUS,
     MSG_OK,
-    MSG_ERROR
+    MSG_ERROR,
+    MSG_GET_FILTRATION,
+    MSG_SET_FILTRATION
 } IpcMessageType;
 
 /**

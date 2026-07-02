@@ -41,6 +41,7 @@ public class MainViewModel : ViewModelBase, IDisposable
     private string _daemonStatus = "Запущен";
     private string _clientStatus = "Запущен";
     private string _serverStatus = "Запущен";
+    private bool _filtrationEnabled = true;
     private string _daemonConnectionStatus = "...";
     private string _clientConnectionStatus = "...";
     private string _serverConnectionStatus = "...";
@@ -74,6 +75,12 @@ public class MainViewModel : ViewModelBase, IDisposable
     {
         get => _serverStatus;
         set => SetProperty(ref _serverStatus, value);
+    }
+
+    public bool FiltrationEnabled
+    {
+        get => _filtrationEnabled;
+        set => SetProperty(ref _filtrationEnabled, value);
     }
 
     public string DaemonConnectionStatus
@@ -200,9 +207,19 @@ public class MainViewModel : ViewModelBase, IDisposable
         set
         {
             if (SetProperty(ref _fallbackWhitelistEnabled, value))
-            {
                 _ = _ipcService.SetFallbackWhitelistEnabledAsync(value);
-            }
+        }
+    }
+
+    private bool _filtrationAutoDisable;
+
+    public bool FiltrationAutoDisable
+    {
+        get => _filtrationAutoDisable;
+        set
+        {
+            if (SetProperty(ref _filtrationAutoDisable, value))
+                _ = _ipcService.SetFiltrationAutoDisableAsync(value);
         }
     }
 
@@ -306,6 +323,7 @@ public class MainViewModel : ViewModelBase, IDisposable
     public ICommand SaveNetworkAutoCommand { get; }
     public ICommand SaveNetworkGatewayCommand { get; }
     public ICommand SaveNetworkMaskCommand { get; }
+    public ICommand ToggleFiltrationCommand { get; }
 
     // Event for auto-scroll notification
     public event Action? ScrollToBottomRequested;
@@ -324,6 +342,7 @@ public class MainViewModel : ViewModelBase, IDisposable
             {
                 if (_disposed) return;
                 ClientConnectionStatus = status.IsConnected ? "Подключено" : "Отключено";
+                FiltrationEnabled = status.FiltrationEnabled;
             });
 
             if (!status.IsConnected && SettingsAvailable)
@@ -389,6 +408,7 @@ public class MainViewModel : ViewModelBase, IDisposable
         SaveNetworkAutoCommand = new RelayCommand(_ => { /* handled by property setter */ });
         SaveNetworkGatewayCommand = new RelayCommand(async _ => await SaveNetworkGatewayAsync());
         SaveNetworkMaskCommand = new RelayCommand(async _ => await SaveNetworkMaskAsync());
+        ToggleFiltrationCommand = new RelayCommand(async _ => await ToggleFiltrationAsync());
 
         // Initialize whitelist status polling timer
         _statusTimer.Elapsed += OnStatusTimerElapsed;
@@ -412,6 +432,7 @@ public class MainViewModel : ViewModelBase, IDisposable
         var netAuto = await _ipcService.GetNetworkAutoAsync();
         var netGw = await _ipcService.GetNetworkGatewayAsync();
         var netMask = await _ipcService.GetNetworkMaskAsync();
+        var filtAuto = await _ipcService.GetFiltrationAutoDisableAsync();
         var available = addr != "" || name != "" || enabled || srvName != "";
 
         System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
@@ -434,6 +455,8 @@ public class MainViewModel : ViewModelBase, IDisposable
             OnPropertyChanged(nameof(NetworkMask));
             _fallbackWhitelistEnabled = enabled;
             OnPropertyChanged(nameof(FallbackWhitelistEnabled));
+            _filtrationAutoDisable = filtAuto;
+            OnPropertyChanged(nameof(FiltrationAutoDisable));
             SettingsAvailable = available;
         });
     }
@@ -468,6 +491,16 @@ public class MainViewModel : ViewModelBase, IDisposable
         if (string.IsNullOrEmpty(mask)) return;
         var ok = await _ipcService.SetNetworkMaskAsync(mask);
         AddLog(ok ? "INFO" : "ERROR", ok ? $"Маска сохранена: {mask}" : "Ошибка сохранения маски");
+    }
+
+    private async Task ToggleFiltrationAsync()
+    {
+        var newState = !FiltrationEnabled;
+        var ok = await _ipcService.SetFiltrationEnabledAsync(newState);
+        AddLog(ok ? "INFO" : "ERROR", ok
+            ? $"Фильтрация {(newState ? "включена" : "отключена")}"
+            : "Ошибка переключения фильтрации");
+        if (ok) FiltrationEnabled = newState;
     }
 
     private async Task SaveUsernameAsync()

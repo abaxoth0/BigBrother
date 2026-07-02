@@ -147,6 +147,21 @@ func (h *BackendHandler) handle(conn net.Conn) {
 		case "PING":
 			writeOK(conn)
 
+		case "GET_FILTRATION":
+			filt, _ := h.db.GetSetting("filtration_enabled")
+			if filt == "" {
+				filt = "1"
+			}
+			writeTLVResponse(conn, filt)
+
+		case "SET_FILTRATION":
+			if len(args) < 1 {
+				writeErrorTLV(conn, "Missing value")
+				continue
+			}
+			h.db.SetSetting("filtration_enabled", args[0])
+			writeOK(conn)
+
 		default:
 			writeErrorTLV(conn, fmt.Sprintf("unknown command: %s", cmd))
 		}

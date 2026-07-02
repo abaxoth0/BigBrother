@@ -86,6 +86,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Firewall: don't clear IP allowlist on non-empty whitelist updates (existing connections keep working)
 - Firewall: increase IP allowlist size from 1024 to 32768 entries
 - Firewall: force cleanup and retry when IP allowlist is full
+- Firewall: add filtration enable/disable toggle via IPC (frontend buttons on client & server)
+- Firewall: gate DNS IP addition on filtration state; clear allowlist on re-enable
+- Client/server: sync filtration state from server to client backend in DaemonRun loop
+- Client: add auto-disable filtration on server disconnect (config option, checkbox in settings)
 
 ## [0.0.0] - 20-05-2026
 

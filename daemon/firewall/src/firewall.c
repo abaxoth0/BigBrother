@@ -30,6 +30,7 @@ HANDLE g_ServiceStopEvent = INVALID_HANDLE_VALUE;
 Whitelist g_Whitelist = {0};
 IpAllowlist g_IpAllowlist = {0};
 SRWLOCK g_AllowlistLock = SRWLOCK_INIT;
+int g_FiltrationEnabled = 1;
 
 StringView g_FilterExpr = {0};
 
@@ -235,6 +236,8 @@ static DWORD WINAPI client_monitor_thread(LPVOID param) {
 }
 
 void PreResolveWhitelist(void) {
+    if (!g_FiltrationEnabled) return;
+
     WSADATA wsa;
     if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) return;
 
@@ -570,8 +573,8 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
                 }
                 ReleaseSRWLockShared(&g_AllowlistLock);
 
-                // Add IPs to allowlist if domain is whitelisted and not excepted
-                if (domain_whitelisted && !domain_excepted) {
+                // Add IPs to allowlist if filtration is enabled and domain is whitelisted
+                if (g_FiltrationEnabled && domain_whitelisted && !domain_excepted) {
                     AcquireSRWLockExclusive(&g_AllowlistLock);
                     for (uint32_t i = 0; i < dns.answer_count; i++) {
                         for (uint32_t j = 0; j < dns.answers[i].ip_count; j++) {
@@ -617,7 +620,7 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
         static int blocked_count = 0;
         packet_count++;
 
-        if (addr.Outbound && !IsAllowed(dest_ip) && !is_local) {
+        if (g_FiltrationEnabled && addr.Outbound && !IsAllowed(dest_ip) && !is_local) {
             int is_dns_udp = (udp_hdr && (ntohs(udp_hdr->DstPort) == 53));
             int is_dns_tcp = (tcp_hdr && (ntohs(tcp_hdr->DstPort) == 53));
             int is_discovery = (udp_hdr && (ntohs(udp_hdr->SrcPort) == 42069 || ntohs(udp_hdr->DstPort) == 42069));

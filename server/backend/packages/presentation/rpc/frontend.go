@@ -79,10 +79,15 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 			hours := int(d.Hours())
 			minutes := int(d.Minutes()) % 60
 			uptimeStr := fmt.Sprintf("%dh %dm", hours, minutes)
-			status := fmt.Sprintf("uptime:%s:clients:%d:pending:%d",
+			filt, _ := h.db.GetSetting("filtration_enabled")
+			if filt == "" {
+				filt = "1"
+			}
+			status := fmt.Sprintf("uptime:%s:clients:%d:pending:%d:filtration:%s",
 				uptimeStr,
 				len(connections),
-				len(h.pendingUsers.GetAll()))
+				len(h.pendingUsers.GetAll()),
+				filt)
 			writeTLVResponse(conn, status)
 
 		case "APPROVE":
@@ -263,6 +268,21 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 
 		case "GET_LOG_PATH":
 			writeTLVResponse(conn, h.getLogPath())
+
+		case "GET_FILTRATION":
+			filt, _ := h.db.GetSetting("filtration_enabled")
+			if filt == "" {
+				filt = "1"
+			}
+			writeTLVResponse(conn, filt)
+
+		case "SET_FILTRATION":
+			if len(args) < 1 {
+				writeErrorTLV(conn, "Missing value")
+				continue
+			}
+			h.db.SetSetting("filtration_enabled", args[0])
+			writeOK(conn)
 
 		default:
 			writeErrorTLV(conn, fmt.Sprintf("unknown command: %s", cmd))

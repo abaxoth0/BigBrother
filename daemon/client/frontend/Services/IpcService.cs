@@ -17,6 +17,7 @@ public class ClientStatus
     public bool IsServerRunning => ServerRunning == "RUNNING";
     public bool IsServerSessionActive => ServerSessionActive == "CONNECTED";
     public uint WhitelistRevision { get; set; }
+    public bool FiltrationEnabled { get; set; } = true;
 }
 
 public class IpcService : IDisposable
@@ -216,6 +217,10 @@ public class IpcService : IDisposable
                     if (data.Count > 7)
                     {
                         status.ServerSessionActive = data[7] == "connected" ? "CONNECTED" : "NOT_CONNECTED";
+                    }
+                    if (data.Count > 8)
+                    {
+                        status.FiltrationEnabled = data[8] == "1";
                     }
                 }
             }
@@ -811,6 +816,94 @@ public class IpcService : IDisposable
             }
 
             return ("", "");
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
+    public async Task<bool> GetFiltrationEnabledAsync()
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return true;
+            try
+            {
+                var (status, data) = await SendCommandWithTimeoutAsync("GET_FILTRATION", ReadTimeoutMs);
+                return status == "OK" && data.Count > 0 && data[0] == "1";
+            }
+            finally
+            {
+                Disconnect();
+            }
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
+    public async Task<bool> SetFiltrationEnabledAsync(bool enabled)
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return false;
+            try
+            {
+                var (status, _) = await SendCommandWithTimeoutAsync("SET_FILTRATION", ReadTimeoutMs, enabled ? "1" : "0");
+                return status == "OK";
+            }
+            finally
+            {
+                Disconnect();
+            }
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
+    public async Task<bool> GetFiltrationAutoDisableAsync()
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return false;
+            try
+            {
+                var (status, data) = await SendCommandWithTimeoutAsync("GET_FILTRATION_AUTO_DISABLE", ReadTimeoutMs);
+                return status == "OK" && data.Count > 0 && data[0] == "1";
+            }
+            finally
+            {
+                Disconnect();
+            }
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
+    public async Task<bool> SetFiltrationAutoDisableAsync(bool enabled)
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return false;
+            try
+            {
+                var (status, _) = await SendCommandWithTimeoutAsync("SET_FILTRATION_AUTO_DISABLE", ReadTimeoutMs, enabled ? "1" : "0");
+                return status == "OK";
+            }
+            finally
+            {
+                Disconnect();
+            }
         }
         finally
         {

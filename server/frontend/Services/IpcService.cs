@@ -63,6 +63,7 @@ public class ServerStatus
     public string UptimeText { get; set; } = "";
     public int ConnectedClients { get; set; }
     public int PendingCount { get; set; }
+    public bool FiltrationEnabled { get; set; } = true;
 }
 
 public class IpcService : IDisposable
@@ -242,6 +243,9 @@ public class IpcService : IDisposable
                             case "pending":
                                 if (int.TryParse(parts[i + 1], out var pending))
                                     status.PendingCount = pending;
+                                break;
+                            case "filtration":
+                                status.FiltrationEnabled = parts[i + 1] == "1";
                                 break;
                         }
                     }
@@ -729,6 +733,50 @@ public class IpcService : IDisposable
             {
                 var (status, data) = SendCommand("GET_LOG_PATH");
                 return status == "OK" && data.Count > 0 ? data[0] : "";
+            }
+            finally
+            {
+                Disconnect();
+            }
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
+    public async Task<bool> GetFiltrationEnabledAsync()
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return true;
+            try
+            {
+                var (status, data) = SendCommand("GET_FILTRATION");
+                return status == "OK" && data.Count > 0 && data[0] == "1";
+            }
+            finally
+            {
+                Disconnect();
+            }
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
+    public async Task<bool> SetFiltrationEnabledAsync(bool enabled)
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return false;
+            try
+            {
+                var (status, _) = SendCommand("SET_FILTRATION", enabled ? "1" : "0");
+                return status == "OK";
             }
             finally
             {

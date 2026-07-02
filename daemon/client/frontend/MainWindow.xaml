@@ -209,6 +209,11 @@
                                                    Foreground="{Binding DaemonConnectionStatus, Converter={StaticResource ConnectionStatusToColor}}"/>
                                     </StackPanel>
                                     <StackPanel Orientation="Horizontal" Margin="0,5">
+                                        <TextBlock Text="Фильтрация:" Width="100" Foreground="Gray" VerticalAlignment="Center"/>
+                                        <CheckBox IsChecked="{Binding FiltrationEnabled}" IsEnabled="False" VerticalAlignment="Center"/>
+                                        <Button Content="Вкл/Выкл" Style="{StaticResource ControlButton}" Command="{Binding ToggleFiltrationCommand}" MinWidth="50" Padding="5,2" FontSize="11" Margin="5,0,0,0"/>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Margin="0,5">
                                         <Button Content="Старт" Style="{StaticResource ControlButton}" Click="StartDaemon_Click"/>
                                         <Button Content="Стоп" Style="{StaticResource ControlButton}" Click="StopDaemon_Click"/>
                                         <Button Content="Рестарт" Style="{StaticResource ControlButton}" Click="RestartDaemon_Click"/>
@@ -419,6 +424,18 @@
                                     </TextBlock>
                                 </StackPanel>
                             </GroupBox>
+
+                            <GroupBox Header="Фильтрация" Margin="0,0,0,10" Padding="10">
+                                <StackPanel>
+                                    <CheckBox IsChecked="{Binding FiltrationAutoDisable}"
+                                              Content="Авто-отключение при потере связи с сервером"
+                                              Margin="0,5"/>
+                                    <TextBlock TextWrapping="Wrap" Foreground="Gray" FontSize="11" Margin="20,0,0,0">
+                                        <Run Text="При включении фильтрация автоматически отключается, когда клиент теряет соединение с сервером, и включается при восстановлении."/>
+                                    </TextBlock>
+                                </StackPanel>
+                            </GroupBox>
+
                         </StackPanel>
 
                         <StackPanel Visibility="{Binding SettingsAvailable, Converter={StaticResource InverseBoolToVisibility}}">

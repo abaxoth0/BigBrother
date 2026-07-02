@@ -123,6 +123,43 @@ int PingDaemon(void);
 int PingServer(void);
 
 /**
+ * @brief Get filtration enabled status from daemon.
+ *
+ * @return 1 if filtration is enabled, 0 if disabled.
+ */
+int DaemonGetFiltration(void);
+
+/**
+ * @brief Set filtration enabled status on daemon.
+ *
+ * @param enabled 1 to enable filtration, 0 to disable.
+ *
+ * @return 0 on success, -1 on error.
+ */
+int DaemonSetFiltration(int enabled);
+
+/**
+ * @brief Get local filtration enabled status (cached).
+ *
+ * @return 1 if filtration is enabled, 0 if disabled.
+ */
+int IsFiltrationEnabled(void);
+
+/**
+ * @brief Check if filtration auto-disable on server disconnect is enabled.
+ *
+ * @return 1 if enabled, 0 if disabled.
+ */
+int IsFiltrationAutoDisableEnabled(void);
+
+/**
+ * @brief Enable or disable filtration auto-disable on server disconnect.
+ *
+ * @param enabled 1 to enable, 0 to disable.
+ */
+void SetFiltrationAutoDisableEnabled(int enabled);
+
+/**
  * @brief Enable or disable fallback whitelist (use local file when server sync is unavailable).
  *
  * @param enabled 1 to enable fallback, 0 to disable (block all traffic).

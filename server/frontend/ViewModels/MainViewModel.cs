@@ -59,6 +59,7 @@ public class MainViewModel : ViewModelBase
     private bool _isConnected;
 
     private string _serviceStatus = "Проверка...";
+    private string _filtrationStatus = "N/A";
     private string _activeWhitelist = "";
     private string _serverName = "";
     private string _serverPort = "1984";
@@ -100,6 +101,7 @@ public class MainViewModel : ViewModelBase
         ImportWhitelistsCommand = new RelayCommand(async _ => await ImportWhitelistsAsync());
         ExportWhitelistsCommand = new RelayCommand(async _ => await ExportWhitelistsAsync(), _ => Whitelists.Any(w => w.IsSelected));
         DeleteSelectedWhitelistsCommand = new RelayCommand(async _ => await DeleteSelectedWhitelistsAsync(), _ => Whitelists.Any(w => w.IsSelected));
+        ToggleFiltrationCommand = new RelayCommand(async _ => await ToggleFiltrationAsync());
         StartServiceCommand = new RelayCommand(async _ => await StartServiceAsync());
         StopServiceCommand = new RelayCommand(async _ => await StopServiceAsync());
         RestartServiceCommand = new RelayCommand(async _ => await RestartServiceAsync());
@@ -158,6 +160,12 @@ public class MainViewModel : ViewModelBase
 
     public Visibility NotConnectedVisibility => IsConnected ? Visibility.Collapsed : Visibility.Visible;
     public Visibility ConnectedVisibility => IsConnected ? Visibility.Visible : Visibility.Collapsed;
+
+    public string FiltrationStatus
+    {
+        get => _filtrationStatus;
+        set => SetProperty(ref _filtrationStatus, value);
+    }
 
     public string ServiceStatus
     {
@@ -242,6 +250,7 @@ public class MainViewModel : ViewModelBase
     public ICommand ImportWhitelistsCommand { get; }
     public ICommand ExportWhitelistsCommand { get; }
     public ICommand DeleteSelectedWhitelistsCommand { get; }
+    public ICommand ToggleFiltrationCommand { get; }
     public ICommand StartServiceCommand { get; }
     public ICommand StopServiceCommand { get; }
     public ICommand RestartServiceCommand { get; }
@@ -299,6 +308,24 @@ public class MainViewModel : ViewModelBase
         AddLog("INFO", "Перезапуск службы...");
         var ok = await _serviceManager.RestartServiceAsync();
         AddLog(ok ? "INFO" : "ERROR", ok ? "Служба перезапущена" : "Ошибка перезапуска службы");
+    }
+
+    private async Task ToggleFiltrationAsync()
+    {
+        try
+        {
+            var newState = FiltrationStatus == "Вкл" ? "0" : "1";
+            AddLog("DEBUG", $"ToggleFiltration: current='{FiltrationStatus}', newState='{newState}'");
+            var ok = await _ipcService.SetFiltrationEnabledAsync(newState == "1");
+            AddLog(ok ? "INFO" : "ERROR", ok
+                ? $"Фильтрация {(newState == "1" ? "включена" : "отключена")}"
+                : "Ошибка переключения фильтрации");
+            await RefreshServerStatusAsync();
+        }
+        catch (Exception ex)
+        {
+            AddLog("ERROR", $"Ошибка: {ex.Message}");
+        }
     }
 
     private async Task LoadLogPathAsync()
@@ -552,6 +579,9 @@ public class MainViewModel : ViewModelBase
                     ? $"Аптайм: {serverStatus.UptimeText}" : "";
                 ConnectedClientsCount = serverStatus.ConnectedClients;
                 PendingCount = serverStatus.PendingCount;
+                FiltrationStatus = serverStatus.IsRunning
+                    ? (serverStatus.FiltrationEnabled ? "Вкл" : "Выкл")
+                    : "N/A";
             });
         }
         catch (Exception ex)
