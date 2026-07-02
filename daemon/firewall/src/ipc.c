@@ -122,16 +122,15 @@ static int parse_and_execute(HANDLE pipe, char* buffer, size_t size) {
         case MSG_SET_FILTRATION: {
             char* data = newline ? newline + 1 : buffer + strlen(buffer);
             int new_state = (data[0] == '1');
-            if (new_state && !g_FiltrationEnabled) {
-                // Filtration was off, now turning on — clear allowlist so
-                // only IPs from DNS responses received while filtration is on
-                // will be allowed. Also re-pre-resolve whitelisted domains.
+            g_FiltrationEnabled = new_state;
+            if (new_state) {
+                // Filtration turned on — clear allowlist so only IPs from
+                // DNS responses received while filtration is on will be allowed.
                 AcquireSRWLockExclusive(&g_AllowlistLock);
                 IpAllowlistClear(&g_IpAllowlist);
                 ReleaseSRWLockExclusive(&g_AllowlistLock);
-                PreResolveWhitelist();
             }
-            g_FiltrationEnabled = new_state;
+            PreResolveWhitelist();
             write_ok(pipe);
             break;
         }
