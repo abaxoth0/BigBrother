@@ -39,6 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `GET_STATUS` IPC uses cached `IsServerSessionActive()` instead of blocking `PingServer()`
 - Whitelist DataGrid: added checkbox column for multi-select, adjusted row height (26px min), fixed vertical alignment
 - Export/delete buttons disabled when no whitelist items are selected (CanExecute predicates)
+- Updated version of server backend dependecy: Ain 1.2.1 -> 1.2.2
 
 ### Fixed
 - Firewall blocking all local traffic due to byte order mismatch (`ntohl` on `ip_hdr->DstAddr`)

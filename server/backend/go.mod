@@ -4,7 +4,7 @@ go 1.25.0
 
 require (
 	github.com/Microsoft/go-winio v0.6.2
-	github.com/abaxoth0/Ain v1.2.1
+	github.com/abaxoth0/Ain v1.2.2
 	github.com/google/uuid v1.6.0
 	github.com/ncruces/go-sqlite3 v0.33.3
 )
