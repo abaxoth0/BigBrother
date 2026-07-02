@@ -236,6 +236,8 @@ static DWORD WINAPI client_monitor_thread(LPVOID param) {
 }
 
 void PreResolveWhitelist(void) {
+    if (!g_FiltrationEnabled) return;
+
     WSADATA wsa;
     if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) return;
 
@@ -571,8 +573,8 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
                 }
                 ReleaseSRWLockShared(&g_AllowlistLock);
 
-                // Add IPs to allowlist if domain is whitelisted and not excepted
-                if (domain_whitelisted && !domain_excepted) {
+                // Add IPs to allowlist if filtration is enabled and domain is whitelisted
+                if (g_FiltrationEnabled && domain_whitelisted && !domain_excepted) {
                     AcquireSRWLockExclusive(&g_AllowlistLock);
                     for (uint32_t i = 0; i < dns.answer_count; i++) {
                         for (uint32_t j = 0; j < dns.answers[i].ip_count; j++) {
