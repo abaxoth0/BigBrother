@@ -47,9 +47,9 @@ Section "Client Daemon" SecClientDaemon
 SectionEnd
 
 Section "Client GUI" SecClientGUI
-    SetOutPath "$INSTDIR\GUI\Client"
+    SetOutPath "$INSTDIR"
     File /nonfatal /r "dist\client-frontend\*.*"
-    CreateShortCut "$DESKTOP\BigBrother Client.lnk" "$INSTDIR\GUI\Client\BigBrother Client.exe"
+    CreateShortCut "$DESKTOP\BigBrother Client.lnk" "$INSTDIR\BigBrother Client.exe"
     SetOutPath "$INSTDIR"
 SectionEnd
 
@@ -61,9 +61,9 @@ SectionEnd
 
 Section -PostInstall
     WriteUninstaller "$INSTDIR\uninstall.exe"
-    WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_NAME}" \
-        "DisplayName" "${PRODUCT_NAME}"
-    WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_NAME}" \
+    WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_NAME} Client" \
+        "DisplayName" "${PRODUCT_NAME} Client"
+    WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_NAME} Client" \
         "UninstallString" "$INSTDIR\uninstall.exe"
 SectionEnd
 

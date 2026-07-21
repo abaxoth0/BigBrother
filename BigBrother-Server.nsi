@@ -4,12 +4,13 @@
 Unicode True
 RequestExecutionLevel admin
 
-!define PRODUCT_NAME "BigBrother"
+!define PRODUCT_NAME "BigBrother Server"
+!define PRODUCT_SHORT "BigBrother"
 !define PRODUCT_VERSION "1.0.0"
 !define PRODUCT_DIR "$PROGRAMFILES64\${PRODUCT_NAME}"
-!define PRODUCT_DATA "$APPDATA\${PRODUCT_NAME}"
+!define PRODUCT_DATA "$APPDATA\${PRODUCT_SHORT}"
 
-Name "${PRODUCT_NAME} Server ${PRODUCT_VERSION}"
+Name "${PRODUCT_NAME} ${PRODUCT_VERSION}"
 OutFile "BigBrother-${PRODUCT_VERSION}-Server-Setup.exe"
 InstallDir "${PRODUCT_DIR}"
 
@@ -38,9 +39,9 @@ Section "Server Backend" SecServer
 SectionEnd
 
 Section "Server GUI" SecServerGUI
-    SetOutPath "$INSTDIR\GUI\Server"
+    SetOutPath "$INSTDIR"
     File /nonfatal /r "dist\server-frontend\*.*"
-    CreateShortCut "$DESKTOP\BigBrother Server.lnk" "$INSTDIR\GUI\Server\BigBrother Server.exe"
+    CreateShortCut "$DESKTOP\BigBrother Server.lnk" "$INSTDIR\BigBrother Server.exe"
     SetOutPath "$INSTDIR"
 SectionEnd
 
