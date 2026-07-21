@@ -91,6 +91,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Firewall: gate DNS IP addition on filtration state; clear allowlist on re-enable
 - Client/server: sync filtration state from server to client backend in DaemonRun loop
 - Client: add auto-disable filtration on server disconnect (config option, checkbox in settings)
+- Installer: split into separate client (BigBrother-Client.nsi) and server (BigBrother-Server.nsi) installers with service start type choice (auto/manual)
 
 ## [0.0.0] - 20-05-2026
 
