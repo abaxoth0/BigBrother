@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.0.0] - 27-07-2026
 
 ### Added
 - Server UDP broadcast discovery on port 42069 (`[server]`)
@@ -25,8 +25,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Whitelist export to `.wl` files (checked items or all if none checked)
 - Bulk delete button for whitelists with confirmation dialog
 - Select-all checkbox in whitelist DataGrid header (bound to `IsAllSelected`)
-- Virtual adapter detection: skip Hyper-V, VMware, VirtualBox adapters in auto-mode discovery
-- Local IP detection in UDP discovery responses: replace matching local IPs with `127.0.0.1`
+- Whitelist exception rules: `!domain` entries exclude subdomains from wildcard matches
+- Server backend: `GET_LOG_PATH` IPC command for frontend log access
+- Firewall: filtration enable/disable toggle via IPC (frontend buttons on client & server)
+- Client: auto-disable filtration on server disconnect (config option, checkbox in settings)
+- Firewall: pre-resolve exact-match whitelist domains via `getaddrinfo` at startup and IPC update (handles DoH)
+- Firewall: spoof `use-application-dns.net` DNS queries with `127.0.0.1` to force browsers to disable DoH
 
 ### Changed
 - Client ↔ server transport: SMB named pipes replaced with TCP on port 1984
@@ -39,7 +43,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `GET_STATUS` IPC uses cached `IsServerSessionActive()` instead of blocking `PingServer()`
 - Whitelist DataGrid: added checkbox column for multi-select, adjusted row height (26px min), fixed vertical alignment
 - Export/delete buttons disabled when no whitelist items are selected (CanExecute predicates)
-- Updated version of server backend dependecy: Ain 1.2.1 -> 1.2.2
+- Server backend runs as Windows service (`BigBrother Server`) with console fallback
+- NSIS installer creates server service (was previously commented out)
+- Server frontend: service start/stop/restart buttons on Главная tab; reworked into Главная/Пользователи/Списки/Настройки layout
+- Server frontend: added live server backend log viewer (JSON-lines), removed old "Логи" tab
+- Server frontend: moved filtration status + toggle to server status bar
+- Firewall: gate DNS IP addition on filtration state; clear allowlist on re-enable
+- Client/server: sync filtration state from server to client backend in DaemonRun loop
+- Installer: split into separate client (BigBrother-Client.nsi) and server (BigBrother-Server.nsi) installers
+- Installer: service start type fixed to demand (manual), installers install to separate directories
+- Updated dependency: `ain` v1.2.1 → v1.2.2 (reduces idle CPU spin from 10µs to 10ms sleep)
 
 ### Fixed
 - Firewall blocking all local traffic due to byte order mismatch (`ntohl` on `ip_hdr->DstAddr`)
@@ -54,7 +67,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Client backend connection to server via actual IP (auto-converts to `"."` for localhost TCP)
 - Client backend `send_to_server_tlv` Winsock not initialized (`WSAStartup`)
 - Discovery returning 3 duplicate entries (dedup for `name|ip|port` format)
-- Discovery not working with virtual network adapters (now broadcasts on all active adapters)
+- Discovery not working with virtual network adapters (skip virtual adapters in auto-mode discovery)
 - Server frontend process not exiting on window close (timer deadlock)
 - Server frontend server name resetting every 5s (moved to one-time load)
 - Synchronous `.Result` deadlocks in `RestartClientAsync`/`PingAsync`
@@ -66,32 +79,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - TCP scan: buffer full now breaks scan loop
 - `GetAdaptersAddresses` now uses `GAA_FLAG_INCLUDE_GATEWAYS` to return gateway info
 - `htons` cast changed from `(short)` to `(unsigned short)` to avoid overflow on ports > 32767
-- Server discovery picking wrong adapter when server is on same machine: removed unconditional `127.0.0.1` UDP probe, fixed TCP manual mode skipping localhost probe
+- Server discovery picking wrong adapter when server is on same machine: local IP detection replaces matching IPs with `127.0.0.1`; removed unconditional `127.0.0.1` UDP probe; fixed TCP manual mode skipping localhost probe
 - Name collision error on whitelist import now reports explicit duplicate name message
 - `WhitelistInfo.IsSelected` now fires `PropertyChanged` (checkbox binding actually works)
 - Import/export buttons layout fixed (orphaned tags, button overlap)
-- Server backend runs as Windows service (`BigBrother Server`) with console fallback (detects service mode via `svc.IsWindowsService()`)
-- NSIS installer creates server service (was previously commented out)
-- Server frontend: service start/stop/restart buttons with 2s status polling
-- Whitelist exception rules: `!domain` entries exclude subdomains from wildcard matches
 - Client connection to local server no longer fails with "already connected" when daemon auto-connects first
 - Server user registration: overwrite existing user by name or addr instead of failing on UNIQUE constraint
-- Server `changeUserProperty` checks unique constraints on name/addr before updating (returns conflict error if already claimed by another user)
-- Server frontend rework: new "Главная" tab with server status panel and live server backend log viewer (JSON-lines), old "Логи" tab removed
-- Server backend: added `GET_LOG_PATH` IPC command for frontend log access
-- Firewall: enforce minimum 300s TTL for all DNS-resolved IPs (prevents CDN IPs from expiring mid-session)
-- Firewall: pre-resolve exact-match whitelist domains via `getaddrinfo` at startup and IPC update (handles DoH)
-- Firewall: spoof `use-application-dns.net` DNS queries with `127.0.0.1` to force browsers to disable DoH and fall back to port-53 DNS
-- Firewall: add SRWLOCK thread safety for `g_Whitelist`/`g_IpAllowlist` (fixes race between filter loop and IPC updates that could block all traffic)
-- Firewall: copy domain from `IpAllowlistGetDomain` to local buffer before use (fixes dangling pointer when IPC thread clears allowlist concurrently)
+- Server `changeUserProperty` checks unique constraints on name/addr before updating
+- Firewall: enforce minimum 300s TTL for all DNS-resolved IPs (not just zero-TTL)
+- Firewall: add SRWLOCK thread safety for `g_Whitelist`/`g_IpAllowlist` (prevents race between filter loop and IPC updates)
+- Firewall: copy domain from `IpAllowlistGetDomain` to local buffer before use (fixes dangling pointer)
 - Firewall: don't clear IP allowlist on non-empty whitelist updates (existing connections keep working)
 - Firewall: increase IP allowlist size from 1024 to 32768 entries
 - Firewall: force cleanup and retry when IP allowlist is full
-- Firewall: add filtration enable/disable toggle via IPC (frontend buttons on client & server)
-- Firewall: gate DNS IP addition on filtration state; clear allowlist on re-enable
-- Client/server: sync filtration state from server to client backend in DaemonRun loop
-- Client: add auto-disable filtration on server disconnect (config option, checkbox in settings)
-- Installer: split into separate client (BigBrother-Client.nsi) and server (BigBrother-Server.nsi) installers with service start type choice (auto/manual)
+
+## [0.0.0] - 20-05-2026
+
+- Initial release
 
 ## [0.0.0] - 20-05-2026
 
