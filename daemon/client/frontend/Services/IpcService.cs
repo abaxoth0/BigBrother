@@ -17,13 +17,14 @@ public class ClientStatus
     public bool IsServerRunning => ServerRunning == "RUNNING";
     public bool IsServerSessionActive => ServerSessionActive == "CONNECTED";
     public uint WhitelistRevision { get; set; }
+    public bool FiltrationEnabled { get; set; } = true;
 }
 
 public class IpcService : IDisposable
 {
     private const string PipeName = "BigBrother.Client.Backend";
     private const int MaxRetries = 3;
-    private const int ReadTimeoutMs = 5000;
+    private const int ReadTimeoutMs = 10000;
     private NamedPipeClientStream? _pipe;
     private bool _isConnected;
     private string _lastError = "";
@@ -216,6 +217,10 @@ public class IpcService : IDisposable
                     if (data.Count > 7)
                     {
                         status.ServerSessionActive = data[7] == "connected" ? "CONNECTED" : "NOT_CONNECTED";
+                    }
+                    if (data.Count > 8)
+                    {
+                        status.FiltrationEnabled = data[8] == "1";
                     }
                 }
             }
@@ -429,6 +434,292 @@ public class IpcService : IDisposable
         }
     }
 
+    public async Task<List<string>> DiscoverServersAsync(int timeoutMs = 2000)
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return new List<string>();
+            try
+            {
+                var (status, data) = await SendCommandWithTimeoutAsync("DISCOVER_SERVERS", ReadTimeoutMs, timeoutMs.ToString());
+                return status == "OK" ? data : new List<string>();
+            }
+            finally
+            {
+                Disconnect();
+            }
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
+    public async Task<bool> SetServerNameAsync(string name)
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return false;
+            try
+            {
+                var (status, _) = await SendCommandWithTimeoutAsync("SET_SERVER_NAME", ReadTimeoutMs, name);
+                return status == "OK";
+            }
+            finally
+            {
+                Disconnect();
+            }
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
+    public async Task<string> GetServerNameAsync()
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return "";
+            try
+            {
+                var (status, data) = await SendCommandWithTimeoutAsync("GET_SERVER_NAME", ReadTimeoutMs);
+                return status == "OK" && data.Count > 0 ? data[0] : "";
+            }
+            finally
+            {
+                Disconnect();
+            }
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
+    public async Task<bool> SetServerPortAsync(string port)
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return false;
+            try
+            {
+                var (status, _) = await SendCommandWithTimeoutAsync("SET_SERVER_PORT", ReadTimeoutMs, port);
+                return status == "OK";
+            }
+            finally
+            {
+                Disconnect();
+            }
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
+    public async Task<string> GetServerPortAsync()
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return "";
+            try
+            {
+                var (status, data) = await SendCommandWithTimeoutAsync("GET_SERVER_PORT", ReadTimeoutMs);
+                return status == "OK" && data.Count > 0 ? data[0] : "1984";
+            }
+            finally
+            {
+                Disconnect();
+            }
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
+    public async Task<bool> SetDiscoveryEnabledAsync(bool enabled)
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return false;
+            try
+            {
+                var (status, _) = await SendCommandWithTimeoutAsync("SET_DISCOVERY_ENABLED", ReadTimeoutMs, enabled ? "1" : "0");
+                return status == "OK";
+            }
+            finally
+            {
+                Disconnect();
+            }
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
+    public async Task<bool> GetDiscoveryEnabledAsync()
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return true;
+            try
+            {
+                var (status, data) = await SendCommandWithTimeoutAsync("GET_DISCOVERY_ENABLED", ReadTimeoutMs);
+                return status != "OK" || data.Count <= 0 || data[0] == "1";
+            }
+            finally
+            {
+                Disconnect();
+            }
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
+    public async Task<bool> SetNetworkAutoAsync(bool auto)
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return false;
+            try
+            {
+                var (status, _) = await SendCommandWithTimeoutAsync("SET_NETWORK_AUTO", ReadTimeoutMs, auto ? "1" : "0");
+                return status == "OK";
+            }
+            finally
+            {
+                Disconnect();
+            }
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
+    public async Task<bool> GetNetworkAutoAsync()
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return true;
+            try
+            {
+                var (status, data) = await SendCommandWithTimeoutAsync("GET_NETWORK_AUTO", ReadTimeoutMs);
+                return status != "OK" || data.Count <= 0 || data[0] == "1";
+            }
+            finally
+            {
+                Disconnect();
+            }
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
+    public async Task<bool> SetNetworkGatewayAsync(string gateway)
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return false;
+            try
+            {
+                var (status, _) = await SendCommandWithTimeoutAsync("SET_NETWORK_GATEWAY", ReadTimeoutMs, gateway);
+                return status == "OK";
+            }
+            finally
+            {
+                Disconnect();
+            }
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
+    public async Task<string> GetNetworkGatewayAsync()
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return "";
+            try
+            {
+                var (status, data) = await SendCommandWithTimeoutAsync("GET_NETWORK_GATEWAY", ReadTimeoutMs);
+                return status == "OK" && data.Count > 0 ? data[0] : "";
+            }
+            finally
+            {
+                Disconnect();
+            }
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
+    public async Task<bool> SetNetworkMaskAsync(string mask)
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return false;
+            try
+            {
+                var (status, _) = await SendCommandWithTimeoutAsync("SET_NETWORK_MASK", ReadTimeoutMs, mask);
+                return status == "OK";
+            }
+            finally
+            {
+                Disconnect();
+            }
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
+    public async Task<string> GetNetworkMaskAsync()
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return "";
+            try
+            {
+                var (status, data) = await SendCommandWithTimeoutAsync("GET_NETWORK_MASK", ReadTimeoutMs);
+                return status == "OK" && data.Count > 0 ? data[0] : "";
+            }
+            finally
+            {
+                Disconnect();
+            }
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
     public async Task<bool> RegisterAsync(string username)
     {
         await _connectionLock.WaitAsync();
@@ -525,6 +816,94 @@ public class IpcService : IDisposable
             }
 
             return ("", "");
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
+    public async Task<bool> GetFiltrationEnabledAsync()
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return true;
+            try
+            {
+                var (status, data) = await SendCommandWithTimeoutAsync("GET_FILTRATION", ReadTimeoutMs);
+                return status == "OK" && data.Count > 0 && data[0] == "1";
+            }
+            finally
+            {
+                Disconnect();
+            }
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
+    public async Task<bool> SetFiltrationEnabledAsync(bool enabled)
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return false;
+            try
+            {
+                var (status, _) = await SendCommandWithTimeoutAsync("SET_FILTRATION", ReadTimeoutMs, enabled ? "1" : "0");
+                return status == "OK";
+            }
+            finally
+            {
+                Disconnect();
+            }
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
+    public async Task<bool> GetFiltrationAutoDisableAsync()
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return false;
+            try
+            {
+                var (status, data) = await SendCommandWithTimeoutAsync("GET_FILTRATION_AUTO_DISABLE", ReadTimeoutMs);
+                return status == "OK" && data.Count > 0 && data[0] == "1";
+            }
+            finally
+            {
+                Disconnect();
+            }
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
+    public async Task<bool> SetFiltrationAutoDisableAsync(bool enabled)
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return false;
+            try
+            {
+                var (status, _) = await SendCommandWithTimeoutAsync("SET_FILTRATION_AUTO_DISABLE", ReadTimeoutMs, enabled ? "1" : "0");
+                return status == "OK";
+            }
+            finally
+            {
+                Disconnect();
+            }
         }
         finally
         {

@@ -36,7 +36,14 @@ func NewBackendHandler(
 }
 
 func (h *BackendHandler) handle(conn net.Conn) {
-	defer conn.Close()
+	defer func() {
+		// Graceful close: send FIN before Close to avoid RST on Windows
+		// (bufio.Scanner may buffer data, causing Close() to send RST)
+		if tcp, ok := conn.(*net.TCPConn); ok {
+			tcp.CloseWrite()
+		}
+		conn.Close()
+	}()
 	log.Info("Client connected", nil)
 
 	scanner := bufio.NewScanner(conn)
@@ -130,7 +137,29 @@ func (h *BackendHandler) handle(conn net.Conn) {
 			}
 			writeTLVResponse(conn, data...)
 
+		case "GET_SERVER_NAME":
+			name, err := h.db.GetSetting("server_name")
+			if err != nil || name == "" {
+				name = "BigBrother Server"
+			}
+			writeTLVResponse(conn, name)
+
 		case "PING":
+			writeOK(conn)
+
+		case "GET_FILTRATION":
+			filt, _ := h.db.GetSetting("filtration_enabled")
+			if filt == "" {
+				filt = "1"
+			}
+			writeTLVResponse(conn, filt)
+
+		case "SET_FILTRATION":
+			if len(args) < 1 {
+				writeErrorTLV(conn, "Missing value")
+				continue
+			}
+			h.db.SetSetting("filtration_enabled", args[0])
 			writeOK(conn)
 
 		default:

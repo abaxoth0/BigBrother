@@ -29,6 +29,8 @@ HANDLE g_ServiceStopEvent = INVALID_HANDLE_VALUE;
 
 Whitelist g_Whitelist = {0};
 IpAllowlist g_IpAllowlist = {0};
+SRWLOCK g_AllowlistLock = SRWLOCK_INIT;
+int g_FiltrationEnabled = 1;
 
 StringView g_FilterExpr = {0};
 
@@ -107,7 +109,7 @@ static void ensure_config_dir(const char* full_path) {
 
 static void load_config(const char* path) {
     get_exe_path(g_ClientExePath, sizeof(g_ClientExePath));
-    strncat(g_ClientExePath, "\\bb-client.exe", sizeof(g_ClientExePath) - strlen(g_ClientExePath) - 1);
+    strncat(g_ClientExePath, "\\BigBrother Client Daemon.exe", sizeof(g_ClientExePath) - strlen(g_ClientExePath) - 1);
     LOGF("[Config] Default client exe: %s", g_ClientExePath);
 
     ensure_config_dir(path);
@@ -172,7 +174,7 @@ static int spawn_client_backend(void) {
 
     // Re-discover client exe path from own exe directory
     get_exe_path(g_ClientExePath, sizeof(g_ClientExePath));
-    strncat(g_ClientExePath, "\\bb-client.exe", sizeof(g_ClientExePath) - strlen(g_ClientExePath) - 1);
+    strncat(g_ClientExePath, "\\BigBrother Client Daemon.exe", sizeof(g_ClientExePath) - strlen(g_ClientExePath) - 1);
 
     char cmd[512];
     if (g_ServerIp[0] != '\0') {
@@ -233,13 +235,49 @@ static DWORD WINAPI client_monitor_thread(LPVOID param) {
     return 0;
 }
 
+void PreResolveWhitelist(void) {
+    if (!g_FiltrationEnabled) return;
+
+    WSADATA wsa;
+    if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) return;
+
+    AcquireSRWLockExclusive(&g_AllowlistLock);
+    int resolved = 0;
+    for (size_t i = 0; i < g_Whitelist.count; i++) {
+        const char* domain = g_Whitelist.entries[i].domain;
+        if (g_Whitelist.entries[i].is_exception) continue;
+
+        if (domain[0] == '*' || domain[0] == '"') continue;
+
+        struct addrinfo hints;
+        memset(&hints, 0, sizeof(hints));
+        hints.ai_family = AF_INET;
+        hints.ai_socktype = SOCK_STREAM;
+
+        struct addrinfo* result = NULL;
+        int ret = getaddrinfo(domain, NULL, &hints, &result);
+        if (ret != 0 || !result) continue;
+
+        for (struct addrinfo* rp = result; rp; rp = rp->ai_next) {
+            if (rp->ai_family == AF_INET) {
+                struct sockaddr_in* sin = (struct sockaddr_in*)rp->ai_addr;
+                uint32_t ip = ntohl(sin->sin_addr.s_addr);
+                IpAllowlistAdd(&g_IpAllowlist, ip, domain, 300);
+                resolved++;
+            }
+        }
+        freeaddrinfo(result);
+    }
+
+    ReleaseSRWLockExclusive(&g_AllowlistLock);
+    WSACleanup();
+    if (resolved > 0) {
+        LOGF("[INFO] Pre-resolved %d IPs for whitelisted domains", resolved);
+    }
+}
+
 /**
- * @brief Load whitelist domains and IPs from file.
- *
- * Reads entries from a text file (one per line, lines starting
- * with # are comments). Supports both:
- * - Plain IPs (e.g., "1.2.3.4") - added directly to allowlist
- * - Domain names (e.g., "example.com") - added to domain whitelist
+ * @brief Load the whitelist from the specified file path.
  *
  * @param[in] path Path to whitelist file. If NULL, uses default path.
  *
@@ -248,13 +286,23 @@ static DWORD WINAPI client_monitor_thread(LPVOID param) {
 int LoadWhiteList(char* path) {
     if (!path) path = g_WhitelistPath;
     LOGF("[INFO] Reading whitelist at: %s", path);
-    FILE *f = fopen(path, "r");
-    if (!f) {
-        return STATUS_FAILED_TO_READ_WHITELIST;
-    }
 
     WhitelistInit(&g_Whitelist);
     IpAllowlistInit(&g_IpAllowlist);
+
+    FILE *f = fopen(path, "r");
+    if (!f) {
+        // Create empty whitelist file so service doesn't fail on missing file
+        f = fopen(path, "w");
+        if (f) {
+            fprintf(f, "; BigBrother whitelist - add domains one per line\n");
+            fclose(f);
+            LOGF("[INFO] Created empty whitelist file: %s", path);
+        } else {
+            LOGF("[WARN] Could not create whitelist file: %s, continuing with empty whitelist", path);
+        }
+        return STATUS_OK;
+    }
 
     char line[256];
     while (fgets(line, sizeof(line), f)) {
@@ -268,20 +316,25 @@ int LoadWhiteList(char* path) {
             p[--len] = '\0';
         }
 
-        if (p[0] == '#' || p[0] == '\0') continue;
+        if (p[0] == '#' || p[0] == ';' || p[0] == '\0') continue;
 
         struct in_addr addr;
         if (inet_pton(AF_INET, p, &addr) == 1) {
-            IpAllowlistAdd(&g_IpAllowlist, addr.s_addr, p, 0);
+            IpAllowlistAdd(&g_IpAllowlist, ntohl(addr.s_addr), p, 0);
             LOGF("[INFO] Added IP to allowlist: %s", p);
 
         } else {
-            WhitelistAdd(&g_Whitelist, p);
+            int is_exception = (p[0] == '!');
+            const char* domain = is_exception ? p + 1 : p;
+            WhitelistAdd(&g_Whitelist, domain, is_exception);
         }
     }
 
     fclose(f);
     LOGF("[INFO] Loaded %zu whitelisted domains and %zu IPs", g_Whitelist.count, g_IpAllowlist.count);
+
+    // Pre-resolve exact-match domains via system DNS (handles DoH)
+    PreResolveWhitelist();
 
     return STATUS_OK;
 }
@@ -417,34 +470,118 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
                     goto filtering;
                 }
 
+                // Spoof DoH canary domains: respond with 127.0.0.1 to tell
+                // browsers (Chrome/Edge) that this network provides DNS,
+                // causing them to disable DoH and fall back to standard DNS.
+                if (!dns.is_response) {
+                    static const char* canary_domains[] = {"use-application-dns.net"};
+                    int is_canary = 0;
+                    for (size_t c = 0; c < sizeof(canary_domains)/sizeof(canary_domains[0]); c++) {
+                        if (DnsCheckDomain(dns.question.domain, canary_domains[c])) {
+                            is_canary = 1;
+                            break;
+                        }
+                    }
+                    if (is_canary) {
+                        // Build spoofed response by cloning and modifying the query packet
+                        char* spoof = malloc(recv_len + 64);
+                        if (spoof) {
+                            memcpy(spoof, packet, recv_len);
+                            WINDIVERT_IPHDR* sip = NULL;
+                            WINDIVERT_UDPHDR* sudp = NULL;
+                            UINT spoof_payload_len = 0;
+                            void* spoof_payload = NULL;
+
+                            WinDivertHelperParsePacket(spoof, recv_len, &sip, NULL, NULL, NULL, NULL,
+                                                        NULL, &sudp, &spoof_payload, &spoof_payload_len, NULL, NULL);
+
+                            if (sip && sudp && spoof_payload && spoof_payload_len >= 12) {
+                                // Swap IP addresses
+                                UINT32 tmp_ip = sip->SrcAddr;
+                                sip->SrcAddr = sip->DstAddr;
+                                sip->DstAddr = tmp_ip;
+
+                                // Swap UDP ports
+                                UINT16 tmp_port = sudp->SrcPort;
+                                sudp->SrcPort = sudp->DstPort;
+                                sudp->DstPort = tmp_port;
+
+                                // Build DNS response header (12 bytes) + fake A record (16 bytes)
+                                uint8_t* dns_out = (uint8_t*)spoof_payload;
+                                // Keep transaction ID from query
+                                // Set flags: response=1, opcode=0, AA=0, TC=0, RD=1, RA=1, Z=0, rcode=0
+                                // 0x8180 = 1000 0001 1000 0000
+                                dns_out[2] = 0x81;
+                                dns_out[3] = 0x80;
+                                // Questions: 1, Answers: 1, Authority: 0, Additional: 0
+                                dns_out[4] = 0x00; dns_out[5] = 0x01;
+                                dns_out[6] = 0x00; dns_out[7] = 0x01;
+                                dns_out[8] = 0x00; dns_out[9] = 0x00;
+                                dns_out[10] = 0x00; dns_out[11] = 0x00;
+
+                                // Answer: name pointer 0xC00C (points to question), type A, class IN, TTL 300
+                                dns_out[12] = 0xC0; dns_out[13] = 0x0C;
+                                dns_out[14] = 0x00; dns_out[15] = 0x01; // TYPE A
+                                dns_out[16] = 0x00; dns_out[17] = 0x01; // CLASS IN
+                                // TTL = 300 seconds
+                                dns_out[18] = 0x00; dns_out[19] = 0x00;
+                                dns_out[20] = 0x01; dns_out[21] = 0x2C;
+                                // RDATA length = 4
+                                dns_out[22] = 0x00; dns_out[23] = 0x04;
+                                // IP = 127.0.0.1 (network byte order: 0x7F000001)
+                                dns_out[24] = 0x7F; dns_out[25] = 0x00;
+                                dns_out[26] = 0x00; dns_out[27] = 0x01;
+
+                                // Fix IP total length and recalculate checksums
+                                UINT new_len = (UINT)((uint8_t*)&dns_out[28] - (uint8_t*)spoof);
+                                sip->Length = htons(new_len);
+                                WinDivertHelperCalcChecksums(spoof, new_len, NULL, 0);
+
+                                // Inject spoofed response
+                                WinDivertSend(handle, spoof, new_len, NULL, &addr);
+                                DLOGF("[DNS-SPOOF] Spoofed A record for %s -> 127.0.0.1",
+                                      dns.question.domain);
+                            }
+                            free(spoof);
+                        }
+                        goto filtering;
+                    }
+                }
+
                 // Only process DNS responses (not queries) with answer records
                 if (!dns.is_response || dns.answer_count == 0) {
                     goto filtering;
                 }
 
                 int domain_whitelisted = 0;
+                AcquireSRWLockShared(&g_AllowlistLock);
                 for (size_t w = 0; w < g_Whitelist.count; w++) {
-                    if (DnsCheckDomain(dns.question.domain, g_Whitelist.entries[w].domain)) {
+                    if (!g_Whitelist.entries[w].is_exception &&
+                        DnsCheckDomain(dns.question.domain, g_Whitelist.entries[w].domain)) {
                         domain_whitelisted = 1;
                         break;
                     }
                 }
 
-                // Add IPs to allowlist if domain is whitelisted
-                for (uint32_t i = 0; i < dns.answer_count; i++) {
-                    for (uint32_t j = 0; j < dns.answers[i].ip_count; j++) {
-                        uint32_t resolved_ip = dns.answers[i].ips[j];
-
-                        if (domain_whitelisted) {
-                            IpAllowlistAdd(&g_IpAllowlist, resolved_ip, dns.question.domain, dns.answers[i].ttl);
-                        }
-
-#ifdef DEBUG
-                        struct in_addr addr_ip = { .s_addr = resolved_ip };
-                        DLOGF("[DNS-RESPONSE] %s -> %s (whitelisted: %d)",
-                              dns.question.domain, inet_ntoa(addr_ip), domain_whitelisted);
-#endif
+                int domain_excepted = 0;
+                for (size_t w = 0; w < g_Whitelist.count; w++) {
+                    if (g_Whitelist.entries[w].is_exception &&
+                        DnsCheckDomain(dns.question.domain, g_Whitelist.entries[w].domain)) {
+                        domain_excepted = 1;
+                        break;
                     }
+                }
+                ReleaseSRWLockShared(&g_AllowlistLock);
+
+                // Add IPs to allowlist if filtration is enabled and domain is whitelisted
+                if (g_FiltrationEnabled && domain_whitelisted && !domain_excepted) {
+                    AcquireSRWLockExclusive(&g_AllowlistLock);
+                    for (uint32_t i = 0; i < dns.answer_count; i++) {
+                        for (uint32_t j = 0; j < dns.answers[i].ip_count; j++) {
+                            IpAllowlistAdd(&g_IpAllowlist, dns.answers[i].ips[j], dns.question.domain, dns.answers[i].ttl);
+                        }
+                    }
+                    ReleaseSRWLockExclusive(&g_AllowlistLock);
                 }
 
             filtering:
@@ -452,9 +589,9 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
             }
         }
 
-        // Extract source and destination IPs
-        uint32_t src_ip = ip_hdr->SrcAddr;
-        uint32_t dest_ip = ip_hdr->DstAddr;
+        // IP header fields are in network byte order, convert to host for comparisons
+        uint32_t src_ip = ntohl(ip_hdr->SrcAddr);
+        uint32_t dest_ip = ntohl(ip_hdr->DstAddr);
 
         /* Check if source/destination is a local IP address.
          * Local IPs must not be blocked:
@@ -468,7 +605,7 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
         int is_local_dst = ((dest_ip & 0xFF000000) == 0x7F000000) ||
             ((dest_ip & 0xFFF00000) == 0xAC100000) || ((dest_ip & 0xFFFF0000) == 0xC0A80000) ||
             ((dest_ip & 0xFF000000) == 0x0A000000);
-        int is_local = is_local_src || is_local_dst;
+        int is_local = is_local_src && is_local_dst;
 
         /*
          * Blocking logic:
@@ -478,33 +615,57 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
          * - Allow packets to IPs that were resolved from whitelisted domains
          * - Block everything else
          */
-        if (addr.Outbound && !IsAllowed(dest_ip) && !is_local) {
+        // Track stats for diagnostics
+        static int packet_count = 0;
+        static int blocked_count = 0;
+        packet_count++;
+
+        if (g_FiltrationEnabled && addr.Outbound && !IsAllowed(dest_ip) && !is_local) {
             int is_dns_udp = (udp_hdr && (ntohs(udp_hdr->DstPort) == 53));
             int is_dns_tcp = (tcp_hdr && (ntohs(tcp_hdr->DstPort) == 53));
-            if (is_dns_udp || is_dns_tcp) {
+            int is_discovery = (udp_hdr && (ntohs(udp_hdr->SrcPort) == 42069 || ntohs(udp_hdr->DstPort) == 42069));
+            if (is_dns_udp || is_dns_tcp || is_discovery) {
                 WinDivertSend(handle, packet, recv_len, NULL, &addr);
                 continue;
             }
 
-            const char* domain = IpAllowlistGetDomain(&g_IpAllowlist, dest_ip);
+            // Copy domain to local buffer to avoid dangling pointer if IPC thread
+            // modifies the allowlist between GetDomain and the whitelist iteration.
+            char domain_buf[MAX_DOMAIN_LEN] = {0};
+            AcquireSRWLockShared(&g_AllowlistLock);
+            const char* dom = IpAllowlistGetDomain(&g_IpAllowlist, dest_ip);
+            if (dom) {
+                strncpy(domain_buf, dom, sizeof(domain_buf) - 1);
+            }
+
             int domain_whitelisted = 0;
-            if (domain && domain[0]) {
+            if (domain_buf[0]) {
                 for (size_t w = 0; w < g_Whitelist.count; w++) {
-                    if (DnsCheckDomain(domain, g_Whitelist.entries[w].domain)) {
+                    if (DnsCheckDomain(domain_buf, g_Whitelist.entries[w].domain)) {
                         domain_whitelisted = 1;
                         break;
                     }
                 }
             }
+            ReleaseSRWLockShared(&g_AllowlistLock);
 
             if (!domain_whitelisted) {
-                if (domain) {
-                    LOGB("Packet to %s blocked (domain: %s not whitelisted)", dst, domain);
+                blocked_count++;
+                if (domain_buf[0]) {
+                    LOGB("Packet to %s blocked (domain: %s not whitelisted)", dst, domain_buf);
                 } else {
                     LOGB("Packet to %s blocked", dst);
                 }
                 continue;
             }
+        }
+
+        if (packet_count % 100 == 0) {
+            AcquireSRWLockShared(&g_AllowlistLock);
+            DLOGF("[STATS] processed=%d blocked=%d allowlist=%zu whitelist=%zu outbound=%d local=%d",
+                  packet_count, blocked_count, g_IpAllowlist.count, g_Whitelist.count,
+                  addr.Outbound, is_local);
+            ReleaseSRWLockShared(&g_AllowlistLock);
         }
 
         WinDivertSend(handle, packet, recv_len, NULL, &addr);
@@ -552,7 +713,7 @@ void WINAPI ServiceControlHandler(DWORD CtrlCode) {
     }
 }
 
-#define SERVICE_NAME "BigBrother"
+#define SERVICE_NAME "BigBrother Firewall"
 #define UpdateServiceStatus() SetServiceStatus(g_StatusHandle, &g_ServiceStatus)
 
 /**
@@ -647,11 +808,9 @@ int main(int argc, char** argv) {
     
     LOGF("[Firewall] Started");
     
-    int err = LoadWhiteList(NULL);
-    if (err) {
-        log_shutdown();
-        return err;
-    }
+    LoadWhiteList(NULL);
+    LOGF("[Firewall] Started with %zu whitelisted domains and %zu allowed IPs",
+          g_Whitelist.count, g_IpAllowlist.count);
 
     SERVICE_TABLE_ENTRY serviceTable[] = {
         {SERVICE_NAME, ServiceMain},

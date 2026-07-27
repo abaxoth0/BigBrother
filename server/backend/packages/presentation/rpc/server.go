@@ -3,6 +3,7 @@
 package rpc
 
 import (
+	"fmt"
 	"net"
 	"strings"
 	"sync"
@@ -12,10 +13,15 @@ import (
 	"github.com/abaxoth0/Ain/errs"
 )
 
+const (
+	NetworkPipe = "pipe"
+	NetworkTCP  = "tcp"
+)
+
 type ServerConfig struct {
+	Network            string // "pipe" or "tcp"
 	InputBufferSize    int32
 	OutputBufferSize   int32
-	// Windows security descriptor in SDDL format.
 	SecurityDescriptor string
 }
 
@@ -24,11 +30,11 @@ type Handler interface {
 }
 
 type Server struct {
-	name 	string
-	config	*ServerConfig
+	name    string
+	config  *ServerConfig
 	handler Handler
-	doneCh 	chan struct{}
-	stopCh 	chan struct{}
+	doneCh  chan struct{}
+	stopCh  chan struct{}
 }
 
 func NewServer(name string, handler Handler, config *ServerConfig) *Server {
@@ -42,7 +48,7 @@ func NewServer(name string, handler Handler, config *ServerConfig) *Server {
 		log.Panic("Failed to create \""+name+"\" server", "Missing server config", nil)
 	}
 	return &Server{
-		name: 	 name,
+		name:    name,
 		config:  config,
 		handler: handler,
 		doneCh:  make(chan struct{}),
@@ -50,23 +56,40 @@ func NewServer(name string, handler Handler, config *ServerConfig) *Server {
 	}
 }
 
-func (s *Server) Start(pipePath string) error {
+func (s *Server) Start(addr string) error {
 	defer close(s.stopCh)
 
-	cfg := &winio.PipeConfig{
-		MessageMode: 		true,
-		InputBufferSize: 	s.config.InputBufferSize,
-		OutputBufferSize: 	s.config.OutputBufferSize,
-		SecurityDescriptor: s.config.SecurityDescriptor,
+	network := s.config.Network
+	if network == "" {
+		network = NetworkPipe
 	}
 
-	listener, err := winio.ListenPipe(pipePath, cfg)
+	var listener net.Listener
+	var err error
+
+	switch network {
+	case NetworkPipe:
+		cfg := &winio.PipeConfig{
+			MessageMode:        true,
+			InputBufferSize:    s.config.InputBufferSize,
+			OutputBufferSize:   s.config.OutputBufferSize,
+			SecurityDescriptor: s.config.SecurityDescriptor,
+		}
+		listener, err = winio.ListenPipe(addr, cfg)
+
+	case NetworkTCP:
+		listener, err = net.Listen("tcp", addr)
+
+	default:
+		return fmt.Errorf("unsupported network: %s", network)
+	}
+
 	if err != nil {
 		return err
 	}
 	defer listener.Close()
 
-	log.Info(s.name+" server: listening on: "+pipePath, nil)
+	log.Info(s.name+" server: listening on: "+addr+" ("+network+")", nil)
 	var wg sync.WaitGroup
 
 	for {
@@ -75,19 +98,22 @@ func (s *Server) Start(pipePath string) error {
 			wg.Wait()
 			return nil
 		default:
-			for {
-				conn, err := listener.Accept()
-				if err != nil {
+			conn, err := listener.Accept()
+			if err != nil {
+				select {
+				case <-s.doneCh:
+					return nil
+				default:
 					log.Error(s.name+" server: accept error", err.Error(), nil)
 					continue
 				}
-
-				go func() {
-					wg.Add(1)
-					defer wg.Done()
-					s.handler.handle(conn)
-				}()
 			}
+
+			go func() {
+				wg.Add(1)
+				defer wg.Done()
+				s.handler.handle(conn)
+			}()
 		}
 	}
 }

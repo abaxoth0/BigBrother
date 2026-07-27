@@ -1,0 +1,1 @@
+- Service discovery - how client should know exact server IP if network is configured using DHCP?

@@ -5,6 +5,8 @@
 
 #include "../include/ipc_client.h"
 #include "../include/ipc_daemon.h"
+#include "../include/net_client.h"
+#include "../../../common/log/log.h"
 #include <windows.h>
 #include <stdio.h>
 #include <string.h>
@@ -185,23 +187,27 @@ DWORD WINAPI client_handler(LPVOID param) {
     // Parse command
     if (strcmp(buffer, "GET_STATUS") == 0) {
         int daemon_ok = (PingDaemon() == 0);
-        int server_ok = (PingServer() == 0);
+        int server_ok = IsServerSessionActive();
 
-        // Get client name from config
         char client_name[128] = {0};
         LoadUserName(client_name, sizeof(client_name));
 
-        // Build response with separate TLV values
         // data[0] = ClientName, data[1] = IpAddress, data[2] = DaemonStatus
         // data[3] = Backend status ("running"), data[4] = WhitelistRevision
         // data[5] = PID, data[6] = ServerRunning, data[7] = ServerSession
+        // data[8] = FiltrationEnabled
         char pid_str[32];
         snprintf(pid_str, sizeof(pid_str), "%lu", GetCurrentProcessId());
 
         char rev_str[32];
         snprintf(rev_str, sizeof(rev_str), "%u", g_whitelist_revision);
 
-        const char* data[8] = {
+        char filt_str[8];
+        int filt_val = DaemonGetFiltration();
+        snprintf(filt_str, sizeof(filt_str), "%d", filt_val);
+        LOGF("[IPC] GET_STATUS: filtration=%d (from DaemonGetFiltration)", filt_val);
+
+        const char* data[9] = {
             client_name[0] ? client_name : "unknown",
             "127.0.0.1",
             daemon_ok ? "running" : "not_running",
@@ -209,9 +215,10 @@ DWORD WINAPI client_handler(LPVOID param) {
             rev_str,
             pid_str,
             server_ok ? "running" : "not_running",
-            IsServerSessionActive() ? "connected" : "not_connected"
+            IsServerSessionActive() ? "connected" : "not_connected",
+            filt_str
         };
-        write_response_tlv(pipe, "OK", data, 8);
+        write_response_tlv(pipe, "OK", data, 9);
 
     } else if (strcmp(buffer, "GET_WHITELIST") == 0) {
         char whitelist_buf[8192];
@@ -283,10 +290,15 @@ DWORD WINAPI client_handler(LPVOID param) {
         char username[128];
         if (LoadUserName(username, sizeof(username)) != 0) {
             write_error_tlv(pipe, "no saved username");
-        } else if (ServerConnect(username) != 0) {
-            write_error_tlv(pipe, "failed to connect (not registered/approved)");
         } else {
-            write_ok(pipe);
+            int r = ServerConnect(username);
+            if (r == 0) {
+                write_ok(pipe);
+            } else {
+                char err_msg[256];
+                snprintf(err_msg, sizeof(err_msg), "connect failed: server error (or see log)");
+                write_error_tlv(pipe, err_msg);
+            }
         }
 
     } else if (strcmp(buffer, "DISCONNECT") == 0) {
@@ -326,6 +338,17 @@ DWORD WINAPI client_handler(LPVOID param) {
         if (arg_count < 1 || !args[0] || strlen(args[0]) == 0) {
             write_error_tlv(pipe, "missing server address");
         } else {
+            const char* new_ip = args[0];
+            // If this is the local machine's IP, use "." (localhost TCP)
+            if (strcmp(new_ip, "127.0.0.1") != 0 && strcmp(new_ip, ".") != 0) {
+                char local_ip[64] = {0};
+                GetLocalIp(new_ip, local_ip, sizeof(local_ip));
+                if (local_ip[0] && strcmp(new_ip, local_ip) == 0) {
+                    SetServerIp(".");
+                    write_ok(pipe);
+                    return 0;
+                }
+            }
             SetServerIp(args[0]);
             write_ok(pipe);
         }
@@ -350,6 +373,193 @@ DWORD WINAPI client_handler(LPVOID param) {
             write_response_tlv(pipe, "OK", data, 1);
         } else {
             write_response_tlv(pipe, "OK", data, 1); // empty string = not set
+        }
+
+    } else if (strcmp(buffer, "GET_FILTRATION") == 0) {
+        char val[8];
+        int enabled = IsFiltrationEnabled();
+        snprintf(val, sizeof(val), "%d", enabled);
+        const char* data[1] = {val};
+        write_response_tlv(pipe, "OK", data, 1);
+
+    } else if (strcmp(buffer, "SET_FILTRATION") == 0) {
+        if (arg_count < 1 || !args[0]) {
+            write_error_tlv(pipe, "missing value (0 or 1)");
+        } else {
+            int enabled = (args[0][0] == '1');
+            if (DaemonSetFiltration(enabled) == 0) {
+                write_ok(pipe);
+            } else {
+                write_error_tlv(pipe, "failed to set filtration");
+            }
+        }
+
+    } else if (strcmp(buffer, "GET_FILTRATION_AUTO_DISABLE") == 0) {
+        char val[8];
+        snprintf(val, sizeof(val), "%d", IsFiltrationAutoDisableEnabled());
+        const char* data[1] = {val};
+        write_response_tlv(pipe, "OK", data, 1);
+
+    } else if (strcmp(buffer, "SET_FILTRATION_AUTO_DISABLE") == 0) {
+        if (arg_count < 1 || !args[0]) {
+            write_error_tlv(pipe, "missing value (0 or 1)");
+        } else {
+            SetFiltrationAutoDisableEnabled(args[0][0] == '1');
+            write_ok(pipe);
+        }
+
+    } else if (strcmp(buffer, "DISCOVER_SERVERS") == 0) {
+        int timeout_ms = 2000;
+        if (arg_count >= 1 && args[0]) {
+            timeout_ms = atoi(args[0]);
+            if (timeout_ms <= 0) timeout_ms = 2000;
+        }
+
+        char local_ip[64] = {0};
+        char bcast_list[4096] = {0};
+
+        GetAllBroadcastAddresses(local_ip, sizeof(local_ip), bcast_list, sizeof(bcast_list));
+        {
+            char response[8192] = {0};
+            int count = DiscoverServers(bcast_list, 42069, timeout_ms, response, sizeof(response));
+            if (count == 0) {
+                LOGF("[Discovery] UDP returned 0, trying TCP subnet scan...");
+                count = DiscoverServersTCP(response, sizeof(response), timeout_ms);
+            }
+
+            if (count > 0) {
+                LOGF("[Discovery] local_ip='%s', first result: %s", local_ip, response);
+                // Replace server IP with "." if it matches local machine IP (use local loopback TCP)
+                if (local_ip[0] != '\0') {
+                    char* line = response;
+                    while (line && *line) {
+                        char* pipe_c = strchr(line, '|');
+                        if (pipe_c) {
+                            char* ip = pipe_c + 1;
+                            char* nl = strchr(ip, '\n');
+                            if (nl) *nl = '\0';
+                            LOGF("[Discovery] Checking IP='%s' vs local_ip='%s'", ip, local_ip);
+                            if (strcmp(ip, local_ip) == 0) {
+                                LOGF("[Discovery] Replacing %s with '.'", ip);
+                                // Replace IP with "." for localhost TCP
+                                memmove(pipe_c + 2, pipe_c + strlen(pipe_c + 1) + 1,
+                                    strlen(pipe_c + 1) + 1);
+                                pipe_c[1] = '.';
+                            }
+                            if (nl) *nl = '\n';
+                        }
+                        char* next = strchr(line, '\n');
+                        line = next ? next + 1 : NULL;
+                    }
+                }
+
+                // Parse "name|ip|port\n..." lines into TLV values
+                char* lines[DISCOVERY_MAX_SERVERS];
+                int line_count = 0;
+                char* p = response;
+                while (p && *p && line_count < DISCOVERY_MAX_SERVERS) {
+                    lines[line_count++] = p;
+                    char* nl = strchr(p, '\n');
+                    if (nl) {
+                        *nl = '\0';
+                        p = nl + 1;
+                    } else {
+                        break;
+                    }
+                }
+                write_response_tlv(pipe, "OK", (const char**)lines, line_count);
+            } else {
+                write_error_tlv(pipe, "no servers found");
+            }
+        }
+
+    } else if (strcmp(buffer, "SET_SERVER_PORT") == 0) {
+        if (arg_count < 1 || !args[0] || strlen(args[0]) == 0) {
+            write_error_tlv(pipe, "missing port number");
+        } else {
+            ini_set_string("server", "port", args[0]);
+            write_ok(pipe);
+        }
+
+    } else if (strcmp(buffer, "GET_SERVER_PORT") == 0) {
+        char buf[16] = {0};
+        int port = get_server_port();
+        snprintf(buf, sizeof(buf), "%d", port);
+        const char* data[1] = {buf};
+        write_response_tlv(pipe, "OK", data, 1);
+
+    } else if (strcmp(buffer, "SET_DISCOVERY_ENABLED") == 0) {
+        if (arg_count < 1 || !args[0]) {
+            write_error_tlv(pipe, "missing value (0 or 1)");
+        } else {
+            ini_set_string("discovery", "enabled", args[0]);
+            write_ok(pipe);
+        }
+
+    } else if (strcmp(buffer, "GET_DISCOVERY_ENABLED") == 0) {
+        const char* val = is_discovery_enabled() ? "1" : "0";
+        const char* data[1] = {val};
+        write_response_tlv(pipe, "OK", data, 1);
+
+    } else if (strcmp(buffer, "SET_NETWORK_AUTO") == 0) {
+        if (arg_count < 1 || !args[0]) {
+            write_error_tlv(pipe, "missing value (0 or 1)");
+        } else {
+            ini_set_string("network", "auto", args[0]);
+            write_ok(pipe);
+        }
+
+    } else if (strcmp(buffer, "GET_NETWORK_AUTO") == 0) {
+        char buf[8] = {0};
+        int auto_val = 1;
+        if (ini_get_string("network", "auto", buf, sizeof(buf)) && buf[0])
+            auto_val = (buf[0] == '1' || buf[0] == 't' || buf[0] == 'y');
+        const char* data[1] = {auto_val ? "1" : "0"};
+        write_response_tlv(pipe, "OK", data, 1);
+
+    } else if (strcmp(buffer, "SET_NETWORK_GATEWAY") == 0) {
+        if (arg_count < 1 || !args[0] || strlen(args[0]) == 0) {
+            write_error_tlv(pipe, "missing gateway address");
+        } else {
+            ini_set_string("network", "gateway", args[0]);
+            write_ok(pipe);
+        }
+
+    } else if (strcmp(buffer, "GET_NETWORK_GATEWAY") == 0) {
+        char buf[64] = {0};
+        ini_get_string("network", "gateway", buf, sizeof(buf));
+        const char* data[1] = {buf};
+        write_response_tlv(pipe, "OK", data, 1);
+
+    } else if (strcmp(buffer, "SET_NETWORK_MASK") == 0) {
+        if (arg_count < 1 || !args[0] || strlen(args[0]) == 0) {
+            write_error_tlv(pipe, "missing subnet mask");
+        } else {
+            ini_set_string("network", "mask", args[0]);
+            write_ok(pipe);
+        }
+
+    } else if (strcmp(buffer, "GET_NETWORK_MASK") == 0) {
+        char buf[64] = {0};
+        ini_get_string("network", "mask", buf, sizeof(buf));
+        const char* data[1] = {buf};
+        write_response_tlv(pipe, "OK", data, 1);
+
+    } else if (strcmp(buffer, "SET_SERVER_NAME") == 0) {
+        if (arg_count < 1 || !args[0] || strlen(args[0]) == 0) {
+            write_error_tlv(pipe, "missing server name");
+        } else {
+            ini_set_string("server", "name", args[0]);
+            write_ok(pipe);
+        }
+
+    } else if (strcmp(buffer, "GET_SERVER_NAME") == 0) {
+        char buf[128] = {0};
+        if (ini_get_string("server", "name", buf, sizeof(buf)) && buf[0]) {
+            const char* data[1] = {buf};
+            write_response_tlv(pipe, "OK", data, 1);
+        } else {
+            write_error_tlv(pipe, "no server name set");
         }
 
     } else if (strcmp(buffer, "CHANGE_NAME") == 0) {

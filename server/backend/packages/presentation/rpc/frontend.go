@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
+	"path/filepath"
 	"time"
 
 	"bigbrother_server_backend/packages/domain/entity"
@@ -77,10 +79,15 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 			hours := int(d.Hours())
 			minutes := int(d.Minutes()) % 60
 			uptimeStr := fmt.Sprintf("%dh %dm", hours, minutes)
-			status := fmt.Sprintf("uptime:%s:clients:%d:pending:%d",
+			filt, _ := h.db.GetSetting("filtration_enabled")
+			if filt == "" {
+				filt = "1"
+			}
+			status := fmt.Sprintf("uptime:%s:clients:%d:pending:%d:filtration:%s",
 				uptimeStr,
 				len(connections),
-				len(h.pendingUsers.GetAll()))
+				len(h.pendingUsers.GetAll()),
+				filt)
 			writeTLVResponse(conn, status)
 
 		case "APPROVE":
@@ -229,6 +236,54 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 				writeOK(conn)
 			}
 
+		case "GET_SERVER_NAME":
+			name, _ := h.db.GetSetting("server_name")
+			if name == "" {
+				name = "BigBrother Server"
+			}
+			writeTLVResponse(conn, name)
+
+		case "SET_SERVER_NAME":
+			if len(args) < 1 {
+				writeErrorTLV(conn, "Missing server name")
+				continue
+			}
+			h.db.SetSetting("server_name", args[0])
+			writeOK(conn)
+
+		case "GET_SERVER_PORT":
+			port, _ := h.db.GetSetting("server_port")
+			if port == "" {
+				port = "1984"
+			}
+			writeTLVResponse(conn, port)
+
+		case "SET_SERVER_PORT":
+			if len(args) < 1 {
+				writeErrorTLV(conn, "Missing port number")
+				continue
+			}
+			h.db.SetSetting("server_port", args[0])
+			writeOK(conn)
+
+		case "GET_LOG_PATH":
+			writeTLVResponse(conn, h.getLogPath())
+
+		case "GET_FILTRATION":
+			filt, _ := h.db.GetSetting("filtration_enabled")
+			if filt == "" {
+				filt = "1"
+			}
+			writeTLVResponse(conn, filt)
+
+		case "SET_FILTRATION":
+			if len(args) < 1 {
+				writeErrorTLV(conn, "Missing value")
+				continue
+			}
+			h.db.SetSetting("filtration_enabled", args[0])
+			writeOK(conn)
+
 		default:
 			writeErrorTLV(conn, fmt.Sprintf("unknown command: %s", cmd))
 		}
@@ -358,4 +413,12 @@ func (h *FrontendHandler) GetActiveWhitelist() string {
 func (h *FrontendHandler) SetActiveWhitelist(name string) {
 	h.activeWl = name
 	h.db.SetSetting("active_whitelist", name)
+}
+
+func (h *FrontendHandler) getLogPath() string {
+	exe, err := os.Executable()
+	if err == nil {
+		return filepath.Join(filepath.Dir(exe), "logs", "server")
+	}
+	return filepath.Join(".", "logs", "server")
 }

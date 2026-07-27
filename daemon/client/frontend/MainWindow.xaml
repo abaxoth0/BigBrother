@@ -209,6 +209,11 @@
                                                    Foreground="{Binding DaemonConnectionStatus, Converter={StaticResource ConnectionStatusToColor}}"/>
                                     </StackPanel>
                                     <StackPanel Orientation="Horizontal" Margin="0,5">
+                                        <TextBlock Text="Фильтрация:" Width="100" Foreground="Gray" VerticalAlignment="Center"/>
+                                        <CheckBox IsChecked="{Binding FiltrationEnabled}" IsEnabled="False" VerticalAlignment="Center"/>
+                                        <Button Content="Вкл/Выкл" Style="{StaticResource ControlButton}" Command="{Binding ToggleFiltrationCommand}" MinWidth="50" Padding="5,2" FontSize="11" Margin="5,0,0,0"/>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Margin="0,5">
                                         <Button Content="Старт" Style="{StaticResource ControlButton}" Click="StartDaemon_Click"/>
                                         <Button Content="Стоп" Style="{StaticResource ControlButton}" Click="StopDaemon_Click"/>
                                         <Button Content="Рестарт" Style="{StaticResource ControlButton}" Click="RestartDaemon_Click"/>
@@ -357,6 +362,20 @@
                                         <Button Content="Сохранить" Command="{Binding SaveUsernameCommand}" Padding="8,2"/>
                                         <Button Content="Зарегистрироваться" Command="{Binding RegisterCommand}" Padding="8,2" Margin="5,0,0,0"/>
                                     </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Margin="0,5">
+                                        <TextBlock Text="Порт:" Width="120" VerticalAlignment="Center"/>
+                                        <TextBox Text="{Binding ServerPort, UpdateSourceTrigger=PropertyChanged}" Width="100" Margin="5,0"/>
+                                        <Button Content="Сохранить" Command="{Binding SaveServerPortCommand}" Padding="8,2"/>
+                                    </StackPanel>
+                                    <Separator Margin="0,10"/>
+                                    <StackPanel Orientation="Horizontal" Margin="0,5">
+                                        <TextBlock Text="Сервер:" Width="120" VerticalAlignment="Center"/>
+                                        <TextBlock Text="{Binding ServerName}" VerticalAlignment="Center" Margin="5,0"/>
+                                        <TextBlock Text="(" VerticalAlignment="Center"/>
+                                        <TextBlock Text="{Binding ServerAddress}" VerticalAlignment="Center" Foreground="Gray"/>
+                                        <TextBlock Text=")" VerticalAlignment="Center"/>
+                                        <Button Content="Сменить" Command="{Binding ChangeServerCommand}" Padding="8,2" Margin="10,0,0,0"/>
+                                    </StackPanel>
                                 </StackPanel>
                             </GroupBox>
 
@@ -372,6 +391,51 @@
                                     </TextBlock>
                                 </StackPanel>
                             </GroupBox>
+
+                            <GroupBox Header="Обнаружение сервера" Margin="0,0,0,10" Padding="10">
+                                <StackPanel>
+                                    <CheckBox IsChecked="{Binding DiscoveryEnabled}" 
+                                              Content="Автоматическое обнаружение сервера в сети"
+                                              Margin="0,5"/>
+                                    <TextBlock TextWrapping="Wrap" Foreground="Gray" FontSize="11" Margin="20,0,0,0">
+                                        <Run Text="Отключите, если сервер использует статический IP. При отключении используйте ручной ввод адреса сервера."/>
+                                    </TextBlock>
+                                </StackPanel>
+                            </GroupBox>
+
+                            <GroupBox Header="Сеть" Margin="0,0,0,10" Padding="10">
+                                <StackPanel>
+                                    <CheckBox IsChecked="{Binding NetworkAuto}" 
+                                              Content="Автоматическое определение сети"
+                                              Margin="0,5"/>
+                                    <StackPanel Orientation="Horizontal" Margin="0,5">
+                                        <TextBlock Text="Шлюз:" Width="120" VerticalAlignment="Center"/>
+                                        <TextBox Text="{Binding NetworkGateway, UpdateSourceTrigger=PropertyChanged}" Width="200" Margin="5,0" IsEnabled="{Binding NetworkManualMode}"/>
+                                        <Button Content="Сохранить" Command="{Binding SaveNetworkGatewayCommand}" Padding="8,2" IsEnabled="{Binding NetworkManualMode}"/>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Margin="0,5">
+                                        <TextBlock Text="Маска подсети:" Width="120" VerticalAlignment="Center"/>
+                                        <TextBox Text="{Binding NetworkMask, UpdateSourceTrigger=PropertyChanged}" Width="200" Margin="5,0" IsEnabled="{Binding NetworkManualMode}"/>
+                                        <Button Content="Сохранить" Command="{Binding SaveNetworkMaskCommand}" Padding="8,2" IsEnabled="{Binding NetworkManualMode}"/>
+                                    </StackPanel>
+                                    <TextBlock TextWrapping="Wrap" Foreground="Gray" FontSize="11" Margin="20,0,0,0"
+                                               Visibility="{Binding NetworkAuto, Converter={StaticResource BoolToVisibility}}">
+                                        <Run Text="Автоматический режим. Отключите, чтобы задать шлюз и маску вручную."/>
+                                    </TextBlock>
+                                </StackPanel>
+                            </GroupBox>
+
+                            <GroupBox Header="Фильтрация" Margin="0,0,0,10" Padding="10">
+                                <StackPanel>
+                                    <CheckBox IsChecked="{Binding FiltrationAutoDisable}"
+                                              Content="Авто-отключение при потере связи с сервером"
+                                              Margin="0,5"/>
+                                    <TextBlock TextWrapping="Wrap" Foreground="Gray" FontSize="11" Margin="20,0,0,0">
+                                        <Run Text="При включении фильтрация автоматически отключается, когда клиент теряет соединение с сервером, и включается при восстановлении."/>
+                                    </TextBlock>
+                                </StackPanel>
+                            </GroupBox>
+
                         </StackPanel>
 
                         <StackPanel Visibility="{Binding SettingsAvailable, Converter={StaticResource InverseBoolToVisibility}}">

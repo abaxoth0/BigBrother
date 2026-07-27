@@ -5,6 +5,7 @@
 
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#include <iphlpapi.h>
 
 #include "../include/ipc_daemon.h"
 #include "../../../common/log/log.h"
@@ -21,6 +22,8 @@ static char g_server_ip[64] = {0};
 static int g_server_session_active = 0;
 static int g_registration_tried = 0;
 static int g_fallback_whitelist_enabled = 1;
+static int g_filtration_enabled = 1;
+static int g_filtration_auto_disable = 0;
 
 void SetServerSessionActive(int active) {
     g_server_session_active = active;
@@ -63,7 +66,7 @@ static char* trim_ws(char* s) {
 
 // Read string value from config.ini.
 // Returns 1 if found, 0 if not found.
-static int ini_get_string(const char* section, const char* key, char* out, size_t out_size) {
+int ini_get_string(const char* section, const char* key, char* out, size_t out_size) {
     if (!out || out_size == 0) return 0;
     out[0] = '\0';
 
@@ -126,7 +129,7 @@ static int ini_get_string(const char* section, const char* key, char* out, size_
 
 // Write or update a string value in config.ini.
 // Retains all other sections and keys.
-static int ini_set_string(const char* section, const char* key, const char* value) {
+int ini_set_string(const char* section, const char* key, const char* value) {
     char ini_path[MAX_PATH];
     build_ini_path(ini_path, sizeof(ini_path));
 
@@ -289,6 +292,8 @@ int SaveUserName(const char* name) {
     return ini_set_string("client", "username", name);
 }
 
+#include "../include/net_client.h"
+
 // Send command to local daemon (firewall) using old protocol format
 static int send_command_tlv(const char* command, const char** args, size_t arg_count,
                            char* out_buffer, size_t buffer_size) {
@@ -393,6 +398,53 @@ int DaemonGetLogPath(char* out_buffer, size_t buffer_size) {
     return send_command_tlv("GET_LOG_PATH", NULL, 0, out_buffer, buffer_size);
 }
 
+int DaemonGetFiltration(void) {
+    char buf[16] = {0};
+    if (send_command_tlv("GET_FILTRATION", NULL, 0, buf, sizeof(buf)) == 0) {
+        g_filtration_enabled = (buf[0] == '1');
+    }
+    return g_filtration_enabled;
+}
+
+int DaemonSetFiltration(int enabled) {
+    const char* args[1] = {enabled ? "1" : "0"};
+    char buf[16] = {0};
+    if (send_command_tlv("SET_FILTRATION", args, 1, buf, sizeof(buf)) == 0) {
+        g_filtration_enabled = enabled;
+        return 0;
+    }
+    return -1;
+}
+
+int IsFiltrationEnabled(void) {
+    return g_filtration_enabled;
+}
+
+int IsFiltrationAutoDisableEnabled(void) {
+    char buf[8] = {0};
+    if (ini_get_string("filtration", "auto_disable", buf, sizeof(buf)) && buf[0])
+        return buf[0] == '1';
+    return 0;
+}
+
+void SetFiltrationAutoDisableEnabled(int enabled) {
+    ini_set_string("filtration", "auto_disable", enabled ? "1" : "0");
+}
+
+static void apply_auto_disable(void) {
+    if (IsFiltrationAutoDisableEnabled()) {
+        LOGF("[Daemon] Auto-disable: disabling filtration (server disconnected)");
+        DaemonSetFiltration(0);
+    }
+}
+
+static void apply_auto_enable(void) {
+    if (IsFiltrationAutoDisableEnabled()) {
+        LOGF("[Daemon] Auto-disable: enabling filtration (server connected)");
+        DaemonSetFiltration(1);
+    }
+}
+
 static int send_to_server_tlv(const char* command, const char** args, size_t arg_count,
                               char* out_buffer, size_t buffer_size) {
     if (!g_server_ip[0] || !command || !out_buffer || buffer_size == 0) {
@@ -400,42 +452,54 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
         return -1;
     }
 
-    char pipe_path[128];
-    snprintf(pipe_path, sizeof(pipe_path), "\\\\%s\\pipe\\BigBrother.Server.Backend", g_server_ip);
-    printf("[send_to_server] Connecting to: %s\n", pipe_path);
+    // Ensure Winsock is initialized
+    WSADATA wsa;
+    if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) {
+        printf("[send_to_server] WSAStartup failed\n");
+        return -1;
+    }
+
+    // Resolve target IP: "." or "127.0.0.1" means localhost
+    const char* target_ip = g_server_ip;
+    if (strcmp(g_server_ip, ".") == 0 || strcmp(g_server_ip, "127.0.0.1") == 0) {
+        target_ip = "127.0.0.1";
+    }
+
+    int port = get_server_port();
+    printf("[send_to_server] Connecting to %s:%d...\n", target_ip, port);
     fflush(stdout);
 
-    HANDLE pipe = INVALID_HANDLE_VALUE;
-    int retries = 3;
+    // TCP socket
+    SOCKET sock = INVALID_SOCKET;
+    int retries = 10;
 
-    while (retries > 0 && pipe == INVALID_HANDLE_VALUE) {
-        pipe = CreateFile(
-            pipe_path,
-            GENERIC_READ | GENERIC_WRITE,
-            0,
-            NULL,
-            OPEN_EXISTING,
-            0,
-            NULL
-        );
+    while (retries > 0 && sock == INVALID_SOCKET) {
+        sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+        if (sock == INVALID_SOCKET) {
+            printf("[send_to_server] socket() failed: %lu\n", (unsigned long)WSAGetLastError());
+            WSACleanup();
+            return -1;
+        }
 
-        if (pipe == INVALID_HANDLE_VALUE) {
-            DWORD err = GetLastError();
-            printf("[send_to_server] Attempt failed, err=%lu\n", err);
+        struct sockaddr_in addr;
+        memset(&addr, 0, sizeof(addr));
+        addr.sin_family = AF_INET;
+        addr.sin_port = htons((unsigned short)port);
+        inet_pton(AF_INET, target_ip, &addr.sin_addr);
 
-            if (err == 2 || err == 5) { // ERROR_FILE_NOT_FOUND or ERROR_ACCESS_DENIED
-                printf("[send_to_server] Waiting for server...\n");
-                Sleep(500);
-                retries--;
-            } else {
-                break;
-            }
+        if (connect(sock, (struct sockaddr*)&addr, sizeof(addr)) != 0) {
+            printf("[send_to_server] connect() failed: %lu (retries left: %d)\n", (unsigned long)WSAGetLastError(), retries);
+            closesocket(sock);
+            sock = INVALID_SOCKET;
+            Sleep(500);
+            retries--;
         }
     }
 
-    if (pipe == INVALID_HANDLE_VALUE) {
-        printf("[send_to_server] Error: failed to connect after retries, err=%lu\n", GetLastError());
+    if (sock == INVALID_SOCKET) {
+        printf("[send_to_server] Error: failed to connect, err=%lu\n", (unsigned long)WSAGetLastError());
         fflush(stdout);
+        WSACleanup();
         return -1;
     }
 
@@ -444,7 +508,7 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
 
     // Build TLV request
     size_t cmd_len = strlen(command);
-    size_t total_size = cmd_len + 1; // command + newline
+    size_t total_size = cmd_len + 1;
     for (size_t i = 0; i < arg_count; i++) {
         if (args[i]) {
             total_size += snprintf(NULL, 0, "%zu", strlen(args[i])) + 1;
@@ -455,37 +519,37 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
 
     char* send_buf = malloc(total_size);
     if (!send_buf) {
-        CloseHandle(pipe);
+        closesocket(sock);
+        WSACleanup();
         return -1;
     }
 
-    char* p = send_buf;
-    memcpy(p, command, cmd_len);
-    p += cmd_len;
-    *p++ = '\n';
+    char* sp = send_buf;
+    memcpy(sp, command, cmd_len);
+    sp += cmd_len;
+    *sp++ = '\n';
 
     for (size_t i = 0; i < arg_count; i++) {
         if (args[i]) {
             size_t arg_len = strlen(args[i]);
-            int len = snprintf(p, total_size - (p - send_buf), "%zu", arg_len);
-            p += len;
-            *p++ = '\n';
-            memcpy(p, args[i], arg_len);
-            p += arg_len;
-            *p++ = '\n';
+            int len = snprintf(sp, total_size - (sp - send_buf), "%zu", arg_len);
+            sp += len;
+            *sp++ = '\n';
+            memcpy(sp, args[i], arg_len);
+            sp += arg_len;
+            *sp++ = '\n';
         }
     }
-    *p++ = '\n';
+    *sp++ = '\n';
 
-    DWORD written;
-    if (!WriteFile(pipe, send_buf, (DWORD)(p - send_buf), &written, NULL)) {
-        free(send_buf);
-        CloseHandle(pipe);
+    int sent = send(sock, send_buf, (int)(sp - send_buf), 0);
+    free(send_buf);
+    if (sent <= 0) {
+        printf("[send_to_server] send() failed: %lu\n", (unsigned long)WSAGetLastError());
+        closesocket(sock);
+        WSACleanup();
         return -1;
     }
-    free(send_buf);
-
-    FlushFileBuffers(pipe);
 
     // Read response: status\n[TLV data...\n]<empty line>
     char status_buf[32] = {0};
@@ -493,8 +557,8 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
     size_t status_remaining = sizeof(status_buf) - 1;
     while (status_remaining > 0) {
         char c;
-        DWORD read;
-        if (!ReadFile(pipe, &c, 1, &read, NULL) || read == 0) break;
+        int n = recv(sock, &c, 1, 0);
+        if (n <= 0) break;
         if (c == '\n') break;
         *status_out++ = c;
         status_remaining--;
@@ -506,22 +570,20 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
 
     int result = -1;
 
-    // If status is OK, read TLV data until empty line
     if (strcmp(status_buf, "OK") == 0) {
         char* out = out_buffer;
         size_t remaining = buffer_size - 1;
         int first = 1;
 
         while (1) {
-            // Read length line
             char len_line[32] = {0};
-            char* p = len_line;
+            char* lp = len_line;
             while (1) {
                 char c;
-                DWORD read;
-                if (!ReadFile(pipe, &c, 1, &read, NULL) || read == 0) break;
+                int n = recv(sock, &c, 1, 0);
+                if (n <= 0) break;
                 if (c == '\n') break;
-                *p++ = c;
+                *lp++ = c;
             }
 
             // Empty line terminates response
@@ -543,8 +605,8 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
         int count = 0;
         while (count < expected_len && remaining > 0) {
             char c;
-            DWORD read;
-            if (!ReadFile(pipe, &c, 1, &read, NULL) || read == 0) break;
+            int n = recv(sock, &c, 1, 0);
+            if (n <= 0) break;
             *out++ = c;
             count++;
             remaining--;
@@ -554,116 +616,49 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
         // Consume trailing newline after TLV value
         {
             char nl;
-            DWORD read;
-            if (ReadFile(pipe, &nl, 1, &read, NULL) && read == 1) {
-                if (nl == '\r') {
-                    ReadFile(pipe, &nl, 1, &read, NULL);
-                }
+            int n = recv(sock, &nl, 1, 0);
+            if (n == 1 && nl == '\r') {
+                recv(sock, &nl, 1, 0); // consume \n after \r
             }
         }
         }
         result = 0;
     } else if (strcmp(status_buf, "ERROR") == 0) {
-        // Read error message as TLV
         char len_line[32] = {0};
-        char* p = len_line;
+        char* lp = len_line;
         while (1) {
             char c;
-            DWORD read;
-            if (!ReadFile(pipe, &c, 1, &read, NULL) || read == 0) break;
+            int n = recv(sock, &c, 1, 0);
+            if (n <= 0) break;
             if (c == '\n') break;
-            *p++ = c;
+            *lp++ = c;
         }
 
         if (strlen(len_line) > 0) {
             int expected_len = atoi(len_line);
             if (expected_len > 0 && expected_len < (int)buffer_size) {
-                DWORD bytes_read = 0;
-                ReadFile(pipe, out_buffer, expected_len, &bytes_read, NULL);
+                int bytes_read = 0;
+                while (bytes_read < expected_len) {
+                    int n = recv(sock, out_buffer + bytes_read, expected_len - bytes_read, 0);
+                    if (n <= 0) break;
+                    bytes_read += n;
+                }
                 out_buffer[bytes_read] = '\0';
             }
         }
         result = -1;
     }
 
-    CloseHandle(pipe);
-    return result;
-}
-
-static int get_local_ip(const char* server_ip, char* buffer, size_t buffer_size) {
-    if (!buffer || buffer_size == 0) return -1;
-    buffer[0] = '\0';
-
-    WSADATA wsaData;
-    if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0)
-        return -1;
-
-    int ret = -1;
-
-    // Try route-based detection using the server IP
-    if (server_ip && server_ip[0]) {
-        SOCKET sock = socket(AF_INET, SOCK_DGRAM, 0);
-        if (sock != INVALID_SOCKET) {
-            struct sockaddr_in addr;
-            addr.sin_family = AF_INET;
-            addr.sin_port = htons(445);
-            addr.sin_addr.s_addr = inet_addr(server_ip);
-
-            if (connect(sock, (struct sockaddr*)&addr, sizeof(addr)) == 0) {
-                struct sockaddr_in local_addr;
-                int len = sizeof(local_addr);
-                if (getsockname(sock, (struct sockaddr*)&local_addr, &len) == 0) {
-                    char* ip = inet_ntoa(local_addr.sin_addr);
-                    if (ip) {
-                        strncpy(buffer, ip, buffer_size - 1);
-                        buffer[buffer_size - 1] = '\0';
-                        ret = 0;
-                    }
-                }
-            }
-            closesocket(sock);
-        }
-    }
-
-    // Fallback: resolve local hostname
-    if (ret != 0) {
-        char hostname[256];
-        if (gethostname(hostname, sizeof(hostname)) == 0) {
-            struct addrinfo hints, *res = NULL;
-            memset(&hints, 0, sizeof(hints));
-            hints.ai_family = AF_INET;
-            hints.ai_socktype = SOCK_STREAM;
-            if (getaddrinfo(hostname, NULL, &hints, &res) == 0 && res) {
-                struct sockaddr_in* sa = (struct sockaddr_in*)res->ai_addr;
-                char* ip = inet_ntoa(sa->sin_addr);
-                if (ip) {
-                    strncpy(buffer, ip, buffer_size - 1);
-                    buffer[buffer_size - 1] = '\0';
-                    ret = 0;
-                }
-                freeaddrinfo(res);
-            }
-        }
-    }
-
+    closesocket(sock);
     WSACleanup();
-    return ret;
+    return result;
 }
 
 int ServerRegister(const char* name) {
     if (!name) return -1;
-    printf("[DEBUG] ServerRegister: START name='%s', g_server_ip='%s'\n", name, g_server_ip);
-    fflush(stdout);
-
-    if (!g_server_ip[0]) {
-        printf("[DEBUG] ServerRegister: no server IP set\n");
-        fflush(stdout);
-        return -1;
-    }
 
     char local_ip[64] = {0};
-    get_local_ip(g_server_ip, local_ip, sizeof(local_ip));
-
+    GetLocalIp(g_server_ip, local_ip, sizeof(local_ip));
     const char* args[2] = {name, local_ip};
     char response[256];
     memset(response, 0, sizeof(response));
@@ -687,11 +682,19 @@ int ServerRegister(const char* name) {
 int ServerConnect(const char* name) {
     if (!name) return -1;
     char local_ip[64] = {0};
-    get_local_ip(g_server_ip, local_ip, sizeof(local_ip));
+    GetLocalIp(g_server_ip, local_ip, sizeof(local_ip));
     const char* args[2] = {name, local_ip};
-    char response[256];
+    char response[256] = {0};
     int result = send_to_server_tlv("CONNECT", args, local_ip[0] ? 2 : 1, response, sizeof(response));
-    if (result == 0) g_server_session_active = 1;
+    if (result == 0 || strstr(response, "already connected") != NULL) {
+        g_server_session_active = 1;
+        return 0;
+    }
+    if (response[0]) {
+        LOGF("[ServerConnect] Server error: '%s'", response);
+    } else {
+        LOGF("[ServerConnect] TCP connection to %s:%d failed", g_server_ip, get_server_port());
+    }
     return result;
 }
 
@@ -734,6 +737,7 @@ int DaemonRun(const char* server_ip, int poll_interval_secs) {
 
     // Track whether we've pushed an empty whitelist for block-all mode
     int blocked_all_pushed = 0;
+    int consecutive_failures = 0;
 
     LOGF("[Daemon] Waiting for local daemon to be ready...");
     int local_ready = 0;
@@ -758,8 +762,10 @@ int DaemonRun(const char* server_ip, int poll_interval_secs) {
         if (ServerConnect(username) == 0) {
             LOGF("[Daemon] Connected to server successfully");
             server_connected = 1;
+            apply_auto_enable();
         } else {
             LOGF("[Daemon] Failed to connect to server (may not be registered/approved yet)");
+            apply_auto_disable();
             if (!g_registration_tried) {
                 LOGF("[Daemon] Attempting to register...");
                 ServerRegister(username);
@@ -768,6 +774,7 @@ int DaemonRun(const char* server_ip, int poll_interval_secs) {
         }
     } else {
         LOGF("[Daemon] No saved username found, skipping server connection");
+        apply_auto_disable();
     }
 
     while (1) {
@@ -798,10 +805,30 @@ int DaemonRun(const char* server_ip, int poll_interval_secs) {
             const char* wl_args[1] = {username};
             char response[8192] = {0};
             if (send_to_server_tlv("GET_WHITELIST", wl_args, 1, response, sizeof(response)) == 0) {
+                consecutive_failures = 0;
                 if (!server_connected) {
                     server_connected = 1;
                     g_server_session_active = 1;
                     ServerConnect(username);
+                    apply_auto_enable();
+                }
+
+                // Sync filtration state from server
+                {
+                    char filt_buf[16] = {0};
+                    int tlv_ret = send_to_server_tlv("GET_FILTRATION", NULL, 0, filt_buf, sizeof(filt_buf));
+                    if (tlv_ret == 0) {
+                        int server_filt = (filt_buf[0] == '1');
+                        LOGF("[Daemon] Server GET_FILTRATION returned '%s' (server_filt=%d, local=%d)",
+                             filt_buf, server_filt, g_filtration_enabled);
+                        if (server_filt != g_filtration_enabled) {
+                            LOGF("[Daemon] Server filtration %s, updating local firewall", server_filt ? "enabled" : "disabled");
+                            int df_ret = DaemonSetFiltration(server_filt);
+                            LOGF("[Daemon] DaemonSetFiltration returned %d", df_ret);
+                        }
+                    } else {
+                        LOGF("[Daemon] GET_FILTRATION from server failed (ret=%d)", tlv_ret);
+                    }
                 }
 
                 // Check if server whitelist sync is disabled
@@ -844,11 +871,67 @@ int DaemonRun(const char* server_ip, int poll_interval_secs) {
             } else {
                 if (server_connected) {
                     LOGF("[Daemon] Lost connection to server %s", g_server_ip);
+                    apply_auto_disable();
                 } else {
                     LOGF("[Daemon] Cannot connect to server %s, retrying...", g_server_ip);
                 }
                 server_connected = 0;
                 g_server_session_active = 0;
+
+                consecutive_failures++;
+                if (consecutive_failures >= 3) {
+                    LOGF("[Daemon] %d consecutive failures, trying server discovery...", consecutive_failures);
+                    char expected_name[128] = {0};
+                    ini_get_string("server", "name", expected_name, sizeof(expected_name));
+                    if (expected_name[0] != '\0') {
+                        char local_ip[64] = {0}, bcast_list[4096] = {0};
+                        GetAllBroadcastAddresses(local_ip, sizeof(local_ip), bcast_list, sizeof(bcast_list));
+                        if (bcast_list[0] != '\0') {
+                            char disco_resp[8192] = {0};
+                            int found = DiscoverServers(bcast_list, 42069, 2000, disco_resp, sizeof(disco_resp));
+                            if (found > 0) {
+                                char* line = disco_resp;
+                                for (int i = 0; i < found && line && *line; i++) {
+                                    char* first_pipe = strchr(line, '|');
+                                    if (!first_pipe) { char* nl = strchr(line, '\n'); if (nl) line = nl + 1; else break; continue; }
+                                    *first_pipe = '\0';
+                                    char* name = line;
+                                    char* rest = first_pipe + 1;
+                                    if (strcmp(name, expected_name) == 0) {
+                                        // Parse "ip|port"
+                                        char* second_pipe = strchr(rest, '|');
+                                        char* server_ip = rest;
+                                        char* server_port = "1984";
+                                        if (second_pipe) {
+                                            *second_pipe = '\0';
+                                            server_port = second_pipe + 1;
+                                            char* nl = strchr(server_port, '\n');
+                                            if (nl) *nl = '\0';
+                                        } else {
+                                            char* nl = strchr(server_ip, '\n');
+                                            if (nl) *nl = '\0';
+                                        }
+
+                                        // If server is on the same machine, use "." (localhost TCP)
+                                        if (local_ip[0] != '\0' && strcmp(server_ip, local_ip) == 0) {
+                                            SetServerIp(".");
+                                        } else {
+                                            SetServerIp(server_ip);
+                                        }
+                                        ini_set_string("server", "port", server_port);
+                                        LOGF("[Daemon] Server '%s' found at %s:%s", expected_name, server_ip, server_port);
+                                        consecutive_failures = 0;
+                                        break;
+                                    }
+                                    *first_pipe = '|';
+                                    char* nl = strchr(line, '\n');
+                                    if (nl) line = nl + 1; else break;
+                                }
+                            }
+                        }
+                    }
+                }
+
                 if (!g_fallback_whitelist_enabled && local_ready && !blocked_all_pushed) {
                     LOGF("[Daemon] Server unreachable and fallback off - blocking all traffic");
                     if (DaemonSetWhitelist("", 0, whitelist_buf, sizeof(whitelist_buf)) == 0) {

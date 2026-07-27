@@ -38,172 +38,304 @@
         </Style>
     </Window.Resources>
 
-    <Grid>
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
-        </Grid.RowDefinitions>
+    <TabControl Margin="5">
+        <!-- Main Tab -->
+        <TabItem Header="Главная">
+            <Grid Background="White" Margin="5">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
 
-        <!-- Header -->
-        <Border Grid.Row="0" Background="{StaticResource HeaderBackground}" Padding="10,5">
-            <StackPanel Orientation="Horizontal">
-                <TextBlock Text="Сервер: " Foreground="Black" VerticalAlignment="Center" FontSize="14"/>
-                <Ellipse Width="10" Height="10" VerticalAlignment="Center" Margin="0,0,5,0">
-                    <Ellipse.Style>
-                        <Style TargetType="Ellipse">
-                            <Setter Property="Fill" Value="{StaticResource StatusDisconnected}"/>
-                            <Style.Triggers>
-                                <DataTrigger Binding="{Binding IsConnected}" Value="True">
-                                    <Setter Property="Fill" Value="{StaticResource StatusRunning}"/>
-                                </DataTrigger>
-                            </Style.Triggers>
-                        </Style>
-                    </Ellipse.Style>
-                </Ellipse>
-                <TextBlock Text="{Binding ServerStatus}" Foreground="Black" VerticalAlignment="Center" FontSize="14" FontWeight="Bold"/>
-                <TextBlock Text="  |  " Foreground="Gray" VerticalAlignment="Center"/>
-                <TextBlock Text="{Binding Uptime}" Foreground="Gray" VerticalAlignment="Center"/>
-            </StackPanel>
-        </Border>
-
-        <!-- Tabs -->
-        <TabControl Grid.Row="1" Margin="5">
-
-            <!-- Users Tab -->
-            <TabItem Header="Пользователи">
-                <Grid Background="White" Margin="5">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="*"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="*"/>
-                    </Grid.RowDefinitions>
-
-
-
-                    <!-- Connected Clients -->
-                    <Grid Grid.Row="0" Background="{StaticResource HeaderBackground}" Margin="0,0,0,2">
+                <!-- Server status + uptime + clients + pending + service control -->
+                <Border Grid.Row="0" Background="{StaticResource HeaderBackground}" Margin="0,0,0,5" Padding="10,5">
+                    <Grid VerticalAlignment="Center">
                         <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
 
-                        <TextBlock Grid.Column="0" Margin="10,5" VerticalAlignment="Center" FontWeight="Bold">
-                            <Run Text="Подключённые клиенты ("/>
-                            <Run Text="{Binding ConnectedClientsCount, Mode=OneWay}"/>
-                            <Run Text=")"/>
-                        </TextBlock>
-                        <Button Grid.Column="2" Content="Обновить" Style="{StaticResource ControlButton}" Command="{Binding RefreshCommand}"/>
-                    </Grid>
-
-                    <DataGrid Grid.Row="1" ItemsSource="{Binding ConnectedClients}" AutoGenerateColumns="False"
-                            Background="White" Foreground="Black" BorderBrush="{StaticResource BorderBrush}"
-                            CanUserAddRows="False" CanUserDeleteRows="False" IsReadOnly="True"
-                            GridLinesVisibility="Horizontal" HeadersVisibility="Column">
-                        <DataGrid.Columns>
-                            <DataGridTextColumn Header="Имя" Binding="{Binding Name}" Width="150"/>
-                            <DataGridTextColumn Header="Адрес" Binding="{Binding Address}" Width="150"/>
-                            <DataGridTextColumn Header="Статус" Binding="{Binding Status}" Width="100"/>
-                            <DataGridTextColumn Header="Список" Binding="{Binding Whitelist}" Width="100"/>
-                            <DataGridTextColumn Header="Последняя активность" Binding="{Binding LastActivity, StringFormat=HH:mm:ss}" Width="120"/>
-                        </DataGrid.Columns>
-                        <DataGrid.ContextMenu>
-                            <ContextMenu>
-                                <MenuItem Header="Отключить" Command="{Binding DisconnectCommand}" CommandParameter="{Binding PlacementTarget.SelectedItem.Name, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
-                            </ContextMenu>
-                        </DataGrid.ContextMenu>
-                    </DataGrid>
-
-                    <!-- Pending Registrations -->
-                    <Grid Grid.Row="2" Background="{StaticResource HeaderBackground}" Margin="0,10,0,2">
-                        <TextBlock Margin="10,5" VerticalAlignment="Center" FontWeight="Bold">
-                            <Run Text="Ожидающие регистрации ("/>
-                            <Run Text="{Binding PendingCount, Mode=OneWay}"/>
-                            <Run Text=")"/>
-                        </TextBlock>
-                    </Grid>
-
-                    <DataGrid Grid.Row="3" ItemsSource="{Binding PendingRegistrations}" AutoGenerateColumns="False"
-                            Background="White" Foreground="Black" BorderBrush="{StaticResource BorderBrush}"
-                            CanUserAddRows="False" CanUserDeleteRows="False" IsReadOnly="True"
-                            GridLinesVisibility="Horizontal" HeadersVisibility="Column">
-                        <DataGrid.Columns>
-                            <DataGridTextColumn Header="Имя" Binding="{Binding Name}" Width="150"/>
-                            <DataGridTextColumn Header="Адрес" Binding="{Binding Address}" Width="150"/>
-                            <DataGridTextColumn Header="Запрошено" Binding="{Binding CreatedAt, StringFormat=yyyy-MM-dd HH:mm}" Width="150"/>
-                        </DataGrid.Columns>
-                        <DataGrid.ContextMenu>
-                            <ContextMenu>
-                                <MenuItem Header="Одобрить" Command="{Binding ApproveCommand}" CommandParameter="{Binding PlacementTarget.SelectedItem.Name, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
-                                <MenuItem Header="Отклонить" Command="{Binding RejectCommand}" CommandParameter="{Binding PlacementTarget.SelectedItem.Name, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
-                            </ContextMenu>
-                        </DataGrid.ContextMenu>
-                    </DataGrid>
-                </Grid>
-            </TabItem>
-
-            <!-- Whitelists Tab -->
-            <TabItem Header="Списки">
-                <Grid Background="White" Margin="5">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="*"/>
-                    </Grid.RowDefinitions>
-
-
-                    <!-- Active Whitelist -->
-                    <Grid Grid.Row="0" Background="{StaticResource HeaderBackground}" Margin="0,0,0,5">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-                        <StackPanel Grid.Column="0" Orientation="Horizontal" Margin="10,5">
-                            <TextBlock Text="Активный: " VerticalAlignment="Center" FontWeight="Bold"/>
-                            <TextBlock Text="{Binding ActiveWhitelist}" VerticalAlignment="Center" Foreground="Gray"/>
+                        <!-- Status with circle -->
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" Margin="0,0,30,0" VerticalAlignment="Center">
+                            <Ellipse Width="14" Height="14" VerticalAlignment="Center" Margin="0,0,8,0">
+                                <Ellipse.Style>
+                                    <Style TargetType="Ellipse">
+                                        <Setter Property="Fill" Value="{StaticResource StatusDisconnected}"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsConnected}" Value="True">
+                                                <Setter Property="Fill" Value="{StaticResource StatusRunning}"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Ellipse.Style>
+                            </Ellipse>
+                            <StackPanel>
+                                <TextBlock Text="{Binding ServerStatus}" Foreground="Black" FontSize="16" FontWeight="Bold"/>
+                                <TextBlock Text="{Binding Uptime}" Foreground="Black" FontSize="12"/>
+                            </StackPanel>
                         </StackPanel>
-                        <Button Grid.Column="2" Content="Создать" Style="{StaticResource ControlButton}" Command="{Binding OpenCreateWhitelistCommand}" Margin="10,5"/>
+
+                        <!-- Clients / Pending -->
+                        <StackPanel Grid.Column="1" Margin="0,0,30,0" VerticalAlignment="Center">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="Клиенты: " FontSize="14" FontWeight="Bold" VerticalAlignment="Center"/>
+                                <TextBlock Text="{Binding ConnectedClientsCount}" FontSize="14" VerticalAlignment="Center"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="Ожидают: " FontSize="14" FontWeight="Bold" VerticalAlignment="Center"/>
+                                <TextBlock Text="{Binding PendingCount}" FontSize="14" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </StackPanel>
+
+                        <!-- Filtration -->
+                        <StackPanel Grid.Column="2" Margin="0,0,30,0" VerticalAlignment="Center">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="Фильтрация: " FontSize="14" FontWeight="Bold" VerticalAlignment="Center"/>
+                                <TextBlock Text="{Binding FiltrationStatus}" FontSize="14" VerticalAlignment="Center"/>
+                            </StackPanel>
+                            <Button Content="Вкл/Выкл" Style="{StaticResource ControlButton}" Command="{Binding ToggleFiltrationCommand}" MinWidth="60" Padding="6,2" FontSize="12" Margin="0,2,0,0"/>
+                        </StackPanel>
+
+                        <!-- Service control -->
+                        <StackPanel Grid.Column="4" VerticalAlignment="Center">
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                <TextBlock Text="Служба:" Foreground="Black" FontSize="12" FontWeight="Bold" VerticalAlignment="Center"/>
+                                <TextBlock Text="{Binding ServiceStatus}" Foreground="Gray" FontSize="11" Margin="4,0,0,0" VerticalAlignment="Center"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,4,0,0">
+                                <Button Content="Пуск" Style="{StaticResource ControlButton}" Command="{Binding StartServiceCommand}" MinWidth="50" Padding="6,4" FontSize="12"/>
+                                <Button Content="Стоп" Style="{StaticResource ControlButton}" Command="{Binding StopServiceCommand}" MinWidth="50" Padding="6,4" FontSize="12"/>
+                                <Button Content="Рест" Style="{StaticResource ControlButton}" Command="{Binding RestartServiceCommand}" MinWidth="50" Padding="6,4" FontSize="12"/>
+                            </StackPanel>
+                        </StackPanel>
                     </Grid>
+                </Border>
 
-                    <!-- Whitelists List -->
-                    <DataGrid Grid.Row="1" ItemsSource="{Binding Whitelists}" AutoGenerateColumns="False"
-                            Background="White" Foreground="Black" BorderBrush="{StaticResource BorderBrush}"
-                            CanUserAddRows="False" CanUserDeleteRows="False" IsReadOnly="True"
-                            SelectedItem="{Binding SelectedWhitelist}"
-                            GridLinesVisibility="Horizontal" HeadersVisibility="Column">
-                        <DataGrid.Columns>
-                            <DataGridTextColumn Header="Название" Binding="{Binding Name}" Width="200"/>
-                            <DataGridTextColumn Header="Записей" Binding="{Binding EntryCount}" Width="100"/>
-                        </DataGrid.Columns>
-                        <DataGrid.ContextMenu>
-                            <ContextMenu>
-                                <MenuItem Header="Установить активным" Command="{Binding SetActiveWhitelistCommand}" CommandParameter="{Binding PlacementTarget.SelectedItem.Name, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
-                                <MenuItem Header="Редактировать" Command="{Binding OpenEditWhitelistCommand}" CommandParameter="{Binding PlacementTarget.SelectedItem, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
-                                <Separator/>
-                                <MenuItem Header="Удалить" Command="{Binding DeleteWhitelistCommand}" CommandParameter="{Binding PlacementTarget.SelectedItem.Name, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
-                            </ContextMenu>
-                        </DataGrid.ContextMenu>
-                    </DataGrid>
+                <!-- Log toolbar -->
+                <Grid Grid.Row="1" Background="{StaticResource HeaderBackground}" Margin="0,0,0,2" MinHeight="32">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" Margin="5,3" VerticalAlignment="Center">
+                        <TextBlock Text="Поиск:" VerticalAlignment="Center" Margin="0,0,5,0" FontSize="13"/>
+                        <TextBox Text="{Binding LogSearchText, UpdateSourceTrigger=PropertyChanged}" Width="220" Height="24" FontSize="12" VerticalContentAlignment="Center"/>
+                        <CheckBox Content="Авто-скролл" IsChecked="{Binding AutoScroll}" Margin="10,0,0,0" VerticalAlignment="Center" FontSize="13"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="5,3" VerticalAlignment="Center">
+                        <Button Content="Экспорт" Style="{StaticResource ControlButton}" Command="{Binding ExportServerLogsCommand}" Padding="8,4" FontSize="12" MinWidth="70"/>
+                        <Button Content="Очистить" Style="{StaticResource ControlButton}" Command="{Binding ClearServerLogsCommand}" Padding="8,4" FontSize="12" MinWidth="70"/>
+                    </StackPanel>
                 </Grid>
-            </TabItem>
 
-            <!-- Logs Tab -->
-            <TabItem Header="Логи">
-                <Grid Background="White" Margin="5">
-                    <ListBox ItemsSource="{Binding LogEntries}" Background="White" Foreground="Black" FontFamily="Consolas"/>
-                </Grid>
-            </TabItem>
+                <!-- Log entries list -->
+                <ListBox Grid.Row="2" x:Name="ServerLogListBox" ItemsSource="{Binding FilteredServerLogs}"
+                         Background="#1E1E1E" Foreground="#D4D4D4"
+                         FontFamily="Consolas" FontSize="14"
+                         VirtualizingPanel.IsVirtualizing="True"
+                         VirtualizingPanel.VirtualizationMode="Recycling">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="{Binding Timestamp}" Foreground="#888888"/>
+                                <TextBlock Text=" ["/>
+                                <TextBlock Text="{Binding Level}">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Foreground" Value="#6B9FFF"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding Level}" Value="WARNING">
+                                                    <Setter Property="Foreground" Value="#FFA500"/>
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding Level}" Value="ERROR">
+                                                    <Setter Property="Foreground" Value="#FF4444"/>
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding Level}" Value="FATAL">
+                                                    <Setter Property="Foreground" Value="#CC0000"/>
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding Level}" Value="DEBUG">
+                                                    <Setter Property="Foreground" Value="#9B59B6"/>
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding Level}" Value="TRACE">
+                                                    <Setter Property="Foreground" Value="#FF69B4"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                                <TextBlock Text="] "/>
+                                <TextBlock Text="{Binding Message}" TextWrapping="NoWrap"/>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Grid>
+        </TabItem>
 
-            <!-- Settings Tab -->
-            <TabItem Header="Настройки">
-                <Grid Background="White" Margin="10">
-                    <TextBlock Text="Нет соединения с Сервером. Настройки недоступны."
-                               Foreground="Gray" FontSize="14"
-                               Visibility="{Binding NotConnectedVisibility}"
-                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+        <!-- Users Tab -->
+        <TabItem Header="Пользователи">
+            <Grid Background="White" Margin="5">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <!-- Connected Clients -->
+                <Grid Grid.Row="0" Background="{StaticResource HeaderBackground}" Margin="0,0,0,2">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <TextBlock Grid.Column="0" Margin="10,5" VerticalAlignment="Center" FontWeight="Bold">
+                        <Run Text="Подключённые клиенты ("/>
+                        <Run Text="{Binding ConnectedClientsCount, Mode=OneWay}"/>
+                        <Run Text=")"/>
+                    </TextBlock>
+                    <Button Grid.Column="2" Content="Обновить" Style="{StaticResource ControlButton}" Command="{Binding RefreshCommand}"/>
                 </Grid>
-            </TabItem>
-        </TabControl>
-    </Grid>
+
+                <DataGrid Grid.Row="1" ItemsSource="{Binding ConnectedClients}" AutoGenerateColumns="False"
+                        Background="White" Foreground="Black" BorderBrush="{StaticResource BorderBrush}"
+                        CanUserAddRows="False" CanUserDeleteRows="False" IsReadOnly="True"
+                        GridLinesVisibility="Horizontal" HeadersVisibility="Column">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="Имя" Binding="{Binding Name}" Width="150"/>
+                        <DataGridTextColumn Header="Адрес" Binding="{Binding Address}" Width="150"/>
+                        <DataGridTextColumn Header="Статус" Binding="{Binding Status}" Width="100"/>
+                        <DataGridTextColumn Header="Список" Binding="{Binding Whitelist}" Width="100"/>
+                        <DataGridTextColumn Header="Последняя активность" Binding="{Binding LastActivity, StringFormat=HH:mm:ss}" Width="120"/>
+                    </DataGrid.Columns>
+                    <DataGrid.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="Отключить" Command="{Binding DisconnectCommand}" CommandParameter="{Binding PlacementTarget.SelectedItem.Name, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                        </ContextMenu>
+                    </DataGrid.ContextMenu>
+                </DataGrid>
+
+                <!-- Pending Registrations -->
+                <Grid Grid.Row="2" Background="{StaticResource HeaderBackground}" Margin="0,10,0,2">
+                    <TextBlock Margin="10,5" VerticalAlignment="Center" FontWeight="Bold">
+                        <Run Text="Ожидающие регистрации ("/>
+                        <Run Text="{Binding PendingCount, Mode=OneWay}"/>
+                        <Run Text=")"/>
+                    </TextBlock>
+                </Grid>
+
+                <DataGrid Grid.Row="3" ItemsSource="{Binding PendingRegistrations}" AutoGenerateColumns="False"
+                        Background="White" Foreground="Black" BorderBrush="{StaticResource BorderBrush}"
+                        CanUserAddRows="False" CanUserDeleteRows="False" IsReadOnly="True"
+                        GridLinesVisibility="Horizontal" HeadersVisibility="Column">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="Имя" Binding="{Binding Name}" Width="150"/>
+                        <DataGridTextColumn Header="Адрес" Binding="{Binding Address}" Width="150"/>
+                        <DataGridTextColumn Header="Запрошено" Binding="{Binding CreatedAt, StringFormat=yyyy-MM-dd HH:mm}" Width="150"/>
+                    </DataGrid.Columns>
+                    <DataGrid.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="Одобрить" Command="{Binding ApproveCommand}" CommandParameter="{Binding PlacementTarget.SelectedItem.Name, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                            <MenuItem Header="Отклонить" Command="{Binding RejectCommand}" CommandParameter="{Binding PlacementTarget.SelectedItem.Name, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                        </ContextMenu>
+                    </DataGrid.ContextMenu>
+                </DataGrid>
+            </Grid>
+        </TabItem>
+
+        <!-- Whitelists Tab -->
+        <TabItem Header="Списки">
+            <Grid Background="White" Margin="5">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <Grid Grid.Row="0" Background="{StaticResource HeaderBackground}" Margin="0,0,0,5">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" Margin="10,5">
+                        <TextBlock Text="Активный: " VerticalAlignment="Center" FontWeight="Bold"/>
+                        <TextBlock Text="{Binding ActiveWhitelist}" VerticalAlignment="Center" Foreground="Gray"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" Margin="10,5">
+                        <Button Content="Импорт" Style="{StaticResource ControlButton}" Command="{Binding ImportWhitelistsCommand}"/>
+                        <Button Content="Экспорт" Style="{StaticResource ControlButton}" Command="{Binding ExportWhitelistsCommand}"/>
+                        <Button Content="Удалить" Style="{StaticResource ControlButton}" Command="{Binding DeleteSelectedWhitelistsCommand}"/>
+                        <Button Content="Создать" Style="{StaticResource ControlButton}" Command="{Binding OpenCreateWhitelistCommand}"/>
+                    </StackPanel>
+                </Grid>
+
+                <DataGrid Grid.Row="1" ItemsSource="{Binding Whitelists}" AutoGenerateColumns="False"
+                        Background="White" Foreground="Black" BorderBrush="{StaticResource BorderBrush}"
+                        CanUserAddRows="False" CanUserDeleteRows="False"
+                        SelectedItem="{Binding SelectedWhitelist}"
+                        GridLinesVisibility="Horizontal" HeadersVisibility="Column"
+                        VerticalContentAlignment="Center" MinRowHeight="26">
+                    <DataGrid.Columns>
+                        <DataGridTemplateColumn Header=" " Width="34">
+                            <DataGridTemplateColumn.HeaderTemplate>
+                                <DataTemplate>
+                                    <CheckBox IsChecked="{Binding DataContext.IsAllSelected, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                              HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.HeaderTemplate>
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <Grid>
+                                        <CheckBox IsChecked="{Binding IsSelected, UpdateSourceTrigger=PropertyChanged}"
+                                                  HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTextColumn Header="Название" Binding="{Binding Name}" Width="200" IsReadOnly="True"/>
+                        <DataGridTextColumn Header="Записей" Binding="{Binding EntryCount}" Width="100" IsReadOnly="True"/>
+                    </DataGrid.Columns>
+                    <DataGrid.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="Установить активным" Command="{Binding SetActiveWhitelistCommand}" CommandParameter="{Binding PlacementTarget.SelectedItem.Name, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                            <MenuItem Header="Редактировать" Command="{Binding OpenEditWhitelistCommand}" CommandParameter="{Binding PlacementTarget.SelectedItem, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                            <Separator/>
+                            <MenuItem Header="Удалить" Command="{Binding DeleteWhitelistCommand}" CommandParameter="{Binding PlacementTarget.SelectedItem.Name, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                        </ContextMenu>
+                    </DataGrid.ContextMenu>
+                </DataGrid>
+            </Grid>
+        </TabItem>
+
+        <!-- Settings Tab -->
+        <TabItem Header="Настройки">
+            <Grid Background="White" Margin="10">
+                <StackPanel Visibility="{Binding ConnectedVisibility}">
+                    <GroupBox Header="Сервер" Margin="0,0,0,10" Padding="10">
+                        <StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,5">
+                                <TextBlock Text="Имя сервера:" Width="120" VerticalAlignment="Center"/>
+                                <TextBox Text="{Binding ServerName, UpdateSourceTrigger=PropertyChanged}" Width="200" Margin="5,0"/>
+                                <Button Content="Сохранить" Command="{Binding SaveServerNameCommand}" Padding="8,2"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,5">
+                                <TextBlock Text="Порт:" Width="120" VerticalAlignment="Center"/>
+                                <TextBox Text="{Binding ServerPort, UpdateSourceTrigger=PropertyChanged}" Width="100" Margin="5,0"/>
+                                <Button Content="Сохранить" Command="{Binding SaveServerPortCommand}" Padding="8,2"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </GroupBox>
+                </StackPanel>
+                <TextBlock Text="Нет соединения с Сервером. Настройки недоступны."
+                           Foreground="Gray" FontSize="14"
+                           Visibility="{Binding NotConnectedVisibility}"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Grid>
+        </TabItem>
+    </TabControl>
 </Window>

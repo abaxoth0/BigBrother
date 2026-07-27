@@ -3,3 +3,5 @@ dist
 **/playground
 **/.vs
 **/*.db
+*.exe
+**/Properties/PublishProfiles

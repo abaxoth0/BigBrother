@@ -29,6 +29,7 @@ public class WhitelistInfo : INotifyPropertyChanged
     public event PropertyChangedEventHandler? PropertyChanged;
 
     private int _entryCount;
+    private bool _isSelected;
     public string Name { get; set; } = "";
     public int EntryCount
     {
@@ -42,7 +43,18 @@ public class WhitelistInfo : INotifyPropertyChanged
             }
         }
     }
-    public bool IsSelected { get; set; }
+    public bool IsSelected
+    {
+        get => _isSelected;
+        set
+        {
+            if (_isSelected != value)
+            {
+                _isSelected = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsSelected)));
+            }
+        }
+    }
 }
 
 public class ServerStatus
@@ -51,6 +63,7 @@ public class ServerStatus
     public string UptimeText { get; set; } = "";
     public int ConnectedClients { get; set; }
     public int PendingCount { get; set; }
+    public bool FiltrationEnabled { get; set; } = true;
 }
 
 public class IpcService : IDisposable
@@ -230,6 +243,9 @@ public class IpcService : IDisposable
                             case "pending":
                                 if (int.TryParse(parts[i + 1], out var pending))
                                     status.PendingCount = pending;
+                                break;
+                            case "filtration":
+                                status.FiltrationEnabled = parts[i + 1] == "1";
                                 break;
                         }
                     }
@@ -597,6 +613,50 @@ public class IpcService : IDisposable
         }
     }
 
+    public async Task<string> GetServerPortAsync()
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return "";
+            try
+            {
+                var (status, data) = SendCommand("GET_SERVER_PORT");
+                return status == "OK" && data.Count > 0 ? data[0] : "1984";
+            }
+            finally
+            {
+                Disconnect();
+            }
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
+    public async Task<bool> SetServerPortAsync(string port)
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return false;
+            try
+            {
+                var (status, _) = SendCommand("SET_SERVER_PORT", port);
+                return status == "OK";
+            }
+            finally
+            {
+                Disconnect();
+            }
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
     public async Task<string> GetActiveWhitelistAsync()
     {
         await _connectionLock.WaitAsync();
@@ -607,6 +667,116 @@ public class IpcService : IDisposable
             {
                 var (status, data) = SendCommand("GET_ACTIVE_WHITELIST");
                 return status == "OK" && data.Count > 0 ? data[0] : "";
+            }
+            finally
+            {
+                Disconnect();
+            }
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
+    public async Task<string> GetServerNameAsync()
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return "";
+            try
+            {
+                var (status, data) = SendCommand("GET_SERVER_NAME");
+                return status == "OK" && data.Count > 0 ? data[0] : "";
+            }
+            finally
+            {
+                Disconnect();
+            }
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
+    public async Task<bool> SetServerNameAsync(string name)
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return false;
+            try
+            {
+                var (status, _) = SendCommand("SET_SERVER_NAME", name);
+                return status == "OK";
+            }
+            finally
+            {
+                Disconnect();
+            }
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
+    public async Task<string> GetLogPathAsync()
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return "";
+            try
+            {
+                var (status, data) = SendCommand("GET_LOG_PATH");
+                return status == "OK" && data.Count > 0 ? data[0] : "";
+            }
+            finally
+            {
+                Disconnect();
+            }
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
+    public async Task<bool> GetFiltrationEnabledAsync()
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return true;
+            try
+            {
+                var (status, data) = SendCommand("GET_FILTRATION");
+                return status == "OK" && data.Count > 0 && data[0] == "1";
+            }
+            finally
+            {
+                Disconnect();
+            }
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
+    public async Task<bool> SetFiltrationEnabledAsync(bool enabled)
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return false;
+            try
+            {
+                var (status, _) = SendCommand("SET_FILTRATION", enabled ? "1" : "0");
+                return status == "OK";
             }
             finally
             {

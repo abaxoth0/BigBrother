@@ -38,18 +38,20 @@ void WhitelistInit(Whitelist* wl) {
     memset(wl, 0, sizeof(Whitelist));
 }
 
-int WhitelistAdd(Whitelist* wl, const char* domain) {
+int WhitelistAdd(Whitelist* wl, const char* domain, int is_exception) {
     if (!wl || !domain || wl->count >= MAX_WHITELIST_DOMAINS) {
         return -1;
     }
     for (size_t i = 0; i < wl->count; i++) {
-        if (strcmp(wl->entries[i].domain, domain) == 0) {
+        if (strcmp(wl->entries[i].domain, domain) == 0 &&
+            wl->entries[i].is_exception == is_exception) {
             return 0;
         }
     }
     strncpy(wl->entries[wl->count].domain, domain, MAX_DOMAIN_LEN - 1);
     wl->entries[wl->count].domain[MAX_DOMAIN_LEN - 1] = '\0';
     wl->entries[wl->count].added_time = time(NULL);
+    wl->entries[wl->count].is_exception = is_exception;
     wl->count++;
     return 0;
 }
@@ -57,7 +59,17 @@ int WhitelistAdd(Whitelist* wl, const char* domain) {
 int WhitelistContains(Whitelist* wl, const char* domain) {
     if (!wl || !domain) return 0;
     for (size_t i = 0; i < wl->count; i++) {
-        if (match_domain(domain, wl->entries[i].domain)) {
+        if (!wl->entries[i].is_exception && match_domain(domain, wl->entries[i].domain)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+int WhitelistContainsException(Whitelist* wl, const char* domain) {
+    if (!wl || !domain) return 0;
+    for (size_t i = 0; i < wl->count; i++) {
+        if (wl->entries[i].is_exception && match_domain(domain, wl->entries[i].domain)) {
             return 1;
         }
     }
@@ -89,7 +101,9 @@ int WhitelistLoadFromData(Whitelist* wl, const char* data, size_t size) {
         }
 
         if (len > 0 && line[0] != '#') {
-            WhitelistAdd(wl, line);
+            int is_exception = (line[0] == '!');
+            const char* domain = is_exception ? line + 1 : line;
+            WhitelistAdd(wl, domain, is_exception);
         }
 
         line = strtok(NULL, "\n");
@@ -130,11 +144,17 @@ int IpAllowlistAdd(IpAllowlist* al, uint32_t ip, const char* domain, uint32_t tt
     IpAllowlistCleanup(al);
 
     if (al->count >= MAX_ALLOWED_IPS) {
-        return -1;
+        // Force cleanup and retry once before giving up
+        al->last_cleared_at = 0;
+        IpAllowlistCleanup(al);
+        if (al->count >= MAX_ALLOWED_IPS) {
+            return -1;
+        }
     }
 
-    // Use minimum TTL of 5 minutes if DNS TTL is 0
-    if (ttl == 0) ttl = 300;
+    // Enforce a minimum TTL of 5 minutes to prevent rapid expiry
+    // of IPs from CDN domains (many use 60s or shorter TTLs).
+    if (ttl < 300) ttl = 300;
 
     for (size_t i = 0; i < al->count; i++) {
         if (al->ips[i].ip == ip) {

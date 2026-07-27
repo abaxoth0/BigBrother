@@ -13,6 +13,8 @@
 #define DAEMON_PIPE_NAME "BigBrother.Firewall"
 #define DAEMON_PIPE_BUFFER_SIZE 4096
 
+#define DISCOVERY_MAX_SERVERS 32
+
 extern uint32_t g_whitelist_revision;
 extern HANDLE g_ServiceStopEvent;
 
@@ -121,6 +123,43 @@ int PingDaemon(void);
 int PingServer(void);
 
 /**
+ * @brief Get filtration enabled status from daemon.
+ *
+ * @return 1 if filtration is enabled, 0 if disabled.
+ */
+int DaemonGetFiltration(void);
+
+/**
+ * @brief Set filtration enabled status on daemon.
+ *
+ * @param enabled 1 to enable filtration, 0 to disable.
+ *
+ * @return 0 on success, -1 on error.
+ */
+int DaemonSetFiltration(int enabled);
+
+/**
+ * @brief Get local filtration enabled status (cached).
+ *
+ * @return 1 if filtration is enabled, 0 if disabled.
+ */
+int IsFiltrationEnabled(void);
+
+/**
+ * @brief Check if filtration auto-disable on server disconnect is enabled.
+ *
+ * @return 1 if enabled, 0 if disabled.
+ */
+int IsFiltrationAutoDisableEnabled(void);
+
+/**
+ * @brief Enable or disable filtration auto-disable on server disconnect.
+ *
+ * @param enabled 1 to enable, 0 to disable.
+ */
+void SetFiltrationAutoDisableEnabled(int enabled);
+
+/**
  * @brief Enable or disable fallback whitelist (use local file when server sync is unavailable).
  *
  * @param enabled 1 to enable fallback, 0 to disable (block all traffic).
@@ -133,6 +172,29 @@ void SetFallbackWhitelistEnabled(int enabled);
  * @return 1 if enabled, 0 if disabled.
  */
 int IsFallbackWhitelistEnabled(void);
+
+/**
+ * @brief Read a string value from config.ini.
+ *
+ * @param section Section name.
+ * @param key Key name.
+ * @param out Output buffer.
+ * @param out_size Buffer size.
+ *
+ * @return 1 if found, 0 if not found.
+ */
+int ini_get_string(const char* section, const char* key, char* out, size_t out_size);
+
+/**
+ * @brief Write or update a string value in config.ini.
+ *
+ * @param section Section name.
+ * @param key Key name.
+ * @param value Value to write.
+ *
+ * @return 0 on success, -1 on error.
+ */
+int ini_set_string(const char* section, const char* key, const char* value);
 
 /**
  * @brief Load username from config file.

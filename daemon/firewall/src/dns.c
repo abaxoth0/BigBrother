@@ -191,7 +191,7 @@ DnsPacket DnsParse(const uint8_t* payload, size_t payload_len) {
         if (offset + rdlen > payload_len) break;
 
         if (rtype == DNS_TYPE_A && rdlen == IP_V4_SIZE) { // IPv4
-            uint32_t ip = *(uint32_t*)(payload + offset);
+            uint32_t ip = ntohl(*(uint32_t*)(payload + offset));
             packet.answers[answer_idx].ip_count = 1;
             packet.answers[answer_idx].ips[0] = ip;
         } else if (rtype == DNS_TYPE_AAAA && rdlen == IP_V6_SIZE) { // IPv6

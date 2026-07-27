@@ -41,6 +41,7 @@ public class MainViewModel : ViewModelBase, IDisposable
     private string _daemonStatus = "Запущен";
     private string _clientStatus = "Запущен";
     private string _serverStatus = "Запущен";
+    private bool _filtrationEnabled = true;
     private string _daemonConnectionStatus = "...";
     private string _clientConnectionStatus = "...";
     private string _serverConnectionStatus = "...";
@@ -74,6 +75,12 @@ public class MainViewModel : ViewModelBase, IDisposable
     {
         get => _serverStatus;
         set => SetProperty(ref _serverStatus, value);
+    }
+
+    public bool FiltrationEnabled
+    {
+        get => _filtrationEnabled;
+        set => SetProperty(ref _filtrationEnabled, value);
     }
 
     public string DaemonConnectionStatus
@@ -200,9 +207,19 @@ public class MainViewModel : ViewModelBase, IDisposable
         set
         {
             if (SetProperty(ref _fallbackWhitelistEnabled, value))
-            {
                 _ = _ipcService.SetFallbackWhitelistEnabledAsync(value);
-            }
+        }
+    }
+
+    private bool _filtrationAutoDisable;
+
+    public bool FiltrationAutoDisable
+    {
+        get => _filtrationAutoDisable;
+        set
+        {
+            if (SetProperty(ref _filtrationAutoDisable, value))
+                _ = _ipcService.SetFiltrationAutoDisableAsync(value);
         }
     }
 
@@ -218,6 +235,64 @@ public class MainViewModel : ViewModelBase, IDisposable
     {
         get => _username;
         set => SetProperty(ref _username, value);
+    }
+
+    private string _serverPort = "1984";
+    public string ServerPort
+    {
+        get => _serverPort;
+        set => SetProperty(ref _serverPort, value);
+    }
+
+    private bool _discoveryEnabled = true;
+    public bool DiscoveryEnabled
+    {
+        get => _discoveryEnabled;
+        set
+        {
+            if (SetProperty(ref _discoveryEnabled, value))
+            {
+                _ = _ipcService.SetDiscoveryEnabledAsync(value);
+                System.Windows.Input.CommandManager.InvalidateRequerySuggested();
+            }
+        }
+    }
+
+    private bool _networkAuto = true;
+    public bool NetworkAuto
+    {
+        get => _networkAuto;
+        set
+        {
+            if (SetProperty(ref _networkAuto, value))
+            {
+                _ = _ipcService.SetNetworkAutoAsync(value);
+                OnPropertyChanged(nameof(NetworkManualMode));
+            }
+        }
+    }
+
+    public bool NetworkManualMode => !_networkAuto;
+
+    private string _networkGateway = "";
+    public string NetworkGateway
+    {
+        get => _networkGateway;
+        set => SetProperty(ref _networkGateway, value);
+    }
+
+    private string _networkMask = "";
+    public string NetworkMask
+    {
+        get => _networkMask;
+        set => SetProperty(ref _networkMask, value);
+    }
+
+    private string _serverName = "";
+    public string ServerName
+    {
+        get => _serverName;
+        set => SetProperty(ref _serverName, value);
     }
 
     private bool _settingsAvailable;
@@ -242,6 +317,13 @@ public class MainViewModel : ViewModelBase, IDisposable
     public ICommand RegisterCommand { get; }
     public ICommand ConnectCommand { get; }
     public ICommand DisconnectCommand { get; }
+    public ICommand ChangeServerCommand { get; }
+    public ICommand SaveServerPortCommand { get; }
+    public ICommand SaveDiscoveryEnabledCommand { get; }
+    public ICommand SaveNetworkAutoCommand { get; }
+    public ICommand SaveNetworkGatewayCommand { get; }
+    public ICommand SaveNetworkMaskCommand { get; }
+    public ICommand ToggleFiltrationCommand { get; }
 
     // Event for auto-scroll notification
     public event Action? ScrollToBottomRequested;
@@ -260,6 +342,7 @@ public class MainViewModel : ViewModelBase, IDisposable
             {
                 if (_disposed) return;
                 ClientConnectionStatus = status.IsConnected ? "Подключено" : "Отключено";
+                FiltrationEnabled = status.FiltrationEnabled;
             });
 
             if (!status.IsConnected && SettingsAvailable)
@@ -319,6 +402,13 @@ public class MainViewModel : ViewModelBase, IDisposable
         RegisterCommand = new RelayCommand(async _ => await RegisterAsync());
         ConnectCommand = new RelayCommand(async _ => await ConnectAsync());
         DisconnectCommand = new RelayCommand(async _ => await DisconnectAsync());
+        ChangeServerCommand = new RelayCommand(async _ => await ChangeServerAsync(), _ => DiscoveryEnabled);
+        SaveServerPortCommand = new RelayCommand(async _ => await SaveServerPortAsync());
+        SaveDiscoveryEnabledCommand = new RelayCommand(_ => { /* handled by property setter */ });
+        SaveNetworkAutoCommand = new RelayCommand(_ => { /* handled by property setter */ });
+        SaveNetworkGatewayCommand = new RelayCommand(async _ => await SaveNetworkGatewayAsync());
+        SaveNetworkMaskCommand = new RelayCommand(async _ => await SaveNetworkMaskAsync());
+        ToggleFiltrationCommand = new RelayCommand(async _ => await ToggleFiltrationAsync());
 
         // Initialize whitelist status polling timer
         _statusTimer.Elapsed += OnStatusTimerElapsed;
@@ -336,7 +426,14 @@ public class MainViewModel : ViewModelBase, IDisposable
         var addr = await _ipcService.GetServerAddressAsync();
         var name = await _ipcService.GetUsernameAsync();
         var enabled = await _ipcService.GetFallbackWhitelistEnabledAsync();
-        var available = addr != "" || name != "" || enabled;
+        var srvName = await _ipcService.GetServerNameAsync();
+        var port = await _ipcService.GetServerPortAsync();
+        var discEnabled = await _ipcService.GetDiscoveryEnabledAsync();
+        var netAuto = await _ipcService.GetNetworkAutoAsync();
+        var netGw = await _ipcService.GetNetworkGatewayAsync();
+        var netMask = await _ipcService.GetNetworkMaskAsync();
+        var filtAuto = await _ipcService.GetFiltrationAutoDisableAsync();
+        var available = addr != "" || name != "" || enabled || srvName != "";
 
         System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
         {
@@ -344,8 +441,22 @@ public class MainViewModel : ViewModelBase, IDisposable
             OnPropertyChanged(nameof(ServerAddress));
             _username = name;
             OnPropertyChanged(nameof(Username));
+            _serverName = srvName;
+            OnPropertyChanged(nameof(ServerName));
+            _serverPort = port;
+            OnPropertyChanged(nameof(ServerPort));
+            _discoveryEnabled = discEnabled;
+            OnPropertyChanged(nameof(DiscoveryEnabled));
+            _networkAuto = netAuto;
+            OnPropertyChanged(nameof(NetworkAuto));
+            _networkGateway = netGw;
+            OnPropertyChanged(nameof(NetworkGateway));
+            _networkMask = netMask;
+            OnPropertyChanged(nameof(NetworkMask));
             _fallbackWhitelistEnabled = enabled;
             OnPropertyChanged(nameof(FallbackWhitelistEnabled));
+            _filtrationAutoDisable = filtAuto;
+            OnPropertyChanged(nameof(FiltrationAutoDisable));
             SettingsAvailable = available;
         });
     }
@@ -356,6 +467,40 @@ public class MainViewModel : ViewModelBase, IDisposable
         if (string.IsNullOrEmpty(addr)) return;
         var ok = await _ipcService.SetServerAddressAsync(addr);
         AddLog(ok ? "INFO" : "ERROR", ok ? $"Адрес сервера сохранён: {addr}" : "Ошибка сохранения адреса сервера");
+    }
+
+    private async Task SaveServerPortAsync()
+    {
+        var port = ServerPort?.Trim() ?? "";
+        if (string.IsNullOrEmpty(port)) return;
+        var ok = await _ipcService.SetServerPortAsync(port);
+        AddLog(ok ? "INFO" : "ERROR", ok ? $"Порт сервера сохранён: {port}" : "Ошибка сохранения порта");
+    }
+
+    private async Task SaveNetworkGatewayAsync()
+    {
+        var gw = NetworkGateway?.Trim() ?? "";
+        if (string.IsNullOrEmpty(gw)) return;
+        var ok = await _ipcService.SetNetworkGatewayAsync(gw);
+        AddLog(ok ? "INFO" : "ERROR", ok ? $"Шлюз сохранён: {gw}" : "Ошибка сохранения шлюза");
+    }
+
+    private async Task SaveNetworkMaskAsync()
+    {
+        var mask = NetworkMask?.Trim() ?? "";
+        if (string.IsNullOrEmpty(mask)) return;
+        var ok = await _ipcService.SetNetworkMaskAsync(mask);
+        AddLog(ok ? "INFO" : "ERROR", ok ? $"Маска сохранена: {mask}" : "Ошибка сохранения маски");
+    }
+
+    private async Task ToggleFiltrationAsync()
+    {
+        var newState = !FiltrationEnabled;
+        var ok = await _ipcService.SetFiltrationEnabledAsync(newState);
+        AddLog(ok ? "INFO" : "ERROR", ok
+            ? $"Фильтрация {(newState ? "включена" : "отключена")}"
+            : "Ошибка переключения фильтрации");
+        if (ok) FiltrationEnabled = newState;
     }
 
     private async Task SaveUsernameAsync()
@@ -396,6 +541,55 @@ public class MainViewModel : ViewModelBase, IDisposable
         if (string.IsNullOrEmpty(name)) return;
         var ok = await _ipcService.DisconnectFromServerAsync(name);
         AddLog(ok ? "INFO" : "ERROR", ok ? "Отключено от сервера" : "Ошибка отключения");
+    }
+
+    private async Task ChangeServerAsync()
+    {
+        var servers = await _ipcService.DiscoverServersAsync();
+        if (servers.Count == 0)
+        {
+            AddLog("ERROR", "Серверы не найдены в сети");
+            return;
+        }
+
+        var list = servers.Select(s =>
+        {
+            var parts = s.Split('|');
+            return new ServerInfo
+            {
+                Name = parts.Length > 0 ? parts[0] : "",
+                Ip = parts.Length > 1 ? parts[1] : "",
+                Port = parts.Length > 2 ? parts[2] : "1984"
+            };
+        }).ToList();
+
+        ServerInfo? selected = null;
+        System.Windows.Application.Current.Dispatcher.Invoke(() =>
+        {
+            var dialog = new ServerSelectWindow(list)
+            {
+                Owner = System.Windows.Application.Current.MainWindow
+            };
+            if (dialog.ShowDialog() == true)
+            {
+                selected = dialog.SelectedServer;
+            }
+        });
+
+        if (selected == null || string.IsNullOrEmpty(selected.Ip)) return;
+
+        await _ipcService.SetServerAddressAsync(selected.Ip);
+        await _ipcService.SetServerNameAsync(selected.Name);
+        await _ipcService.SetServerPortAsync(selected.Port);
+
+        System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
+        {
+            ServerAddress = selected.Ip;
+            ServerName = selected.Name;
+            ServerPort = selected.Port;
+        });
+
+        AddLog("INFO", $"Выбран сервер: {selected.Name} ({selected.Ip}:{selected.Port})");
     }
 
     private readonly ConcurrentQueue<string> _pendingLogs = new();
