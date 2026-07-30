@@ -101,6 +101,7 @@ public class MainViewModel : ViewModelBase
         ImportWhitelistsCommand = new RelayCommand(async _ => await ImportWhitelistsAsync());
         ExportWhitelistsCommand = new RelayCommand(async _ => await ExportWhitelistsAsync(), _ => Whitelists.Any(w => w.IsSelected));
         DeleteSelectedWhitelistsCommand = new RelayCommand(async _ => await DeleteSelectedWhitelistsAsync(), _ => Whitelists.Any(w => w.IsSelected));
+        SaveServerSettingsCommand = new RelayCommand(async _ => await SaveAllServerSettingsAsync());
         ToggleFiltrationCommand = new RelayCommand(async _ => await ToggleFiltrationAsync());
         StartServiceCommand = new RelayCommand(async _ => await StartServiceAsync());
         StopServiceCommand = new RelayCommand(async _ => await StopServiceAsync());
@@ -250,6 +251,7 @@ public class MainViewModel : ViewModelBase
     public ICommand ImportWhitelistsCommand { get; }
     public ICommand ExportWhitelistsCommand { get; }
     public ICommand DeleteSelectedWhitelistsCommand { get; }
+    public ICommand SaveServerSettingsCommand { get; }
     public ICommand ToggleFiltrationCommand { get; }
     public ICommand StartServiceCommand { get; }
     public ICommand StopServiceCommand { get; }
@@ -564,6 +566,12 @@ public class MainViewModel : ViewModelBase
             AddLog("INFO", $"Порт сервера сохранён: {port}");
         else
             AddLog("ERROR", "Ошибка сохранения порта сервера");
+    }
+
+    private async Task SaveAllServerSettingsAsync()
+    {
+        await SaveServerNameAsync();
+        await SaveServerPortAsync();
     }
 
     private async Task RefreshServerStatusAsync()

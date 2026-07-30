@@ -44,6 +44,7 @@ type Manager interface {
 	DeleteConnection(username string) error
 	RefreshConnection(username string) error
 	GetAllConnections() []*Connection
+	CleanupExpired()
 }
 
 // Stores connections in application memory
@@ -57,7 +58,17 @@ func NewMemoryResidentConnectionManager() *MemoryResidentConnectionManager {
 	}
 }
 
+func (m *MemoryResidentConnectionManager) CleanupExpired() {
+	now := time.Now()
+	for name, conn := range m.connections {
+		if now.After(conn.expires_at) {
+			delete(m.connections, name)
+		}
+	}
+}
+
 func (m *MemoryResidentConnectionManager) NewConnection(user *entity.User) (*Connection, error) {
+	m.CleanupExpired()
 	if _, ok := m.connections[user.Name]; ok {
 		return nil, ErrAlreadyConnected
 	}
@@ -69,6 +80,7 @@ func (m *MemoryResidentConnectionManager) NewConnection(user *entity.User) (*Con
 }
 
 func (m *MemoryResidentConnectionManager) GetConnection(username string) (*Connection, error) {
+	m.CleanupExpired()
 	conn, ok := m.connections[username]
 	if !ok {
 		return nil, ErrConnectionNotFound
@@ -77,6 +89,7 @@ func (m *MemoryResidentConnectionManager) GetConnection(username string) (*Conne
 }
 
 func (m *MemoryResidentConnectionManager) GetAllConnections() []*Connection {
+	m.CleanupExpired()
 	list := make([]*Connection, 0, len(m.connections))
 	for _, conn := range m.connections {
 		list = append(list, conn)

@@ -319,6 +319,7 @@ public class MainViewModel : ViewModelBase, IDisposable
     public ICommand DisconnectCommand { get; }
     public ICommand ChangeServerCommand { get; }
     public ICommand SaveServerPortCommand { get; }
+    public ICommand SaveSettingsCommand { get; }
     public ICommand SaveDiscoveryEnabledCommand { get; }
     public ICommand SaveNetworkAutoCommand { get; }
     public ICommand SaveNetworkGatewayCommand { get; }
@@ -408,6 +409,7 @@ public class MainViewModel : ViewModelBase, IDisposable
         SaveNetworkAutoCommand = new RelayCommand(_ => { /* handled by property setter */ });
         SaveNetworkGatewayCommand = new RelayCommand(async _ => await SaveNetworkGatewayAsync());
         SaveNetworkMaskCommand = new RelayCommand(async _ => await SaveNetworkMaskAsync());
+        SaveSettingsCommand = new RelayCommand(async _ => await SaveAllSettingsAsync());
         ToggleFiltrationCommand = new RelayCommand(async _ => await ToggleFiltrationAsync());
 
         // Initialize whitelist status polling timer
@@ -493,6 +495,15 @@ public class MainViewModel : ViewModelBase, IDisposable
         AddLog(ok ? "INFO" : "ERROR", ok ? $"Маска сохранена: {mask}" : "Ошибка сохранения маски");
     }
 
+    private async Task SaveAllSettingsAsync()
+    {
+        await SaveServerAddressAsync();
+        await SaveUsernameAsync();
+        await SaveServerPortAsync();
+        await SaveNetworkGatewayAsync();
+        await SaveNetworkMaskAsync();
+    }
+
     private async Task ToggleFiltrationAsync()
     {
         var newState = !FiltrationEnabled;
@@ -516,11 +527,23 @@ public class MainViewModel : ViewModelBase, IDisposable
         var name = Username?.Trim() ?? "";
         if (string.IsNullOrEmpty(name))
         {
+            System.Windows.MessageBox.Show("Укажите имя пользователя в поле «Пользователь» и нажмите «Сохранить».", "Регистрация",
+                System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Warning);
             AddLog("ERROR", "Укажите имя пользователя в настройках");
             return;
         }
         var ok = await _ipcService.RegisterAsync(name);
         AddLog(ok ? "INFO" : "ERROR", ok ? $"Запрос на регистрацию отправлен: {name}" : "Ошибка регистрации");
+        if (ok)
+        {
+            System.Windows.MessageBox.Show($"Запрос на регистрацию отправлен: {name}. Ожидайте подтверждения администратором.",
+                "Регистрация", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
+        }
+        else
+        {
+            System.Windows.MessageBox.Show($"Ошибка регистрации. Возможно, имя «{name}» уже занято.",
+                "Регистрация", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
+        }
     }
 
     private async Task ConnectAsync()
