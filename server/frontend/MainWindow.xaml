@@ -328,7 +328,7 @@
                             </StackPanel>
                         </StackPanel>
                     </GroupBox>
-                    <Button Content="Сохранить настройки" Command="{Binding SaveServerSettingsCommand}"
+                    <Button Content="Сохранить настройки" Command="{Binding SaveServerSettingsCommand}" IsEnabled="{Binding HasSettingsChanges}"
                             HorizontalAlignment="Right" MinWidth="150" Padding="10,6"/>
                 </StackPanel>
                 <TextBlock Text="Нет соединения с Сервером. Настройки недоступны."

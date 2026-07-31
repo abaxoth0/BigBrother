@@ -8,7 +8,7 @@ import (
 	"github.com/google/uuid"
 )
 
-const ConnectionTTL = time.Minute * 10
+const ConnectionTTL = time.Minute
 
 var (
 	ErrAlreadyConnected   = errs.NewStatusError("User already connected", 409)

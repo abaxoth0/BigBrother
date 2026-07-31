@@ -57,6 +57,7 @@ public class MainViewModel : ViewModelBase
     private int _connectedClientsCount;
     private int _pendingCount;
     private bool _isConnected;
+    private bool _hasSettingsChanges;
 
     private string _serviceStatus = "Проверка...";
     private string _filtrationStatus = "N/A";
@@ -183,13 +184,31 @@ public class MainViewModel : ViewModelBase
     public string ServerName
     {
         get => _serverName;
-        set => SetProperty(ref _serverName, value);
+        set
+        {
+            if (SetProperty(ref _serverName, value)) MarkSettingsChanged();
+        }
     }
 
     public string ServerPort
     {
         get => _serverPort;
-        set => SetProperty(ref _serverPort, value);
+        set
+        {
+            if (SetProperty(ref _serverPort, value)) MarkSettingsChanged();
+        }
+    }
+
+    public bool HasSettingsChanges
+    {
+        get => _hasSettingsChanges;
+        set => SetProperty(ref _hasSettingsChanges, value);
+    }
+
+    private void MarkSettingsChanged()
+    {
+        if (!_hasSettingsChanges)
+            HasSettingsChanges = true;
     }
 
     public WhitelistInfo? SelectedWhitelist
@@ -572,6 +591,9 @@ public class MainViewModel : ViewModelBase
     {
         await SaveServerNameAsync();
         await SaveServerPortAsync();
+        HasSettingsChanges = false;
+        System.Windows.MessageBox.Show("Настройки сохранены.", "Настройки",
+            System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
     }
 
     private async Task RefreshServerStatusAsync()

@@ -42,6 +42,8 @@ public class MainViewModel : ViewModelBase, IDisposable
     private string _clientStatus = "Запущен";
     private string _serverStatus = "Запущен";
     private bool _filtrationEnabled = true;
+    private bool _hasSettingsChanges;
+    private bool _isRegistering;
     private string _daemonConnectionStatus = "...";
     private string _clientConnectionStatus = "...";
     private string _serverConnectionStatus = "...";
@@ -223,25 +225,58 @@ public class MainViewModel : ViewModelBase, IDisposable
         }
     }
 
+    public bool HasSettingsChanges
+    {
+        get => _hasSettingsChanges;
+        set => SetProperty(ref _hasSettingsChanges, value);
+    }
+
+    public bool IsRegistering
+    {
+        get => _isRegistering;
+        set
+        {
+            if (SetProperty(ref _isRegistering, value))
+                OnPropertyChanged(nameof(CanRegister));
+        }
+    }
+
+    public bool CanRegister => !_isRegistering;
+
+    private void MarkSettingsChanged()
+    {
+        if (!_hasSettingsChanges)
+            HasSettingsChanges = true;
+    }
+
     private string _serverAddress = "";
     public string ServerAddress
     {
         get => _serverAddress;
-        set => SetProperty(ref _serverAddress, value);
+        set
+        {
+            if (SetProperty(ref _serverAddress, value)) MarkSettingsChanged();
+        }
     }
 
     private string _username = "";
     public string Username
     {
         get => _username;
-        set => SetProperty(ref _username, value);
+        set
+        {
+            if (SetProperty(ref _username, value)) MarkSettingsChanged();
+        }
     }
 
     private string _serverPort = "1984";
     public string ServerPort
     {
         get => _serverPort;
-        set => SetProperty(ref _serverPort, value);
+        set
+        {
+            if (SetProperty(ref _serverPort, value)) MarkSettingsChanged();
+        }
     }
 
     private bool _discoveryEnabled = true;
@@ -278,14 +313,20 @@ public class MainViewModel : ViewModelBase, IDisposable
     public string NetworkGateway
     {
         get => _networkGateway;
-        set => SetProperty(ref _networkGateway, value);
+        set
+        {
+            if (SetProperty(ref _networkGateway, value)) MarkSettingsChanged();
+        }
     }
 
     private string _networkMask = "";
     public string NetworkMask
     {
         get => _networkMask;
-        set => SetProperty(ref _networkMask, value);
+        set
+        {
+            if (SetProperty(ref _networkMask, value)) MarkSettingsChanged();
+        }
     }
 
     private string _serverName = "";
@@ -502,6 +543,9 @@ public class MainViewModel : ViewModelBase, IDisposable
         await SaveServerPortAsync();
         await SaveNetworkGatewayAsync();
         await SaveNetworkMaskAsync();
+        HasSettingsChanges = false;
+        System.Windows.MessageBox.Show("Настройки сохранены.", "Настройки",
+            System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
     }
 
     private async Task ToggleFiltrationAsync()
@@ -532,17 +576,26 @@ public class MainViewModel : ViewModelBase, IDisposable
             AddLog("ERROR", "Укажите имя пользователя в настройках");
             return;
         }
-        var ok = await _ipcService.RegisterAsync(name);
-        AddLog(ok ? "INFO" : "ERROR", ok ? $"Запрос на регистрацию отправлен: {name}" : "Ошибка регистрации");
-        if (ok)
+
+        IsRegistering = true;
+        try
         {
-            System.Windows.MessageBox.Show($"Запрос на регистрацию отправлен: {name}. Ожидайте подтверждения администратором.",
-                "Регистрация", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
+            var ok = await _ipcService.RegisterAsync(name);
+            AddLog(ok ? "INFO" : "ERROR", ok ? $"Запрос на регистрацию отправлен: {name}" : "Ошибка регистрации");
+            if (ok)
+            {
+                System.Windows.MessageBox.Show("Запрос на регистрацию принят. Ожидайте подтверждения.",
+                    "Регистрация", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
+            }
+            else
+            {
+                System.Windows.MessageBox.Show("Ошибка регистрации.",
+                    "Регистрация", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
+            }
         }
-        else
+        finally
         {
-            System.Windows.MessageBox.Show($"Ошибка регистрации. Возможно, имя «{name}» уже занято.",
-                "Регистрация", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
+            IsRegistering = false;
         }
     }
 
