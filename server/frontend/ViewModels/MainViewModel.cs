@@ -592,8 +592,6 @@ public class MainViewModel : ViewModelBase
         await SaveServerNameAsync();
         await SaveServerPortAsync();
         HasSettingsChanges = false;
-        System.Windows.MessageBox.Show("Настройки сохранены.", "Настройки",
-            System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
     }
 
     private async Task RefreshServerStatusAsync()

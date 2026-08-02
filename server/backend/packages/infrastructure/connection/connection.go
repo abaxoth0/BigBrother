@@ -2,13 +2,14 @@ package connection
 
 import (
 	"bigbrother_server_backend/packages/domain/entity"
+	"sync"
 	"time"
 
 	"github.com/abaxoth0/Ain/errs"
 	"github.com/google/uuid"
 )
 
-const ConnectionTTL = time.Minute
+const ConnectionTTL = time.Second * 15
 
 var (
 	ErrAlreadyConnected   = errs.NewStatusError("User already connected", 409)
@@ -50,12 +51,34 @@ type Manager interface {
 // Stores connections in application memory
 type MemoryResidentConnectionManager struct {
 	connections map[string]*Connection
+	stopCleanup chan struct{}
+	cleanupOnce sync.Once
 }
 
 func NewMemoryResidentConnectionManager() *MemoryResidentConnectionManager {
-	return &MemoryResidentConnectionManager{
+	m := &MemoryResidentConnectionManager{
 		connections: make(map[string]*Connection),
+		stopCleanup: make(chan struct{}),
 	}
+	go m.cleanupLoop()
+	return m
+}
+
+func (m *MemoryResidentConnectionManager) cleanupLoop() {
+	ticker := time.NewTicker(time.Second * 5)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-m.stopCleanup:
+			return
+		case <-ticker.C:
+			m.CleanupExpired()
+		}
+	}
+}
+
+func (m *MemoryResidentConnectionManager) Stop() {
+	m.cleanupOnce.Do(func() { close(m.stopCleanup) })
 }
 
 func (m *MemoryResidentConnectionManager) CleanupExpired() {

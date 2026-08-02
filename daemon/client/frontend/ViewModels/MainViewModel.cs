@@ -544,8 +544,6 @@ public class MainViewModel : ViewModelBase, IDisposable
         await SaveNetworkGatewayAsync();
         await SaveNetworkMaskAsync();
         HasSettingsChanges = false;
-        System.Windows.MessageBox.Show("Настройки сохранены.", "Настройки",
-            System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
     }
 
     private async Task ToggleFiltrationAsync()
