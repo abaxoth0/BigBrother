@@ -208,8 +208,7 @@ public class MainViewModel : ViewModelBase, IDisposable
         get => _fallbackWhitelistEnabled;
         set
         {
-            if (SetProperty(ref _fallbackWhitelistEnabled, value))
-                _ = _ipcService.SetFallbackWhitelistEnabledAsync(value);
+            if (SetProperty(ref _fallbackWhitelistEnabled, value)) MarkSettingsChanged();
         }
     }
 
@@ -220,8 +219,7 @@ public class MainViewModel : ViewModelBase, IDisposable
         get => _filtrationAutoDisable;
         set
         {
-            if (SetProperty(ref _filtrationAutoDisable, value))
-                _ = _ipcService.SetFiltrationAutoDisableAsync(value);
+            if (SetProperty(ref _filtrationAutoDisable, value)) MarkSettingsChanged();
         }
     }
 
@@ -287,7 +285,7 @@ public class MainViewModel : ViewModelBase, IDisposable
         {
             if (SetProperty(ref _discoveryEnabled, value))
             {
-                _ = _ipcService.SetDiscoveryEnabledAsync(value);
+                MarkSettingsChanged();
                 System.Windows.Input.CommandManager.InvalidateRequerySuggested();
             }
         }
@@ -301,7 +299,7 @@ public class MainViewModel : ViewModelBase, IDisposable
         {
             if (SetProperty(ref _networkAuto, value))
             {
-                _ = _ipcService.SetNetworkAutoAsync(value);
+                MarkSettingsChanged();
                 OnPropertyChanged(nameof(NetworkManualMode));
             }
         }
@@ -543,6 +541,10 @@ public class MainViewModel : ViewModelBase, IDisposable
         await SaveServerPortAsync();
         await SaveNetworkGatewayAsync();
         await SaveNetworkMaskAsync();
+        await _ipcService.SetFallbackWhitelistEnabledAsync(FallbackWhitelistEnabled);
+        await _ipcService.SetDiscoveryEnabledAsync(DiscoveryEnabled);
+        await _ipcService.SetNetworkAutoAsync(NetworkAuto);
+        await _ipcService.SetFiltrationAutoDisableAsync(FiltrationAutoDisable);
         HasSettingsChanges = false;
     }
 
