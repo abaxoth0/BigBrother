@@ -69,6 +69,7 @@ public class MainViewModel : ViewModelBase
     private WhitelistInfo? _selectedWhitelist;
 
     private string _logPath = "";
+    private DateTime _lastLogPathRetry = DateTime.MinValue;
     private string _lastLogFile = "";
     private long _lastLogPosition;
     private string _logSearchText = "";
@@ -315,6 +316,11 @@ public class MainViewModel : ViewModelBase
         AddLog("INFO", "Запуск службы...");
         var ok = await _serviceManager.StartServiceAsync();
         AddLog(ok ? "INFO" : "ERROR", ok ? "Служба запущена" : "Ошибка запуска службы");
+        if (ok)
+        {
+            await LoadLogPathAsync();
+            await RefreshAllAsync();
+        }
     }
 
     private async Task StopServiceAsync()
@@ -373,7 +379,13 @@ public class MainViewModel : ViewModelBase
     {
         if (string.IsNullOrEmpty(_logPath))
         {
-            AddServerLogEntry("DEBUG", "Лог-путь не задан (IPC ещё не ответил)");
+            // Retry loading the log path periodically (service may have started after app launch)
+            var now = DateTime.UtcNow;
+            if (now - _lastLogPathRetry > TimeSpan.FromSeconds(5))
+            {
+                _lastLogPathRetry = now;
+                _ = LoadLogPathAsync();
+            }
             return;
         }
 
@@ -382,14 +394,12 @@ public class MainViewModel : ViewModelBase
             var dir = new DirectoryInfo(_logPath);
             if (!dir.Exists)
             {
-                AddServerLogEntry("DEBUG", $"Директория логов не найдена: {_logPath}");
                 return;
             }
 
             var files = dir.GetFiles("*.log");
             if (files.Length == 0)
             {
-                AddServerLogEntry("DEBUG", $"Файлы *.log не найдены в {_logPath}");
                 return;
             }
 
@@ -639,13 +649,28 @@ public class MainViewModel : ViewModelBase
             var clients = await _ipcService.GetClientsAsync();
             await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
             {
-                ConnectedClients.Clear();
-                foreach (var client in clients)
+                // Update in place to keep DataGrid rows stable (preserves context menu focus)
+                var toRemove = ConnectedClients.Where(c => !clients.Any(n => n.Name == c.Name)).ToList();
+                foreach (var c in toRemove)
+                    ConnectedClients.Remove(c);
+
+                foreach (var nc in clients)
                 {
-                    ConnectedClients.Add(client);
+                    var existing = ConnectedClients.FirstOrDefault(c => c.Name == nc.Name);
+                    if (existing != null)
+                    {
+                        existing.Address = nc.Address;
+                        existing.Status = nc.Status;
+                        existing.Whitelist = nc.Whitelist;
+                        existing.LastActivity = nc.LastActivity;
+                    }
+                    else
+                    {
+                        ConnectedClients.Add(nc);
+                    }
                 }
-                ConnectedClientsCount = clients.Count;
-                AddLog("INFO", $"Клиентов: {clients.Count}");
+                ConnectedClientsCount = ConnectedClients.Count;
+                AddLog("INFO", $"Клиентов: {ConnectedClients.Count}");
             });
         }
         catch (Exception ex)
@@ -664,14 +689,27 @@ public class MainViewModel : ViewModelBase
             var pending = await _ipcService.GetPendingAsync();
             await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
             {
-                PendingRegistrations.Clear();
-                foreach (var p in pending)
+                // Update in place to keep DataGrid rows stable (preserves context menu focus)
+                var toRemove = PendingRegistrations.Where(p => !pending.Any(n => n.Name == p.Name)).ToList();
+                foreach (var p in toRemove)
+                    PendingRegistrations.Remove(p);
+
+                foreach (var np in pending)
                 {
-                    PendingRegistrations.Add(p);
+                    var existing = PendingRegistrations.FirstOrDefault(p => p.Name == np.Name);
+                    if (existing != null)
+                    {
+                        existing.Address = np.Address;
+                        existing.CreatedAt = np.CreatedAt;
+                    }
+                    else
+                    {
+                        PendingRegistrations.Add(np);
+                    }
                 }
-                PendingCount = pending.Count;
-                if (pending.Count > 0)
-                    AddLog("INFO", $"Ожидают регистрации: {pending.Count}");
+                PendingCount = PendingRegistrations.Count;
+                if (PendingRegistrations.Count > 0)
+                    AddLog("INFO", $"Ожидают регистрации: {PendingRegistrations.Count}");
             });
         }
         catch (Exception ex)
