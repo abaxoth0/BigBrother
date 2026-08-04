@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Fixed
+
+- Installer: split into separate client (BigBrother-Client.nsi) and server (BigBrother-Server.nsi) installers
+- Installer: service start type fixed to demand (manual), installers install to separate directories
+- Server: reduce connection TTL from 10min to 15s with periodic cleanup goroutine (stale clients drop off within 15s)
+- Client frontend: single save button for all settings, enabled only when a setting changed
+- Client frontend: register button disabled while in-flight, success/error dialogs
+- Client frontend: checkboxes go through save button (consistent with text fields)
+- Server frontend: single save button for server name/port, enabled only when a setting changed
+- Server frontend: context menu no longer loses focus on list refresh (in-place DataGrid updates)
+- Server frontend: reload log path when service starts (no longer requires app restart)
+- Server frontend: remove diagnostic spam from log reader (silent retry)
+
 ## [1.0.0] - 27-07-2026
 
 ### Added
@@ -92,10 +107,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Firewall: don't clear IP allowlist on non-empty whitelist updates (existing connections keep working)
 - Firewall: increase IP allowlist size from 1024 to 32768 entries
 - Firewall: force cleanup and retry when IP allowlist is full
-
-## [0.0.0] - 20-05-2026
-
-- Initial release
 
 ## [0.0.0] - 20-05-2026
 
