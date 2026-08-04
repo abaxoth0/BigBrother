@@ -42,6 +42,8 @@ public class MainViewModel : ViewModelBase, IDisposable
     private string _clientStatus = "Запущен";
     private string _serverStatus = "Запущен";
     private bool _filtrationEnabled = true;
+    private bool _hasSettingsChanges;
+    private bool _isRegistering;
     private string _daemonConnectionStatus = "...";
     private string _clientConnectionStatus = "...";
     private string _serverConnectionStatus = "...";
@@ -206,8 +208,7 @@ public class MainViewModel : ViewModelBase, IDisposable
         get => _fallbackWhitelistEnabled;
         set
         {
-            if (SetProperty(ref _fallbackWhitelistEnabled, value))
-                _ = _ipcService.SetFallbackWhitelistEnabledAsync(value);
+            if (SetProperty(ref _fallbackWhitelistEnabled, value)) MarkSettingsChanged();
         }
     }
 
@@ -218,30 +219,62 @@ public class MainViewModel : ViewModelBase, IDisposable
         get => _filtrationAutoDisable;
         set
         {
-            if (SetProperty(ref _filtrationAutoDisable, value))
-                _ = _ipcService.SetFiltrationAutoDisableAsync(value);
+            if (SetProperty(ref _filtrationAutoDisable, value)) MarkSettingsChanged();
         }
+    }
+
+    public bool HasSettingsChanges
+    {
+        get => _hasSettingsChanges;
+        set => SetProperty(ref _hasSettingsChanges, value);
+    }
+
+    public bool IsRegistering
+    {
+        get => _isRegistering;
+        set
+        {
+            if (SetProperty(ref _isRegistering, value))
+                OnPropertyChanged(nameof(CanRegister));
+        }
+    }
+
+    public bool CanRegister => !_isRegistering;
+
+    private void MarkSettingsChanged()
+    {
+        if (!_hasSettingsChanges)
+            HasSettingsChanges = true;
     }
 
     private string _serverAddress = "";
     public string ServerAddress
     {
         get => _serverAddress;
-        set => SetProperty(ref _serverAddress, value);
+        set
+        {
+            if (SetProperty(ref _serverAddress, value)) MarkSettingsChanged();
+        }
     }
 
     private string _username = "";
     public string Username
     {
         get => _username;
-        set => SetProperty(ref _username, value);
+        set
+        {
+            if (SetProperty(ref _username, value)) MarkSettingsChanged();
+        }
     }
 
     private string _serverPort = "1984";
     public string ServerPort
     {
         get => _serverPort;
-        set => SetProperty(ref _serverPort, value);
+        set
+        {
+            if (SetProperty(ref _serverPort, value)) MarkSettingsChanged();
+        }
     }
 
     private bool _discoveryEnabled = true;
@@ -252,7 +285,7 @@ public class MainViewModel : ViewModelBase, IDisposable
         {
             if (SetProperty(ref _discoveryEnabled, value))
             {
-                _ = _ipcService.SetDiscoveryEnabledAsync(value);
+                MarkSettingsChanged();
                 System.Windows.Input.CommandManager.InvalidateRequerySuggested();
             }
         }
@@ -266,7 +299,7 @@ public class MainViewModel : ViewModelBase, IDisposable
         {
             if (SetProperty(ref _networkAuto, value))
             {
-                _ = _ipcService.SetNetworkAutoAsync(value);
+                MarkSettingsChanged();
                 OnPropertyChanged(nameof(NetworkManualMode));
             }
         }
@@ -278,14 +311,20 @@ public class MainViewModel : ViewModelBase, IDisposable
     public string NetworkGateway
     {
         get => _networkGateway;
-        set => SetProperty(ref _networkGateway, value);
+        set
+        {
+            if (SetProperty(ref _networkGateway, value)) MarkSettingsChanged();
+        }
     }
 
     private string _networkMask = "";
     public string NetworkMask
     {
         get => _networkMask;
-        set => SetProperty(ref _networkMask, value);
+        set
+        {
+            if (SetProperty(ref _networkMask, value)) MarkSettingsChanged();
+        }
     }
 
     private string _serverName = "";
@@ -319,6 +358,7 @@ public class MainViewModel : ViewModelBase, IDisposable
     public ICommand DisconnectCommand { get; }
     public ICommand ChangeServerCommand { get; }
     public ICommand SaveServerPortCommand { get; }
+    public ICommand SaveSettingsCommand { get; }
     public ICommand SaveDiscoveryEnabledCommand { get; }
     public ICommand SaveNetworkAutoCommand { get; }
     public ICommand SaveNetworkGatewayCommand { get; }
@@ -408,6 +448,7 @@ public class MainViewModel : ViewModelBase, IDisposable
         SaveNetworkAutoCommand = new RelayCommand(_ => { /* handled by property setter */ });
         SaveNetworkGatewayCommand = new RelayCommand(async _ => await SaveNetworkGatewayAsync());
         SaveNetworkMaskCommand = new RelayCommand(async _ => await SaveNetworkMaskAsync());
+        SaveSettingsCommand = new RelayCommand(async _ => await SaveAllSettingsAsync());
         ToggleFiltrationCommand = new RelayCommand(async _ => await ToggleFiltrationAsync());
 
         // Initialize whitelist status polling timer
@@ -493,6 +534,20 @@ public class MainViewModel : ViewModelBase, IDisposable
         AddLog(ok ? "INFO" : "ERROR", ok ? $"Маска сохранена: {mask}" : "Ошибка сохранения маски");
     }
 
+    private async Task SaveAllSettingsAsync()
+    {
+        await SaveServerAddressAsync();
+        await SaveUsernameAsync();
+        await SaveServerPortAsync();
+        await SaveNetworkGatewayAsync();
+        await SaveNetworkMaskAsync();
+        await _ipcService.SetFallbackWhitelistEnabledAsync(FallbackWhitelistEnabled);
+        await _ipcService.SetDiscoveryEnabledAsync(DiscoveryEnabled);
+        await _ipcService.SetNetworkAutoAsync(NetworkAuto);
+        await _ipcService.SetFiltrationAutoDisableAsync(FiltrationAutoDisable);
+        HasSettingsChanges = false;
+    }
+
     private async Task ToggleFiltrationAsync()
     {
         var newState = !FiltrationEnabled;
@@ -516,11 +571,32 @@ public class MainViewModel : ViewModelBase, IDisposable
         var name = Username?.Trim() ?? "";
         if (string.IsNullOrEmpty(name))
         {
+            System.Windows.MessageBox.Show("Укажите имя пользователя в поле «Пользователь» и нажмите «Сохранить».", "Регистрация",
+                System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Warning);
             AddLog("ERROR", "Укажите имя пользователя в настройках");
             return;
         }
-        var ok = await _ipcService.RegisterAsync(name);
-        AddLog(ok ? "INFO" : "ERROR", ok ? $"Запрос на регистрацию отправлен: {name}" : "Ошибка регистрации");
+
+        IsRegistering = true;
+        try
+        {
+            var ok = await _ipcService.RegisterAsync(name);
+            AddLog(ok ? "INFO" : "ERROR", ok ? $"Запрос на регистрацию отправлен: {name}" : "Ошибка регистрации");
+            if (ok)
+            {
+                System.Windows.MessageBox.Show("Запрос на регистрацию принят. Ожидайте подтверждения.",
+                    "Регистрация", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
+            }
+            else
+            {
+                System.Windows.MessageBox.Show("Ошибка регистрации.",
+                    "Регистрация", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
+            }
+        }
+        finally
+        {
+            IsRegistering = false;
+        }
     }
 
     private async Task ConnectAsync()

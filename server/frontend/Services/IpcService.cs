@@ -7,21 +7,57 @@ using System.Text;
 
 namespace frontend.Services;
 
-public class ConnectedClient
+public class ConnectedClient : INotifyPropertyChanged
 {
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    private string _address = "";
+    private string _status = "";
+    private string _whitelist = "";
+    private DateTime _lastActivity;
+
     public string Name { get; set; } = "";
-    public string Address { get; set; } = "";
-    public string Status { get; set; } = "";
-    public string Whitelist { get; set; } = "";
-    public DateTime LastActivity { get; set; }
+    public string Address
+    {
+        get => _address;
+        set { if (_address != value) { _address = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Address))); } }
+    }
+    public string Status
+    {
+        get => _status;
+        set { if (_status != value) { _status = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Status))); } }
+    }
+    public string Whitelist
+    {
+        get => _whitelist;
+        set { if (_whitelist != value) { _whitelist = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Whitelist))); } }
+    }
+    public DateTime LastActivity
+    {
+        get => _lastActivity;
+        set { if (_lastActivity != value) { _lastActivity = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LastActivity))); } }
+    }
     public bool IsSelected { get; set; }
 }
 
-public class PendingRegistration
+public class PendingRegistration : INotifyPropertyChanged
 {
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    private string _address = "";
+    private DateTime _createdAt;
+
     public string Name { get; set; } = "";
-    public string Address { get; set; } = "";
-    public DateTime CreatedAt { get; set; }
+    public string Address
+    {
+        get => _address;
+        set { if (_address != value) { _address = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Address))); } }
+    }
+    public DateTime CreatedAt
+    {
+        get => _createdAt;
+        set { if (_createdAt != value) { _createdAt = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CreatedAt))); } }
+    }
 }
 
 public class WhitelistInfo : INotifyPropertyChanged

@@ -2,13 +2,14 @@ package connection
 
 import (
 	"bigbrother_server_backend/packages/domain/entity"
+	"sync"
 	"time"
 
 	"github.com/abaxoth0/Ain/errs"
 	"github.com/google/uuid"
 )
 
-const ConnectionTTL = time.Minute * 10
+const ConnectionTTL = time.Second * 15
 
 var (
 	ErrAlreadyConnected   = errs.NewStatusError("User already connected", 409)
@@ -44,20 +45,53 @@ type Manager interface {
 	DeleteConnection(username string) error
 	RefreshConnection(username string) error
 	GetAllConnections() []*Connection
+	CleanupExpired()
 }
 
 // Stores connections in application memory
 type MemoryResidentConnectionManager struct {
 	connections map[string]*Connection
+	stopCleanup chan struct{}
+	cleanupOnce sync.Once
 }
 
 func NewMemoryResidentConnectionManager() *MemoryResidentConnectionManager {
-	return &MemoryResidentConnectionManager{
+	m := &MemoryResidentConnectionManager{
 		connections: make(map[string]*Connection),
+		stopCleanup: make(chan struct{}),
+	}
+	go m.cleanupLoop()
+	return m
+}
+
+func (m *MemoryResidentConnectionManager) cleanupLoop() {
+	ticker := time.NewTicker(time.Second * 5)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-m.stopCleanup:
+			return
+		case <-ticker.C:
+			m.CleanupExpired()
+		}
+	}
+}
+
+func (m *MemoryResidentConnectionManager) Stop() {
+	m.cleanupOnce.Do(func() { close(m.stopCleanup) })
+}
+
+func (m *MemoryResidentConnectionManager) CleanupExpired() {
+	now := time.Now()
+	for name, conn := range m.connections {
+		if now.After(conn.expires_at) {
+			delete(m.connections, name)
+		}
 	}
 }
 
 func (m *MemoryResidentConnectionManager) NewConnection(user *entity.User) (*Connection, error) {
+	m.CleanupExpired()
 	if _, ok := m.connections[user.Name]; ok {
 		return nil, ErrAlreadyConnected
 	}
@@ -69,6 +103,7 @@ func (m *MemoryResidentConnectionManager) NewConnection(user *entity.User) (*Con
 }
 
 func (m *MemoryResidentConnectionManager) GetConnection(username string) (*Connection, error) {
+	m.CleanupExpired()
 	conn, ok := m.connections[username]
 	if !ok {
 		return nil, ErrConnectionNotFound
@@ -77,6 +112,7 @@ func (m *MemoryResidentConnectionManager) GetConnection(username string) (*Conne
 }
 
 func (m *MemoryResidentConnectionManager) GetAllConnections() []*Connection {
+	m.CleanupExpired()
 	list := make([]*Connection, 0, len(m.connections))
 	for _, conn := range m.connections {
 		list = append(list, conn)
