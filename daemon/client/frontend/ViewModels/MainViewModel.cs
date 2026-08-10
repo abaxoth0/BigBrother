@@ -423,6 +423,7 @@ public class MainViewModel : ViewModelBase, IDisposable
                         ClientPid = status.ClientPid;
                         FiltrationEnabled = status.FiltrationEnabled;
                         LastUpdate = DateTime.Now;
+                        StatusRefreshed?.Invoke(status);
                     });
 
                     if (!status.IsConnected && SettingsAvailable)
@@ -461,8 +462,6 @@ public class MainViewModel : ViewModelBase, IDisposable
                             });
                         }
                     }
-
-                    StatusRefreshed?.Invoke(status);
                 }
                 catch
                 {
@@ -473,8 +472,8 @@ public class MainViewModel : ViewModelBase, IDisposable
                         ClientConnectionStatus = "Отключено";
                         ServerConnectionStatus = "Отключено";
                         ServerStatus = "Остановлен";
+                        StatusRefreshed?.Invoke(new ClientStatus { ClientPid = 0 });
                     });
-                    StatusRefreshed?.Invoke(new ClientStatus { ClientPid = 0 });
                 }
             } while (Interlocked.CompareExchange(ref _refreshQueued, 0, 1) == 1 && !_disposed);
         }

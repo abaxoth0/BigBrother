@@ -20,7 +20,6 @@ import (
 type BackendHandler struct {
 	db           database.DBInstance
 	connManager  connection.Manager
-	activeWl     string // TODO refactor?
 	pendingUsers *pending.UserStorage
 	bus          *notification.Manager
 }

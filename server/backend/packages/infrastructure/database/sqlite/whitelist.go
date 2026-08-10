@@ -333,3 +333,41 @@ func (db *Database) DeleteWhitelistEntry(value string, wlName string) error {
 
 	return nil
 }
+
+// ReplaceWhitelistEntries replaces the entire entry set of a whitelist in a single
+// transaction (delete-all + insert-all), so a failed save cannot leave a partial set.
+func (db *Database) ReplaceWhitelistEntries(entries []string, wlName string) error {
+	wlID, err := db.GetWhitelistID(wlName)
+	if err != nil {
+		return err
+	}
+
+	dbcommon.Log.Trace("Replacing entries of whitelist \""+wlName+"\"...", nil)
+
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec("DELETE FROM whitelist_entry WHERE whitelist_id = ?", wlID); err != nil {
+		return err
+	}
+
+	for _, value := range entries {
+		if _, err := tx.Exec(
+			"INSERT INTO whitelist_entry (id, value, whitelist_id) VALUES (?, ?, ?)",
+			uuid.New(), value, wlID,
+		); err != nil {
+			return err
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+
+	dbcommon.Log.Trace("Replacing entries of whitelist \""+wlName+"\": OK", nil)
+
+	return nil
+}

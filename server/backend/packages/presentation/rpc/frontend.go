@@ -26,7 +26,6 @@ type ServerStatus struct {
 type FrontendHandler struct {
 	db           database.DBInstance
 	connManager  connection.Manager
-	activeWl     string // TODO refactor?
 	pendingUsers *pending.UserStorage
 	startTime    time.Time
 	bus          *notification.Manager
@@ -38,12 +37,10 @@ func NewFrontendHandler(
 	pendingUsers *pending.UserStorage,
 	bus *notification.Manager,
 ) *FrontendHandler {
-	activeWl, _ := db.GetSetting("active_whitelist")
 	return &FrontendHandler{
 		db:           db,
 		connManager:  connManager,
 		pendingUsers: pendingUsers,
-		activeWl:     activeWl,
 		startTime:    time.Now(),
 		bus:          bus,
 	}
@@ -361,8 +358,8 @@ func (h *FrontendHandler) DeleteWhitelist(name string) error {
 	if err := h.db.DeleteWhitelist(name); err != nil {
 		return err
 	}
-	if h.activeWl == name {
-		h.activeWl = ""
+	activeWl, _ := h.db.GetSetting("active_whitelist")
+	if activeWl == name {
 		h.db.SetSetting("active_whitelist", "")
 	}
 	return nil
@@ -372,50 +369,15 @@ func (h *FrontendHandler) ChangeWhitelistName(oldName, newName string) error {
 	if err := h.db.ChangeWhitelistName(oldName, newName); err != nil {
 		return err
 	}
-	if h.activeWl == oldName {
-		h.activeWl = newName
+	activeWl, _ := h.db.GetSetting("active_whitelist")
+	if activeWl == oldName {
 		h.db.SetSetting("active_whitelist", newName)
 	}
 	return nil
 }
 
 func (h *FrontendHandler) SetWhitelistEntries(name string, entries []string) error {
-	existingEntries, err := h.db.GetWhitelistEntries(name)
-	if err != nil {
-		return err
-	}
-
-	existingSet := make(map[string]bool)
-	for _, e := range existingEntries {
-		existingSet[e.Value] = true
-	}
-
-	newSet := make(map[string]bool)
-	for _, e := range entries {
-		newSet[e] = true
-	}
-
-	for _, e := range existingEntries {
-		if !newSet[e.Value] {
-			// TODO put this in a transaction
-			if err := h.db.DeleteWhitelistEntry(e.Value, name); err != nil {
-				return err
-			}
-		}
-	}
-
-	// TODO union this two methods
-
-	for _, e := range entries {
-		if !existingSet[e] {
-			// TODO put this in a transaction
-			if err := h.db.AddWhitelistEntry(e, name); err != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
+	return h.db.ReplaceWhitelistEntries(entries, name)
 }
 
 func (h *FrontendHandler) ApproveUser(name string) error {
@@ -458,11 +420,11 @@ func (h *FrontendHandler) DeleteUsers(names ...string) error {
 }
 
 func (h *FrontendHandler) GetActiveWhitelist() string {
-	return h.activeWl
+	activeWl, _ := h.db.GetSetting("active_whitelist")
+	return activeWl
 }
 
 func (h *FrontendHandler) SetActiveWhitelist(name string) {
-	h.activeWl = name
 	h.db.SetSetting("active_whitelist", name)
 }
 

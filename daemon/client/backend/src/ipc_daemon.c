@@ -27,7 +27,6 @@ static int g_server_session_active = 0;
 static int g_registration_tried = 0;
 static int g_fallback_whitelist_enabled = 1;
 static int g_filtration_enabled = 1;
-static int g_filtration_auto_disable = 0;
 
 static char g_last_whitelist[8192] = {0};
 static int g_blocked_all_pushed = 0;
@@ -1155,8 +1154,7 @@ static int sleep_with_stop_check(int total_ms) {
     return 0;
 }
 
-int DaemonRun(const char* server_ip, int poll_interval_secs) {
-    (void)poll_interval_secs; // unused — now event-driven
+int DaemonRun(const char* server_ip) {
     char username[128] = {0};
     int consecutive_failures = 0;
     int startup_retries = 30;
