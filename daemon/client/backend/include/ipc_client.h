@@ -21,4 +21,9 @@ void SignalClientServerShutdown(void);
  */
 void log_init(void);
 
+/**
+ * @brief Notify subscribers that daemon state has changed.
+ */
+void NotifyStateChanged(void);
+
 #endif // FRONTEND_SERVER_H

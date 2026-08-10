@@ -4,6 +4,7 @@ using System.IO.Pipes;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Text;
+using System.Threading;
 
 namespace frontend.Services;
 
@@ -110,12 +111,125 @@ public class IpcService : IDisposable
     private bool _isConnected;
     private string _lastError = "";
     private readonly SemaphoreSlim _connectionLock = new(1, 1);
+    private CancellationTokenSource? _eventSubCts;
+
+    /// <summary>Raised on the subscription background thread for each event pushed by the server.</summary>
+    public event Action<string, Dictionary<string, string>>? EventReceived;
+
+    /// <summary>Raised when the event subscription (re)establishes a connection.</summary>
+    public event Action? Resubscribed;
 
     public bool IsConnected => _isConnected;
     public string LastError => _lastError;
 
+    public void StartEventSubscription()
+    {
+        if (_eventSubCts != null) return;
+        _eventSubCts = new CancellationTokenSource();
+        _ = SubscribeLoopAsync(_eventSubCts.Token);
+    }
+
+    public void StopEventSubscription()
+    {
+        if (_eventSubCts != null)
+        {
+            _eventSubCts.Cancel();
+            _eventSubCts.Dispose();
+            _eventSubCts = null;
+        }
+    }
+
+    private async Task SubscribeLoopAsync(CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                using var pipe = new NamedPipeClientStream(".", PipeName, PipeDirection.InOut);
+                // Non-blocking probe: fails instantly when the server is not running
+                // (a timed ConnectAsync busy-waits for the full timeout, burning CPU).
+                await pipe.ConnectAsync(0, ct);
+                var writer = new StreamWriter(pipe) { AutoFlush = true };
+                var reader = new StreamReader(pipe);
+
+                // SUBSCRIBE\n\n (no username needed)
+                await writer.WriteAsync("SUBSCRIBE\n\n").ConfigureAwait(false);
+                await writer.FlushAsync().ConfigureAwait(false);
+
+                var status = await reader.ReadLineAsync(ct).ConfigureAwait(false);
+                if (status != "OK")
+                {
+                    await Task.Delay(1000, ct).ConfigureAwait(false);
+                    continue;
+                }
+                // consume empty line terminator
+                await reader.ReadLineAsync(ct).ConfigureAwait(false);
+
+                // Subscribed — signal UI to refresh once (covers reconnects)
+                Resubscribed?.Invoke();
+
+                while (!ct.IsCancellationRequested)
+                {
+                    var line = await reader.ReadLineAsync(ct).ConfigureAwait(false);
+                    if (line == null) break; // pipe closed
+                    if (line == "EVENT")
+                    {
+                        var ev = ReadEvent(reader, ct);
+                        if (ev != null)
+                            EventReceived?.Invoke(ev.Value.type, ev.Value.data);
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+            catch (Exception)
+            {
+                // pipe unavailable — retry after delay
+            }
+
+            if (!ct.IsCancellationRequested)
+            {
+                try { await Task.Delay(1000, ct).ConfigureAwait(false); } catch (OperationCanceledException) { return; }
+            }
+        }
+    }
+
+    /// <summary>Reads a single event pushed by the server, or null if the connection closed.</summary>
+    private (string type, Dictionary<string, string> data)? ReadEvent(StreamReader reader, CancellationToken ct)
+    {
+        var lenLine = reader.ReadLine();
+        if (lenLine == null) return null;
+        if (!int.TryParse(lenLine, out var typeLen) || typeLen < 0) return null;
+
+        var type = reader.ReadLine();
+        if (type == null || Encoding.UTF8.GetByteCount(type) != typeLen) return null;
+
+        var data = new Dictionary<string, string>();
+        while (true)
+        {
+            var l = reader.ReadLine();
+            if (l == null) return null;
+            if (l.Length == 0) break; // empty line terminates event
+
+            if (!int.TryParse(l, out var dataLen) || dataLen < 0) return null;
+            var kv = reader.ReadLine();
+            if (kv == null || Encoding.UTF8.GetByteCount(kv) != dataLen) return null;
+
+            var idx = kv.IndexOf('=');
+            if (idx > 0)
+                data[kv.Substring(0, idx)] = kv.Substring(idx + 1);
+        }
+
+        return (type, data);
+    }
+
     public async Task<bool> ConnectAsync(int timeoutMs = 1000)
     {
+        // IMPORTANT: use a non-blocking probe (ConnectAsync(0)). When the pipe
+        // server is absent, a timed ConnectAsync busy-waits (SpinWait) for the
+        // full timeout, burning CPU on every retry while the service is down.
         try
         {
             if (_pipe != null)
@@ -130,10 +244,24 @@ public class IpcService : IDisposable
                 try
                 {
                     _pipe = new NamedPipeClientStream(".", PipeName, PipeDirection.InOut);
-                    await _pipe.ConnectAsync(timeoutMs);
+                    await _pipe.ConnectAsync(0);
                     _isConnected = true;
                     _lastError = "";
                     return true;
+                }
+                catch (TimeoutException)
+                {
+                    // Server not running — fail fast instead of busy-waiting.
+                    _isConnected = false;
+                    if (_pipe != null)
+                    {
+                        try { _pipe.Dispose(); } catch { }
+                        _pipe = null;
+                    }
+                    if (attempt < MaxRetries - 1)
+                    {
+                        await Task.Delay(50 * (attempt + 1));
+                    }
                 }
                 catch (Exception)
                 {
@@ -827,6 +955,7 @@ public class IpcService : IDisposable
 
     public void Dispose()
     {
+        StopEventSubscription();
         try
         {
             if (_pipe != null)

@@ -13,25 +13,29 @@ import (
 	"bigbrother_server_backend/packages/domain/entity"
 	"bigbrother_server_backend/packages/infrastructure/connection"
 	"bigbrother_server_backend/packages/infrastructure/database"
+	"bigbrother_server_backend/packages/infrastructure/notification"
 	"bigbrother_server_backend/packages/infrastructure/pending"
 )
 
 type BackendHandler struct {
 	db           database.DBInstance
 	connManager  connection.Manager
-	activeWl 	 string // TODO refactor?
+	activeWl     string // TODO refactor?
 	pendingUsers *pending.UserStorage
+	bus          *notification.Manager
 }
 
 func NewBackendHandler(
 	db database.DBInstance,
 	connManager connection.Manager,
 	pendingUsers *pending.UserStorage,
+	bus *notification.Manager,
 ) *BackendHandler {
 	return &BackendHandler{
-		db: db,
-		connManager: connManager,
+		db:           db,
+		connManager:  connManager,
 		pendingUsers: pendingUsers,
+		bus:          bus,
 	}
 }
 
@@ -87,6 +91,10 @@ func (h *BackendHandler) handle(conn net.Conn) {
 			if err := h.RegisterPendingUser(args[0], addr); err != nil {
 				writeErrorTLV(conn, err.Error())
 			} else {
+				h.bus.Publish(notification.Event{
+					Type: notification.PendingAdded,
+					Data: map[string]string{"name": args[0], "addr": addr},
+				})
 				writeOK(conn)
 			}
 
@@ -102,6 +110,10 @@ func (h *BackendHandler) handle(conn net.Conn) {
 			if err := h.ConnectUser(args[0], addr); err != nil {
 				writeErrorTLV(conn, err.Error())
 			} else {
+				h.bus.Publish(notification.Event{
+					Type: notification.UserConnected,
+					Data: map[string]string{"name": args[0], "addr": addr},
+				})
 				writeOK(conn)
 			}
 
@@ -113,6 +125,10 @@ func (h *BackendHandler) handle(conn net.Conn) {
 			if err := h.DisconnectUser(args[0]); err != nil {
 				writeErrorTLV(conn, err.Error())
 			} else {
+				h.bus.Publish(notification.Event{
+					Type: notification.UserDisconnected,
+					Data: map[string]string{"name": args[0]},
+				})
 				writeOK(conn)
 			}
 
@@ -160,7 +176,36 @@ func (h *BackendHandler) handle(conn net.Conn) {
 				continue
 			}
 			h.db.SetSetting("filtration_enabled", args[0])
+			h.bus.Publish(notification.Event{
+				Type: notification.FiltrationToggled,
+				Data: map[string]string{"enabled": args[0]},
+			})
 			writeOK(conn)
+
+		case "SUBSCRIBE":
+			name := ""
+			if len(args) >= 1 {
+				name = args[0]
+			}
+			sub := notification.NewSubscriber(conn, 4096)
+			writeOK(conn)
+			h.bus.Add(sub)
+			scanner := bufio.NewScanner(conn)
+			for scanner.Scan() {
+				line := scanner.Text()
+				if line == "" {
+					continue
+				}
+				// Keep connection alive until client disconnects
+				if name != "" {
+					h.RefreshConnection(name)
+				}
+			}
+			h.bus.Remove(sub)
+			if name != "" {
+				h.DisconnectUser(name)
+			}
+			return
 
 		default:
 			writeErrorTLV(conn, fmt.Sprintf("unknown command: %s", cmd))
@@ -184,7 +229,14 @@ func (s *BackendHandler) GetWhitelist(username string) []*entity.WhitelistEntry 
 }
 
 func (s *BackendHandler) SetWhitelist(whitelistName string, usernames ...string) error {
-	return s.db.ChangeUsersWhitelist(whitelistName, usernames...)
+	err := s.db.ChangeUsersWhitelist(whitelistName, usernames...)
+	if err == nil {
+		s.bus.Publish(notification.Event{
+			Type: notification.WhitelistChanged,
+			Data: map[string]string{"whitelist": whitelistName},
+		})
+	}
+	return err
 }
 
 func (s *BackendHandler) AddWhitelistEntry(whitelistName, entry string) error {

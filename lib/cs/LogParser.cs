@@ -70,15 +70,16 @@ public static class LogParser
         // Message: null-terminated string
         int msgOffset = payloadOffset + 9;
         int msgLen = len - 9;
-        string message = "";
+        System.Text.StringBuilder sb = new(msgLen);
         for (int i = 0; i < msgLen; i++)
         {
             if (data[msgOffset + i] == 0)
                 break;
             if (data[msgOffset + i] == '\r' || data[msgOffset + i] == '\n')
                 continue;
-            message += (char)data[msgOffset + i];
+            sb.Append((char)data[msgOffset + i]);
         }
+        string message = sb.ToString();
 
         return new LogEntry
         {

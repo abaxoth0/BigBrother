@@ -50,7 +50,10 @@ public class MainViewModel : ViewModelBase
     private readonly ServiceManager _serviceManager;
     private System.Timers.Timer? _refreshTimer;
     private System.Timers.Timer? _serviceStatusTimer;
-    private System.Timers.Timer? _logReaderTimer;
+    private FileSystemWatcher? _logWatcher;
+    private System.Timers.Timer? _logBootstrapTimer;
+    private System.Timers.Timer? _logDebounceTimer;
+    private int _refreshInProgress;
 
     private string _serverStatus = "Подключение...";
     private string _uptime = "";
@@ -69,7 +72,6 @@ public class MainViewModel : ViewModelBase
     private WhitelistInfo? _selectedWhitelist;
 
     private string _logPath = "";
-    private DateTime _lastLogPathRetry = DateTime.MinValue;
     private string _lastLogFile = "";
     private long _lastLogPosition;
     private string _logSearchText = "";
@@ -112,11 +114,48 @@ public class MainViewModel : ViewModelBase
         ExportServerLogsCommand = new RelayCommand(_ => ExportServerLogs());
         StartAutoRefresh();
         StartServiceStatusPolling();
-        StartLogReader();
+        TryStartLogWatcher();
+        _ipcService.EventReceived += OnEventReceived;
+        _ipcService.Resubscribed += OnEventResubscribed;
+        _ipcService.StartEventSubscription();
         _ = RefreshAllAsync();
         _ = LoadServerNameAsync();
         _ = LoadServerPortAsync();
         _ = LoadLogPathAsync();
+    }
+
+    // Event-driven refresh: the server pushes state changes over SUBSCRIBE.
+    private void OnEventReceived(string type, Dictionary<string, string> data)
+    {
+        if (_disposed) return;
+        switch (type)
+        {
+            case "USER_CONNECTED":
+            case "USER_DISCONNECTED":
+                _ = RefreshClientsAsync();
+                _ = RefreshServerStatusAsync();
+                break;
+            case "PENDING_ADDED":
+            case "PENDING_REMOVED":
+            case "USER_APPROVED":
+            case "USER_REJECTED":
+                _ = RefreshPendingAsync();
+                _ = RefreshServerStatusAsync();
+                break;
+            case "WHITELIST_CHANGED":
+                _ = RefreshWhitelistsAsync();
+                _ = LoadActiveWhitelistAsync();
+                break;
+            case "FILTRATION_TOGGLED":
+                _ = RefreshServerStatusAsync();
+                break;
+        }
+    }
+
+    private void OnEventResubscribed()
+    {
+        if (_disposed) return;
+        _ = RefreshAllAsync();
     }
 
     public ObservableCollection<ConnectedClient> ConnectedClients { get; }
@@ -282,7 +321,8 @@ public class MainViewModel : ViewModelBase
     public event Action? AutoScrollRequested;
     private void StartAutoRefresh()
     {
-        _refreshTimer = new System.Timers.Timer(5000);
+        // Safety net only: updates are event-driven via the server SUBSCRIBE feed.
+        _refreshTimer = new System.Timers.Timer(30000);
         _refreshTimer.Elapsed += async (s, e) =>
         {
             if (_disposed) return;
@@ -361,31 +401,124 @@ public class MainViewModel : ViewModelBase
         if (!string.IsNullOrEmpty(path))
         {
             _logPath = path;
+            TryStartLogWatcher();
         }
     }
 
-    private void StartLogReader()
+    private void TryStartLogWatcher()
     {
-        _logReaderTimer = new System.Timers.Timer(500);
-        _logReaderTimer.Elapsed += (s, e) =>
+        if (string.IsNullOrEmpty(_logPath))
+        {
+            ScheduleLogBootstrap();
+            return;
+        }
+        var dir = new DirectoryInfo(_logPath);
+        if (!dir.Exists)
+        {
+            ScheduleLogBootstrap();
+            return;
+        }
+        StopLogBootstrap();
+        if (_logWatcher != null)
+        {
+            _logWatcher.EnableRaisingEvents = false;
+            _logWatcher.Dispose();
+        }
+        _logWatcher = new FileSystemWatcher(_logPath, "*.log")
+        {
+            NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.CreationTime | NotifyFilters.Size,
+            IncludeSubdirectories = false,
+            InternalBufferSize = 64 * 1024,
+            EnableRaisingEvents = true
+        };
+        _logWatcher.Changed += OnLogFileChanged;
+        _logWatcher.Created += OnLogFileChanged;
+        _logWatcher.Error += OnLogWatcherError;
+        _lastLogFile = "";
+        _lastLogPosition = 0;
+        ReadServerLogs();
+    }
+
+    private void RearmLogWatcher()
+    {
+        // Recreate the watcher after a buffer-overflow error WITHOUT resetting
+        // _lastLogPosition/_lastLogFile (avoids re-reading the whole file).
+        if (_logWatcher != null)
+        {
+            _logWatcher.EnableRaisingEvents = false;
+            _logWatcher.Changed -= OnLogFileChanged;
+            _logWatcher.Created -= OnLogFileChanged;
+            _logWatcher.Error -= OnLogWatcherError;
+            _logWatcher.Dispose();
+            _logWatcher = null;
+        }
+        if (_disposed || string.IsNullOrEmpty(_logPath)) return;
+        var dir = new DirectoryInfo(_logPath);
+        if (!dir.Exists) return;
+        _logWatcher = new FileSystemWatcher(_logPath, "*.log")
+        {
+            NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.CreationTime | NotifyFilters.Size,
+            IncludeSubdirectories = false,
+            InternalBufferSize = 64 * 1024,
+            EnableRaisingEvents = true
+        };
+        _logWatcher.Changed += OnLogFileChanged;
+        _logWatcher.Created += OnLogFileChanged;
+        _logWatcher.Error += OnLogWatcherError;
+    }
+
+    private void ScheduleLogBootstrap()
+    {
+        StopLogBootstrap();
+        _logBootstrapTimer = new System.Timers.Timer(2000);
+        _logBootstrapTimer.Elapsed += (s, e) =>
         {
             if (_disposed) return;
-            ReadServerLogs();
+            TryStartLogWatcher();
         };
-        _logReaderTimer.Start();
+        _logBootstrapTimer.AutoReset = false;
+        _logBootstrapTimer.Start();
+    }
+
+    private void StopLogBootstrap()
+    {
+        if (_logBootstrapTimer != null)
+        {
+            _logBootstrapTimer.Stop();
+            _logBootstrapTimer.Dispose();
+            _logBootstrapTimer = null;
+        }
+    }
+
+    private void OnLogFileChanged(object sender, FileSystemEventArgs e)
+    {
+        if (_disposed) return;
+        // Coalesce the multiple FSW events fired per write (LastWrite + Size).
+        if (_logDebounceTimer == null)
+        {
+            _logDebounceTimer = new System.Timers.Timer(250);
+            _logDebounceTimer.Elapsed += (s, args) =>
+            {
+                _logDebounceTimer.Stop();
+                if (_disposed) return;
+                ReadServerLogs();
+            };
+            _logDebounceTimer.AutoReset = false;
+        }
+        _logDebounceTimer.Stop();
+        _logDebounceTimer.Start();
+    }
+
+    private void OnLogWatcherError(object sender, ErrorEventArgs e)
+    {
+        if (_disposed) return;
+        RearmLogWatcher();
     }
 
     private void ReadServerLogs()
     {
         if (string.IsNullOrEmpty(_logPath))
         {
-            // Retry loading the log path periodically (service may have started after app launch)
-            var now = DateTime.UtcNow;
-            if (now - _lastLogPathRetry > TimeSpan.FromSeconds(5))
-            {
-                _lastLogPathRetry = now;
-                _ = LoadLogPathAsync();
-            }
             return;
         }
 
@@ -464,7 +597,21 @@ public class MainViewModel : ViewModelBase
                     }
                     while (_serverLogs.Count > 2000)
                         _serverLogs.RemoveAt(0);
-                    FilterServerLogs();
+
+                    if (string.IsNullOrEmpty(_logSearchText))
+                    {
+                        // Incremental: mirror only the new entries (avoid full rebuild).
+                        foreach (var entry in newEntries)
+                        {
+                            _filteredServerLogs.Add(entry);
+                        }
+                        while (_filteredServerLogs.Count > _serverLogs.Count)
+                            _filteredServerLogs.RemoveAt(0);
+                    }
+                    else
+                    {
+                        FilterServerLogs();
+                    }
                     if (_autoScroll) AutoScrollRequested?.Invoke();
                 });
             }
@@ -540,14 +687,25 @@ public class MainViewModel : ViewModelBase
 
     public async Task RefreshAllAsync()
     {
-        await Task.Run(async () =>
+        // Single-flight: coalesce overlapping refresh chains (timer + manual refresh)
+        // so the IPC retry storm doesn't pile up when the backend is starting.
+        if (Interlocked.CompareExchange(ref _refreshInProgress, 1, 0) != 0)
+            return;
+        try
         {
-            await RefreshServerStatusAsync();
-            await RefreshClientsAsync();
-            await RefreshPendingAsync();
-            await RefreshWhitelistsAsync();
-            await LoadActiveWhitelistAsync();
-        });
+            await Task.Run(async () =>
+            {
+                await RefreshServerStatusAsync();
+                await RefreshClientsAsync();
+                await RefreshPendingAsync();
+                await RefreshWhitelistsAsync();
+                await LoadActiveWhitelistAsync();
+            });
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _refreshInProgress, 0);
+        }
     }
 
     private async Task LoadActiveWhitelistAsync()
@@ -1079,8 +1237,22 @@ public class MainViewModel : ViewModelBase
         _refreshTimer?.Dispose();
         _serviceStatusTimer?.Stop();
         _serviceStatusTimer?.Dispose();
-        _logReaderTimer?.Stop();
-        _logReaderTimer?.Dispose();
+        _ipcService.EventReceived -= OnEventReceived;
+        _ipcService.Resubscribed -= OnEventResubscribed;
+        _ipcService.StopEventSubscription();
+        StopLogBootstrap();
+        if (_logDebounceTimer != null)
+        {
+            _logDebounceTimer.Stop();
+            _logDebounceTimer.Dispose();
+            _logDebounceTimer = null;
+        }
+        if (_logWatcher != null)
+        {
+            _logWatcher.EnableRaisingEvents = false;
+            _logWatcher.Dispose();
+            _logWatcher = null;
+        }
         _ipcService.Dispose();
         _serviceManager.Dispose();
     }
