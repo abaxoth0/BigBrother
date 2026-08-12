@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Server frontend: context menu no longer loses focus on list refresh (in-place DataGrid updates)
 - Server frontend: reload log path when service starts (no longer requires app restart)
 - Server frontend: remove diagnostic spam from log reader (silent retry)
+- Frontends: add `BigBrother.Frontend.Shared` project to both `.slnx` solutions (Visual Studio restore failed with NU1105 otherwise)
+- Server frontend: pass service name to `ServiceManager` (fixes startup XamlParseException)
+- Server frontend: main status indicator, label, uptime, and client/pending counters update immediately on service state change (was lagging behind the service-status text)
 
 ### Changed
 
