@@ -120,3 +120,10 @@ public class ClientStatus
     public uint WhitelistRevision { get; set; }
     public bool FiltrationEnabled { get; set; } = true;
 }
+
+public class LogFileSource
+{
+    public string Label { get; set; } = "";
+    public string FilePath { get; set; } = "";
+    public Lib.LogSource Source { get; set; } = Lib.LogSource.Unknown;
+}

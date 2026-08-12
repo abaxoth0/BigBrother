@@ -6,7 +6,6 @@ using System.Windows;
 using System.Windows.Input;
 using frontend.Models;
 using frontend.Services;
-using frontend.Views;
 
 namespace frontend.ViewModels;
 
@@ -14,11 +13,10 @@ public class MainViewModel : ViewModelBase
 {
     private readonly IpcService _ipcService;
     private readonly ServiceManager _serviceManager;
+    private readonly ServerLogTailer _logTailer;
+    private readonly IWhitelistDialogService _whitelistDialog;
     private System.Timers.Timer? _refreshTimer;
     private System.Timers.Timer? _serviceStatusTimer;
-    private FileSystemWatcher? _logWatcher;
-    private System.Timers.Timer? _logBootstrapTimer;
-    private System.Timers.Timer? _logDebounceTimer;
     private int _refreshInProgress;
 
     private string _serverStatus = "Подключение...";
@@ -37,9 +35,6 @@ public class MainViewModel : ViewModelBase
     private ObservableCollection<WhitelistInfo> _whitelists = new();
     private WhitelistInfo? _selectedWhitelist;
 
-    private string _logPath = "";
-    private string _lastLogFile = "";
-    private long _lastLogPosition;
     private string _logSearchText = "";
     private bool _autoScroll = true;
     private ObservableCollection<ServerLogEntry> _serverLogs = new();
@@ -52,6 +47,9 @@ public class MainViewModel : ViewModelBase
     {
         _ipcService = new IpcService();
         _serviceManager = new ServiceManager();
+        _logTailer = new ServerLogTailer();
+        _logTailer.EntriesRead += OnLogEntriesRead;
+        _whitelistDialog = new WhitelistDialogService();
 
         ConnectedClients = new ObservableCollection<ConnectedClient>();
         PendingRegistrations = new ObservableCollection<PendingRegistration>();
@@ -79,7 +77,6 @@ public class MainViewModel : ViewModelBase
         ExportServerLogsCommand = new RelayCommand(_ => ExportServerLogs());
         StartAutoRefresh();
         StartServiceStatusPolling();
-        TryStartLogWatcher();
         _ipcService.EventReceived += OnEventReceived;
         _ipcService.Resubscribed += OnEventResubscribed;
         _ipcService.StartEventSubscription();
@@ -364,223 +361,39 @@ public class MainViewModel : ViewModelBase
         var path = await _ipcService.GetLogPathAsync();
         if (!string.IsNullOrEmpty(path))
         {
-            _logPath = path;
-            TryStartLogWatcher();
+            _logTailer.SetLogPath(path);
         }
     }
 
-    private void TryStartLogWatcher()
+    private void OnLogEntriesRead(List<ServerLogEntry> newEntries)
     {
-        if (string.IsNullOrEmpty(_logPath))
-        {
-            ScheduleLogBootstrap();
-            return;
-        }
-        var dir = new DirectoryInfo(_logPath);
-        if (!dir.Exists)
-        {
-            ScheduleLogBootstrap();
-            return;
-        }
-        StopLogBootstrap();
-        if (_logWatcher != null)
-        {
-            _logWatcher.EnableRaisingEvents = false;
-            _logWatcher.Dispose();
-        }
-        _logWatcher = new FileSystemWatcher(_logPath, "*.log")
-        {
-            NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.CreationTime | NotifyFilters.Size,
-            IncludeSubdirectories = false,
-            InternalBufferSize = 64 * 1024,
-            EnableRaisingEvents = true
-        };
-        _logWatcher.Changed += OnLogFileChanged;
-        _logWatcher.Created += OnLogFileChanged;
-        _logWatcher.Error += OnLogWatcherError;
-        _lastLogFile = "";
-        _lastLogPosition = 0;
-        ReadServerLogs();
-    }
-
-    private void RearmLogWatcher()
-    {
-        // Recreate the watcher after a buffer-overflow error WITHOUT resetting
-        // _lastLogPosition/_lastLogFile (avoids re-reading the whole file).
-        if (_logWatcher != null)
-        {
-            _logWatcher.EnableRaisingEvents = false;
-            _logWatcher.Changed -= OnLogFileChanged;
-            _logWatcher.Created -= OnLogFileChanged;
-            _logWatcher.Error -= OnLogWatcherError;
-            _logWatcher.Dispose();
-            _logWatcher = null;
-        }
-        if (_disposed || string.IsNullOrEmpty(_logPath)) return;
-        var dir = new DirectoryInfo(_logPath);
-        if (!dir.Exists) return;
-        _logWatcher = new FileSystemWatcher(_logPath, "*.log")
-        {
-            NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.CreationTime | NotifyFilters.Size,
-            IncludeSubdirectories = false,
-            InternalBufferSize = 64 * 1024,
-            EnableRaisingEvents = true
-        };
-        _logWatcher.Changed += OnLogFileChanged;
-        _logWatcher.Created += OnLogFileChanged;
-        _logWatcher.Error += OnLogWatcherError;
-    }
-
-    private void ScheduleLogBootstrap()
-    {
-        StopLogBootstrap();
-        _logBootstrapTimer = new System.Timers.Timer(2000);
-        _logBootstrapTimer.Elapsed += (s, e) =>
+        if (_disposed) return;
+        System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
         {
             if (_disposed) return;
-            TryStartLogWatcher();
-        };
-        _logBootstrapTimer.AutoReset = false;
-        _logBootstrapTimer.Start();
-    }
-
-    private void StopLogBootstrap()
-    {
-        if (_logBootstrapTimer != null)
-        {
-            _logBootstrapTimer.Stop();
-            _logBootstrapTimer.Dispose();
-            _logBootstrapTimer = null;
-        }
-    }
-
-    private void OnLogFileChanged(object sender, FileSystemEventArgs e)
-    {
-        if (_disposed) return;
-        // Coalesce the multiple FSW events fired per write (LastWrite + Size).
-        if (_logDebounceTimer == null)
-        {
-            _logDebounceTimer = new System.Timers.Timer(250);
-            _logDebounceTimer.Elapsed += (s, args) =>
+            foreach (var entry in newEntries)
             {
-                _logDebounceTimer.Stop();
-                if (_disposed) return;
-                ReadServerLogs();
-            };
-            _logDebounceTimer.AutoReset = false;
-        }
-        _logDebounceTimer.Stop();
-        _logDebounceTimer.Start();
-    }
-
-    private void OnLogWatcherError(object sender, ErrorEventArgs e)
-    {
-        if (_disposed) return;
-        RearmLogWatcher();
-    }
-
-    private void ReadServerLogs()
-    {
-        if (string.IsNullOrEmpty(_logPath))
-        {
-            return;
-        }
-
-        try
-        {
-            var dir = new DirectoryInfo(_logPath);
-            if (!dir.Exists)
-            {
-                return;
+                _serverLogs.Add(entry);
             }
+            while (_serverLogs.Count > 2000)
+                _serverLogs.RemoveAt(0);
 
-            var files = dir.GetFiles("*.log");
-            if (files.Length == 0)
+            if (string.IsNullOrEmpty(_logSearchText))
             {
-                return;
-            }
-
-            var file = files.OrderByDescending(f => f.LastWriteTime).First();
-
-            using var stream = new FileStream(file.FullName, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-
-            // New log file (e.g., after restart) — read from near the end
-            if (_lastLogFile != file.FullName)
-            {
-                _lastLogFile = file.FullName;
-                _lastLogPosition = Math.Max(0, stream.Length - 512 * 1024);
-            }
-
-            if (_lastLogPosition >= stream.Length) return;
-
-            stream.Seek(_lastLogPosition, SeekOrigin.Begin);
-            using var reader = new StreamReader(stream);
-            var newEntries = new List<ServerLogEntry>();
-            long lastPos = _lastLogPosition;
-
-            while (true)
-            {
-                var line = reader.ReadLine();
-                if (line == null) break;
-                lastPos = stream.Position;
-
-                try
+                // Incremental: mirror only the new entries (avoid full rebuild).
+                foreach (var entry in newEntries)
                 {
-                    using var doc = JsonDocument.Parse(line);
-                    var root = doc.RootElement;
-
-                    var ts = root.TryGetProperty("ts", out var tse) ? tse.GetString() ?? "" : "";
-                    var level = root.TryGetProperty("level", out var le) ? le.GetString() ?? "" : "";
-                    var src = root.TryGetProperty("source", out var se) ? se.GetString() ?? "" : "";
-                    var msg = root.TryGetProperty("msg", out var me) ? me.GetString() ?? "" : "";
-
-                    if (!string.IsNullOrEmpty(msg))
-                    {
-                        var time = ts.Length >= 19 ? ts.Substring(11, 8) : ts;
-                        newEntries.Add(new ServerLogEntry
-                        {
-                            Timestamp = time,
-                            Level = level,
-                            Source = src,
-                            Message = msg
-                        });
-                    }
+                    _filteredServerLogs.Add(entry);
                 }
-                catch { }
+                while (_filteredServerLogs.Count > _serverLogs.Count)
+                    _filteredServerLogs.RemoveAt(0);
             }
-
-            _lastLogPosition = lastPos;
-
-            if (newEntries.Count > 0)
+            else
             {
-                System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
-                {
-                    foreach (var entry in newEntries)
-                    {
-                        _serverLogs.Add(entry);
-                    }
-                    while (_serverLogs.Count > 2000)
-                        _serverLogs.RemoveAt(0);
-
-                    if (string.IsNullOrEmpty(_logSearchText))
-                    {
-                        // Incremental: mirror only the new entries (avoid full rebuild).
-                        foreach (var entry in newEntries)
-                        {
-                            _filteredServerLogs.Add(entry);
-                        }
-                        while (_filteredServerLogs.Count > _serverLogs.Count)
-                            _filteredServerLogs.RemoveAt(0);
-                    }
-                    else
-                    {
-                        FilterServerLogs();
-                    }
-                    if (_autoScroll) AutoScrollRequested?.Invoke();
-                });
+                FilterServerLogs();
             }
-        }
-        catch { }
+            if (_autoScroll) AutoScrollRequested?.Invoke();
+        });
     }
 
     private void FilterServerLogs()
@@ -939,62 +752,44 @@ public class MainViewModel : ViewModelBase
 
     private async Task OpenCreateWhitelistAsync()
     {
-        var dialog = new WhitelistEditWindow();
-        dialog.ViewModel.SetCreateMode();
-        dialog.Owner = Application.Current.MainWindow;
+        var result = await _whitelistDialog.ShowDialogAsync(WhitelistDialogMode.Create);
+        if (result == null) return; // cancelled
 
-        dialog.ViewModel.Saved += async (s, e) =>
+        var ok = await _ipcService.CreateWhitelistAsync(result.Name);
+        if (ok && result.Entries.Count > 0)
         {
-            var name = dialog.ViewModel.WhitelistName;
-            var entries = dialog.ViewModel.GetEntries();
-            var ok = await _ipcService.CreateWhitelistAsync(name);
-            if (ok && entries.Count > 0)
-            {
-                ok = await _ipcService.SaveWhitelistAsync(name, entries);
-            }
-            AddLog(ok ? "INFO" : "ERROR", ok ? $"Список {name} создан" : $"Ошибка создания списка {name}");
-            await RefreshWhitelistsAsync();
-            if (ok) dialog.DialogResult = true;
-        };
-
-        dialog.ShowDialog();
+            ok = await _ipcService.SaveWhitelistAsync(result.Name, result.Entries);
+        }
+        AddLog(ok ? "INFO" : "ERROR", ok ? $"Список {result.Name} создан" : $"Ошибка создания списка {result.Name}");
+        await RefreshWhitelistsAsync();
     }
 
     private async Task OpenEditWhitelistAsync(WhitelistInfo? whitelist)
     {
         if (whitelist == null) return;
 
-        var dialog = new WhitelistEditWindow();
-        dialog.Owner = Application.Current.MainWindow;
-
+        List<string> initialEntries;
         try
         {
-            var entries = await _ipcService.GetWhitelistEntriesAsync(whitelist.Name);
-            dialog.ViewModel.SetEditMode(whitelist.Name, entries);
+            initialEntries = await _ipcService.GetWhitelistEntriesAsync(whitelist.Name);
         }
         catch
         {
-            dialog.ViewModel.SetEditMode(whitelist.Name, new List<string>());
+            initialEntries = new List<string>();
         }
 
-        dialog.ViewModel.Saved += async (s, e) =>
+        var result = await _whitelistDialog.ShowDialogAsync(WhitelistDialogMode.Edit, whitelist.Name, initialEntries);
+        if (result == null) return; // cancelled
+
+        var ok = true;
+        if (whitelist.Name != result.Name)
         {
-            var newName = dialog.ViewModel.WhitelistName;
-            var entries = dialog.ViewModel.GetEntries();
-            var ok = true;
+            ok = await _ipcService.RenameWhitelistAsync(whitelist.Name, result.Name);
+        }
 
-            if (dialog.ViewModel.IsEditMode() && dialog.ViewModel.GetOriginalName() != newName)
-            {
-                ok = await _ipcService.RenameWhitelistAsync(dialog.ViewModel.GetOriginalName(), newName);
-            }
-
-            if (ok) ok = await _ipcService.SaveWhitelistAsync(newName, entries);
-            AddLog(ok ? "INFO" : "ERROR", ok ? $"Список {newName} сохранен" : $"Ошибка сохранения списка {newName}");
-            await RefreshWhitelistsAsync();
-            if (ok) dialog.DialogResult = true;
-        };
-
-        dialog.ShowDialog();
+        if (ok) ok = await _ipcService.SaveWhitelistAsync(result.Name, result.Entries);
+        AddLog(ok ? "INFO" : "ERROR", ok ? $"Список {result.Name} сохранен" : $"Ошибка сохранения списка {result.Name}");
+        await RefreshWhitelistsAsync();
     }
 
     private async Task ImportWhitelistsAsync()
@@ -1204,19 +999,8 @@ public class MainViewModel : ViewModelBase
         _ipcService.EventReceived -= OnEventReceived;
         _ipcService.Resubscribed -= OnEventResubscribed;
         _ipcService.StopEventSubscription();
-        StopLogBootstrap();
-        if (_logDebounceTimer != null)
-        {
-            _logDebounceTimer.Stop();
-            _logDebounceTimer.Dispose();
-            _logDebounceTimer = null;
-        }
-        if (_logWatcher != null)
-        {
-            _logWatcher.EnableRaisingEvents = false;
-            _logWatcher.Dispose();
-            _logWatcher = null;
-        }
+        _logTailer.EntriesRead -= OnLogEntriesRead;
+        _logTailer.Dispose();
         _ipcService.Dispose();
         _serviceManager.Dispose();
     }

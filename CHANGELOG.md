@@ -32,6 +32,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Server: whitelist entries saved atomically (single transaction) via `ReplaceWhitelistEntries`; active whitelist read directly from DB (removed cached field)
 - Client frontend: status refresh event marshaled onto the UI thread (no race with log-reader start/stop)
 - Client daemon: removed dead `poll_interval` parameter and unused variables (builds warning-free)
+- Frontends: extract shared `BigBrother.Frontend.Shared` library (ViewModelBase, RelayCommand, ServiceManager, LogReader/LogParser, models, converters, theme brushes); both apps now reference one copy
+- Server frontend: log tailing extracted to `ServerLogTailer` service; whitelist dialog decoupled via `IWhitelistDialogService`
+- Client frontend: daemon control, log readers, and log-history viewer moved into ViewModels (code-behind now thin); dead buttons/placeholders removed; `LogViewWindow` uses XAML template
 
 ## [1.0.0] - 27-07-2026
 
