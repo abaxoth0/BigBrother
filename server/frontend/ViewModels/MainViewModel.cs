@@ -46,7 +46,7 @@ public class MainViewModel : ViewModelBase
     public MainViewModel()
     {
         _ipcService = new IpcService();
-        _serviceManager = new ServiceManager();
+        _serviceManager = new ServiceManager("BigBrother Server");
         _logTailer = new ServerLogTailer();
         _logTailer.EntriesRead += OnLogEntriesRead;
         _whitelistDialog = new WhitelistDialogService();
