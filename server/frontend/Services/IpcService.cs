@@ -1,107 +1,11 @@
-using System.ComponentModel;
 using System.IO;
 using System.IO.Pipes;
 using System.Linq;
-using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading;
+using frontend.Models;
 
 namespace frontend.Services;
-
-public class ConnectedClient : INotifyPropertyChanged
-{
-    public event PropertyChangedEventHandler? PropertyChanged;
-
-    private string _address = "";
-    private string _status = "";
-    private string _whitelist = "";
-    private DateTime _lastActivity;
-
-    public string Name { get; set; } = "";
-    public string Address
-    {
-        get => _address;
-        set { if (_address != value) { _address = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Address))); } }
-    }
-    public string Status
-    {
-        get => _status;
-        set { if (_status != value) { _status = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Status))); } }
-    }
-    public string Whitelist
-    {
-        get => _whitelist;
-        set { if (_whitelist != value) { _whitelist = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Whitelist))); } }
-    }
-    public DateTime LastActivity
-    {
-        get => _lastActivity;
-        set { if (_lastActivity != value) { _lastActivity = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LastActivity))); } }
-    }
-    public bool IsSelected { get; set; }
-}
-
-public class PendingRegistration : INotifyPropertyChanged
-{
-    public event PropertyChangedEventHandler? PropertyChanged;
-
-    private string _address = "";
-    private DateTime _createdAt;
-
-    public string Name { get; set; } = "";
-    public string Address
-    {
-        get => _address;
-        set { if (_address != value) { _address = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Address))); } }
-    }
-    public DateTime CreatedAt
-    {
-        get => _createdAt;
-        set { if (_createdAt != value) { _createdAt = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CreatedAt))); } }
-    }
-}
-
-public class WhitelistInfo : INotifyPropertyChanged
-{
-    public event PropertyChangedEventHandler? PropertyChanged;
-
-    private int _entryCount;
-    private bool _isSelected;
-    public string Name { get; set; } = "";
-    public int EntryCount
-    {
-        get => _entryCount;
-        set
-        {
-            if (_entryCount != value)
-            {
-                _entryCount = value;
-                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(EntryCount)));
-            }
-        }
-    }
-    public bool IsSelected
-    {
-        get => _isSelected;
-        set
-        {
-            if (_isSelected != value)
-            {
-                _isSelected = value;
-                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsSelected)));
-            }
-        }
-    }
-}
-
-public class ServerStatus
-{
-    public bool IsRunning { get; set; }
-    public string UptimeText { get; set; } = "";
-    public int ConnectedClients { get; set; }
-    public int PendingCount { get; set; }
-    public bool FiltrationEnabled { get; set; } = true;
-}
 
 public class IpcService : IDisposable
 {

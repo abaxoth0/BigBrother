@@ -5,7 +5,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:frontend"
         xmlns:vm="clr-namespace:frontend.ViewModels"
-        xmlns:conv="clr-namespace:frontend.Converters"
+        xmlns:conv="clr-namespace:frontend.Converters;assembly=BigBrother.Frontend.Shared"
         mc:Ignorable="d"
         Title="Big Brother Клиент"
         Height="700" Width="1000"
@@ -21,21 +21,6 @@
         <conv:ConnectionStatusToColorConverter x:Key="ConnectionStatusToColor"/>
         <conv:BoolToVisibilityConverter x:Key="BoolToVisibility"/>
         <conv:InverseBoolToVisibilityConverter x:Key="InverseBoolToVisibility"/>
-
-        <!-- Colors -->
-        <SolidColorBrush x:Key="BorderBrush" Color="#CCCCCC"/>
-        <SolidColorBrush x:Key="HeaderBackground" Color="#F0F0F0"/>
-        <SolidColorBrush x:Key="StatusRunning" Color="#4CAF50"/>
-        <SolidColorBrush x:Key="StatusStopped" Color="#F44336"/>
-        <SolidColorBrush x:Key="StatusWarning" Color="#FF9800"/>
-        <SolidColorBrush x:Key="LogBackground" Color="#1E1E1E"/>
-
-        <!-- Log Level Colors -->
-        <SolidColorBrush x:Key="LogInfo" Color="#D4D4D4"/>
-        <SolidColorBrush x:Key="LogWarning" Color="#FFA500"/>
-        <SolidColorBrush x:Key="LogError" Color="#FF6B6B"/>
-        <SolidColorBrush x:Key="LogDns" Color="#6B9FFF"/>
-        <SolidColorBrush x:Key="LogBlocked" Color="#FF4444"/>
 
         <!-- Button Style -->
         <Style x:Key="ControlButton" TargetType="Button">

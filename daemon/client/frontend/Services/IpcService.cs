@@ -1,24 +1,9 @@
 using System.IO;
 using System.IO.Pipes;
 using System.Text;
+using frontend.Models;
 
 namespace frontend.Services;
-
-public class ClientStatus
-{
-    public string ClientName { get; set; } = "";
-    public string IpAddress { get; set; } = "";
-    public string DaemonStatus { get; set; } = "NOT_RUNNING";
-    public string ClientBackendStatus { get; set; } = "NOT_RUNNING";
-    public string ServerRunning { get; set; } = "NOT_RUNNING";
-    public string ServerSessionActive { get; set; } = "NOT_CONNECTED";
-    public int ClientPid { get; set; }
-    public bool IsConnected => ClientBackendStatus == "RUNNING";
-    public bool IsServerRunning => ServerRunning == "RUNNING";
-    public bool IsServerSessionActive => ServerSessionActive == "CONNECTED";
-    public uint WhitelistRevision { get; set; }
-    public bool FiltrationEnabled { get; set; } = true;
-}
 
 public class IpcService : IDisposable
 {

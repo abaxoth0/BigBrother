@@ -4,45 +4,11 @@ using System.Linq;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Input;
+using frontend.Models;
 using frontend.Services;
 using frontend.Views;
 
 namespace frontend.ViewModels;
-
-public class RelayCommand : ICommand
-{
-    private readonly Action<object?> _execute;
-    private readonly Predicate<object?>? _canExecute;
-
-    public RelayCommand(Action<object?> execute, Predicate<object?>? canExecute = null)
-    {
-        _execute = execute ?? throw new ArgumentNullException(nameof(execute));
-        _canExecute = canExecute;
-    }
-
-    public bool CanExecute(object? parameter) => _canExecute?.Invoke(parameter) ?? true;
-
-    public void Execute(object? parameter) => _execute(parameter);
-
-    public event EventHandler? CanExecuteChanged
-    {
-        add => CommandManager.RequerySuggested += value;
-        remove => CommandManager.RequerySuggested -= value;
-    }
-
-    public void RaiseCanExecuteChanged()
-    {
-        CommandManager.InvalidateRequerySuggested();
-    }
-}
-
-public class ServerLogEntry
-{
-    public string Timestamp { get; set; } = "";
-    public string Level { get; set; } = "";
-    public string Source { get; set; } = "";
-    public string Message { get; set; } = "";
-}
 
 public class MainViewModel : ViewModelBase
 {
@@ -90,7 +56,6 @@ public class MainViewModel : ViewModelBase
         ConnectedClients = new ObservableCollection<ConnectedClient>();
         PendingRegistrations = new ObservableCollection<PendingRegistration>();
         Whitelists = new ObservableCollection<WhitelistInfo>();
-        LogEntries = new ObservableCollection<string>();
 
         ApproveCommand = new RelayCommand(async o => await ApproveUserAsync(o?.ToString()!), o => o != null);
         RejectCommand = new RelayCommand(async o => await RejectUserAsync(o?.ToString()!), o => o != null);
@@ -161,7 +126,6 @@ public class MainViewModel : ViewModelBase
     public ObservableCollection<ConnectedClient> ConnectedClients { get; }
     public ObservableCollection<PendingRegistration> PendingRegistrations { get; }
     public ObservableCollection<WhitelistInfo> Whitelists { get; }
-    public ObservableCollection<string> LogEntries { get; }
 
     public string ServerStatus
     {
@@ -638,21 +602,6 @@ public class MainViewModel : ViewModelBase
             foreach (var e in filtered)
                 _filteredServerLogs.Add(e);
         }
-    }
-
-    private void AddServerLogEntry(string level, string message)
-    {
-        System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
-        {
-            _serverLogs.Add(new ServerLogEntry
-            {
-                Timestamp = DateTime.Now.ToString("HH:mm:ss"),
-                Level = level,
-                Message = message
-            });
-            FilterServerLogs();
-            if (_autoScroll) AutoScrollRequested?.Invoke();
-        });
     }
 
     private void ClearServerLogs()
@@ -1219,11 +1168,26 @@ public class MainViewModel : ViewModelBase
     {
         System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
         {
-            LogEntries.Add($"[{DateTime.Now:HH:mm:ss}] [{level}] {message}");
-            if (LogEntries.Count > 1000)
+            _serverLogs.Add(new ServerLogEntry
             {
-                LogEntries.RemoveAt(0);
+                Timestamp = DateTime.Now.ToString("HH:mm:ss"),
+                Level = level,
+                Source = "UI",
+                Message = message
+            });
+            while (_serverLogs.Count > 2000)
+                _serverLogs.RemoveAt(0);
+            if (string.IsNullOrEmpty(_logSearchText))
+            {
+                _filteredServerLogs.Add(_serverLogs[^1]);
+                while (_filteredServerLogs.Count > _serverLogs.Count)
+                    _filteredServerLogs.RemoveAt(0);
             }
+            else
+            {
+                FilterServerLogs();
+            }
+            if (_autoScroll) AutoScrollRequested?.Invoke();
         });
     }
 

@@ -13,16 +13,13 @@ public class ServiceInfo
 
 public class ServiceManager : IDisposable
 {
-    private const string DefaultServiceName = "BigBrother Firewall";
-
-    public string ServiceName { get; set; } = DefaultServiceName;
+    public string ServiceName { get; set; }
 
     public ServiceManager(string? serviceName = null)
     {
-        if (!string.IsNullOrEmpty(serviceName))
-        {
-            ServiceName = serviceName;
-        }
+        ServiceName = string.IsNullOrEmpty(serviceName)
+            ? throw new ArgumentNullException(nameof(serviceName), "Service name is required")
+            : serviceName;
     }
 
     public ServiceInfo? GetServiceInfo()
