@@ -304,7 +304,31 @@ public class MainViewModel : ViewModelBase
                 var status = info?.Status.ToString() ?? "Not Found";
                 System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
                 {
-                    ServiceStatus = status;
+                    if (_disposed) return;
+                    if (ServiceStatus != status)
+                    {
+                        ServiceStatus = status;
+                        // Drive the main connection indicator off the service state
+                        // so it updates immediately instead of waiting on the IPC
+                        // refresh cycle.
+                        bool running = status == "Running";
+                        IsConnected = running;
+                        if (running)
+                        {
+                            _ = RefreshAllAsync();
+                        }
+                        else
+                        {
+                            // Service stopped — clear server-derived state right away.
+                            ServerStatus = "Не подключен";
+                            Uptime = "";
+                            ConnectedClientsCount = 0;
+                            PendingCount = 0;
+                            ConnectedClients.Clear();
+                            PendingRegistrations.Clear();
+                            FiltrationStatus = "N/A";
+                        }
+                    }
                 });
             }
             catch { }
