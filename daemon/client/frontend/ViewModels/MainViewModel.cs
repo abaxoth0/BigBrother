@@ -37,6 +37,9 @@ public class MainViewModel : ViewModelBase, IDisposable
     // Services
     private readonly IpcService _ipcService = new IpcService();
 
+    /// <summary>Shared pipe service used by the ViewModel and the main window.</summary>
+    public IpcService IpcService => _ipcService;
+
     // Status
     private string _daemonStatus = "Запущен";
     private string _clientStatus = "Запущен";
@@ -343,7 +346,12 @@ public class MainViewModel : ViewModelBase, IDisposable
 
     // Whitelist revision tracking for change detection
     private uint _lastWhitelistRevision = 0;
-    private readonly System.Timers.Timer _statusTimer = new System.Timers.Timer(10000); // Poll every 10 seconds (reduced from 2s)
+    private readonly System.Timers.Timer _statusTimer = new System.Timers.Timer(60000); // Safety fallback (events drive updates)
+    private int _refreshInProgress;
+    private int _refreshQueued;
+
+    /// <summary>Raised after each status refresh with the latest daemon status.</summary>
+    public event Action<ClientStatus>? StatusRefreshed;
 
     public ObservableCollection<WhitelistEntry> WhitelistEntries { get; } = new();
     public ObservableCollection<string> FilteredWhitelist { get; } = new();
@@ -373,63 +381,105 @@ public class MainViewModel : ViewModelBase, IDisposable
     private async void OnStatusTimerElapsed(object? sender, ElapsedEventArgs e)
     {
         if (_disposed) return;
+        await RefreshStateAsync();
+    }
+
+    private void OnStateChanged()
+    {
+        if (_disposed) return;
+        _ = RefreshStateAsync();
+    }
+
+    public async Task RefreshStateAsync()
+    {
+        // Single-flight: coalesce concurrent refreshes (event bursts + timer).
+        if (Interlocked.CompareExchange(ref _refreshInProgress, 1, 0) != 0)
+        {
+            Interlocked.Exchange(ref _refreshQueued, 1);
+            return;
+        }
+
         try
         {
-            var status = await _ipcService.GetStatusAsync().ConfigureAwait(false);
-            if (_disposed) return;
-            
-            System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
+            do
             {
-                if (_disposed) return;
-                ClientConnectionStatus = status.IsConnected ? "Подключено" : "Отключено";
-                FiltrationEnabled = status.FiltrationEnabled;
-            });
-
-            if (!status.IsConnected && SettingsAvailable)
-            {
-                System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
+                Interlocked.Exchange(ref _refreshQueued, 0);
+                try
                 {
+                    var status = await _ipcService.GetStatusAsync().ConfigureAwait(false);
                     if (_disposed) return;
-                    SettingsAvailable = false;
-                });
-            }
-            else if (status.IsConnected && !SettingsAvailable)
-            {
-                await LoadSettingsAsync();
-            }
-            
-            if (status.WhitelistRevision != 0 && status.WhitelistRevision != _lastWhitelistRevision)
-            {
-                _lastWhitelistRevision = status.WhitelistRevision;
-                
-                var whitelist = await _ipcService.GetWhitelistAsync().ConfigureAwait(false);
-                if (_disposed) return;
-                
-                if (whitelist.Count > 0)
-                {
+
                     System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
                     {
                         if (_disposed) return;
-                        WhitelistEntries.Clear();
-                        foreach (var domain in whitelist)
+                        DaemonConnectionStatus = status.DaemonStatus == "RUNNING" ? "Подключено" : "Отключено";
+                        DaemonStatus = status.DaemonStatus == "RUNNING" ? "Запущен" : "Остановлен";
+                        ClientConnectionStatus = status.IsConnected ? "Подключено" : "Отключено";
+                        ClientStatus = status.IsConnected ? "Запущен" : "Остановлен";
+                        ServerStatus = status.IsServerRunning ? "Запущен" : "Остановлен";
+                        ServerConnectionStatus = status.IsServerSessionActive ? "Подключено" : "Отключено";
+                        HostName = status.ClientName;
+                        IpAddress = status.IpAddress;
+                        ClientPid = status.ClientPid;
+                        FiltrationEnabled = status.FiltrationEnabled;
+                        LastUpdate = DateTime.Now;
+                        StatusRefreshed?.Invoke(status);
+                    });
+
+                    if (!status.IsConnected && SettingsAvailable)
+                    {
+                        System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
                         {
-                            WhitelistEntries.Add(WhitelistEntry.Parse(domain));
+                            if (_disposed) return;
+                            SettingsAvailable = false;
+                        });
+                    }
+                    else if (status.IsConnected && !SettingsAvailable)
+                    {
+                        await LoadSettingsAsync();
+                    }
+
+                    if (status.WhitelistRevision != 0 && status.WhitelistRevision != _lastWhitelistRevision)
+                    {
+                        _lastWhitelistRevision = status.WhitelistRevision;
+
+                        var whitelist = await _ipcService.GetWhitelistAsync().ConfigureAwait(false);
+                        if (_disposed) return;
+
+                        if (whitelist.Count > 0)
+                        {
+                            System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
+                            {
+                                if (_disposed) return;
+                                WhitelistEntries.Clear();
+                                foreach (var domain in whitelist)
+                                {
+                                    WhitelistEntries.Add(WhitelistEntry.Parse(domain));
+                                }
+
+                                UpdateWhitelistDisplay();
+                                AddLog("INFO", $"Whitelist updated ({whitelist.Count} domains)");
+                            });
                         }
-                        
-                        UpdateWhitelistDisplay();
-                        AddLog("INFO", $"Whitelist updated ({whitelist.Count} domains)");
+                    }
+                }
+                catch
+                {
+                    if (_disposed) return;
+                    System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
+                    {
+                        if (_disposed) return;
+                        ClientConnectionStatus = "Отключено";
+                        ServerConnectionStatus = "Отключено";
+                        ServerStatus = "Остановлен";
+                        StatusRefreshed?.Invoke(new ClientStatus { ClientPid = 0 });
                     });
                 }
-            }
+            } while (Interlocked.CompareExchange(ref _refreshQueued, 0, 1) == 1 && !_disposed);
         }
-        catch
+        finally
         {
-            if (_disposed) return;
-            System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
-            {
-                if (_disposed) return;
-                ClientConnectionStatus = "Отключено";
-            });
+            Interlocked.Exchange(ref _refreshInProgress, 0);
         }
     }
 
@@ -451,10 +501,14 @@ public class MainViewModel : ViewModelBase, IDisposable
         SaveSettingsCommand = new RelayCommand(async _ => await SaveAllSettingsAsync());
         ToggleFiltrationCommand = new RelayCommand(async _ => await ToggleFiltrationAsync());
 
-        // Initialize whitelist status polling timer
+        // Initialize whitelist status polling timer (safety fallback; events drive updates)
         _statusTimer.Elapsed += OnStatusTimerElapsed;
         _statusTimer.AutoReset = true;
         _statusTimer.Enabled = true;
+
+        // Event-driven updates from the daemon pipe
+        _ipcService.StateChanged += OnStateChanged;
+        _ipcService.StartEventSubscription();
 
         AddLog("INFO", "Клиент запущен");
 
@@ -689,7 +743,7 @@ public class MainViewModel : ViewModelBase, IDisposable
         System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
         {
             int logsToRemove = Logs.Count + toAdd.Count - MaxLogs;
-            
+
             if (logsToRemove > 0)
             {
                 int removeCount = Math.Min(logsToRemove, Logs.Count);
@@ -697,8 +751,12 @@ public class MainViewModel : ViewModelBase, IDisposable
                 {
                     Logs.RemoveAt(0);
                 }
+                // Keep the filtered mirror in sync when the source is trimmed.
+                while (FilteredLogs.Count > Logs.Count)
+                    FilteredLogs.RemoveAt(0);
             }
-            
+
+            var newEntries = new List<LogEntry>(toAdd.Count);
             foreach (var msg in toAdd)
             {
                 string level = "INFO";
@@ -706,27 +764,28 @@ public class MainViewModel : ViewModelBase, IDisposable
                 else if (msg.Contains("[WARNING]") || msg.Contains("[WARN]")) level = "WARNING";
                 else if (msg.Contains("[DNS]")) level = "DNS";
                 else if (msg.Contains("[BLOCKED]")) level = "BLOCKED";
-                
+
                 var entry = new LogEntry
                 {
                     Timestamp = DateTime.Now.ToString("HH:mm:ss"),
                     Level = level,
                     Message = msg
                 };
-                
+
                 Logs.Add(entry);
+                newEntries.Add(entry);
             }
-            
+
             if (!string.IsNullOrEmpty(LogSearchText))
             {
                 UpdateFilteredLogs();
             }
             else
             {
-                FilteredLogs.Clear();
-                foreach (var log in Logs)
+                // Incremental: mirror only the new entries (avoid full rebuild).
+                foreach (var entry in newEntries)
                 {
-                    FilteredLogs.Add(log);
+                    FilteredLogs.Add(entry);
                 }
             }
 
@@ -835,5 +894,7 @@ public class MainViewModel : ViewModelBase, IDisposable
         _disposed = true;
         _statusTimer?.Stop();
         _statusTimer?.Dispose();
+        _ipcService.StateChanged -= OnStateChanged;
+        _ipcService.StopEventSubscription();
     }
 }

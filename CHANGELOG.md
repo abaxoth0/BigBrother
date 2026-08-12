@@ -20,6 +20,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Server frontend: reload log path when service starts (no longer requires app restart)
 - Server frontend: remove diagnostic spam from log reader (silent retry)
 
+### Changed
+
+- Event-driven push replaces client daemon ↔ server polling: daemon subscribes (`SUBSCRIBE`) to server events (`WHITELIST_CHANGED`, `FILTRATION_TOGGLED`, `USER_APPROVED`) instead of polling `GET_WHITELIST`/`GET_FILTRATION`
+- Client daemon: no longer polls the server on a fixed interval (`-d <ip> [poll-interval]` legacy arg dropped)
+- Server frontend: dashboard refresh is event-driven over the frontend-pipe `SUBSCRIBE` feed; 5s full poll reduced to a 30s safety net
+- Client frontend: status is event-driven via daemon pipe `SUBSCRIBE` (`STATE_CHANGED`); the two redundant 10s status timers consolidated into one shared service with a 60s safety fallback
+- Frontends: non-blocking named-pipe connect probe (`ConnectAsync(0)`) instead of timed connects that busy-wait while the service is stopped
+- Frontends: log tailing/perf — FileSystemWatcher (server) and 500ms poll (client) with debounce, incremental list updates, StringBuilder parsing
+- Server: shared notification bus publishes user/pending/whitelist/filtration events to both TCP and pipe `SUBSCRIBE` clients
+- Server: whitelist entries saved atomically (single transaction) via `ReplaceWhitelistEntries`; active whitelist read directly from DB (removed cached field)
+- Client frontend: status refresh event marshaled onto the UI thread (no race with log-reader start/stop)
+- Client daemon: removed dead `poll_interval` parameter and unused variables (builds warning-free)
+
 ## [1.0.0] - 27-07-2026
 
 ### Added

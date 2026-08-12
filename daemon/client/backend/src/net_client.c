@@ -289,7 +289,6 @@ int GetAllBroadcastAddresses(char* ip_str, size_t ip_size, char* bcast_out, size
     int count = 0;
     char* out = bcast_out;
     size_t remaining = bcast_size;
-    int first_ip_set = 0;
 
     for (IP_ADAPTER_ADDRESSES* a = adapters; a; a = a->Next) {
         if (a->OperStatus != IfOperStatusUp) continue;

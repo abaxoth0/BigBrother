@@ -53,17 +53,11 @@ void WINAPI ServiceMain(DWORD argc, LPTSTR* argv) {
 
     // Parse arguments from service
     const char* server_ip = NULL;
-    int poll_interval = 5;
 
     // argv[0] is service name, start from argv[1]
     for (DWORD i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-d") == 0 && i + 1 < argc) {
             server_ip = argv[i + 1];
-            i++;
-            if (i + 1 < argc) {
-                poll_interval = atoi(argv[i + 1]);
-                if (poll_interval <= 0) poll_interval = 5;
-            }
             break;
         }
     }
@@ -74,7 +68,7 @@ void WINAPI ServiceMain(DWORD argc, LPTSTR* argv) {
 
     if (HasServerIp()) {
         StartClientServer();
-        DaemonRun(server_ip ? server_ip : "", poll_interval);
+        DaemonRun(server_ip ? server_ip : "");
     }
 
     // Wait for stop event
@@ -86,7 +80,7 @@ void WINAPI ServiceMain(DWORD argc, LPTSTR* argv) {
 
 static void print_usage(const char* prog) {
     printf("Usage: %s <command>\n", prog);
-    printf("       %s -d <server-ip> [poll-interval]\n", prog);
+    printf("       %s -d <server-ip>\n", prog);
     printf("\nLocal Commands:\n");
     printf("  status        - Get daemon status\n");
     printf("  whitelist     - Get current whitelist\n");
@@ -101,7 +95,6 @@ static void print_usage(const char* prog) {
     printf("  whoami            - Show saved username\n");
     printf("\nDaemon mode:\n");
     printf("  -d <server-ip>        - Run as daemon, connect to server\n");
-    printf("  [poll-interval]      - Polling interval in seconds (default: 5)\n");
 }
 
 static void print_response(const char* cmd, int result, const char* response) {
@@ -142,29 +135,23 @@ int main(int argc, char** argv) {
     // Check for daemon mode
     if (strcmp(argv[1], "-d") == 0) {
         const char* server_ip = "";
-        int poll_interval = 5;
 
         if (argc >= 3 && argv[2][0] != '\0') {
             server_ip = argv[2];
-        }
-
-        if (argc >= 4) {
-            poll_interval = atoi(argv[3]);
-            if (poll_interval <= 0) poll_interval = 5;
         }
 
         if (server_ip[0] != '\0') {
             SetServerIp(server_ip);
         }
 
-        LOGF("[Main] Starting daemon mode, server: %s, poll interval: %ds", server_ip[0] ? server_ip : "(none)", poll_interval);
+        LOGF("[Main] Starting daemon mode, server: %s", server_ip[0] ? server_ip : "(none)");
         LOGF("[Main] Starting client server...");
         StartClientServer();
 
         // Give the pipe server time to start
         Sleep(100);
 
-        return DaemonRun(server_ip, poll_interval);
+        return DaemonRun(server_ip);
     }
 
     char buffer[4096];

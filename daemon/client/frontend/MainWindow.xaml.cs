@@ -11,8 +11,6 @@ namespace frontend
 {
     public partial class MainWindow : Window
     {
-        private readonly DispatcherTimer _refreshTimer;
-        private readonly IpcService _ipcService = new();
         private readonly ServiceManager _serviceManager = new();
         private readonly LogReader _clientLogReader = new();
         private readonly LogReader _firewallLogReader = new();
@@ -23,12 +21,6 @@ namespace frontend
         public MainWindow()
         {
             InitializeComponent();
-
-            _refreshTimer = new DispatcherTimer
-            {
-                Interval = TimeSpan.FromSeconds(10)
-            };
-            _refreshTimer.Tick += async (s, e) => await RefreshStatusAsync();
 
             var logFlushTimer = new DispatcherTimer
             {
@@ -52,6 +44,8 @@ namespace frontend
                         LogsListBox.ScrollIntoView(LogsListBox.Items[^1]);
                     }
                 };
+                // Status is event-driven via the ViewModel's daemon subscription.
+                vm.StatusRefreshed += OnStatusRefreshed;
             }
 
             _ = InitializeAsync();
@@ -59,14 +53,31 @@ namespace frontend
 
         private async Task InitializeAsync()
         {
-            // First get status to see if we can connect
-            await RefreshStatusAsync();
-            
-            _refreshTimer.Start();
+            // Initial status fetch populates the UI and starts log readers.
+            if (DataContext is MainViewModel vm)
+            {
+                await vm.RefreshStateAsync();
+            }
+        }
+
+        private void OnStatusRefreshed(ClientStatus status)
+        {
+            if (status.ClientPid != 0 && _lastClientPid == 0)
+            {
+                _ = StartLogReadersAsync();
+            }
+            else if (status.ClientPid == 0 && _lastClientPid != 0)
+            {
+                _clientLogReader.Stop();
+                _firewallLogReader.Stop();
+            }
+            _lastClientPid = status.ClientPid;
         }
 
         private void OnLogLineReceived(string line)
         {
+            // LogReader already dispatches to the UI thread before calling this,
+            // so no additional BeginInvoke is needed here.
             if (DataContext is MainViewModel vm)
             {
                 string level = "INFO";
@@ -79,77 +90,25 @@ namespace frontend
                 else if (line.Contains("[BLOCKED]"))
                     level = "BLOCKED";
 
-                System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
-                {
-                    vm.AddLog(level, line);
-                });
+                vm.AddLog(level, line);
             }
         }
 
         private async void RefreshStatus_Click(object sender, RoutedEventArgs e)
         {
-            await RefreshStatusAsync();
-        }
-
-        private async Task RefreshStatusAsync()
-        {
             if (DataContext is MainViewModel vm)
-            {
-                try
-                {
-                    var status = await _ipcService.GetStatusAsync();
-                    vm.DaemonConnectionStatus = status.DaemonStatus == "RUNNING" ? "Подключено" : "Отключено";
-                    vm.DaemonStatus = status.DaemonStatus == "RUNNING" ? "Запущен" : "Остановлен";
-                    vm.ClientConnectionStatus = status.IsConnected ? "Подключено" : "Отключено";
-                    vm.ClientStatus = status.IsConnected ? "Запущен" : "Остановлен";
-                    vm.ServerStatus = status.IsServerRunning ? "Запущен" : "Остановлен";
-                    vm.ServerConnectionStatus = status.IsServerSessionActive ? "Подключено" : "Отключено";
-                    vm.HostName = status.ClientName;
-                    vm.IpAddress = status.IpAddress;
-                    vm.ClientPid = status.ClientPid;
-                    vm.LastUpdate = DateTime.Now;
-
-                    if (status.ClientPid != 0 && _lastClientPid == 0)
-                    {
-                        await StartLogReadersAsync();
-                    }
-                    _lastClientPid = status.ClientPid;
-                }
-                catch (System.TimeoutException)
-                {
-                    if (_lastClientPid != 0)
-                    {
-                        _clientLogReader.Stop();
-                        _firewallLogReader.Stop();
-                    }
-                    _lastClientPid = 0;
-                    vm.ServerConnectionStatus = "Отключено";
-                    vm.ServerStatus = "Остановлен";
-                }
-                catch (System.Exception ex) when (ex is not System.OperationCanceledException)
-                {
-                    vm.DaemonConnectionStatus = "Отключено";
-                    vm.ClientConnectionStatus = "Отключено";
-                    vm.ServerConnectionStatus = "Отключено";
-                    vm.ServerStatus = "Остановлен";
-                    if (_lastClientPid != 0)
-                    {
-                        _clientLogReader.Stop();
-                        _firewallLogReader.Stop();
-                    }
-                    _lastClientPid = 0;
-                }
-            }
+                await vm.RefreshStateAsync();
         }
         
         private async Task StartLogReadersAsync()
         {
+            if (DataContext is not MainViewModel vm) return;
             string clientLog = "";
             string firewallLog = "";
             
             try
             {
-                var paths = await _ipcService.GetLogPathAsync();
+                var paths = await vm.IpcService.GetLogPathAsync();
                 clientLog = paths.clientLog;
                 firewallLog = paths.firewallLog;
             }
@@ -183,12 +142,9 @@ namespace frontend
                 _firewallLogReader.Start(firewallLog, LogSource.Firewall);
             }
             
-            if (DataContext is MainViewModel vm)
+            if (!string.IsNullOrEmpty(clientLog) || !string.IsNullOrEmpty(firewallLog))
             {
-                if (!string.IsNullOrEmpty(clientLog) || !string.IsNullOrEmpty(firewallLog))
-                {
-                    vm.AddLog("INFO", $"Чтение логов: client={clientLog}, firewall={firewallLog}");
-                }
+                vm.AddLog("INFO", $"Чтение логов: client={clientLog}, firewall={firewallLog}");
             }
         }
 
@@ -202,7 +158,7 @@ namespace frontend
                     var result = await _serviceManager.StartServiceAsync();
                     vm.AddLog(result ? "INFO" : "ERROR", result ? "Демон запущен" : "Не удалось запустить демон");
                     await Task.Delay(2000);
-                    await RefreshStatusAsync();
+                    await vm.RefreshStateAsync();
                 }
                 catch (System.Exception ex)
                 {
@@ -220,7 +176,7 @@ namespace frontend
                 {
                     var result = await _serviceManager.StopServiceAsync();
                     vm.AddLog(result ? "INFO" : "ERROR", result ? "Демон остановлен" : "Не удалось остановить демон");
-                    await RefreshStatusAsync();
+                    await vm.RefreshStateAsync();
                 }
                 catch (System.Exception ex)
                 {
@@ -239,7 +195,7 @@ namespace frontend
                     var result = await _serviceManager.RestartServiceAsync();
                     vm.AddLog(result ? "INFO" : "ERROR", result ? "Демон перезапущен" : "Не удалось перезапустить демон");
                     await Task.Delay(3000);
-                    await RefreshStatusAsync();
+                    await vm.RefreshStateAsync();
                 }
                 catch (System.Exception ex)
                 {
@@ -253,10 +209,10 @@ namespace frontend
             if (DataContext is MainViewModel vm)
             {
                 vm.AddLog("INFO", "Перезапуск клиента...");
-                var result = await _ipcService.RestartClientAsync();
+                var result = await vm.IpcService.RestartClientAsync();
                 vm.AddLog(result ? "INFO" : "ERROR", result ? "Клиент перезапущен" : "Не удалось перезапустить клиент");
                 await Task.Delay(2000);
-                await RefreshStatusAsync();
+                await vm.RefreshStateAsync();
             }
         }
 
@@ -266,11 +222,11 @@ namespace frontend
             string firewallLog = _lastFirewallLogPath;
             
             // Only try IPC if we have a valid client PID (connected)
-            if (_lastClientPid != 0)
+            if (_lastClientPid != 0 && DataContext is MainViewModel vm)
             {
                 try
                 {
-                    var paths = await _ipcService.GetLogPathAsync();
+                    var paths = await vm.IpcService.GetLogPathAsync();
                     if (!string.IsNullOrEmpty(paths.clientLog))
                         clientLog = paths.clientLog;
                     if (!string.IsNullOrEmpty(paths.firewallLog))
@@ -351,8 +307,8 @@ namespace frontend
 
         protected override void OnClosed(EventArgs e)
         {
-            _refreshTimer?.Stop();
-            _ipcService.Dispose();
+            if (DataContext is MainViewModel vm)
+                vm.StatusRefreshed -= OnStatusRefreshed;
             _clientLogReader.Stop();
             _firewallLogReader.Stop();
             if (DataContext is IDisposable disposable)

@@ -99,14 +99,13 @@ void SetServerIp(const char* ip);
 void load_server_ip(void);
 
 /**
- * @brief Run in daemon mode - poll server for whitelist updates.
+ * @brief Run in daemon mode - event-driven subscription to server updates.
  *
  * @param server_ip Server IP address.
- * @param poll_interval_secs Polling interval in seconds.
  *
  * @return 0 on exit.
  */
-int DaemonRun(const char* server_ip, int poll_interval_secs);
+int DaemonRun(const char* server_ip);
 
 /**
  * @brief Ping the local daemon to check if it's alive.

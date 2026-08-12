@@ -7,6 +7,7 @@ import (
 	"bigbrother_server_backend/packages/common/log"
 	"bigbrother_server_backend/packages/infrastructure/connection"
 	"bigbrother_server_backend/packages/infrastructure/database/sqlite"
+	"bigbrother_server_backend/packages/infrastructure/notification"
 	"bigbrother_server_backend/packages/infrastructure/pending"
 	"bigbrother_server_backend/packages/presentation/discovery"
 	"bigbrother_server_backend/packages/presentation/rpc"
@@ -22,11 +23,11 @@ import (
 
 var mainLogger = logger.NewSource("MAIN", log.DefaultLogger)
 
-	const frontendPipePath = `\\.\pipe\BigBrother.Server.Frontend`
-	const frontendPipeBufSize = 65536
-	const defaultBackendPort = 1984
-	const serviceName = "BigBrother Server"
-	const pipeSecurityDescriptor = "D:(A;;GA;;;WD)"
+const frontendPipePath = `\\.\pipe\BigBrother.Server.Frontend`
+const frontendPipeBufSize = 65536
+const defaultBackendPort = 1984
+const serviceName = "BigBrother Server"
+const pipeSecurityDescriptor = "D:(A;;GA;;;WD)"
 
 func main() {
 	log.DefaultLoggerConfig.Trace = true
@@ -68,12 +69,13 @@ func main() {
 	defer db.Disconnect()
 
 	pendingUsersStorage := pending.NewUserStorage()
+	notifMgr := notification.NewManager()
 
 	discoveryListener := discovery.New(db)
 
 	backendServer := rpc.NewServer(
 		"Backend",
-		rpc.NewBackendHandler(db, connManager, pendingUsersStorage),
+		rpc.NewBackendHandler(db, connManager, pendingUsersStorage, notifMgr),
 		&rpc.ServerConfig{
 			Network: rpc.NetworkTCP,
 		},
@@ -81,11 +83,11 @@ func main() {
 
 	frontendServer := rpc.NewServer(
 		"Frontend",
-		rpc.NewFrontendHandler(db, connManager, pendingUsersStorage),
+		rpc.NewFrontendHandler(db, connManager, pendingUsersStorage, notifMgr),
 		&rpc.ServerConfig{
-			Network:          rpc.NetworkPipe,
-			InputBufferSize:  frontendPipeBufSize,
-			OutputBufferSize: frontendPipeBufSize,
+			Network:            rpc.NetworkPipe,
+			InputBufferSize:    frontendPipeBufSize,
+			OutputBufferSize:   frontendPipeBufSize,
 			SecurityDescriptor: pipeSecurityDescriptor,
 		},
 	)
