@@ -1,0 +1,19 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- Common brushes shared by both frontends -->
+    <SolidColorBrush x:Key="BorderBrush" Color="#CCCCCC"/>
+    <SolidColorBrush x:Key="HeaderBackground" Color="#F0F0F0"/>
+    <SolidColorBrush x:Key="StatusRunning" Color="#4CAF50"/>
+    <SolidColorBrush x:Key="StatusDisconnected" Color="#F44336"/>
+    <SolidColorBrush x:Key="StatusWarning" Color="#FF9800"/>
+
+    <!-- Log level colors -->
+    <SolidColorBrush x:Key="LogBackground" Color="#1E1E1E"/>
+    <SolidColorBrush x:Key="LogInfo" Color="#D4D4D4"/>
+    <SolidColorBrush x:Key="LogWarning" Color="#FFA500"/>
+    <SolidColorBrush x:Key="LogError" Color="#FF6B6B"/>
+    <SolidColorBrush x:Key="LogDns" Color="#6B9FFF"/>
+    <SolidColorBrush x:Key="LogBlocked" Color="#FF4444"/>
+
+</ResourceDictionary>

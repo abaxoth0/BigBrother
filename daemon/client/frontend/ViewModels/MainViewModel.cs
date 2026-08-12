@@ -9,36 +9,22 @@ using frontend.Services;
 
 namespace frontend.ViewModels;
 
-public class RelayCommand : ICommand
-{
-    private readonly Action<object?> _execute;
-    private readonly Func<object?, bool>? _canExecute;
-
-    public RelayCommand(Action<object?> execute, Func<object?, bool>? canExecute = null)
-    {
-        _execute = execute;
-        _canExecute = canExecute;
-    }
-
-    public event EventHandler? CanExecuteChanged
-    {
-        add => CommandManager.RequerySuggested += value;
-        remove => CommandManager.RequerySuggested -= value;
-    }
-
-    public bool CanExecute(object? parameter) => _canExecute?.Invoke(parameter) ?? true;
-    public void Execute(object? parameter) => _execute(parameter);
-}
-
 public class MainViewModel : ViewModelBase, IDisposable
 {
     private const int MaxLogs = 500;
 
     // Services
     private readonly IpcService _ipcService = new IpcService();
+    private readonly ServiceManager _serviceManager = new("BigBrother Firewall");
+    private readonly LogReader _clientLogReader = new();
+    private readonly LogReader _firewallLogReader = new();
 
     /// <summary>Shared pipe service used by the ViewModel and the main window.</summary>
     public IpcService IpcService => _ipcService;
+
+    private int _lastClientPid;
+    private string _lastClientLogPath = "";
+    private string _lastFirewallLogPath = "";
 
     // Status
     private string _daemonStatus = "Запущен";
@@ -372,9 +358,19 @@ public class MainViewModel : ViewModelBase, IDisposable
     public ICommand SaveNetworkGatewayCommand { get; }
     public ICommand SaveNetworkMaskCommand { get; }
     public ICommand ToggleFiltrationCommand { get; }
+    public ICommand StartDaemonCommand { get; }
+    public ICommand StopDaemonCommand { get; }
+    public ICommand RestartDaemonCommand { get; }
+    public ICommand RestartClientCommand { get; }
+    public ICommand RefreshStatusCommand { get; }
+    public ICommand OpenHistoryCommand { get; }
+    public ICommand OpenArchivedLogCommand { get; }
 
     // Event for auto-scroll notification
     public event Action? ScrollToBottomRequested;
+
+    /// <summary>Raised when the user requests the log-history viewer with the given sources.</summary>
+    public event Action<List<LogFileSource>>? LogViewRequested;
 
     private bool _disposed;
 
@@ -426,6 +422,8 @@ public class MainViewModel : ViewModelBase, IDisposable
                         StatusRefreshed?.Invoke(status);
                     });
 
+                    UpdateLogReaders(status);
+
                     if (!status.IsConnected && SettingsAvailable)
                     {
                         System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
@@ -474,6 +472,7 @@ public class MainViewModel : ViewModelBase, IDisposable
                         ServerStatus = "Остановлен";
                         StatusRefreshed?.Invoke(new ClientStatus { ClientPid = 0 });
                     });
+                    UpdateLogReaders(new ClientStatus { ClientPid = 0 });
                 }
             } while (Interlocked.CompareExchange(ref _refreshQueued, 0, 1) == 1 && !_disposed);
         }
@@ -500,6 +499,13 @@ public class MainViewModel : ViewModelBase, IDisposable
         SaveNetworkMaskCommand = new RelayCommand(async _ => await SaveNetworkMaskAsync());
         SaveSettingsCommand = new RelayCommand(async _ => await SaveAllSettingsAsync());
         ToggleFiltrationCommand = new RelayCommand(async _ => await ToggleFiltrationAsync());
+        StartDaemonCommand = new RelayCommand(async _ => await StartDaemonAsync());
+        StopDaemonCommand = new RelayCommand(async _ => await StopDaemonAsync());
+        RestartDaemonCommand = new RelayCommand(async _ => await RestartDaemonAsync());
+        RestartClientCommand = new RelayCommand(async _ => await RestartClientAsync());
+        RefreshStatusCommand = new RelayCommand(async _ => await RefreshStateAsync());
+        OpenHistoryCommand = new RelayCommand(_ => OpenHistory());
+        OpenArchivedLogCommand = new RelayCommand(_ => OpenArchivedLogs());
 
         // Initialize whitelist status polling timer (safety fallback; events drive updates)
         _statusTimer.Elapsed += OnStatusTimerElapsed;
@@ -509,6 +515,14 @@ public class MainViewModel : ViewModelBase, IDisposable
         // Event-driven updates from the daemon pipe
         _ipcService.StateChanged += OnStateChanged;
         _ipcService.StartEventSubscription();
+
+        // Log UI flush timer (batches log lines onto the UI thread)
+        var logFlushTimer = new System.Windows.Threading.DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(500)
+        };
+        logFlushTimer.Tick += (s, e) => FlushPendingLogs();
+        logFlushTimer.Start();
 
         AddLog("INFO", "Клиент запущен");
 
@@ -880,13 +894,224 @@ public class MainViewModel : ViewModelBase, IDisposable
         AddLog("INFO", $"Уведомление: {title} - {message}");
     }
 
-    // Commands (placeholders)
-    public void StartDaemon() { }
-    public void StopDaemon() { }
-    public void RestartDaemon() { }
-    public void StartClient() { }
-    public void StopClient() { }
-    public void RestartClient() { }
+    private async Task StartDaemonAsync()
+    {
+        AddLog("INFO", "Запуск демона...");
+        try
+        {
+            var result = await _serviceManager.StartServiceAsync();
+            AddLog(result ? "INFO" : "ERROR", result ? "Демон запущен" : "Не удалось запустить демон");
+            await Task.Delay(2000);
+            await RefreshStateAsync();
+        }
+        catch (Exception ex)
+        {
+            AddLog("ERROR", $"Ошибка: {ex.Message}");
+        }
+    }
+
+    private async Task StopDaemonAsync()
+    {
+        AddLog("INFO", "Остановка демона...");
+        try
+        {
+            var result = await _serviceManager.StopServiceAsync();
+            AddLog(result ? "INFO" : "ERROR", result ? "Демон остановлен" : "Не удалось остановить демон");
+            await RefreshStateAsync();
+        }
+        catch (Exception ex)
+        {
+            AddLog("ERROR", $"Ошибка: {ex.Message}");
+        }
+    }
+
+    private async Task RestartDaemonAsync()
+    {
+        AddLog("INFO", "Рестарт демона...");
+        try
+        {
+            var result = await _serviceManager.RestartServiceAsync();
+            AddLog(result ? "INFO" : "ERROR", result ? "Демон перезапущен" : "Не удалось перезапустить демон");
+            await Task.Delay(3000);
+            await RefreshStateAsync();
+        }
+        catch (Exception ex)
+        {
+            AddLog("ERROR", $"Ошибка: {ex.Message}");
+        }
+    }
+
+    private async Task RestartClientAsync()
+    {
+        AddLog("INFO", "Перезапуск клиента...");
+        var result = await _ipcService.RestartClientAsync();
+        AddLog(result ? "INFO" : "ERROR", result ? "Клиент перезапущен" : "Не удалось перезапустить клиент");
+        await Task.Delay(2000);
+        await RefreshStateAsync();
+    }
+
+    // Log reader lifecycle: start/stop the binary log tailers as the client process appears.
+    private void UpdateLogReaders(ClientStatus status)
+    {
+        if (status.ClientPid != 0 && _lastClientPid == 0)
+        {
+            _ = StartLogReadersAsync();
+        }
+        else if (status.ClientPid == 0 && _lastClientPid != 0)
+        {
+            _clientLogReader.Stop();
+            _firewallLogReader.Stop();
+        }
+        _lastClientPid = status.ClientPid;
+    }
+
+    private async Task StartLogReadersAsync()
+    {
+        string clientLog = "";
+        string firewallLog = "";
+
+        try
+        {
+            var paths = await _ipcService.GetLogPathAsync();
+            clientLog = paths.clientLog;
+            firewallLog = paths.firewallLog;
+        }
+        catch { }
+
+        // If IPC failed, try to use previous paths
+        if (string.IsNullOrEmpty(clientLog))
+            clientLog = _lastClientLogPath;
+        if (string.IsNullOrEmpty(firewallLog))
+            firewallLog = _lastFirewallLogPath;
+
+        // Save for next time
+        if (!string.IsNullOrEmpty(clientLog))
+            _lastClientLogPath = clientLog;
+        if (!string.IsNullOrEmpty(firewallLog))
+            _lastFirewallLogPath = firewallLog;
+
+        if (!string.IsNullOrEmpty(clientLog) && File.Exists(clientLog))
+        {
+            _clientLogReader.Stop();
+            _clientLogReader.OnNewLine -= OnLogLineReceived;
+            _clientLogReader.OnNewLine += OnLogLineReceived;
+            _clientLogReader.Start(clientLog, Lib.LogSource.Client);
+        }
+
+        if (!string.IsNullOrEmpty(firewallLog) && File.Exists(firewallLog))
+        {
+            _firewallLogReader.Stop();
+            _firewallLogReader.OnNewLine -= OnLogLineReceived;
+            _firewallLogReader.OnNewLine += OnLogLineReceived;
+            _firewallLogReader.Start(firewallLog, Lib.LogSource.Firewall);
+        }
+
+        if (!string.IsNullOrEmpty(clientLog) || !string.IsNullOrEmpty(firewallLog))
+        {
+            AddLog("INFO", $"Чтение логов: client={clientLog}, firewall={firewallLog}");
+        }
+    }
+
+    private void OnLogLineReceived(string line)
+    {
+        // LogReader already dispatches to the UI thread before calling this.
+        string level = "INFO";
+        if (line.Contains("[ERROR]") || line.Contains("ERROR"))
+            level = "ERROR";
+        else if (line.Contains("[WARNING]") || line.Contains("[WARN]"))
+            level = "WARNING";
+        else if (line.Contains("[DNS]"))
+            level = "DNS";
+        else if (line.Contains("[BLOCKED]"))
+            level = "BLOCKED";
+
+        AddLog(level, line);
+    }
+
+    public void OpenHistory()
+    {
+        string clientLog = _lastClientLogPath;
+        string firewallLog = _lastFirewallLogPath;
+
+        // Only try IPC if we have a valid client PID (connected)
+        if (_lastClientPid != 0)
+        {
+            try
+            {
+                var paths = _ipcService.GetLogPathAsync().GetAwaiter().GetResult();
+                if (!string.IsNullOrEmpty(paths.clientLog))
+                    clientLog = paths.clientLog;
+                if (!string.IsNullOrEmpty(paths.firewallLog))
+                    firewallLog = paths.firewallLog;
+            }
+            catch { }
+        }
+
+        // Save for next time
+        if (!string.IsNullOrEmpty(clientLog))
+            _lastClientLogPath = clientLog;
+        if (!string.IsNullOrEmpty(firewallLog))
+            _lastFirewallLogPath = firewallLog;
+
+        if (string.IsNullOrEmpty(clientLog) && string.IsNullOrEmpty(firewallLog))
+        {
+            System.Windows.MessageBox.Show("Нет доступных логов", "Ошибка", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var sources = new List<LogFileSource>();
+        if (!string.IsNullOrEmpty(firewallLog))
+        {
+            sources.Add(new LogFileSource
+            {
+                Label = "Firewall",
+                FilePath = firewallLog,
+                Source = Lib.LogSource.Firewall
+            });
+        }
+        if (!string.IsNullOrEmpty(clientLog))
+        {
+            sources.Add(new LogFileSource
+            {
+                Label = "Client",
+                FilePath = clientLog,
+                Source = Lib.LogSource.Client
+            });
+        }
+
+        LogViewRequested?.Invoke(sources);
+    }
+
+    public void OpenArchivedLogs()
+    {
+        var dialog = new Microsoft.Win32.OpenFileDialog
+        {
+            Filter = "Binary log files (*.binlog)|*.binlog|All files (*.*)|*.*",
+            Multiselect = true,
+            Title = "Выберите файлы логов"
+        };
+
+        if (dialog.ShowDialog() != true || dialog.FileNames.Length == 0)
+            return;
+
+        var sources = new List<LogFileSource>();
+        foreach (var path in dialog.FileNames)
+        {
+            var fileName = Path.GetFileNameWithoutExtension(path);
+            var label = fileName.Contains("firewall") ? "Firewall"
+                : fileName.Contains("client") ? "Client"
+                : fileName;
+
+            sources.Add(new LogFileSource
+            {
+                Label = label,
+                FilePath = path,
+                Source = Lib.LogSource.Unknown
+            });
+        }
+
+        LogViewRequested?.Invoke(sources);
+    }
 
     public void Dispose()
     {
@@ -896,5 +1121,8 @@ public class MainViewModel : ViewModelBase, IDisposable
         _statusTimer?.Dispose();
         _ipcService.StateChanged -= OnStateChanged;
         _ipcService.StopEventSubscription();
+        _clientLogReader.Stop();
+        _firewallLogReader.Stop();
+        _ipcService.Dispose();
     }
 }

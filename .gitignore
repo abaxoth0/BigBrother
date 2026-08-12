@@ -5,3 +5,5 @@ dist
 **/*.db
 *.exe
 **/Properties/PublishProfiles
+**/bin/
+**/obj/

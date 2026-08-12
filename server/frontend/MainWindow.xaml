@@ -14,11 +14,6 @@
     </Window.DataContext>
 
     <Window.Resources>
-        <SolidColorBrush x:Key="BorderBrush" Color="#CCCCCC"/>
-        <SolidColorBrush x:Key="HeaderBackground" Color="#F0F0F0"/>
-        <SolidColorBrush x:Key="StatusRunning" Color="#4CAF50"/>
-        <SolidColorBrush x:Key="StatusDisconnected" Color="#F44336"/>
-
         <Style x:Key="ControlButton" TargetType="Button">
             <Setter Property="Padding" Value="8,4"/>
             <Setter Property="Margin" Value="2,0"/>

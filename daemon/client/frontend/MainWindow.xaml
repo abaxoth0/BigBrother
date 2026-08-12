@@ -5,7 +5,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:frontend"
         xmlns:vm="clr-namespace:frontend.ViewModels"
-        xmlns:conv="clr-namespace:frontend.Converters"
+        xmlns:conv="clr-namespace:frontend.Converters;assembly=BigBrother.Frontend.Shared"
         mc:Ignorable="d"
         Title="Big Brother Клиент"
         Height="700" Width="1000"
@@ -21,21 +21,6 @@
         <conv:ConnectionStatusToColorConverter x:Key="ConnectionStatusToColor"/>
         <conv:BoolToVisibilityConverter x:Key="BoolToVisibility"/>
         <conv:InverseBoolToVisibilityConverter x:Key="InverseBoolToVisibility"/>
-
-        <!-- Colors -->
-        <SolidColorBrush x:Key="BorderBrush" Color="#CCCCCC"/>
-        <SolidColorBrush x:Key="HeaderBackground" Color="#F0F0F0"/>
-        <SolidColorBrush x:Key="StatusRunning" Color="#4CAF50"/>
-        <SolidColorBrush x:Key="StatusStopped" Color="#F44336"/>
-        <SolidColorBrush x:Key="StatusWarning" Color="#FF9800"/>
-        <SolidColorBrush x:Key="LogBackground" Color="#1E1E1E"/>
-
-        <!-- Log Level Colors -->
-        <SolidColorBrush x:Key="LogInfo" Color="#D4D4D4"/>
-        <SolidColorBrush x:Key="LogWarning" Color="#FFA500"/>
-        <SolidColorBrush x:Key="LogError" Color="#FF6B6B"/>
-        <SolidColorBrush x:Key="LogDns" Color="#6B9FFF"/>
-        <SolidColorBrush x:Key="LogBlocked" Color="#FF4444"/>
 
         <!-- Button Style -->
         <Style x:Key="ControlButton" TargetType="Button">
@@ -61,10 +46,10 @@
             <MenuItem Header="_Файл">
                 <MenuItem Header="_Экспорт логов..." Command="{Binding ExportLogsCommand}"/>
                 <Separator/>
-                <MenuItem Header="_Выход"/>
+                <MenuItem Header="_Выход" Click="Exit_Click"/>
             </MenuItem>
             <MenuItem Header="_Вид">
-                <MenuItem Header="_Обновить"/>
+                <MenuItem Header="_Обновить" Command="{Binding RefreshStatusCommand}"/>
             </MenuItem>
         </Menu>
 
@@ -116,9 +101,9 @@
                                      VerticalContentAlignment="Center"/>
 
                              <Button Grid.Column="5" Content="Открыть" Style="{StaticResource ControlButton}"
-                                     Click="OpenArchivedLog_Click" Margin="2" x:Name="OpenButton"/>
+                                     Command="{Binding OpenArchivedLogCommand}" Margin="2" x:Name="OpenButton"/>
                              <Button Grid.Column="6" Content="История" Style="{StaticResource ControlButton}"
-                                     Click="OpenHistory_Click" Margin="2" x:Name="HistoryButton"/>
+                                     Command="{Binding OpenHistoryCommand}" Margin="2" x:Name="HistoryButton"/>
                              <Button Grid.Column="7" Content="Экспорт" Style="{StaticResource ControlButton}"
                                      Command="{Binding ExportLogsCommand}" Margin="2" x:Name="ExportButton"/>
                              <Button Grid.Column="8" Content="Очистить" Style="{StaticResource ControlButton}"
@@ -182,7 +167,7 @@
                                 <TextBlock Text="{Binding LastUpdate, StringFormat=' | Обновлено: {0:HH:mm:ss}'}"
                                            Foreground="Gray" FontSize="11" VerticalAlignment="Center" Margin="15,0,0,0"/>
                                 <Button Content="Обновить" Style="{StaticResource ControlButton}"
-                                        Click="RefreshStatus_Click" Margin="15,0,0,0" Padding="8,4" VerticalAlignment="Center"/>
+                                        Command="{Binding RefreshStatusCommand}" Margin="15,0,0,0" Padding="8,4" VerticalAlignment="Center"/>
                             </StackPanel>
 
                             <Grid Grid.Row="1">
@@ -214,9 +199,9 @@
                                         <Button Content="Вкл/Выкл" Style="{StaticResource ControlButton}" Command="{Binding ToggleFiltrationCommand}" MinWidth="50" Padding="5,2" FontSize="11" Margin="5,0,0,0"/>
                                     </StackPanel>
                                     <StackPanel Orientation="Horizontal" Margin="0,5">
-                                        <Button Content="Старт" Style="{StaticResource ControlButton}" Click="StartDaemon_Click"/>
-                                        <Button Content="Стоп" Style="{StaticResource ControlButton}" Click="StopDaemon_Click"/>
-                                        <Button Content="Рестарт" Style="{StaticResource ControlButton}" Click="RestartDaemon_Click"/>
+                                        <Button Content="Старт" Style="{StaticResource ControlButton}" Command="{Binding StartDaemonCommand}"/>
+                                        <Button Content="Стоп" Style="{StaticResource ControlButton}" Command="{Binding StopDaemonCommand}"/>
+                                        <Button Content="Рестарт" Style="{StaticResource ControlButton}" Command="{Binding RestartDaemonCommand}"/>
                                     </StackPanel>
                                 </StackPanel>
 
@@ -259,7 +244,7 @@
                                                    Foreground="{Binding ClientConnectionStatus, Converter={StaticResource ConnectionStatusToColor}}"/>
                                     </StackPanel>
                                     <StackPanel Orientation="Horizontal" Margin="0,5">
-                                        <Button Content="Рестарт" Style="{StaticResource ControlButton}" Click="RestartClient_Click"/>
+                                        <Button Content="Рестарт" Style="{StaticResource ControlButton}" Command="{Binding RestartClientCommand}"/>
                                     </StackPanel>
                                 </StackPanel>
                             </Grid>
@@ -304,7 +289,7 @@
                         </StackPanel>
 
                         <Button Grid.Column="4" Content="Обновить"
-                                Style="{StaticResource ControlButton}" Margin="5"/>
+                                Style="{StaticResource ControlButton}" Command="{Binding RefreshStatusCommand}" Margin="5"/>
                     </Grid>
 
                     <Grid Grid.Row="1">

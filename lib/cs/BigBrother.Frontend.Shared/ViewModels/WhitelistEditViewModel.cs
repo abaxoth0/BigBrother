@@ -1,18 +1,13 @@
-using System.ComponentModel;
-using System.Linq;
-using System.Runtime.CompilerServices;
 using System.Windows.Input;
 
 namespace frontend.ViewModels;
 
-public class WhitelistEditViewModel : INotifyPropertyChanged
+public class WhitelistEditViewModel : ViewModelBase
 {
     private string _whitelistName = "";
     private string _entriesText = "";
     private string _originalName = "";
     private bool _isEditMode;
-
-    public event PropertyChangedEventHandler? PropertyChanged;
 
     public WhitelistEditViewModel()
     {
@@ -24,9 +19,8 @@ public class WhitelistEditViewModel : INotifyPropertyChanged
         get => _whitelistName;
         set
         {
-            _whitelistName = value;
-            OnPropertyChanged();
-            (SaveCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            if (SetProperty(ref _whitelistName, value))
+                (SaveCommand as RelayCommand)?.RaiseCanExecuteChanged();
         }
     }
 
@@ -79,20 +73,5 @@ public class WhitelistEditViewModel : INotifyPropertyChanged
             .Select(e => e.Trim())
             .Where(e => !string.IsNullOrEmpty(e))
             .ToList();
-    }
-
-    protected virtual void OnPropertyChanged([CallerMemberName] string? propertyName = null)
-    {
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
-    }
-
-    protected bool SetProperty<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
-    {
-        if (EqualityComparer<T>.Default.Equals(field, value))
-            return false;
-
-        field = value;
-        OnPropertyChanged(propertyName);
-        return true;
     }
 }

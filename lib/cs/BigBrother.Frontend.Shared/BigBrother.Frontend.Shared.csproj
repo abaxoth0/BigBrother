@@ -1,21 +1,17 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
-    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <RootNamespace>frontend</RootNamespace>
+    <AssemblyName>BigBrother.Frontend.Shared</AssemblyName>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="System.ServiceProcess.ServiceController" Version="8.0.0" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <ProjectReference Include="..\..\lib\cs\BigBrother.Frontend.Shared\BigBrother.Frontend.Shared.csproj" />
   </ItemGroup>
 
 </Project>
