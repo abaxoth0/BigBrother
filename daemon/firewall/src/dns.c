@@ -65,13 +65,21 @@ static uint32_t parse_dns_name(const uint8_t* payload, size_t payload_len,
             continue;
         }
 
+        // Labels are at most 63 octets (RFC 1035). Bytes 0x40..0xBF are reserved
+        // and must not be treated as a label length.
+        if (label_len > 63) break;
+
         offset++;
 
         if (out_pos > 0 && out_pos < out_len - 1) {
             out[out_pos++] = '.';
         }
 
+        // Clamp against BOTH the output buffer and the payload boundary to avoid
+        // reading past the packet (remote heap over-read).
         size_t copy_len = label_len;
+        size_t avail_in = payload_len - offset; // offset < payload_len guaranteed
+        if (copy_len > avail_in) copy_len = avail_in;
         if (out_pos + copy_len >= out_len) {
             copy_len = out_len - out_pos - 1;
         }
@@ -112,6 +120,23 @@ bool DnsIsDnsPacket(const uint8_t* payload, size_t payload_len) {
     }
 
     return payload_len >= DNS_MIN_REQ_LEN;
+}
+
+size_t DnsGetQuestionEnd(const uint8_t* payload, size_t payload_len) {
+    if (payload == NULL || payload_len < sizeof(DnsHeader)) {
+        return 0;
+    }
+
+    DnsHeader* hdr = (DnsHeader*)payload;
+    uint16_t qdcount = ntohs(hdr->question_count);
+    if (qdcount == 0) return 0;
+
+    char name[DNS_MAX_DOMAIN_LEN + 1];
+    size_t offset = parse_dns_name(payload, payload_len, sizeof(DnsHeader), name, sizeof(name));
+
+    // 2 bytes type + 2 bytes class
+    if (offset + 4 > payload_len) return 0;
+    return offset + 4;
 }
 
 DnsPacket DnsParse(const uint8_t* payload, size_t payload_len) {
@@ -252,6 +277,10 @@ int DnsCheckDomain(const char* domain, const char* pattern) {
     if (pattern_lower[0] == '"' && pattern_lower[strlen(pattern_lower)-1] == '"') {
         pattern_lower[strlen(pattern_lower)-1] = '\0';
         memmove(pattern_lower, pattern_lower + 1, strlen(pattern_lower));
+        // A lone quote ("" after stripping) would match every domain — treat as no match.
+        if (pattern_lower[0] == '\0') {
+            return 0;
+        }
         is_substring = 1;
     }
 

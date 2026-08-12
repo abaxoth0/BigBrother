@@ -12,6 +12,8 @@
 
 #define IPC_PIPE_NAME "BigBrother.Firewall"
 #define IPC_BUFFER_SIZE 4096
+// Max IPC message size: large enough for a full whitelist (256 domains x 256 chars).
+#define IPC_MAX_MESSAGE_SIZE (64 * 1024)
 
 /**
  * @brief Start the IPC server in a separate thread.

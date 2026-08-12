@@ -15,7 +15,11 @@
 #define IPC_PIPE_PREFIX "\\\\.\\pipe\\" IPC_PIPE_NAME
 
 static int reload_whitelist(void) {
-    return LoadWhiteList(NULL);
+    AcquireSRWLockExclusive(&g_AllowlistLock);
+    int ret = LoadWhiteList(NULL);
+    ReleaseSRWLockExclusive(&g_AllowlistLock);
+    PreResolveWhitelist();
+    return ret;
 }
 
 static void write_str(HANDLE pipe, const char* str) {
@@ -31,7 +35,6 @@ static void write_status(HANDLE pipe) {
     ReleaseSRWLockShared(&g_AllowlistLock);
     write_str(pipe, buffer);
 }
-
 static void write_ok(HANDLE pipe) {
     write_str(pipe, "OK\n");
 }
@@ -49,22 +52,27 @@ static void write_whitelist(HANDLE pipe) {
         domains[i] = g_Whitelist.entries[i].domain;
     }
 
-    char buffer[IPC_BUFFER_SIZE * 4];
+    char* buffer = malloc(IPC_MAX_MESSAGE_SIZE);
+    if (!buffer) {
+        ReleaseSRWLockShared(&g_AllowlistLock);
+        return;
+    }
     size_t pos = 0;
-    int n = snprintf(buffer + pos, sizeof(buffer) - pos, "WHITELIST\n");
-    if (n > 0) pos += n;
+    int n = snprintf(buffer + pos, IPC_MAX_MESSAGE_SIZE - pos, "WHITELIST\n");
+    if (n > 0) pos += (size_t)n;
 
-    for (size_t i = 0; i < g_Whitelist.count && pos < sizeof(buffer) - 1; i++) {
+    for (size_t i = 0; i < g_Whitelist.count && pos < IPC_MAX_MESSAGE_SIZE - 1; i++) {
         if (g_Whitelist.entries[i].is_exception) {
-            n = snprintf(buffer + pos, sizeof(buffer) - pos, "!%s\n", domains[i]);
+            n = snprintf(buffer + pos, IPC_MAX_MESSAGE_SIZE - pos, "!%s\n", domains[i]);
         } else {
-            n = snprintf(buffer + pos, sizeof(buffer) - pos, "%s\n", domains[i]);
+            n = snprintf(buffer + pos, IPC_MAX_MESSAGE_SIZE - pos, "%s\n", domains[i]);
         }
-        if (n > 0) pos += n;
+        if (n > 0) pos += (size_t)n;
     }
     ReleaseSRWLockShared(&g_AllowlistLock);
 
     write_str(pipe, buffer);
+    free(buffer);
 }
 
 static int parse_and_execute(HANDLE pipe, char* buffer, size_t size) {
@@ -145,13 +153,38 @@ static int parse_and_execute(HANDLE pipe, char* buffer, size_t size) {
 
 static DWORD WINAPI ipc_client_handler(LPVOID param) {
     HANDLE pipe = (HANDLE)param;
-    char buffer[IPC_BUFFER_SIZE];
-    DWORD bytes_read;
 
-    if (ReadFile(pipe, buffer, sizeof(buffer) - 1, &bytes_read, NULL)) {
-        parse_and_execute(pipe, buffer, bytes_read);
+    // Message-mode named pipes report ERROR_MORE_DATA when a message is larger
+    // than the read buffer. Read in a loop to assemble the full message so large
+    // SET_WHITELIST payloads are not silently truncated.
+    char* buffer = malloc(IPC_MAX_MESSAGE_SIZE + 1);
+    if (!buffer) {
+        CloseHandle(pipe);
+        return 1;
     }
 
+    size_t total = 0;
+    DWORD bytes_read = 0;
+    BOOL ok;
+    do {
+        ok = ReadFile(pipe, buffer + total, (DWORD)(IPC_MAX_MESSAGE_SIZE - total), &bytes_read, NULL);
+        if (ok) {
+            total += bytes_read;
+        } else {
+            DWORD err = GetLastError();
+            if (err == ERROR_MORE_DATA) {
+                // Message continues — read the next chunk.
+                continue;
+            }
+            break;
+        }
+    } while (total < IPC_MAX_MESSAGE_SIZE);
+
+    if (ok && total > 0) {
+        parse_and_execute(pipe, buffer, total);
+    }
+
+    free(buffer);
     FlushFileBuffers(pipe);
     DisconnectNamedPipe(pipe);
     CloseHandle(pipe);
@@ -160,7 +193,7 @@ static DWORD WINAPI ipc_client_handler(LPVOID param) {
 }
 
 static DWORD WINAPI ipc_server_thread(LPVOID param) {
-    HANDLE stop_event = *(HANDLE*)param;
+    HANDLE stop_event = (HANDLE)(uintptr_t)param;
     HANDLE pipes[16];
     int num_pipes = 0;
     
@@ -171,8 +204,8 @@ static DWORD WINAPI ipc_server_thread(LPVOID param) {
                 PIPE_ACCESS_DUPLEX,
                 PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT,
                 PIPE_UNLIMITED_INSTANCES,
-                IPC_BUFFER_SIZE,
-                IPC_BUFFER_SIZE,
+                IPC_MAX_MESSAGE_SIZE,
+                IPC_MAX_MESSAGE_SIZE,
                 0,
                 NULL
             );
@@ -224,7 +257,9 @@ static DWORD WINAPI ipc_server_thread(LPVOID param) {
 }
 
 int IpcStart(HANDLE stop_event) {
-    HANDLE thread = CreateThread(NULL, 0, ipc_server_thread, &stop_event, 0, NULL);
+    // Pass the handle by value (cast through LPVOID). Passing &stop_event would hand
+    // the thread a pointer to a stack local that goes out of scope on return.
+    HANDLE thread = CreateThread(NULL, 0, ipc_server_thread, (LPVOID)(uintptr_t)stop_event, 0, NULL);
     if (!thread) {
         return -1;
     }
@@ -233,10 +268,7 @@ int IpcStart(HANDLE stop_event) {
 }
 
 int IpcReloadWhitelist(void) {
-    AcquireSRWLockExclusive(&g_AllowlistLock);
-    int ret = reload_whitelist();
-    ReleaseSRWLockExclusive(&g_AllowlistLock);
-    return ret;
+    return reload_whitelist();
 }
 
 int IpcSetWhitelist(const char* data, size_t size) {

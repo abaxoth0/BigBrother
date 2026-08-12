@@ -92,8 +92,13 @@ int WhitelistLoadFromData(Whitelist* wl, const char* data, size_t size) {
     memcpy(copy, data, size);
     copy[size] = '\0';
 
-    char* line = strtok(copy, "\n");
+    // Split on newlines without strtok (strtok uses static state and races when
+    // multiple IPC handlers run concurrently).
+    char* line = copy;
     while (line && wl->count < MAX_WHITELIST_DOMAINS) {
+        char* next = strchr(line, '\n');
+        if (next) *next = '\0';
+
         while (*line == ' ' || *line == '\r') line++;
         size_t len = strlen(line);
         while (len > 0 && (line[len-1] == '\n' || line[len-1] == '\r')) {
@@ -106,7 +111,7 @@ int WhitelistLoadFromData(Whitelist* wl, const char* data, size_t size) {
             WhitelistAdd(wl, domain, is_exception);
         }
 
-        line = strtok(NULL, "\n");
+        line = next ? next + 1 : NULL;
     }
 
     free(copy);
@@ -182,12 +187,10 @@ int IpAllowlistAdd(IpAllowlist* al, uint32_t ip, const char* domain, uint32_t tt
 int IpAllowlistContains(IpAllowlist* al, uint32_t ip) {
     if (!al) return 0;
     time_t now = time(NULL);
-    if (now >= al->last_cleared_at + IP_ALLOW_LIST_CLEANUP_COOLDOWN) {
-        IpAllowlistCleanup(al);
-        al->last_cleared_at = now;
-    }
+    // Pure read: check expiry inline without mutating the array (no cleanup),
+    // so this is safe to call from the packet thread under the shared lock.
     for (size_t i = 0; i < al->count; i++) {
-        if (al->ips[i].ip == ip) {
+        if (al->ips[i].ip == ip && al->ips[i].expires > now) {
             return 1;
         }
     }
@@ -196,9 +199,11 @@ int IpAllowlistContains(IpAllowlist* al, uint32_t ip) {
 
 const char* IpAllowlistGetDomain(IpAllowlist* al, uint32_t ip) {
     if (!al) return NULL;
-    IpAllowlistCleanup(al);
+    time_t now = time(NULL);
+    // Pure read: expired entries are treated as absent (cleanup is done by the
+    // writer under the exclusive lock).
     for (size_t i = 0; i < al->count; i++) {
-        if (al->ips[i].ip == ip) {
+        if (al->ips[i].ip == ip && al->ips[i].expires > now) {
             return al->ips[i].domain;
         }
     }

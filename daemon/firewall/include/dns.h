@@ -107,4 +107,16 @@ int DnsCheckDomains(const char* domain, const char* whitelist[], size_t whitelis
  */
 int DnsCheckDomain(const char* domain, const char* pattern);
 
+/**
+ * @brief Compute the offset just past the first question section (name + type + class).
+ *
+ * Used to append answer records after the question so DNS compression pointers
+ * (0xC00C) that reference the question name remain valid.
+ *
+ * @param[in] payload     Pointer to DNS data.
+ * @param[in] payload_len Length of DNS data.
+ * @return Offset past the question, or 0 on error.
+ */
+size_t DnsGetQuestionEnd(const uint8_t* payload, size_t payload_len);
+
 #endif

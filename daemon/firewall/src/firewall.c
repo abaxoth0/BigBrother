@@ -30,7 +30,7 @@ HANDLE g_ServiceStopEvent = INVALID_HANDLE_VALUE;
 Whitelist g_Whitelist = {0};
 IpAllowlist g_IpAllowlist = {0};
 SRWLOCK g_AllowlistLock = SRWLOCK_INIT;
-int g_FiltrationEnabled = 1;
+volatile int g_FiltrationEnabled = 1;
 
 StringView g_FilterExpr = {0};
 
@@ -75,7 +75,7 @@ static void init_logging(void) {
     extern LoggerContext* g_logger;
     if (g_logger) {
         snprintf(g_logger->log_path, sizeof(g_logger->log_path), "%s", log_path);
-        g_logger->max_file_size = 10 * 1024;  // 10KB for testing
+        g_logger->max_file_size = LOG_MAX_FILE_SIZE;
         g_logger->max_files = LOG_MAX_FILES;
     }
     
@@ -226,7 +226,18 @@ static int is_client_running(void) {
 }
 
 static DWORD WINAPI client_monitor_thread(LPVOID param) {
-    while (WaitForSingleObject(g_ClientStopEvent, 5000) != WAIT_OBJECT_0) {
+    // Guard against a NULL stop event (CreateEvent failure) so we don't busy-loop
+    // on WAIT_FAILED. When NULL, fall back to a plain 5s sleep.
+    while (1) {
+        DWORD wait;
+        if (g_ClientStopEvent) {
+            wait = WaitForSingleObject(g_ClientStopEvent, 5000);
+        } else {
+            Sleep(5000);
+            wait = WAIT_TIMEOUT;
+        }
+        if (wait == WAIT_OBJECT_0) break;
+
         if (!is_client_running() && g_ServerIp[0] != '\0') {
             LOGF("[ClientMonitor] Client died, restarting...");
             spawn_client_backend();
@@ -333,9 +344,6 @@ int LoadWhiteList(char* path) {
     fclose(f);
     LOGF("[INFO] Loaded %zu whitelisted domains and %zu IPs", g_Whitelist.count, g_IpAllowlist.count);
 
-    // Pre-resolve exact-match domains via system DNS (handles DoH)
-    PreResolveWhitelist();
-
     return STATUS_OK;
 }
 
@@ -349,9 +357,23 @@ int LoadWhiteList(char* path) {
 char* NewPacketBuffer() {
     char* packet = malloc(PACKET_SIZE);
     if (!packet) {
-        assert(0 && "memory allocation failed");
+        LOGE("Failed to allocate packet buffer (%u bytes)", PACKET_SIZE);
     }
     return packet;
+}
+
+// Send a packet via WinDivert, logging failures and tracking dropped packets.
+// Returns non-zero on success.
+static int SendPacket(HANDLE handle, void* data, UINT len, WINDIVERT_ADDRESS* addr) {
+    static LONG drop_count = 0;
+    if (!WinDivertSend(handle, data, len, NULL, addr)) {
+        LONG drops = InterlockedIncrement(&drop_count);
+        if (drops == 1 || drops % 1000 == 0) {
+            LOGE("WinDivertSend failed (%lu), total drops: %ld", GetLastError(), drops);
+        }
+        return 0;
+    }
+    return 1;
 }
 
 /**
@@ -407,10 +429,29 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
 
     OutputDebugString("Firewall started");
 
+    // Backoff counter: if WinDivertRecv keeps failing (e.g. driver detach), avoid
+    // busy-spinning at 100% CPU.
+    int recv_failures = 0;
+
     while (WaitForSingleObject(g_ServiceStopEvent, 0) != WAIT_OBJECT_0) {
-        if (!WinDivertRecv(handle, packet, PACKET_SIZE, &recv_len, &addr)) {
+        if (packet == NULL) {
+            // Allocation failed earlier — wait for stop instead of dereferencing NULL.
+            Sleep(1000);
             continue;
         }
+        if (!WinDivertRecv(handle, packet, PACKET_SIZE, &recv_len, &addr)) {
+            recv_failures++;
+            if (recv_failures > 1 && recv_failures % 100 == 1) {
+                LOGE("WinDivertRecv failed %d consecutive times (last error: %lu)",
+                     recv_failures, GetLastError());
+            }
+            if (recv_failures >= 50) {
+                // Back off — something is wrong with the filter/driver.
+                Sleep(50);
+            }
+            continue;
+        }
+        recv_failures = 0;
 
         ip_hdr = NULL;
         tcp_hdr = NULL;
@@ -429,7 +470,7 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
         );
 
         if (!ok || ip_hdr == NULL) {
-            WinDivertSend(handle, packet, recv_len, NULL, &addr);
+            SendPacket(handle, packet, recv_len, &addr);
             continue;
         }
 
@@ -506,39 +547,53 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
                                 sudp->SrcPort = sudp->DstPort;
                                 sudp->DstPort = tmp_port;
 
-                                // Build DNS response header (12 bytes) + fake A record (16 bytes)
                                 uint8_t* dns_out = (uint8_t*)spoof_payload;
-                                // Keep transaction ID from query
+                                // Keep transaction ID (bytes 0-1) from the query.
                                 // Set flags: response=1, opcode=0, AA=0, TC=0, RD=1, RA=1, Z=0, rcode=0
                                 // 0x8180 = 1000 0001 1000 0000
                                 dns_out[2] = 0x81;
                                 dns_out[3] = 0x80;
-                                // Questions: 1, Answers: 1, Authority: 0, Additional: 0
+                                // Questions: 1 (keep original), Answers: 1, Authority: 0, Additional: 0
                                 dns_out[4] = 0x00; dns_out[5] = 0x01;
                                 dns_out[6] = 0x00; dns_out[7] = 0x01;
                                 dns_out[8] = 0x00; dns_out[9] = 0x00;
                                 dns_out[10] = 0x00; dns_out[11] = 0x00;
 
-                                // Answer: name pointer 0xC00C (points to question), type A, class IN, TTL 300
-                                dns_out[12] = 0xC0; dns_out[13] = 0x0C;
-                                dns_out[14] = 0x00; dns_out[15] = 0x01; // TYPE A
-                                dns_out[16] = 0x00; dns_out[17] = 0x01; // CLASS IN
-                                // TTL = 300 seconds
-                                dns_out[18] = 0x00; dns_out[19] = 0x00;
-                                dns_out[20] = 0x01; dns_out[21] = 0x2C;
-                                // RDATA length = 4
-                                dns_out[22] = 0x00; dns_out[23] = 0x04;
-                                // IP = 127.0.0.1 (network byte order: 0x7F000001)
-                                dns_out[24] = 0x7F; dns_out[25] = 0x00;
-                                dns_out[26] = 0x00; dns_out[27] = 0x01;
+                                // Find the end of the question section so we can append
+                                // the answer AFTER it (the 0xC00C pointer references the
+                                // question name at offset 12, which must stay intact).
+                                size_t q_end = DnsGetQuestionEnd(spoof_payload, spoof_payload_len);
+                                if (q_end == 0 || q_end + 16 > spoof_payload_len + 64) {
+                                    free(spoof);
+                                    goto filtering;
+                                }
 
-                                // Fix IP total length and recalculate checksums
-                                UINT new_len = (UINT)((uint8_t*)&dns_out[28] - (uint8_t*)spoof);
-                                sip->Length = htons(new_len);
+                                // Answer record (16 bytes): name ptr 0xC00C, TYPE A, CLASS IN, TTL 300, RDATA 127.0.0.1
+                                dns_out[q_end + 0] = 0xC0; dns_out[q_end + 1] = 0x0C;
+                                dns_out[q_end + 2] = 0x00; dns_out[q_end + 3] = 0x01; // TYPE A
+                                dns_out[q_end + 4] = 0x00; dns_out[q_end + 5] = 0x01; // CLASS IN
+                                dns_out[q_end + 6] = 0x00; dns_out[q_end + 7] = 0x00; // TTL 300
+                                dns_out[q_end + 8] = 0x01; dns_out[q_end + 9] = 0x2C;
+                                dns_out[q_end + 10] = 0x00; dns_out[q_end + 11] = 0x04; // RDLEN = 4
+                                dns_out[q_end + 12] = 0x7F; dns_out[q_end + 13] = 0x00; // 127.0.0.1
+                                dns_out[q_end + 14] = 0x00; dns_out[q_end + 15] = 0x01;
+
+                                // New DNS payload length = question end + 16-byte answer.
+                                UINT new_dns_len = (UINT)(q_end + 16);
+
+                                // Fix UDP total length (8-byte header + payload).
+                                sudp->Length = htons((UINT16)(8 + new_dns_len));
+
+                                // Fix IP total length (IP header + UDP header + payload).
+                                UINT new_ip_len = (UINT)((uint8_t*)sudp - (uint8_t*)sip) +
+                                                  (UINT)sizeof(WINDIVERT_UDPHDR) + new_dns_len;
+                                sip->Length = htons((UINT16)new_ip_len);
+
+                                UINT new_len = (UINT)((uint8_t*)dns_out - (uint8_t*)spoof) + new_dns_len;
                                 WinDivertHelperCalcChecksums(spoof, new_len, NULL, 0);
 
                                 // Inject spoofed response
-                                WinDivertSend(handle, spoof, new_len, NULL, &addr);
+                                SendPacket(handle, spoof, new_len, &addr);
                                 DLOGF("[DNS-SPOOF] Spoofed A record for %s -> 127.0.0.1",
                                       dns.question.domain);
                             }
@@ -620,36 +675,44 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
         static int blocked_count = 0;
         packet_count++;
 
-        if (g_FiltrationEnabled && addr.Outbound && !IsAllowed(dest_ip) && !is_local) {
+        if (g_FiltrationEnabled && addr.Outbound && !is_local) {
             int is_dns_udp = (udp_hdr && (ntohs(udp_hdr->DstPort) == 53));
             int is_dns_tcp = (tcp_hdr && (ntohs(tcp_hdr->DstPort) == 53));
             int is_discovery = (udp_hdr && (ntohs(udp_hdr->SrcPort) == 42069 || ntohs(udp_hdr->DstPort) == 42069));
             if (is_dns_udp || is_dns_tcp || is_discovery) {
-                WinDivertSend(handle, packet, recv_len, NULL, &addr);
+                SendPacket(handle, packet, recv_len, &addr);
                 continue;
             }
 
             // Copy domain to local buffer to avoid dangling pointer if IPC thread
             // modifies the allowlist between GetDomain and the whitelist iteration.
             char domain_buf[MAX_DOMAIN_LEN] = {0};
+            int allowed = 0;
             AcquireSRWLockShared(&g_AllowlistLock);
-            const char* dom = IpAllowlistGetDomain(&g_IpAllowlist, dest_ip);
-            if (dom) {
-                strncpy(domain_buf, dom, sizeof(domain_buf) - 1);
-            }
+            allowed = IsAllowed(dest_ip);
+            if (!allowed) {
+                const char* dom = IpAllowlistGetDomain(&g_IpAllowlist, dest_ip);
+                if (dom) {
+                    strncpy(domain_buf, dom, sizeof(domain_buf) - 1);
+                }
 
-            int domain_whitelisted = 0;
-            if (domain_buf[0]) {
-                for (size_t w = 0; w < g_Whitelist.count; w++) {
-                    if (DnsCheckDomain(domain_buf, g_Whitelist.entries[w].domain)) {
-                        domain_whitelisted = 1;
-                        break;
+                int domain_whitelisted = 0;
+                if (domain_buf[0]) {
+                    for (size_t w = 0; w < g_Whitelist.count; w++) {
+                        // Exception entries must NOT whitelist traffic — an IP learned
+                        // under a domain that is now excluded should be blocked.
+                        if (g_Whitelist.entries[w].is_exception) continue;
+                        if (DnsCheckDomain(domain_buf, g_Whitelist.entries[w].domain)) {
+                            domain_whitelisted = 1;
+                            break;
+                        }
                     }
                 }
+                allowed = domain_whitelisted;
             }
             ReleaseSRWLockShared(&g_AllowlistLock);
 
-            if (!domain_whitelisted) {
+            if (!allowed) {
                 blocked_count++;
                 if (domain_buf[0]) {
                     LOGB("Packet to %s blocked (domain: %s not whitelisted)", dst, domain_buf);
@@ -668,7 +731,7 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
             ReleaseSRWLockShared(&g_AllowlistLock);
         }
 
-        WinDivertSend(handle, packet, recv_len, NULL, &addr);
+        SendPacket(handle, packet, recv_len, &addr);
     }
 
     free(packet);
@@ -764,7 +827,6 @@ void WINAPI ServiceMain(DWORD argc, LPTSTR *argv) {
 
     HANDLE monitor_thread = CreateThread(NULL, 0, client_monitor_thread, NULL, 0, NULL);
     if (monitor_thread) {
-        CloseHandle(monitor_thread);
         LOGF("[ServiceMain] Client monitor thread started");
     }
 
@@ -772,6 +834,7 @@ void WINAPI ServiceMain(DWORD argc, LPTSTR *argv) {
     HANDLE hThread = CreateThread(NULL, 0, FirewallServiceThread, NULL, 0, NULL);
     if (!hThread) {
         OutputDebugString("[ServiceMain] CreateThread failed");
+        if (monitor_thread) CloseHandle(monitor_thread);
         CloseHandle(g_ServiceStopEvent);
         g_ServiceStatus.dwCurrentState = SERVICE_STOPPED;
         UpdateServiceStatus();
@@ -785,11 +848,18 @@ void WINAPI ServiceMain(DWORD argc, LPTSTR *argv) {
     UpdateServiceStatus();
     OutputDebugString("[ServiceMain] Running");
 
+    // Wait for the firewall thread to exit (stop event set by SCM), then stop the
+    // client backend and join the monitor thread BEFORE closing shared event handles.
     WaitForSingleObject(hThread, INFINITE);
     CloseHandle(hThread);
 
     stop_client_backend();
-    CloseHandle(g_ClientStopEvent);
+    if (monitor_thread) {
+        WaitForSingleObject(monitor_thread, 5000);
+        CloseHandle(monitor_thread);
+    }
+
+    if (g_ClientStopEvent) CloseHandle(g_ClientStopEvent);
     CloseHandle(g_ServiceStopEvent);
 
     g_ServiceStatus.dwCurrentState = SERVICE_STOPPED;
@@ -809,6 +879,7 @@ int main(int argc, char** argv) {
     LOGF("[Firewall] Started");
     
     LoadWhiteList(NULL);
+    PreResolveWhitelist();
     LOGF("[Firewall] Started with %zu whitelisted domains and %zu allowed IPs",
           g_Whitelist.count, g_IpAllowlist.count);
 
