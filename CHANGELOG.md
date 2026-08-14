@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Firewall IPC: fix deadlock in the named-pipe request reader — the message-mode read loop kept waiting for a second request after reading a complete one, so every client-backend ↔ firewall call (PING/GET_STATUS/GET_WHITELIST/SET_WHITELIST) hung and the client backend appeared down while the firewall service stayed up
 - Installer: split into separate client (BigBrother-Client.nsi) and server (BigBrother-Server.nsi) installers
 - Installer: service start type fixed to demand (manual), installers install to separate directories
 - Server: reduce connection TTL from 10min to 15s with periodic cleanup goroutine (stale clients drop off within 15s)

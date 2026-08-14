@@ -165,20 +165,26 @@ static DWORD WINAPI ipc_client_handler(LPVOID param) {
 
     size_t total = 0;
     DWORD bytes_read = 0;
-    BOOL ok;
-    do {
+    BOOL ok = FALSE;
+
+    for (;;) {
         ok = ReadFile(pipe, buffer + total, (DWORD)(IPC_MAX_MESSAGE_SIZE - total), &bytes_read, NULL);
         if (ok) {
+            // A successful ReadFile returns a complete message — stop here.
+            // Continuing would block waiting for a second request the client
+            // never sends (it is already waiting for our response).
             total += bytes_read;
-        } else {
-            DWORD err = GetLastError();
-            if (err == ERROR_MORE_DATA) {
-                // Message continues — read the next chunk.
-                continue;
-            }
             break;
         }
-    } while (total < IPC_MAX_MESSAGE_SIZE);
+
+        if (GetLastError() != ERROR_MORE_DATA) break;
+        if (bytes_read == 0) break;
+
+        // Message larger than the buffer — append this chunk and keep reading
+        // the remainder of the SAME message.
+        total += bytes_read;
+        if (total >= IPC_MAX_MESSAGE_SIZE) break;
+    }
 
     if (ok && total > 0) {
         parse_and_execute(pipe, buffer, total);
