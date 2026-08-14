@@ -79,4 +79,7 @@ int IpAllowlistContains(IpAllowlist* al, uint32_t ip);
 /** @brief Get domain associated with an IP address from allowlist. */
 const char* IpAllowlistGetDomain(IpAllowlist* al, uint32_t ip);
 
+/** @brief Remove an IP address from the allowlist. Returns 1 if removed. */
+int IpAllowlistRemove(IpAllowlist* al, uint32_t ip);
+
 #endif

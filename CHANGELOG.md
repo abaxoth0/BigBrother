@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Firewall: exception (`!domain`) rules now actually apply — an IP already in the allowlist is re-checked against exception rules on every packet, and a DNS response for an excepted domain actively removes its IPs from the allowlist (blocks domains that share a CDN IP with an allowed domain)
 - Firewall IPC: fix deadlock in the named-pipe request reader — the message-mode read loop kept waiting for a second request after reading a complete one, so every client-backend ↔ firewall call (PING/GET_STATUS/GET_WHITELIST/SET_WHITELIST) hung and the client backend appeared down while the firewall service stayed up
 - Installer: split into separate client (BigBrother-Client.nsi) and server (BigBrother-Server.nsi) installers
 - Installer: service start type fixed to demand (manual), installers install to separate directories

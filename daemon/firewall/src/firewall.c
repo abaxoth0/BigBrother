@@ -628,16 +628,24 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
                 }
                 ReleaseSRWLockShared(&g_AllowlistLock);
 
-                // Add IPs to allowlist if filtration is enabled and domain is whitelisted
+                // Only whitelisted domains may enter the allowlist. If the domain
+                // matches an exception rule, actively remove its IPs so it stays
+                // blocked even when it shares an IP with an allowed domain.
+                AcquireSRWLockExclusive(&g_AllowlistLock);
                 if (g_FiltrationEnabled && domain_whitelisted && !domain_excepted) {
-                    AcquireSRWLockExclusive(&g_AllowlistLock);
                     for (uint32_t i = 0; i < dns.answer_count; i++) {
                         for (uint32_t j = 0; j < dns.answers[i].ip_count; j++) {
                             IpAllowlistAdd(&g_IpAllowlist, dns.answers[i].ips[j], dns.question.domain, dns.answers[i].ttl);
                         }
                     }
-                    ReleaseSRWLockExclusive(&g_AllowlistLock);
+                } else if (domain_excepted) {
+                    for (uint32_t i = 0; i < dns.answer_count; i++) {
+                        for (uint32_t j = 0; j < dns.answers[i].ip_count; j++) {
+                            IpAllowlistRemove(&g_IpAllowlist, dns.answers[i].ips[j]);
+                        }
+                    }
                 }
+                ReleaseSRWLockExclusive(&g_AllowlistLock);
 
             filtering:
                 DnsFree(&dns);
@@ -689,26 +697,26 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
             char domain_buf[MAX_DOMAIN_LEN] = {0};
             int allowed = 0;
             AcquireSRWLockShared(&g_AllowlistLock);
+
             allowed = IsAllowed(dest_ip);
-            if (!allowed) {
+
+            // Exception rules win: even an allowlisted IP must be blocked when its
+            // learned domain matches an exception (e.g. the exception was added
+            // after the IP was resolved, so its IPs are still in the allowlist).
+            if (allowed) {
                 const char* dom = IpAllowlistGetDomain(&g_IpAllowlist, dest_ip);
                 if (dom) {
                     strncpy(domain_buf, dom, sizeof(domain_buf) - 1);
                 }
-
-                int domain_whitelisted = 0;
                 if (domain_buf[0]) {
                     for (size_t w = 0; w < g_Whitelist.count; w++) {
-                        // Exception entries must NOT whitelist traffic — an IP learned
-                        // under a domain that is now excluded should be blocked.
-                        if (g_Whitelist.entries[w].is_exception) continue;
-                        if (DnsCheckDomain(domain_buf, g_Whitelist.entries[w].domain)) {
-                            domain_whitelisted = 1;
+                        if (g_Whitelist.entries[w].is_exception &&
+                            DnsCheckDomain(domain_buf, g_Whitelist.entries[w].domain)) {
+                            allowed = 0;
                             break;
                         }
                     }
                 }
-                allowed = domain_whitelisted;
             }
             ReleaseSRWLockShared(&g_AllowlistLock);
 

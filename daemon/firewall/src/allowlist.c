@@ -209,3 +209,15 @@ const char* IpAllowlistGetDomain(IpAllowlist* al, uint32_t ip) {
     }
     return NULL;
 }
+
+int IpAllowlistRemove(IpAllowlist* al, uint32_t ip) {
+    if (!al) return 0;
+    for (size_t i = 0; i < al->count; i++) {
+        if (al->ips[i].ip == ip) {
+            al->ips[i] = al->ips[al->count - 1];
+            al->count--;
+            return 1;
+        }
+    }
+    return 0;
+}
