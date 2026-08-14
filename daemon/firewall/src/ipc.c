@@ -283,6 +283,7 @@ int IpcSetWhitelist(const char* data, size_t size) {
         AcquireSRWLockExclusive(&g_AllowlistLock);
         WhitelistClear(&g_Whitelist);
         IpAllowlistClear(&g_IpAllowlist);
+        IpAllowlistClear(&g_IpBlocklist);
         ReleaseSRWLockExclusive(&g_AllowlistLock);
         return 0;
     }
@@ -291,6 +292,8 @@ int IpcSetWhitelist(const char* data, size_t size) {
     WhitelistLoadFromData(&g_Whitelist, data, size);
     // Don't clear the IP allowlist — existing connections keep working.
     // New IPs will be added via DNS responses or PreResolveWhitelist.
+    // The blocklist is exception-derived and rebuilt by PreResolveWhitelist.
+    IpAllowlistClear(&g_IpBlocklist);
     ReleaseSRWLockExclusive(&g_AllowlistLock);
 
     PreResolveWhitelist();

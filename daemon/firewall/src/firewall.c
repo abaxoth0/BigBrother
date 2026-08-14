@@ -29,6 +29,10 @@ HANDLE g_ServiceStopEvent = INVALID_HANDLE_VALUE;
 
 Whitelist g_Whitelist = {0};
 IpAllowlist g_IpAllowlist = {0};
+// IPs resolved for domains that match an exception (!domain) rule. Checked
+// BEFORE the allowlist so an excepted domain stays blocked even when it shares
+// a CDN IP with an allowed domain.
+IpAllowlist g_IpBlocklist = {0};
 SRWLOCK g_AllowlistLock = SRWLOCK_INIT;
 volatile int g_FiltrationEnabled = 1;
 
@@ -40,6 +44,11 @@ StringView g_FilterExpr = {0};
 #define STATUS_FAILED_TO_START_SERVICE 12
 
 #define STATUS_UNSPECIFIED_ERROR -1
+
+// Blocklist entries are kept far longer than the DNS TTL: an excepted domain
+// must stay blocked even if its IP is shared with an allowed domain and only
+// the allowed domain keeps resolving. Cleared on whitelist reload/set.
+#define IP_BLOCKLIST_TTL (7 * 24 * 3600)
 
 // TODO: Allow user to specify whitelist path
 static char g_WhitelistPath[MAX_PATH] = "whitelist.txt";
@@ -254,9 +263,10 @@ void PreResolveWhitelist(void) {
 
     AcquireSRWLockExclusive(&g_AllowlistLock);
     int resolved = 0;
+    int blocked = 0;
     for (size_t i = 0; i < g_Whitelist.count; i++) {
         const char* domain = g_Whitelist.entries[i].domain;
-        if (g_Whitelist.entries[i].is_exception) continue;
+        int is_exception = g_Whitelist.entries[i].is_exception;
 
         if (domain[0] == '*' || domain[0] == '"') continue;
 
@@ -273,8 +283,13 @@ void PreResolveWhitelist(void) {
             if (rp->ai_family == AF_INET) {
                 struct sockaddr_in* sin = (struct sockaddr_in*)rp->ai_addr;
                 uint32_t ip = ntohl(sin->sin_addr.s_addr);
-                IpAllowlistAdd(&g_IpAllowlist, ip, domain, 300);
-                resolved++;
+                if (is_exception) {
+                    IpAllowlistAdd(&g_IpBlocklist, ip, domain, IP_BLOCKLIST_TTL);
+                    blocked++;
+                } else {
+                    IpAllowlistAdd(&g_IpAllowlist, ip, domain, 300);
+                    resolved++;
+                }
             }
         }
         freeaddrinfo(result);
@@ -284,6 +299,9 @@ void PreResolveWhitelist(void) {
     WSACleanup();
     if (resolved > 0) {
         LOGF("[INFO] Pre-resolved %d IPs for whitelisted domains", resolved);
+    }
+    if (blocked > 0) {
+        LOGF("[INFO] Pre-resolved %d IPs for exception rules", blocked);
     }
 }
 
@@ -300,6 +318,7 @@ int LoadWhiteList(char* path) {
 
     WhitelistInit(&g_Whitelist);
     IpAllowlistInit(&g_IpAllowlist);
+    IpAllowlistInit(&g_IpBlocklist);
 
     FILE *f = fopen(path, "r");
     if (!f) {
@@ -629,8 +648,8 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
                 ReleaseSRWLockShared(&g_AllowlistLock);
 
                 // Only whitelisted domains may enter the allowlist. If the domain
-                // matches an exception rule, actively remove its IPs so it stays
-                // blocked even when it shares an IP with an allowed domain.
+                // matches an exception rule, its IPs go to the blocklist so they
+                // stay blocked even when shared with an allowed domain.
                 AcquireSRWLockExclusive(&g_AllowlistLock);
                 if (g_FiltrationEnabled && domain_whitelisted && !domain_excepted) {
                     for (uint32_t i = 0; i < dns.answer_count; i++) {
@@ -642,6 +661,7 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
                     for (uint32_t i = 0; i < dns.answer_count; i++) {
                         for (uint32_t j = 0; j < dns.answers[i].ip_count; j++) {
                             IpAllowlistRemove(&g_IpAllowlist, dns.answers[i].ips[j]);
+                            IpAllowlistAdd(&g_IpBlocklist, dns.answers[i].ips[j], dns.question.domain, IP_BLOCKLIST_TTL);
                         }
                     }
                 }
@@ -698,22 +718,29 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
             int allowed = 0;
             AcquireSRWLockShared(&g_AllowlistLock);
 
-            allowed = IsAllowed(dest_ip);
+            // Blocklist wins: an IP learned from an excepted domain is blocked
+            // even if the same IP is also in the allowlist (shared CDN IP).
+            if (IpAllowlistContains(&g_IpBlocklist, dest_ip)) {
+                allowed = 0;
+            } else {
+                allowed = IsAllowed(dest_ip);
 
-            // Exception rules win: even an allowlisted IP must be blocked when its
-            // learned domain matches an exception (e.g. the exception was added
-            // after the IP was resolved, so its IPs are still in the allowlist).
-            if (allowed) {
-                const char* dom = IpAllowlistGetDomain(&g_IpAllowlist, dest_ip);
-                if (dom) {
-                    strncpy(domain_buf, dom, sizeof(domain_buf) - 1);
-                }
-                if (domain_buf[0]) {
-                    for (size_t w = 0; w < g_Whitelist.count; w++) {
-                        if (g_Whitelist.entries[w].is_exception &&
-                            DnsCheckDomain(domain_buf, g_Whitelist.entries[w].domain)) {
-                            allowed = 0;
-                            break;
+                // Exception rules win: even an allowlisted IP must be blocked when
+                // its learned domain matches an exception (e.g. the exception was
+                // added after the IP was resolved, so its IPs are still in the
+                // allowlist but not yet in the blocklist).
+                if (allowed) {
+                    const char* dom = IpAllowlistGetDomain(&g_IpAllowlist, dest_ip);
+                    if (dom) {
+                        strncpy(domain_buf, dom, sizeof(domain_buf) - 1);
+                    }
+                    if (domain_buf[0]) {
+                        for (size_t w = 0; w < g_Whitelist.count; w++) {
+                            if (g_Whitelist.entries[w].is_exception &&
+                                DnsCheckDomain(domain_buf, g_Whitelist.entries[w].domain)) {
+                                allowed = 0;
+                                break;
+                            }
                         }
                     }
                 }
