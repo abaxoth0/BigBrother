@@ -2,7 +2,8 @@ CC = x86_64-w64-mingw32-gcc
 
 COMMON_FLAGS = -Wall -Wno-format-truncation -mconsole \
 	-I$(CURDIR)/include/third-party/WinDivert-2.2.2-A/include \
-	-I$(CURDIR)/../common
+	-I$(CURDIR)/../common \
+	-I$(CURDIR)/../../lib/c
 
 DEBUG_FLAGS = -DDEBUG -g3 -O0
 RELEASE_FLAGS = -O2

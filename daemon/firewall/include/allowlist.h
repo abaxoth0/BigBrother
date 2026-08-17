@@ -9,11 +9,14 @@
 #include <string.h>
 #include <stdint.h>
 #include <time.h>
+#include "uthash.h"
 
 #define MAX_DOMAIN_LEN 256
 
 #define WHITELIST_INITIAL_CAPACITY 1000
-#define IP_ALLOWLIST_INITIAL_CAPACITY 1000
+
+// Sweep expired IP allowlist entries at most this often (seconds).
+#define IP_ALLOWLIST_SWEEP_INTERVAL 60
 
 /** @brief Single whitelist entry containing a domain name (allow rules only). */
 typedef struct {
@@ -30,19 +33,17 @@ typedef struct {
 
 /** @brief Single allowed IP entry with associated domain and TTL. */
 typedef struct {
-    uint32_t ip;
+    uint32_t ip;                // hash key
     char domain[MAX_DOMAIN_LEN];
     time_t expires;
+    UT_hash_handle hh;          // uthash handle (must be last)
 } AllowedIp;
 
-#define IP_ALLOW_LIST_CLEANUP_COOLDOWN 60 // 1 min
-
-/** @brief Container for allowed IP addresses. */
+/** @brief Container for allowed IP addresses (uthash table). */
 typedef struct {
-    AllowedIp* ips;
-    size_t count;
-    size_t capacity;
-    time_t last_cleared_at;
+    AllowedIp* head;            // uthash table head
+    size_t count;               // live (unexpired) entry count
+    time_t last_sweep;          // last time expired entries were purged
 } IpAllowlist;
 
 /** @brief Initialize a whitelist structure. */

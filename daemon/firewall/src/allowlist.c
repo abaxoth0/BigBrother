@@ -141,117 +141,108 @@ int WhitelistLoadFromData(Whitelist* wl, Whitelist* bl, const char* data, size_t
 
 void IpAllowlistClear(IpAllowlist* al) {
     if (!al) return;
+    AllowedIp* entry;
+    AllowedIp* tmp;
+    HASH_ITER(hh, al->head, entry, tmp) {
+        HASH_DEL(al->head, entry);
+        free(entry);
+    }
+    al->head = NULL;
     al->count = 0;
 }
 
 void IpAllowlistFree(IpAllowlist* al) {
-    if (!al) return;
-    free(al->ips);
-    al->ips = NULL;
-    al->count = 0;
-    al->capacity = 0;
+    IpAllowlistClear(al);
 }
 
 void IpAllowlistInit(IpAllowlist* al) {
     if (!al) return;
-    IpAllowlistFree(al);
-    al->capacity = IP_ALLOWLIST_INITIAL_CAPACITY;
-    al->ips = calloc(al->capacity, sizeof(AllowedIp));
-    if (!al->ips) {
-        al->capacity = 0;
-    }
+    al->head = NULL;
+    al->count = 0;
+    al->last_sweep = 0;
 }
 
+// Purge expired entries. O(n), but callers gate it with IP_ALLOWLIST_SWEEP_INTERVAL
+// so it runs at most once a minute instead of on every add.
 void IpAllowlistCleanup(IpAllowlist* al) {
     if (!al) return;
     time_t now = time(NULL);
-    size_t valid_count = 0;
-    for (size_t i = 0; i < al->count; i++) {
-        if (al->ips[i].expires > now) {
-            if (valid_count != i) {
-                al->ips[valid_count] = al->ips[i];
-            }
-            valid_count++;
+    AllowedIp* entry;
+    AllowedIp* tmp;
+    HASH_ITER(hh, al->head, entry, tmp) {
+        if (entry->expires <= now) {
+            HASH_DEL(al->head, entry);
+            free(entry);
+            al->count--;
         }
     }
-    al->count = valid_count;
+    al->last_sweep = now;
 }
 
 int IpAllowlistAdd(IpAllowlist* al, uint32_t ip, const char* domain, uint32_t ttl) {
     if (!al) return -1;
 
-    IpAllowlistCleanup(al);
-
-    if (grow((void**)&al->ips, &al->capacity, sizeof(AllowedIp), al->count, 1, IP_ALLOWLIST_INITIAL_CAPACITY) != 0) {
-        // Force cleanup and retry once before giving up
-        al->last_cleared_at = 0;
-        IpAllowlistCleanup(al);
-        if (grow((void**)&al->ips, &al->capacity, sizeof(AllowedIp), al->count, 1, IP_ALLOWLIST_INITIAL_CAPACITY) != 0) {
-            return -1;
-        }
-    }
-
     // Enforce a minimum TTL of 5 minutes to prevent rapid expiry
     // of IPs from CDN domains (many use 60s or shorter TTLs).
     if (ttl < 300) ttl = 300;
 
-    for (size_t i = 0; i < al->count; i++) {
-        if (al->ips[i].ip == ip) {
-            al->ips[i].expires = time(NULL) + ttl;
-            if (domain) {
-                strncpy(al->ips[i].domain, domain, MAX_DOMAIN_LEN - 1);
-            }
-            return 0;
+    AllowedIp* entry = NULL;
+    HASH_FIND_INT(al->head, &ip, entry);
+
+    time_t now = time(NULL);
+    if (entry) {
+        // Refresh an existing (possibly expired) entry.
+        entry->expires = now + ttl;
+        if (domain) {
+            strncpy(entry->domain, domain, MAX_DOMAIN_LEN - 1);
+            entry->domain[MAX_DOMAIN_LEN - 1] = '\0';
         }
+        return 0;
     }
 
-    al->ips[al->count].ip = ip;
+    entry = calloc(1, sizeof(AllowedIp));
+    if (!entry) return -1;
+    entry->ip = ip;
     if (domain) {
-        strncpy(al->ips[al->count].domain, domain, MAX_DOMAIN_LEN - 1);
-        al->ips[al->count].domain[MAX_DOMAIN_LEN - 1] = '\0';
-    } else {
-        al->ips[al->count].domain[0] = '\0';
+        strncpy(entry->domain, domain, MAX_DOMAIN_LEN - 1);
+        entry->domain[MAX_DOMAIN_LEN - 1] = '\0';
     }
-    al->ips[al->count].expires = time(NULL) + ttl;
+    entry->expires = now + ttl;
+    HASH_ADD_INT(al->head, ip, entry);
     al->count++;
+
+    // Sweep expired entries on a time budget, not on every add.
+    if (now - al->last_sweep >= IP_ALLOWLIST_SWEEP_INTERVAL) {
+        IpAllowlistCleanup(al);
+    }
 
     return 0;
 }
 
 int IpAllowlistContains(IpAllowlist* al, uint32_t ip) {
     if (!al) return 0;
-    time_t now = time(NULL);
-    // Pure read: check expiry inline without mutating the array (no cleanup),
-    // so this is safe to call from the packet thread under the shared lock.
-    for (size_t i = 0; i < al->count; i++) {
-        if (al->ips[i].ip == ip && al->ips[i].expires > now) {
-            return 1;
-        }
-    }
-    return 0;
+    AllowedIp* entry = NULL;
+    HASH_FIND_INT(al->head, &ip, entry);
+    if (!entry) return 0;
+    // Lazy expiry: expired entries are treated as absent without mutation.
+    return entry->expires > time(NULL);
 }
 
 const char* IpAllowlistGetDomain(IpAllowlist* al, uint32_t ip) {
     if (!al) return NULL;
-    time_t now = time(NULL);
-    // Pure read: expired entries are treated as absent (cleanup is done by the
-    // writer under the exclusive lock).
-    for (size_t i = 0; i < al->count; i++) {
-        if (al->ips[i].ip == ip && al->ips[i].expires > now) {
-            return al->ips[i].domain;
-        }
-    }
-    return NULL;
+    AllowedIp* entry = NULL;
+    HASH_FIND_INT(al->head, &ip, entry);
+    if (!entry || entry->expires <= time(NULL)) return NULL;
+    return entry->domain;
 }
 
 int IpAllowlistRemove(IpAllowlist* al, uint32_t ip) {
     if (!al) return 0;
-    for (size_t i = 0; i < al->count; i++) {
-        if (al->ips[i].ip == ip) {
-            al->ips[i] = al->ips[al->count - 1];
-            al->count--;
-            return 1;
-        }
-    }
-    return 0;
+    AllowedIp* entry = NULL;
+    HASH_FIND_INT(al->head, &ip, entry);
+    if (!entry) return 0;
+    HASH_DEL(al->head, entry);
+    free(entry);
+    al->count--;
+    return 1;
 }
