@@ -31,7 +31,7 @@ static void write_status(HANDLE pipe) {
     char buffer[IPC_BUFFER_SIZE];
     AcquireSRWLockShared(&g_AllowlistLock);
     snprintf(buffer, sizeof(buffer), "STATUS\n%zu\n%zu\nrunning\n%d\n",
-             g_Whitelist.count, g_IpAllowlist.count, g_FiltrationEnabled);
+             g_Whitelist.count + g_Blacklist.count, g_IpAllowlist.count, g_FiltrationEnabled);
     ReleaseSRWLockShared(&g_AllowlistLock);
     write_str(pipe, buffer);
 }
@@ -46,29 +46,26 @@ static void write_error(HANDLE pipe, const char* error) {
 }
 
 static void write_whitelist(HANDLE pipe) {
-    char* domains[256];
-    AcquireSRWLockShared(&g_AllowlistLock);
-    for (size_t i = 0; i < g_Whitelist.count && i < 256; i++) {
-        domains[i] = g_Whitelist.entries[i].domain;
-    }
-
     char* buffer = malloc(IPC_MAX_MESSAGE_SIZE);
     if (!buffer) {
-        ReleaseSRWLockShared(&g_AllowlistLock);
         return;
     }
     size_t pos = 0;
     int n = snprintf(buffer + pos, IPC_MAX_MESSAGE_SIZE - pos, "WHITELIST\n");
     if (n > 0) pos += (size_t)n;
 
+    AcquireSRWLockShared(&g_AllowlistLock);
+
+    // Allow rules first, then exception rules (prefixed with '!').
     for (size_t i = 0; i < g_Whitelist.count && pos < IPC_MAX_MESSAGE_SIZE - 1; i++) {
-        if (g_Whitelist.entries[i].is_exception) {
-            n = snprintf(buffer + pos, IPC_MAX_MESSAGE_SIZE - pos, "!%s\n", domains[i]);
-        } else {
-            n = snprintf(buffer + pos, IPC_MAX_MESSAGE_SIZE - pos, "%s\n", domains[i]);
-        }
+        n = snprintf(buffer + pos, IPC_MAX_MESSAGE_SIZE - pos, "%s\n", g_Whitelist.entries[i].domain);
         if (n > 0) pos += (size_t)n;
     }
+    for (size_t i = 0; i < g_Blacklist.count && pos < IPC_MAX_MESSAGE_SIZE - 1; i++) {
+        n = snprintf(buffer + pos, IPC_MAX_MESSAGE_SIZE - pos, "!%s\n", g_Blacklist.entries[i].domain);
+        if (n > 0) pos += (size_t)n;
+    }
+
     ReleaseSRWLockShared(&g_AllowlistLock);
 
     write_str(pipe, buffer);
@@ -282,6 +279,7 @@ int IpcSetWhitelist(const char* data, size_t size) {
         // Empty data means clear the whitelist (block all)
         AcquireSRWLockExclusive(&g_AllowlistLock);
         WhitelistClear(&g_Whitelist);
+        WhitelistClear(&g_Blacklist);
         IpAllowlistClear(&g_IpAllowlist);
         IpAllowlistClear(&g_IpBlocklist);
         ReleaseSRWLockExclusive(&g_AllowlistLock);
@@ -289,7 +287,7 @@ int IpcSetWhitelist(const char* data, size_t size) {
     }
 
     AcquireSRWLockExclusive(&g_AllowlistLock);
-    WhitelistLoadFromData(&g_Whitelist, data, size);
+    WhitelistLoadFromData(&g_Whitelist, &g_Blacklist, data, size);
     // Don't clear the IP allowlist — existing connections keep working.
     // New IPs will be added via DNS responses or PreResolveWhitelist.
     // The blocklist is exception-derived and rebuilt by PreResolveWhitelist.

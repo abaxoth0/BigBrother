@@ -2,6 +2,22 @@
 #include "../include/common.h"
 #include <stdio.h>
 
+// Grow a dynamic array (same realloc-doubling pattern as DA_GROW in common.h)
+// to make room for at least `count + n` elements. Returns 0 on success, -1 on OOM.
+static int grow(void** elems, size_t* cap, size_t elem_size, size_t count, size_t n, size_t initial_cap) {
+    if (count + n <= *cap) return 0;
+    size_t new_cap = *cap > 0 ? *cap : initial_cap;
+    while (count + n > new_cap) {
+        if (new_cap > SIZE_MAX / 2) return -1;
+        new_cap *= 2;
+    }
+    void* tmp = realloc(*elems, new_cap * elem_size);
+    if (!tmp) return -1;
+    *elems = tmp;
+    *cap = new_cap;
+    return 0;
+}
+
 // Match domain against whitelist patterns.
 // Supports wildcard suffix patterns like "*.example.com".
 static int match_domain(const char* domain, const char* pattern) {
@@ -35,23 +51,30 @@ static int match_domain(const char* domain, const char* pattern) {
 }
 
 void WhitelistInit(Whitelist* wl) {
-    memset(wl, 0, sizeof(Whitelist));
+    if (!wl) return;
+    WhitelistFree(wl);
+    wl->capacity = WHITELIST_INITIAL_CAPACITY;
+    wl->entries = calloc(wl->capacity, sizeof(WhitelistEntry));
+    if (!wl->entries) {
+        wl->capacity = 0;
+    }
 }
 
-int WhitelistAdd(Whitelist* wl, const char* domain, int is_exception) {
-    if (!wl || !domain || wl->count >= MAX_WHITELIST_DOMAINS) {
+int WhitelistAdd(Whitelist* wl, const char* domain) {
+    if (!wl || !domain) {
         return -1;
     }
     for (size_t i = 0; i < wl->count; i++) {
-        if (strcmp(wl->entries[i].domain, domain) == 0 &&
-            wl->entries[i].is_exception == is_exception) {
+        if (strcmp(wl->entries[i].domain, domain) == 0) {
             return 0;
         }
+    }
+    if (grow((void**)&wl->entries, &wl->capacity, sizeof(WhitelistEntry), wl->count, 1, WHITELIST_INITIAL_CAPACITY) != 0) {
+        return -1;
     }
     strncpy(wl->entries[wl->count].domain, domain, MAX_DOMAIN_LEN - 1);
     wl->entries[wl->count].domain[MAX_DOMAIN_LEN - 1] = '\0';
     wl->entries[wl->count].added_time = time(NULL);
-    wl->entries[wl->count].is_exception = is_exception;
     wl->count++;
     return 0;
 }
@@ -59,17 +82,7 @@ int WhitelistAdd(Whitelist* wl, const char* domain, int is_exception) {
 int WhitelistContains(Whitelist* wl, const char* domain) {
     if (!wl || !domain) return 0;
     for (size_t i = 0; i < wl->count; i++) {
-        if (!wl->entries[i].is_exception && match_domain(domain, wl->entries[i].domain)) {
-            return 1;
-        }
-    }
-    return 0;
-}
-
-int WhitelistContainsException(Whitelist* wl, const char* domain) {
-    if (!wl || !domain) return 0;
-    for (size_t i = 0; i < wl->count; i++) {
-        if (wl->entries[i].is_exception && match_domain(domain, wl->entries[i].domain)) {
+        if (match_domain(domain, wl->entries[i].domain)) {
             return 1;
         }
     }
@@ -79,13 +92,21 @@ int WhitelistContainsException(Whitelist* wl, const char* domain) {
 void WhitelistClear(Whitelist* wl) {
     if (!wl) return;
     wl->count = 0;
-    memset(wl->entries, 0, sizeof(wl->entries));
 }
 
-int WhitelistLoadFromData(Whitelist* wl, const char* data, size_t size) {
-    if (!wl || !data || size == 0) return -1;
+void WhitelistFree(Whitelist* wl) {
+    if (!wl) return;
+    free(wl->entries);
+    wl->entries = NULL;
+    wl->count = 0;
+    wl->capacity = 0;
+}
+
+int WhitelistLoadFromData(Whitelist* wl, Whitelist* bl, const char* data, size_t size) {
+    if (!wl || !bl || !data || size == 0) return -1;
 
     WhitelistClear(wl);
+    WhitelistClear(bl);
 
     char* copy = malloc(size + 1);
     if (!copy) return -1;
@@ -95,7 +116,7 @@ int WhitelistLoadFromData(Whitelist* wl, const char* data, size_t size) {
     // Split on newlines without strtok (strtok uses static state and races when
     // multiple IPC handlers run concurrently).
     char* line = copy;
-    while (line && wl->count < MAX_WHITELIST_DOMAINS) {
+    while (line) {
         char* next = strchr(line, '\n');
         if (next) *next = '\0';
 
@@ -108,7 +129,7 @@ int WhitelistLoadFromData(Whitelist* wl, const char* data, size_t size) {
         if (len > 0 && line[0] != '#') {
             int is_exception = (line[0] == '!');
             const char* domain = is_exception ? line + 1 : line;
-            WhitelistAdd(wl, domain, is_exception);
+            WhitelistAdd(is_exception ? bl : wl, domain);
         }
 
         line = next ? next + 1 : NULL;
@@ -121,11 +142,24 @@ int WhitelistLoadFromData(Whitelist* wl, const char* data, size_t size) {
 void IpAllowlistClear(IpAllowlist* al) {
     if (!al) return;
     al->count = 0;
-    memset(al->ips, 0, sizeof(al->ips));
+}
+
+void IpAllowlistFree(IpAllowlist* al) {
+    if (!al) return;
+    free(al->ips);
+    al->ips = NULL;
+    al->count = 0;
+    al->capacity = 0;
 }
 
 void IpAllowlistInit(IpAllowlist* al) {
-    memset(al, 0, sizeof(IpAllowlist));
+    if (!al) return;
+    IpAllowlistFree(al);
+    al->capacity = IP_ALLOWLIST_INITIAL_CAPACITY;
+    al->ips = calloc(al->capacity, sizeof(AllowedIp));
+    if (!al->ips) {
+        al->capacity = 0;
+    }
 }
 
 void IpAllowlistCleanup(IpAllowlist* al) {
@@ -148,11 +182,11 @@ int IpAllowlistAdd(IpAllowlist* al, uint32_t ip, const char* domain, uint32_t tt
 
     IpAllowlistCleanup(al);
 
-    if (al->count >= MAX_ALLOWED_IPS) {
+    if (grow((void**)&al->ips, &al->capacity, sizeof(AllowedIp), al->count, 1, IP_ALLOWLIST_INITIAL_CAPACITY) != 0) {
         // Force cleanup and retry once before giving up
         al->last_cleared_at = 0;
         IpAllowlistCleanup(al);
-        if (al->count >= MAX_ALLOWED_IPS) {
+        if (grow((void**)&al->ips, &al->capacity, sizeof(AllowedIp), al->count, 1, IP_ALLOWLIST_INITIAL_CAPACITY) != 0) {
             return -1;
         }
     }

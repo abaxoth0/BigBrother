@@ -28,6 +28,9 @@ SERVICE_STATUS_HANDLE g_StatusHandle = NULL;
 HANDLE g_ServiceStopEvent = INVALID_HANDLE_VALUE;
 
 Whitelist g_Whitelist = {0};
+// Exception (!domain) rules. Checked separately from g_Whitelist so allow-rule
+// matching never iterates over exception entries.
+Whitelist g_Blacklist = {0};
 IpAllowlist g_IpAllowlist = {0};
 // IPs resolved for domains that match an exception (!domain) rule. Checked
 // BEFORE the allowlist so an excepted domain stays blocked even when it shares
@@ -264,9 +267,10 @@ void PreResolveWhitelist(void) {
     AcquireSRWLockExclusive(&g_AllowlistLock);
     int resolved = 0;
     int blocked = 0;
+
+    // Allow rules -> IP allowlist
     for (size_t i = 0; i < g_Whitelist.count; i++) {
         const char* domain = g_Whitelist.entries[i].domain;
-        int is_exception = g_Whitelist.entries[i].is_exception;
 
         if (domain[0] == '*' || domain[0] == '"') continue;
 
@@ -283,13 +287,34 @@ void PreResolveWhitelist(void) {
             if (rp->ai_family == AF_INET) {
                 struct sockaddr_in* sin = (struct sockaddr_in*)rp->ai_addr;
                 uint32_t ip = ntohl(sin->sin_addr.s_addr);
-                if (is_exception) {
-                    IpAllowlistAdd(&g_IpBlocklist, ip, domain, IP_BLOCKLIST_TTL);
-                    blocked++;
-                } else {
-                    IpAllowlistAdd(&g_IpAllowlist, ip, domain, 300);
-                    resolved++;
-                }
+                IpAllowlistAdd(&g_IpAllowlist, ip, domain, 300);
+                resolved++;
+            }
+        }
+        freeaddrinfo(result);
+    }
+
+    // Exception rules -> IP blocklist
+    for (size_t i = 0; i < g_Blacklist.count; i++) {
+        const char* domain = g_Blacklist.entries[i].domain;
+
+        if (domain[0] == '*' || domain[0] == '"') continue;
+
+        struct addrinfo hints;
+        memset(&hints, 0, sizeof(hints));
+        hints.ai_family = AF_INET;
+        hints.ai_socktype = SOCK_STREAM;
+
+        struct addrinfo* result = NULL;
+        int ret = getaddrinfo(domain, NULL, &hints, &result);
+        if (ret != 0 || !result) continue;
+
+        for (struct addrinfo* rp = result; rp; rp = rp->ai_next) {
+            if (rp->ai_family == AF_INET) {
+                struct sockaddr_in* sin = (struct sockaddr_in*)rp->ai_addr;
+                uint32_t ip = ntohl(sin->sin_addr.s_addr);
+                IpAllowlistAdd(&g_IpBlocklist, ip, domain, IP_BLOCKLIST_TTL);
+                blocked++;
             }
         }
         freeaddrinfo(result);
@@ -317,6 +342,7 @@ int LoadWhiteList(char* path) {
     LOGF("[INFO] Reading whitelist at: %s", path);
 
     WhitelistInit(&g_Whitelist);
+    WhitelistInit(&g_Blacklist);
     IpAllowlistInit(&g_IpAllowlist);
     IpAllowlistInit(&g_IpBlocklist);
 
@@ -356,12 +382,13 @@ int LoadWhiteList(char* path) {
         } else {
             int is_exception = (p[0] == '!');
             const char* domain = is_exception ? p + 1 : p;
-            WhitelistAdd(&g_Whitelist, domain, is_exception);
+            WhitelistAdd(is_exception ? &g_Blacklist : &g_Whitelist, domain);
         }
     }
 
     fclose(f);
-    LOGF("[INFO] Loaded %zu whitelisted domains and %zu IPs", g_Whitelist.count, g_IpAllowlist.count);
+    LOGF("[INFO] Loaded %zu whitelisted domains, %zu exception rules, and %zu IPs",
+          g_Whitelist.count, g_Blacklist.count, g_IpAllowlist.count);
 
     return STATUS_OK;
 }
@@ -630,17 +657,15 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
                 int domain_whitelisted = 0;
                 AcquireSRWLockShared(&g_AllowlistLock);
                 for (size_t w = 0; w < g_Whitelist.count; w++) {
-                    if (!g_Whitelist.entries[w].is_exception &&
-                        DnsCheckDomain(dns.question.domain, g_Whitelist.entries[w].domain)) {
+                    if (DnsCheckDomain(dns.question.domain, g_Whitelist.entries[w].domain)) {
                         domain_whitelisted = 1;
                         break;
                     }
                 }
 
                 int domain_excepted = 0;
-                for (size_t w = 0; w < g_Whitelist.count; w++) {
-                    if (g_Whitelist.entries[w].is_exception &&
-                        DnsCheckDomain(dns.question.domain, g_Whitelist.entries[w].domain)) {
+                for (size_t w = 0; w < g_Blacklist.count; w++) {
+                    if (DnsCheckDomain(dns.question.domain, g_Blacklist.entries[w].domain)) {
                         domain_excepted = 1;
                         break;
                     }
@@ -735,9 +760,8 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
                         strncpy(domain_buf, dom, sizeof(domain_buf) - 1);
                     }
                     if (domain_buf[0]) {
-                        for (size_t w = 0; w < g_Whitelist.count; w++) {
-                            if (g_Whitelist.entries[w].is_exception &&
-                                DnsCheckDomain(domain_buf, g_Whitelist.entries[w].domain)) {
+                        for (size_t w = 0; w < g_Blacklist.count; w++) {
+                            if (DnsCheckDomain(domain_buf, g_Blacklist.entries[w].domain)) {
                                 allowed = 0;
                                 break;
                             }
@@ -760,8 +784,8 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
 
         if (packet_count % 100 == 0) {
             AcquireSRWLockShared(&g_AllowlistLock);
-            DLOGF("[STATS] processed=%d blocked=%d allowlist=%zu whitelist=%zu outbound=%d local=%d",
-                  packet_count, blocked_count, g_IpAllowlist.count, g_Whitelist.count,
+            DLOGF("[STATS] processed=%d blocked=%d allowlist=%zu whitelist=%zu blacklist=%zu outbound=%d local=%d",
+                  packet_count, blocked_count, g_IpAllowlist.count, g_Whitelist.count, g_Blacklist.count,
                   addr.Outbound, is_local);
             ReleaseSRWLockShared(&g_AllowlistLock);
         }
@@ -915,8 +939,8 @@ int main(int argc, char** argv) {
     
     LoadWhiteList(NULL);
     PreResolveWhitelist();
-    LOGF("[Firewall] Started with %zu whitelisted domains and %zu allowed IPs",
-          g_Whitelist.count, g_IpAllowlist.count);
+    LOGF("[Firewall] Started with %zu whitelisted domains, %zu exception rules, and %zu allowed IPs",
+          g_Whitelist.count, g_Blacklist.count, g_IpAllowlist.count);
 
     SERVICE_TABLE_ENTRY serviceTable[] = {
         {SERVICE_NAME, ServiceMain},
@@ -925,5 +949,10 @@ int main(int argc, char** argv) {
 
     StartServiceCtrlDispatcher(serviceTable);
     log_shutdown();
+
+    WhitelistFree(&g_Whitelist);
+    WhitelistFree(&g_Blacklist);
+    IpAllowlistFree(&g_IpAllowlist);
+    IpAllowlistFree(&g_IpBlocklist);
     return 0;
 }

@@ -10,21 +10,22 @@
 #include <stdint.h>
 #include <time.h>
 
-#define MAX_WHITELIST_DOMAINS 256
 #define MAX_DOMAIN_LEN 256
-#define MAX_ALLOWED_IPS 32768
 
-/** @brief Single whitelist entry containing a domain name. */
+#define WHITELIST_INITIAL_CAPACITY 1000
+#define IP_ALLOWLIST_INITIAL_CAPACITY 1000
+
+/** @brief Single whitelist entry containing a domain name (allow rules only). */
 typedef struct {
     char domain[MAX_DOMAIN_LEN];
     time_t added_time;
-    int is_exception;
 } WhitelistEntry;
 
-/** @brief Container for whitelisted domains. */
+/** @brief Container for whitelisted domains (allow rules). */
 typedef struct {
-    WhitelistEntry entries[MAX_WHITELIST_DOMAINS];
+    WhitelistEntry* entries;
     size_t count;
+    size_t capacity;
 } Whitelist;
 
 /** @brief Single allowed IP entry with associated domain and TTL. */
@@ -38,8 +39,9 @@ typedef struct {
 
 /** @brief Container for allowed IP addresses. */
 typedef struct {
-    AllowedIp ips[MAX_ALLOWED_IPS];
+    AllowedIp* ips;
     size_t count;
+    size_t capacity;
     time_t last_cleared_at;
 } IpAllowlist;
 
@@ -47,22 +49,25 @@ typedef struct {
 void WhitelistInit(Whitelist* wl);
 
 /** @brief Add a domain to the whitelist. */
-int WhitelistAdd(Whitelist* wl, const char* domain, int is_exception);
+int WhitelistAdd(Whitelist* wl, const char* domain);
 
-/** @brief Check if a domain is in the whitelist (non-exception entries only). */
+/** @brief Check if a domain is in the whitelist. */
 int WhitelistContains(Whitelist* wl, const char* domain);
-
-/** @brief Check if a domain matches any exception entry in the whitelist. */
-int WhitelistContainsException(Whitelist* wl, const char* domain);
 
 /** @brief Clear all entries from the whitelist. */
 void WhitelistClear(Whitelist* wl);
 
-/** @brief Load whitelist from data (e.g., received via IPC). */
-int WhitelistLoadFromData(Whitelist* wl, const char* data, size_t size);
+/** @brief Free the dynamic array backing a whitelist. */
+void WhitelistFree(Whitelist* wl);
+
+/** @brief Load whitelist from data (e.g., received via IPC); '!' entries go to bl. */
+int WhitelistLoadFromData(Whitelist* wl, Whitelist* bl, const char* data, size_t size);
 
 /** @brief Clear all entries from the IP allowlist. */
 void IpAllowlistClear(IpAllowlist* al);
+
+/** @brief Free the dynamic array backing an IP allowlist. */
+void IpAllowlistFree(IpAllowlist* al);
 
 /** @brief Initialize an IP allowlist structure. */
 void IpAllowlistInit(IpAllowlist* al);

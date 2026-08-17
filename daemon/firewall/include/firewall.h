@@ -5,6 +5,7 @@
 #include <windows.h>
 
 extern Whitelist g_Whitelist;
+extern Whitelist g_Blacklist;
 extern IpAllowlist g_IpAllowlist;
 extern IpAllowlist g_IpBlocklist;
 extern HANDLE g_ServiceStopEvent;
