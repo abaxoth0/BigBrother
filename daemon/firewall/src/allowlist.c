@@ -18,38 +18,6 @@ static int grow(void** elems, size_t* cap, size_t elem_size, size_t count, size_
     return 0;
 }
 
-// Match domain against whitelist patterns.
-// Supports wildcard suffix patterns like "*.example.com".
-static int match_domain(const char* domain, const char* pattern) {
-    char domain_lower[MAX_DOMAIN_LEN];
-    char pattern_lower[MAX_DOMAIN_LEN];
-
-    strncpy(domain_lower, domain, MAX_DOMAIN_LEN - 1);
-    domain_lower[MAX_DOMAIN_LEN - 1] = '\0';
-    ToLowerInplace(domain_lower);
-
-    strncpy(pattern_lower, pattern, MAX_DOMAIN_LEN - 1);
-    pattern_lower[MAX_DOMAIN_LEN - 1] = '\0';
-    ToLowerInplace(pattern_lower);
-
-    if (pattern_lower[0] == '*' && pattern_lower[1] == '.') {
-        const char* suffix = pattern_lower + 2;
-        size_t suffix_len = strlen(suffix);
-        size_t domain_len = strlen(domain_lower);
-
-        if (domain_len >= suffix_len) {
-            const char* pos = domain_lower + domain_len - suffix_len;
-            if (strcmp(pos, suffix) == 0 &&
-                (domain_len == suffix_len || *(pos - 1) == '.')) {
-                return 1;
-            }
-        }
-        return 0;
-    }
-
-    return strcmp(domain_lower, pattern_lower) == 0;
-}
-
 void WhitelistInit(Whitelist* wl) {
     if (!wl) return;
     WhitelistFree(wl);
@@ -77,16 +45,6 @@ int WhitelistAdd(Whitelist* wl, const char* domain) {
     STR_COPY_LOWER(wl->entries[wl->count].pattern_lower, domain, MAX_DOMAIN_LEN);
     wl->entries[wl->count].added_time = time(NULL);
     wl->count++;
-    return 0;
-}
-
-int WhitelistContains(Whitelist* wl, const char* domain) {
-    if (!wl || !domain) return 0;
-    for (size_t i = 0; i < wl->count; i++) {
-        if (match_domain(domain, wl->entries[i].domain)) {
-            return 1;
-        }
-    }
     return 0;
 }
 
@@ -221,20 +179,20 @@ int IpAllowlistAdd(IpAllowlist* al, uint32_t ip, const char* domain, uint32_t tt
 }
 
 int IpAllowlistContains(IpAllowlist* al, uint32_t ip) {
-    if (!al) return 0;
-    AllowedIp* entry = NULL;
-    HASH_FIND_INT(al->head, &ip, entry);
-    if (!entry) return 0;
-    // Lazy expiry: expired entries are treated as absent without mutation.
-    return entry->expires > time(NULL);
+    return IpAllowlistLookup(al, ip, time(NULL)) != NULL;
 }
 
 const char* IpAllowlistGetDomain(IpAllowlist* al, uint32_t ip) {
+    AllowedIp* entry = IpAllowlistLookup(al, ip, time(NULL));
+    return entry ? entry->domain : NULL;
+}
+
+AllowedIp* IpAllowlistLookup(IpAllowlist* al, uint32_t ip, time_t now) {
     if (!al) return NULL;
     AllowedIp* entry = NULL;
     HASH_FIND_INT(al->head, &ip, entry);
-    if (!entry || entry->expires <= time(NULL)) return NULL;
-    return entry->domain;
+    if (!entry || entry->expires <= now) return NULL;
+    return entry;
 }
 
 int IpAllowlistRemove(IpAllowlist* al, uint32_t ip) {

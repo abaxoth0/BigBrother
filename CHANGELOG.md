@@ -27,6 +27,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Firewall: packet hot path performs a single IP lookup with a cached timestamp (`IpAllowlistLookup`) instead of three separate `time()`-heavy `Contains`/`GetDomain` calls
+- Firewall: blocked-packet logging is rate-limited per destination IP (once/second) so heavy blocking no longer saturates the log critical section
+- Firewall: DNS response path uses a single lock acquisition (was shared+exclusive round-trips)
+- Firewall: removed dead code (`IsAllowed`, `WhitelistContains`, `match_domain`, `DnsCheckDomains`)
 - Firewall: pre-resolve no longer holds the allowlist lock during blocking `getaddrinfo` calls — domains are snapshotted under the shared lock, resolved outside it, then applied under the exclusive lock (whitelist reload/set no longer stalls the packet thread)
 - Firewall: `inet_ntop` moved out of the per-packet hot path (only formatted for debug logs and blocked-packet logs)
 - Firewall: whitelist/blacklist patterns are pre-lowercased at load time (`WhitelistEntry.pattern_lower`) and matched via a new `DnsCheckDomainLower` — the domain is lowercased once per lookup instead of per entry on the packet/DNS hot paths

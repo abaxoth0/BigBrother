@@ -86,15 +86,6 @@ DnsPacket DnsParse(const uint8_t* payload, size_t payload_len);
 void DnsFree(DnsPacket* packet);
 
 /**
- * @brief Check if domain matches any whitelist entry.
- * @param[in] domain          Domain name to check.
- * @param[in] whitelist       Array of whitelist entries.
- * @param[in] whitelist_count Number of entries in whitelist array.
- * @return 1 if whitelisted, 0 if not, -1 on error.
- */
-int DnsCheckDomains(const char* domain, const char* whitelist[], size_t whitelist_count);
-
-/**
  * @brief Check if domain matches a single whitelist pattern.
  *
  * Supports exact match (e.g., "github.com"), wildcard suffix

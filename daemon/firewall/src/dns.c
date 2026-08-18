@@ -241,20 +241,6 @@ void DnsFree(DnsPacket* packet) {
     memset(packet, 0, sizeof(DnsPacket));
 }
 
-int DnsCheckDomains(const char* domain, const char* whitelist[], size_t whitelist_count) {
-    if (domain == NULL || whitelist == NULL) {
-        return -1;
-    }
-    for (size_t i = 0; i < whitelist_count; i++) {
-        if (whitelist[i] == NULL) {
-            assert(0 && "Corrupted whitelist: got NULL pointer instead of string");
-            continue;
-        }
-        if (DnsCheckDomain(domain, whitelist[i])) return 1;
-    }
-    return 0;
-}
-
 int DnsCheckDomain(const char* domain, const char* pattern) {
     /*
      * Supported whitelist patterns:

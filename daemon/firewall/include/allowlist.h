@@ -55,9 +55,6 @@ void WhitelistInit(Whitelist* wl);
 /** @brief Add a domain to the whitelist. */
 int WhitelistAdd(Whitelist* wl, const char* domain);
 
-/** @brief Check if a domain is in the whitelist. */
-int WhitelistContains(Whitelist* wl, const char* domain);
-
 /** @brief Clear all entries from the whitelist. */
 void WhitelistClear(Whitelist* wl);
 
@@ -87,6 +84,14 @@ int IpAllowlistContains(IpAllowlist* al, uint32_t ip);
 
 /** @brief Get domain associated with an IP address from allowlist. */
 const char* IpAllowlistGetDomain(IpAllowlist* al, uint32_t ip);
+
+/**
+ * @brief Look up an IP entry without an extra time() call.
+ *
+ * Returns the live (unexpired) entry for `ip`, or NULL. Pass the cached
+ * current time so the packet hot path calls time() once instead of per lookup.
+ */
+AllowedIp* IpAllowlistLookup(IpAllowlist* al, uint32_t ip, time_t now);
 
 /** @brief Remove an IP address from the allowlist. Returns 1 if removed. */
 int IpAllowlistRemove(IpAllowlist* al, uint32_t ip);

@@ -464,15 +464,41 @@ static int SendPacket(HANDLE handle, void* data, UINT len, WINDIVERT_ADDRESS* ad
     return 1;
 }
 
-/**
- * @brief Check if destination IP is allowed.
- *
- * @param[in] dest_ip Destination IPv4 address (network byte order).
- *
- * @return Non-zero if allowed, zero if blocked.
- */
-int IsAllowed(uint32_t dest_ip) {
-    return IpAllowlistContains(&g_IpAllowlist, dest_ip);
+// Rate-limit blocked-packet logging: remember the last time each destination IP
+// was logged and skip repeats within BLOCK_LOG_INTERVAL_MS. Prevents the packet
+// thread from hammering the log critical section when filtering blocks a whole
+// subnet/domain at once.
+#define BLOCK_LOG_INTERVAL_MS 1000
+#define BLOCK_LOG_SLOTS 64
+
+typedef struct {
+    uint32_t ip;
+    DWORD last_log_ms;
+} BlockLogEntry;
+
+static int should_log_block(uint32_t dest_ip) {
+    static BlockLogEntry entries[BLOCK_LOG_SLOTS];
+    static int initialized = 0;
+    static size_t next = 0;
+    if (!initialized) {
+        for (size_t i = 0; i < BLOCK_LOG_SLOTS; i++) entries[i].ip = 0;
+        initialized = 1;
+    }
+
+    DWORD now = GetTickCount();
+    for (size_t i = 0; i < BLOCK_LOG_SLOTS; i++) {
+        if (entries[i].ip == dest_ip) {
+            if (now - entries[i].last_log_ms < BLOCK_LOG_INTERVAL_MS) return 0;
+            entries[i].last_log_ms = now;
+            return 1;
+        }
+    }
+
+    // Not tracked yet — evict a slot (round-robin) and log.
+    entries[next].ip = dest_ip;
+    entries[next].last_log_ms = now;
+    next = (next + 1) % BLOCK_LOG_SLOTS;
+    return 1;
 }
 
 #define WINDIVERT_FILTER "ip"
@@ -696,7 +722,12 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
                 }
 
                 int domain_whitelisted = 0;
-                AcquireSRWLockShared(&g_AllowlistLock);
+                int domain_excepted = 0;
+
+                // Single lock acquisition: check whitelist/blacklist membership
+                // then apply the allowlist/blocklist changes atomically.
+                AcquireSRWLockExclusive(&g_AllowlistLock);
+
                 for (size_t w = 0; w < g_Whitelist.count; w++) {
                     if (DnsCheckDomainLower(dns.question.domain, g_Whitelist.entries[w].pattern_lower)) {
                         domain_whitelisted = 1;
@@ -704,19 +735,16 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
                     }
                 }
 
-                int domain_excepted = 0;
                 for (size_t w = 0; w < g_Blacklist.count; w++) {
                     if (DnsCheckDomainLower(dns.question.domain, g_Blacklist.entries[w].pattern_lower)) {
                         domain_excepted = 1;
                         break;
                     }
                 }
-                ReleaseSRWLockShared(&g_AllowlistLock);
 
                 // Only whitelisted domains may enter the allowlist. If the domain
                 // matches an exception rule, its IPs go to the blocklist so they
                 // stay blocked even when shared with an allowed domain.
-                AcquireSRWLockExclusive(&g_AllowlistLock);
                 if (g_FiltrationEnabled && domain_whitelisted && !domain_excepted) {
                     for (uint32_t i = 0; i < dns.answer_count; i++) {
                         for (uint32_t j = 0; j < dns.answers[i].ip_count; j++) {
@@ -782,32 +810,31 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
             // modifies the allowlist between GetDomain and the whitelist iteration.
             char domain_buf[MAX_DOMAIN_LEN] = {0};
             int allowed = 0;
+            time_t now = time(NULL);
             AcquireSRWLockShared(&g_AllowlistLock);
 
             // Blocklist wins: an IP learned from an excepted domain is blocked
             // even if the same IP is also in the allowlist (shared CDN IP).
-            if (IpAllowlistContains(&g_IpBlocklist, dest_ip)) {
+            if (IpAllowlistLookup(&g_IpBlocklist, dest_ip, now)) {
                 allowed = 0;
             } else {
-                allowed = IsAllowed(dest_ip);
+                // Single lookup: reuse the cached current time instead of the
+                // three separate time() calls the old helpers made.
+                AllowedIp* entry = IpAllowlistLookup(&g_IpAllowlist, dest_ip, now);
+                allowed = entry != NULL;
 
                 // Exception rules win: even an allowlisted IP must be blocked when
                 // its learned domain matches an exception (e.g. the exception was
                 // added after the IP was resolved, so its IPs are still in the
                 // allowlist but not yet in the blocklist).
-                if (allowed) {
-                    const char* dom = IpAllowlistGetDomain(&g_IpAllowlist, dest_ip);
-                    if (dom) {
-                        strncpy(domain_buf, dom, sizeof(domain_buf) - 1);
-                    }
-                    if (domain_buf[0]) {
-                        // Lowercase once; the blacklist patterns are pre-lowercased.
-                        ToLowerInplace(domain_buf);
-                        for (size_t w = 0; w < g_Blacklist.count; w++) {
-                            if (DnsCheckDomainLower(domain_buf, g_Blacklist.entries[w].pattern_lower)) {
-                                allowed = 0;
-                                break;
-                            }
+                if (allowed && entry->domain[0]) {
+                    strncpy(domain_buf, entry->domain, sizeof(domain_buf) - 1);
+                    // Lowercase once; the blacklist patterns are pre-lowercased.
+                    ToLowerInplace(domain_buf);
+                    for (size_t w = 0; w < g_Blacklist.count; w++) {
+                        if (DnsCheckDomainLower(domain_buf, g_Blacklist.entries[w].pattern_lower)) {
+                            allowed = 0;
+                            break;
                         }
                     }
                 }
@@ -816,13 +843,16 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
 
             if (!allowed) {
                 blocked_count++;
-                // Format the destination only when actually logging a block.
-                char dst[16];
-                inet_ntop(AF_INET, &ip_hdr->DstAddr, dst, sizeof(dst));
-                if (domain_buf[0]) {
-                    LOGB("Packet to %s blocked (domain: %s not whitelisted)", dst, domain_buf);
-                } else {
-                    LOGB("Packet to %s blocked", dst);
+                // Format the destination only when actually logging a block,
+                // and throttle per-destination to avoid log-lock saturation.
+                if (should_log_block(dest_ip)) {
+                    char dst[16];
+                    inet_ntop(AF_INET, &ip_hdr->DstAddr, dst, sizeof(dst));
+                    if (domain_buf[0]) {
+                        LOGB("Packet to %s blocked (domain: %s not whitelisted)", dst, domain_buf);
+                    } else {
+                        LOGB("Packet to %s blocked", dst);
+                    }
                 }
                 continue;
             }
