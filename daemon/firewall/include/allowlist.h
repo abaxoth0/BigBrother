@@ -96,4 +96,10 @@ AllowedIp* IpAllowlistLookup(IpAllowlist* al, uint32_t ip, time_t now);
 /** @brief Remove an IP address from the allowlist. Returns 1 if removed. */
 int IpAllowlistRemove(IpAllowlist* al, uint32_t ip);
 
+/**
+ * @brief Remove allowlist entries whose learned domain no longer matches any
+ * allow rule in `wl`. Caller must hold the exclusive allowlist lock.
+ */
+void IpAllowlistPurgeUnowned(IpAllowlist* al, const Whitelist* wl);
+
 #endif

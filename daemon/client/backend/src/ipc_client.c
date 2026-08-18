@@ -241,7 +241,7 @@ DWORD WINAPI client_handler(LPVOID param) {
         write_response_tlv(pipe, "OK", data, 9);
 
     } else if (strcmp(buffer, "GET_WHITELIST") == 0) {
-        char whitelist_buf[8192];
+        char whitelist_buf[DAEMON_MAX_MESSAGE_SIZE];
         if (DaemonGetWhitelist(whitelist_buf, sizeof(whitelist_buf)) != 0) {
             write_error_tlv(pipe, "failed to get whitelist");
         } else {

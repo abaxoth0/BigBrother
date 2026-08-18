@@ -350,12 +350,34 @@ void PreResolveWhitelist(void) {
     }
 
     // Apply resolved IPs under the exclusive lock (cheap, non-blocking).
+    // Re-validate each domain against the CURRENT whitelist first: a reload or
+    // SET_WHITELIST may have landed between the snapshot and this point, so
+    // domains removed in the meantime must not be (re)allowed.
     AcquireSRWLockExclusive(&g_AllowlistLock);
     for (size_t i = 0; i < ip_count; i++) {
+        int still_valid;
         if (ips[i].is_exception) {
-            IpAllowlistAdd(&g_IpBlocklist, ips[i].ip, ips[i].domain, IP_BLOCKLIST_TTL);
+            still_valid = 0;
+            for (size_t w = 0; w < g_Blacklist.count; w++) {
+                if (DnsCheckDomainLower(ips[i].domain, g_Blacklist.entries[w].pattern_lower)) {
+                    still_valid = 1;
+                    break;
+                }
+            }
+            if (still_valid) {
+                IpAllowlistAdd(&g_IpBlocklist, ips[i].ip, ips[i].domain, IP_BLOCKLIST_TTL);
+            }
         } else {
-            IpAllowlistAdd(&g_IpAllowlist, ips[i].ip, ips[i].domain, 300);
+            still_valid = 0;
+            for (size_t w = 0; w < g_Whitelist.count; w++) {
+                if (DnsCheckDomainLower(ips[i].domain, g_Whitelist.entries[w].pattern_lower)) {
+                    still_valid = 1;
+                    break;
+                }
+            }
+            if (still_valid) {
+                IpAllowlistAdd(&g_IpAllowlist, ips[i].ip, ips[i].domain, 300);
+            }
         }
     }
     ReleaseSRWLockExclusive(&g_AllowlistLock);
@@ -488,7 +510,8 @@ static int should_log_block(uint32_t dest_ip) {
     DWORD now = GetTickCount();
     for (size_t i = 0; i < BLOCK_LOG_SLOTS; i++) {
         if (entries[i].ip == dest_ip) {
-            if (now - entries[i].last_log_ms < BLOCK_LOG_INTERVAL_MS) return 0;
+            // Signed difference is wraparound-safe for GetTickCount.
+            if ((int32_t)(now - entries[i].last_log_ms) < BLOCK_LOG_INTERVAL_MS) return 0;
             entries[i].last_log_ms = now;
             return 1;
         }

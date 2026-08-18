@@ -1,5 +1,6 @@
 #include "../include/allowlist.h"
 #include "../include/common.h"
+#include "../include/dns.h"
 #include <stdio.h>
 
 // Grow a dynamic array (same realloc-doubling pattern as DA_GROW in common.h)
@@ -204,4 +205,29 @@ int IpAllowlistRemove(IpAllowlist* al, uint32_t ip) {
     free(entry);
     al->count--;
     return 1;
+}
+
+// Remove allowlist entries whose learned domain no longer matches any allow
+// rule in `wl` (e.g. after the server pushes a whitelist that drops a domain).
+// Domain learned from a DNS response is already lowercase; patterns are
+// pre-lowercased. Caller must hold the exclusive allowlist lock.
+void IpAllowlistPurgeUnowned(IpAllowlist* al, const Whitelist* wl) {
+    if (!al || !wl) return;
+    AllowedIp* entry;
+    AllowedIp* tmp;
+    HASH_ITER(hh, al->head, entry, tmp) {
+        if (entry->domain[0] == '\0') continue;
+        int still_owned = 0;
+        for (size_t w = 0; w < wl->count; w++) {
+            if (DnsCheckDomainLower(entry->domain, wl->entries[w].pattern_lower)) {
+                still_owned = 1;
+                break;
+            }
+        }
+        if (!still_owned) {
+            HASH_DEL(al->head, entry);
+            free(entry);
+            al->count--;
+        }
+    }
 }

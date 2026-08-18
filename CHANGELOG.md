@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Client backend: firewall IPC response reads are now message-mode with ERROR_MORE_DATA looping and 64KB buffers — whitelist dumps larger than 8KB are no longer silently truncated (removed domains from a big whitelist previously vanished mid-stream)
+- Firewall: `IpcSetWhitelist` now purges allowlist entries whose domain is no longer whitelisted, so a domain dropped from the server-pushed whitelist stops being reachable immediately instead of lingering until its IP TTL expires
+- Firewall: pre-resolve re-validates each resolved domain against the current whitelist before applying, so a concurrent whitelist change cannot (re)allow a removed domain
+- Firewall: blocked-packet log throttle uses a wraparound-safe tick comparison (GetTickCount unsigned underflow no longer disables throttling after ~49 days uptime)
 - Firewall: exception (`!domain`) rules now actually apply — IPs resolved for an excepted domain are kept in a blocklist checked before the allowlist, so the domain stays blocked even when it shares a CDN IP with an allowed domain
 - Firewall IPC: fix deadlock in the named-pipe request reader — the message-mode read loop kept waiting for a second request after reading a complete one, so every client-backend ↔ firewall call (PING/GET_STATUS/GET_WHITELIST/SET_WHITELIST) hung and the client backend appeared down while the firewall service stayed up
 - Installer: split into separate client (BigBrother-Client.nsi) and server (BigBrother-Server.nsi) installers

@@ -364,17 +364,39 @@ static int send_command_tlv(const char* command, const char** args, size_t arg_c
 
     FlushFileBuffers(pipe);
 
-    // Read response using old firewall format - read entire message
+    // Read response using old firewall format. The firewall pipe is message
+    // mode with up to 64KB messages; a single byte-mode ReadFile truncates
+    // large responses (e.g. a >8KB whitelist dump). Switch to message read
+    // mode and loop on ERROR_MORE_DATA to assemble the full response.
+    DWORD pipe_mode = PIPE_READMODE_MESSAGE;
+    SetNamedPipeHandleState(pipe, &pipe_mode, NULL, NULL);
+
+    size_t total = 0;
     DWORD bytes_read = 0;
-    if (!ReadFile(pipe, out_buffer, (DWORD)(buffer_size - 1), &bytes_read, NULL)) {
+    BOOL ok = FALSE;
+
+    for (;;) {
+        if (total >= buffer_size - 1) break;
+        ok = ReadFile(pipe, out_buffer + total, (DWORD)(buffer_size - 1 - total), &bytes_read, NULL);
+        if (ok) {
+            total += bytes_read;
+            break; // complete message read
+        }
+        if (GetLastError() != ERROR_MORE_DATA) break;
+        if (bytes_read == 0) break;
+        total += bytes_read;
+        if (total >= buffer_size - 1) break;
+    }
+
+    if (!ok && total == 0) {
         CloseHandle(pipe);
         return -1;
     }
-    out_buffer[bytes_read] = '\0';
+    out_buffer[total] = '\0';
 
     // Remove trailing newlines
-    while (bytes_read > 0 && (out_buffer[bytes_read - 1] == '\n' || out_buffer[bytes_read - 1] == '\r')) {
-        out_buffer[--bytes_read] = '\0';
+    while (total > 0 && (out_buffer[total - 1] == '\n' || out_buffer[total - 1] == '\r')) {
+        out_buffer[--total] = '\0';
     }
 
     CloseHandle(pipe);
@@ -820,7 +842,7 @@ static int srv_read_tlv(SrvLineReader* r, char* out, size_t out_size) {
 
 // Fetches and applies the whitelist from the server.
 static void sync_whitelist_from_server(const char* username) {
-    char whitelist_buf[8192];
+    char whitelist_buf[DAEMON_MAX_MESSAGE_SIZE];
     const char* wl_args[1] = {username};
     char response[8192] = {0};
 
@@ -883,7 +905,7 @@ static void sync_filtration_from_server(void) {
 // Blocks all traffic if the server is unreachable and fallback is disabled.
 static void block_all_if_no_fallback(void) {
     if (g_fallback_whitelist_enabled || g_blocked_all_pushed) return;
-    char whitelist_buf[8192];
+    char whitelist_buf[DAEMON_MAX_MESSAGE_SIZE];
     LOGF("[Daemon] Server unreachable and fallback off - blocking all traffic");
     if (DaemonSetWhitelist("", 0, whitelist_buf, sizeof(whitelist_buf)) == 0) {
         g_whitelist_revision++;
