@@ -74,6 +74,7 @@ int WhitelistAdd(Whitelist* wl, const char* domain) {
     }
     strncpy(wl->entries[wl->count].domain, domain, MAX_DOMAIN_LEN - 1);
     wl->entries[wl->count].domain[MAX_DOMAIN_LEN - 1] = '\0';
+    STR_COPY_LOWER(wl->entries[wl->count].pattern_lower, domain, MAX_DOMAIN_LEN);
     wl->entries[wl->count].added_time = time(NULL);
     wl->count++;
     return 0;

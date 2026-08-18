@@ -21,6 +21,9 @@
 /** @brief Single whitelist entry containing a domain name (allow rules only). */
 typedef struct {
     char domain[MAX_DOMAIN_LEN];
+    // Lowercased copy of `domain`, precomputed at load time so the packet/DNS
+    // hot paths never re-lowercase the pattern.
+    char pattern_lower[MAX_DOMAIN_LEN];
     time_t added_time;
 } WhitelistEntry;
 

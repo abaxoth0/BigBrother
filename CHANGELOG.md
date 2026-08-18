@@ -27,6 +27,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Firewall: pre-resolve no longer holds the allowlist lock during blocking `getaddrinfo` calls — domains are snapshotted under the shared lock, resolved outside it, then applied under the exclusive lock (whitelist reload/set no longer stalls the packet thread)
+- Firewall: `inet_ntop` moved out of the per-packet hot path (only formatted for debug logs and blocked-packet logs)
+- Firewall: whitelist/blacklist patterns are pre-lowercased at load time (`WhitelistEntry.pattern_lower`) and matched via a new `DnsCheckDomainLower` — the domain is lowercased once per lookup instead of per entry on the packet/DNS hot paths
 - Firewall: IP allowlist/blocklist switched from a dynamic array to a uthash hash table keyed by IP — per-packet `Contains`/`GetDomain` lookups are O(1) average instead of O(n); expired entries are handled lazily and swept at most once a minute (was a full O(n) compaction on every add)
 - Firewall: whitelist and IP allowlist/blocklist are now dynamic arrays (initial capacity 1000, realloc-doubling) instead of fixed-size static arrays — no more wasted memory from the 32768-entry IP allowlist and no hard cap on whitelist size
 - Firewall: exception (`!domain`) rules moved into a separate `g_Blacklist` — allow-rule matching (DNS whitelist check, packet-path exception scan) no longer iterates over exception entries; the packet-path exception loop now only scans blacklist rules

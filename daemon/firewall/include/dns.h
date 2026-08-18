@@ -108,6 +108,19 @@ int DnsCheckDomains(const char* domain, const char* whitelist[], size_t whitelis
 int DnsCheckDomain(const char* domain, const char* pattern);
 
 /**
+ * @brief Check if a (lowercased) domain matches a (lowercased) whitelist pattern.
+ *
+ * Same matching semantics as DnsCheckDomain, but both inputs must already be
+ * lowercased. Use on the packet/DNS hot paths with the pre-lowercased pattern
+ * stored in WhitelistEntry.pattern_lower to avoid re-lowercasing per lookup.
+ *
+ * @param[in] domain_lower   Lowercased domain name.
+ * @param[in] pattern_lower  Lowercased whitelist pattern.
+ * @return 1 if matches, 0 if not, -1 on error (null parameters).
+ */
+int DnsCheckDomainLower(const char* domain_lower, const char* pattern_lower);
+
+/**
  * @brief Compute the offset just past the first question section (name + type + class).
  *
  * Used to append answer records after the question so DNS compression pointers

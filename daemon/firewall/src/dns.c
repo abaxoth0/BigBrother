@@ -272,26 +272,45 @@ int DnsCheckDomain(const char* domain, const char* pattern) {
     char pattern_lower[DNS_MAX_STR_DOMAIN_LEN];
     STR_COPY_LOWER(domain_lower, domain, DNS_MAX_STR_DOMAIN_LEN);
     STR_COPY_LOWER(pattern_lower, pattern, DNS_MAX_STR_DOMAIN_LEN);
+    return DnsCheckDomainLower(domain_lower, pattern_lower);
+}
 
+// Same matching as DnsCheckDomain, but both inputs are expected to be already
+// lowercased (the pattern is pre-lowercased at whitelist load time, the domain
+// is lowercased once by the caller). Avoids per-entry re-lowercasing on the
+// packet/DNS hot paths. Does not modify either input.
+int DnsCheckDomainLower(const char* domain_lower, const char* pattern_lower) {
+    if (domain_lower == NULL) {
+        return -1;
+    }
+
+    size_t pattern_len = strlen(pattern_lower);
     int is_substring = 0;
-    if (pattern_lower[0] == '"' && pattern_lower[strlen(pattern_lower)-1] == '"') {
-        pattern_lower[strlen(pattern_lower)-1] = '\0';
-        memmove(pattern_lower, pattern_lower + 1, strlen(pattern_lower));
-        // A lone quote ("" after stripping) would match every domain — treat as no match.
-        if (pattern_lower[0] == '\0') {
+    char substring[DNS_MAX_STR_DOMAIN_LEN];
+    const char* pattern = pattern_lower;
+
+    if (pattern_lower[0] == '"' && pattern_len >= 2 &&
+        pattern_lower[pattern_len - 1] == '"') {
+        // A lone quote ("") would match every domain — treat as no match.
+        if (pattern_len == 2) {
             return 0;
         }
+        // Copy without the quotes so the pattern is properly null-terminated
+        // (the shared whitelist buffer must not be modified).
+        memcpy(substring, pattern_lower + 1, pattern_len - 2);
+        substring[pattern_len - 2] = '\0';
+        pattern = substring;
         is_substring = 1;
     }
 
     // Handle pattern matching syntax
-    if (is_substring && strstr(domain_lower, pattern_lower) != NULL) {
+    if (is_substring && strstr(domain_lower, pattern) != NULL) {
         return 1;
     }
 
     // Handle wildcard syntax
-    if (pattern_lower[0] == '*' && pattern_lower[1] == '.') {
-        const char* suffix = pattern_lower + 2;
+    if (pattern[0] == '*' && pattern[1] == '.') {
+        const char* suffix = pattern + 2;
         size_t suffix_len = strlen(suffix);
         size_t domain_len = strlen(domain_lower);
 
@@ -304,7 +323,7 @@ int DnsCheckDomain(const char* domain, const char* pattern) {
     }
 
     // Handle exact match
-    if (strcmp(domain_lower, pattern_lower) == 0) {
+    if (strcmp(domain_lower, pattern) == 0) {
         return 1;
     }
 
