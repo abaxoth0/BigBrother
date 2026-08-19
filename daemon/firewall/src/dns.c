@@ -65,13 +65,21 @@ static uint32_t parse_dns_name(const uint8_t* payload, size_t payload_len,
             continue;
         }
 
+        // Labels are at most 63 octets (RFC 1035). Bytes 0x40..0xBF are reserved
+        // and must not be treated as a label length.
+        if (label_len > 63) break;
+
         offset++;
 
         if (out_pos > 0 && out_pos < out_len - 1) {
             out[out_pos++] = '.';
         }
 
+        // Clamp against BOTH the output buffer and the payload boundary to avoid
+        // reading past the packet (remote heap over-read).
         size_t copy_len = label_len;
+        size_t avail_in = payload_len - offset; // offset < payload_len guaranteed
+        if (copy_len > avail_in) copy_len = avail_in;
         if (out_pos + copy_len >= out_len) {
             copy_len = out_len - out_pos - 1;
         }
@@ -112,6 +120,23 @@ bool DnsIsDnsPacket(const uint8_t* payload, size_t payload_len) {
     }
 
     return payload_len >= DNS_MIN_REQ_LEN;
+}
+
+size_t DnsGetQuestionEnd(const uint8_t* payload, size_t payload_len) {
+    if (payload == NULL || payload_len < sizeof(DnsHeader)) {
+        return 0;
+    }
+
+    DnsHeader* hdr = (DnsHeader*)payload;
+    uint16_t qdcount = ntohs(hdr->question_count);
+    if (qdcount == 0) return 0;
+
+    char name[DNS_MAX_DOMAIN_LEN + 1];
+    size_t offset = parse_dns_name(payload, payload_len, sizeof(DnsHeader), name, sizeof(name));
+
+    // 2 bytes type + 2 bytes class
+    if (offset + 4 > payload_len) return 0;
+    return offset + 4;
 }
 
 DnsPacket DnsParse(const uint8_t* payload, size_t payload_len) {
@@ -190,18 +215,19 @@ DnsPacket DnsParse(const uint8_t* payload, size_t payload_len) {
         // Verify that there are enough space for rdata
         if (offset + rdlen > payload_len) break;
 
+        // Skip records we don't use (CNAME, AAAA, etc.) so they don't consume
+        // answer slots: a response with many extra records before the A record
+        // could otherwise exhaust DNS_MAX_IPS and drop the A answer entirely.
         if (rtype == DNS_TYPE_A && rdlen == IP_V4_SIZE) { // IPv4
             uint32_t ip = ntohl(*(uint32_t*)(payload + offset));
             packet.answers[answer_idx].ip_count = 1;
             packet.answers[answer_idx].ips[0] = ip;
-        } else if (rtype == DNS_TYPE_AAAA && rdlen == IP_V6_SIZE) { // IPv6
-            memcpy(packet.answers[answer_idx].ip6s[0], payload + offset, IP_V6_SIZE);
-            packet.answers[answer_idx].ip6_count = 1;
+            packet.answers[answer_idx].ip6_count = 0;
+            strncpy(packet.answers[answer_idx].domain, name, DNS_MAX_STR_DOMAIN_LEN);
+            packet.answers[answer_idx].domain[DNS_MAX_STR_DOMAIN_LEN-1] = '\0';
+            packet.answers[answer_idx].ttl = ttl;
+            answer_idx++;
         }
-        strncpy(packet.answers[answer_idx].domain, name, DNS_MAX_STR_DOMAIN_LEN);
-        packet.answers[answer_idx].domain[DNS_MAX_STR_DOMAIN_LEN-1] = '\0';
-        packet.answers[answer_idx].ttl = ttl;
-        answer_idx++;
 
         offset += rdlen;
     }
@@ -216,53 +242,42 @@ void DnsFree(DnsPacket* packet) {
     memset(packet, 0, sizeof(DnsPacket));
 }
 
-int DnsCheckDomains(const char* domain, const char* whitelist[], size_t whitelist_count) {
-    if (domain == NULL || whitelist == NULL) {
-        return -1;
-    }
-    for (size_t i = 0; i < whitelist_count; i++) {
-        if (whitelist[i] == NULL) {
-            assert(0 && "Corrupted whitelist: got NULL pointer instead of string");
-            continue;
-        }
-        if (DnsCheckDomain(domain, whitelist[i])) return 1;
-    }
-    return 0;
-}
-
-int DnsCheckDomain(const char* domain, const char* pattern) {
-    /*
-     * Supported whitelist patterns:
-     * 1. Exact match: "github.com" matches only "github.com"
-     * 2. Wildcard suffix: "*.github.com" matches "api.github.com", "raw.githubusercontent.com"
-     * 3. Substring: "\"github\"" matches any domain containing "github"
-     *
-     * Comparison is case-insensitive.
-     */
-    if (domain == NULL) {
+// Same matching as DnsCheckDomainLower's caller contract: both inputs are
+// expected to be already lowercased (the pattern is pre-lowercased at whitelist
+// load time, the domain is lowercased once by the caller). Avoids per-entry
+// re-lowercasing on the packet/DNS hot paths. Does not modify either input.
+int DnsCheckDomainLower(const char* domain_lower, const char* pattern_lower) {
+    if (domain_lower == NULL) {
         return -1;
     }
 
-    char domain_lower[DNS_MAX_STR_DOMAIN_LEN];
-    char pattern_lower[DNS_MAX_STR_DOMAIN_LEN];
-    STR_COPY_LOWER(domain_lower, domain, DNS_MAX_STR_DOMAIN_LEN);
-    STR_COPY_LOWER(pattern_lower, pattern, DNS_MAX_STR_DOMAIN_LEN);
-
+    size_t pattern_len = strlen(pattern_lower);
     int is_substring = 0;
-    if (pattern_lower[0] == '"' && pattern_lower[strlen(pattern_lower)-1] == '"') {
-        pattern_lower[strlen(pattern_lower)-1] = '\0';
-        memmove(pattern_lower, pattern_lower + 1, strlen(pattern_lower));
+    char substring[DNS_MAX_STR_DOMAIN_LEN];
+    const char* pattern = pattern_lower;
+
+    if (pattern_lower[0] == '"' && pattern_len >= 2 &&
+        pattern_lower[pattern_len - 1] == '"') {
+        // A lone quote ("") would match every domain — treat as no match.
+        if (pattern_len == 2) {
+            return 0;
+        }
+        // Copy without the quotes so the pattern is properly null-terminated
+        // (the shared whitelist buffer must not be modified).
+        memcpy(substring, pattern_lower + 1, pattern_len - 2);
+        substring[pattern_len - 2] = '\0';
+        pattern = substring;
         is_substring = 1;
     }
 
     // Handle pattern matching syntax
-    if (is_substring && strstr(domain_lower, pattern_lower) != NULL) {
+    if (is_substring && strstr(domain_lower, pattern) != NULL) {
         return 1;
     }
 
     // Handle wildcard syntax
-    if (pattern_lower[0] == '*' && pattern_lower[1] == '.') {
-        const char* suffix = pattern_lower + 2;
+    if (pattern[0] == '*' && pattern[1] == '.') {
+        const char* suffix = pattern + 2;
         size_t suffix_len = strlen(suffix);
         size_t domain_len = strlen(domain_lower);
 
@@ -275,7 +290,7 @@ int DnsCheckDomain(const char* domain, const char* pattern) {
     }
 
     // Handle exact match
-    if (strcmp(domain_lower, pattern_lower) == 0) {
+    if (strcmp(domain_lower, pattern) == 0) {
         return 1;
     }
 

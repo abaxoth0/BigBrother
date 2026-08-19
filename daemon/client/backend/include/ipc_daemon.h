@@ -12,6 +12,9 @@
 
 #define DAEMON_PIPE_NAME "BigBrother.Firewall"
 #define DAEMON_PIPE_BUFFER_SIZE 4096
+// Max IPC message size (matches the firewall's IPC_MAX_MESSAGE_SIZE): large
+// enough for a full whitelist + exception rules dump.
+#define DAEMON_MAX_MESSAGE_SIZE (64 * 1024)
 
 #define DISCOVERY_MAX_SERVERS 32
 

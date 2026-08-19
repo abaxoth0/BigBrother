@@ -9,60 +9,66 @@
 #include <string.h>
 #include <stdint.h>
 #include <time.h>
+#include "uthash.h"
 
-#define MAX_WHITELIST_DOMAINS 256
 #define MAX_DOMAIN_LEN 256
-#define MAX_ALLOWED_IPS 32768
 
-/** @brief Single whitelist entry containing a domain name. */
+#define WHITELIST_INITIAL_CAPACITY 1000
+
+// Sweep expired IP allowlist entries at most this often (seconds).
+#define IP_ALLOWLIST_SWEEP_INTERVAL 60
+
+/** @brief Single whitelist entry containing a domain name (allow rules only). */
 typedef struct {
     char domain[MAX_DOMAIN_LEN];
+    // Lowercased copy of `domain`, precomputed at load time so the packet/DNS
+    // hot paths never re-lowercase the pattern.
+    char pattern_lower[MAX_DOMAIN_LEN];
     time_t added_time;
-    int is_exception;
 } WhitelistEntry;
 
-/** @brief Container for whitelisted domains. */
+/** @brief Container for whitelisted domains (allow rules). */
 typedef struct {
-    WhitelistEntry entries[MAX_WHITELIST_DOMAINS];
+    WhitelistEntry* entries;
     size_t count;
+    size_t capacity;
 } Whitelist;
 
 /** @brief Single allowed IP entry with associated domain and TTL. */
 typedef struct {
-    uint32_t ip;
+    uint32_t ip;                // hash key
     char domain[MAX_DOMAIN_LEN];
     time_t expires;
+    UT_hash_handle hh;          // uthash handle (must be last)
 } AllowedIp;
 
-#define IP_ALLOW_LIST_CLEANUP_COOLDOWN 60 // 1 min
-
-/** @brief Container for allowed IP addresses. */
+/** @brief Container for allowed IP addresses (uthash table). */
 typedef struct {
-    AllowedIp ips[MAX_ALLOWED_IPS];
-    size_t count;
-    time_t last_cleared_at;
+    AllowedIp* head;            // uthash table head
+    size_t count;               // live (unexpired) entry count
+    time_t last_sweep;          // last time expired entries were purged
 } IpAllowlist;
 
 /** @brief Initialize a whitelist structure. */
 void WhitelistInit(Whitelist* wl);
 
 /** @brief Add a domain to the whitelist. */
-int WhitelistAdd(Whitelist* wl, const char* domain, int is_exception);
-
-/** @brief Check if a domain is in the whitelist (non-exception entries only). */
-int WhitelistContains(Whitelist* wl, const char* domain);
-
-/** @brief Check if a domain matches any exception entry in the whitelist. */
-int WhitelistContainsException(Whitelist* wl, const char* domain);
+int WhitelistAdd(Whitelist* wl, const char* domain);
 
 /** @brief Clear all entries from the whitelist. */
 void WhitelistClear(Whitelist* wl);
 
-/** @brief Load whitelist from data (e.g., received via IPC). */
-int WhitelistLoadFromData(Whitelist* wl, const char* data, size_t size);
+/** @brief Free the dynamic array backing a whitelist. */
+void WhitelistFree(Whitelist* wl);
+
+/** @brief Load whitelist from data (e.g., received via IPC); '!' entries go to bl. */
+int WhitelistLoadFromData(Whitelist* wl, Whitelist* bl, const char* data, size_t size);
 
 /** @brief Clear all entries from the IP allowlist. */
 void IpAllowlistClear(IpAllowlist* al);
+
+/** @brief Free the dynamic array backing an IP allowlist. */
+void IpAllowlistFree(IpAllowlist* al);
 
 /** @brief Initialize an IP allowlist structure. */
 void IpAllowlistInit(IpAllowlist* al);
@@ -78,5 +84,22 @@ int IpAllowlistContains(IpAllowlist* al, uint32_t ip);
 
 /** @brief Get domain associated with an IP address from allowlist. */
 const char* IpAllowlistGetDomain(IpAllowlist* al, uint32_t ip);
+
+/**
+ * @brief Look up an IP entry without an extra time() call.
+ *
+ * Returns the live (unexpired) entry for `ip`, or NULL. Pass the cached
+ * current time so the packet hot path calls time() once instead of per lookup.
+ */
+AllowedIp* IpAllowlistLookup(IpAllowlist* al, uint32_t ip, time_t now);
+
+/** @brief Remove an IP address from the allowlist. Returns 1 if removed. */
+int IpAllowlistRemove(IpAllowlist* al, uint32_t ip);
+
+/**
+ * @brief Remove allowlist entries whose learned domain no longer matches any
+ * allow rule in `wl`. Caller must hold the exclusive allowlist lock.
+ */
+void IpAllowlistPurgeUnowned(IpAllowlist* al, const Whitelist* wl);
 
 #endif

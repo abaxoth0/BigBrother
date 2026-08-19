@@ -12,8 +12,6 @@ extern FILE* LogFile;
 
 #define LOGF_BUF_SIZE 4096
 
-static char logf_buf[LOGF_BUF_SIZE] __attribute__((unused));
-
 #define LOG_TYPE_LOG  1
 #define LOG_TYPE_DLOG 2
 
@@ -73,26 +71,30 @@ void log_write_async(uint16_t type, uint8_t level, const char* msg);
 void log_write_sync(uint16_t type, uint8_t level, const char* msg);
 
 #define LOGF(...) do { \
-    snprintf(logf_buf, LOGF_BUF_SIZE, __VA_ARGS__);  \
-    log_write_async(LOG_TYPE_LOG, LOG_LEVEL_INFO, logf_buf); \
+    char _logf_buf[LOGF_BUF_SIZE];  \
+    snprintf(_logf_buf, LOGF_BUF_SIZE, __VA_ARGS__);  \
+    log_write_async(LOG_TYPE_LOG, LOG_LEVEL_INFO, _logf_buf); \
 } while(0)
 
 #define LOGE(...) do { \
-    snprintf(logf_buf, LOGF_BUF_SIZE, __VA_ARGS__);  \
-    log_write_async(LOG_TYPE_LOG, LOG_LEVEL_ERROR, logf_buf); \
+    char _logf_buf[LOGF_BUF_SIZE];  \
+    snprintf(_logf_buf, LOGF_BUF_SIZE, __VA_ARGS__);  \
+    log_write_async(LOG_TYPE_LOG, LOG_LEVEL_ERROR, _logf_buf); \
 } while(0)
 
 #define LOGB(...) do { \
-    snprintf(logf_buf, LOGF_BUF_SIZE, __VA_ARGS__);  \
-    log_write_async(LOG_TYPE_LOG, LOG_LEVEL_BLOCKED, logf_buf); \
+    char _logf_buf[LOGF_BUF_SIZE];  \
+    snprintf(_logf_buf, LOGF_BUF_SIZE, __VA_ARGS__);  \
+    log_write_async(LOG_TYPE_LOG, LOG_LEVEL_BLOCKED, _logf_buf); \
 } while(0)
 
 #ifdef DEBUG
 
 #define DLOGF(...) do { \
-    snprintf(logf_buf, LOGF_BUF_SIZE, __VA_ARGS__);  \
-    log_write_async(LOG_TYPE_DLOG, LOG_LEVEL_DEBUG, logf_buf); \
-    OutputDebugString(logf_buf); \
+    char _logf_buf[LOGF_BUF_SIZE];  \
+    snprintf(_logf_buf, LOGF_BUF_SIZE, __VA_ARGS__);  \
+    log_write_async(LOG_TYPE_DLOG, LOG_LEVEL_DEBUG, _logf_buf); \
+    OutputDebugString(_logf_buf); \
 } while(0)
 
 #else

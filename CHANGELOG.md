@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Firewall: `IpcSetWhitelist` allowlist purge no longer deletes literal-IP allow rules (e.g. `8.8.8.8` from the whitelist file) — only domain-learned entries whose domain is no longer whitelisted are removed
+- Firewall: DNS response parser skips unused answer records (CNAME, AAAA, etc.) so they no longer consume answer slots — a response with many extra records before the A record can no longer cause the domain's IPv4 addresses to be dropped from the allowlist
+- Client backend: server-sourced whitelist buffers raised to 64KB (`g_last_whitelist`, GET_WHITELIST response) so a server whitelist larger than 8KB is no longer truncated before being pushed to the firewall
+- Client backend: firewall IPC response reads are now message-mode with ERROR_MORE_DATA looping and 64KB buffers — whitelist dumps larger than 8KB are no longer silently truncated (removed domains from a big whitelist previously vanished mid-stream)
+- Firewall: `IpcSetWhitelist` now purges allowlist entries whose domain is no longer whitelisted, so a domain dropped from the server-pushed whitelist stops being reachable immediately instead of lingering until its IP TTL expires
+- Firewall: pre-resolve re-validates each resolved domain against the current whitelist before applying, so a concurrent whitelist change cannot (re)allow a removed domain
+- Firewall: blocked-packet log throttle uses a wraparound-safe tick comparison (GetTickCount unsigned underflow no longer disables throttling after ~49 days uptime)
+- Firewall: exception (`!domain`) rules now actually apply — IPs resolved for an excepted domain are kept in a blocklist checked before the allowlist, so the domain stays blocked even when it shares a CDN IP with an allowed domain
+- Firewall IPC: fix deadlock in the named-pipe request reader — the message-mode read loop kept waiting for a second request after reading a complete one, so every client-backend ↔ firewall call (PING/GET_STATUS/GET_WHITELIST/SET_WHITELIST) hung and the client backend appeared down while the firewall service stayed up
 - Installer: split into separate client (BigBrother-Client.nsi) and server (BigBrother-Server.nsi) installers
 - Installer: service start type fixed to demand (manual), installers install to separate directories
 - Server: reduce connection TTL from 10min to 15s with periodic cleanup goroutine (stale clients drop off within 15s)
@@ -25,6 +34,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Firewall: `is_local` private-range check computed lazily (only when filtration is active) instead of on every packet
+- Firewall: removed dead 1500-byte per-packet payload buffer and dead `DnsCheckDomain` wrapper
+- Firewall: whitelist dedup is case-insensitive (uses the pre-lowered pattern)
+- Firewall: packet hot path performs a single IP lookup with a cached timestamp (`IpAllowlistLookup`) instead of three separate `time()`-heavy `Contains`/`GetDomain` calls
+- Firewall: blocked-packet logging is rate-limited per destination IP (once/second) so heavy blocking no longer saturates the log critical section
+- Firewall: DNS response path uses a single lock acquisition (was shared+exclusive round-trips)
+- Firewall: removed dead code (`IsAllowed`, `WhitelistContains`, `match_domain`, `DnsCheckDomains`)
+- Firewall: pre-resolve no longer holds the allowlist lock during blocking `getaddrinfo` calls — domains are snapshotted under the shared lock, resolved outside it, then applied under the exclusive lock (whitelist reload/set no longer stalls the packet thread)
+- Firewall: `inet_ntop` moved out of the per-packet hot path (only formatted for debug logs and blocked-packet logs)
+- Firewall: whitelist/blacklist patterns are pre-lowercased at load time (`WhitelistEntry.pattern_lower`) and matched via a new `DnsCheckDomainLower` — the domain is lowercased once per lookup instead of per entry on the packet/DNS hot paths
+- Firewall: IP allowlist/blocklist switched from a dynamic array to a uthash hash table keyed by IP — per-packet `Contains`/`GetDomain` lookups are O(1) average instead of O(n); expired entries are handled lazily and swept at most once a minute (was a full O(n) compaction on every add)
+- Firewall: whitelist and IP allowlist/blocklist are now dynamic arrays (initial capacity 1000, realloc-doubling) instead of fixed-size static arrays — no more wasted memory from the 32768-entry IP allowlist and no hard cap on whitelist size
+- Firewall: exception (`!domain`) rules moved into a separate `g_Blacklist` — allow-rule matching (DNS whitelist check, packet-path exception scan) no longer iterates over exception entries; the packet-path exception loop now only scans blacklist rules
+- Firewall: cleanup pass fixing memory-safety, races, and functional bugs — DNS name parsing clamped against packet bounds and RFC 1035 label limits (fixes remote heap over-read via crafted UDP/53); log ring buffer is wrap-aware with entry-length validation and serialized producers; allowlist reads are pure (cleanup only under the exclusive writer lock); IPC reads full messages in a loop handling `ERROR_MORE_DATA` with 64KB pipe buffers; DoH-canary spoof appends the answer after the question so the 0xC00C pointer and UDP/IP lengths stay valid; whitelist reload holds the exclusive lock and no longer uses `strtok`; WinDivert recv/send error handling with backoff and drop counters; threads joined before closing event handles; log rotation size raised to 10MB
 - Event-driven push replaces client daemon ↔ server polling: daemon subscribes (`SUBSCRIBE`) to server events (`WHITELIST_CHANGED`, `FILTRATION_TOGGLED`, `USER_APPROVED`) instead of polling `GET_WHITELIST`/`GET_FILTRATION`
 - Client daemon: no longer polls the server on a fixed interval (`-d <ip> [poll-interval]` legacy arg dropped)
 - Server frontend: dashboard refresh is event-driven over the frontend-pipe `SUBSCRIBE` feed; 5s full poll reduced to a 30s safety net
