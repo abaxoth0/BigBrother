@@ -16,9 +16,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Compile Include="..\..\..\lib\cs\LogParser.cs">
-      <Link>Lib\LogParser.cs</Link>
-    </Compile>
+    <ProjectReference Include="..\..\..\lib\cs\BigBrother.Frontend.Shared\BigBrother.Frontend.Shared.csproj" />
   </ItemGroup>
 
 </Project>

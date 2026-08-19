@@ -4,59 +4,27 @@ using System.Linq;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Input;
+using frontend.Models;
 using frontend.Services;
-using frontend.Views;
 
 namespace frontend.ViewModels;
-
-public class RelayCommand : ICommand
-{
-    private readonly Action<object?> _execute;
-    private readonly Predicate<object?>? _canExecute;
-
-    public RelayCommand(Action<object?> execute, Predicate<object?>? canExecute = null)
-    {
-        _execute = execute ?? throw new ArgumentNullException(nameof(execute));
-        _canExecute = canExecute;
-    }
-
-    public bool CanExecute(object? parameter) => _canExecute?.Invoke(parameter) ?? true;
-
-    public void Execute(object? parameter) => _execute(parameter);
-
-    public event EventHandler? CanExecuteChanged
-    {
-        add => CommandManager.RequerySuggested += value;
-        remove => CommandManager.RequerySuggested -= value;
-    }
-
-    public void RaiseCanExecuteChanged()
-    {
-        CommandManager.InvalidateRequerySuggested();
-    }
-}
-
-public class ServerLogEntry
-{
-    public string Timestamp { get; set; } = "";
-    public string Level { get; set; } = "";
-    public string Source { get; set; } = "";
-    public string Message { get; set; } = "";
-}
 
 public class MainViewModel : ViewModelBase
 {
     private readonly IpcService _ipcService;
     private readonly ServiceManager _serviceManager;
+    private readonly ServerLogTailer _logTailer;
+    private readonly IWhitelistDialogService _whitelistDialog;
     private System.Timers.Timer? _refreshTimer;
     private System.Timers.Timer? _serviceStatusTimer;
-    private System.Timers.Timer? _logReaderTimer;
+    private int _refreshInProgress;
 
     private string _serverStatus = "Подключение...";
     private string _uptime = "";
     private int _connectedClientsCount;
     private int _pendingCount;
     private bool _isConnected;
+    private bool _hasSettingsChanges;
 
     private string _serviceStatus = "Проверка...";
     private string _filtrationStatus = "N/A";
@@ -67,9 +35,6 @@ public class MainViewModel : ViewModelBase
     private ObservableCollection<WhitelistInfo> _whitelists = new();
     private WhitelistInfo? _selectedWhitelist;
 
-    private string _logPath = "";
-    private string _lastLogFile = "";
-    private long _lastLogPosition;
     private string _logSearchText = "";
     private bool _autoScroll = true;
     private ObservableCollection<ServerLogEntry> _serverLogs = new();
@@ -81,12 +46,14 @@ public class MainViewModel : ViewModelBase
     public MainViewModel()
     {
         _ipcService = new IpcService();
-        _serviceManager = new ServiceManager();
+        _serviceManager = new ServiceManager("BigBrother Server");
+        _logTailer = new ServerLogTailer();
+        _logTailer.EntriesRead += OnLogEntriesRead;
+        _whitelistDialog = new WhitelistDialogService();
 
         ConnectedClients = new ObservableCollection<ConnectedClient>();
         PendingRegistrations = new ObservableCollection<PendingRegistration>();
         Whitelists = new ObservableCollection<WhitelistInfo>();
-        LogEntries = new ObservableCollection<string>();
 
         ApproveCommand = new RelayCommand(async o => await ApproveUserAsync(o?.ToString()!), o => o != null);
         RejectCommand = new RelayCommand(async o => await RejectUserAsync(o?.ToString()!), o => o != null);
@@ -101,6 +68,7 @@ public class MainViewModel : ViewModelBase
         ImportWhitelistsCommand = new RelayCommand(async _ => await ImportWhitelistsAsync());
         ExportWhitelistsCommand = new RelayCommand(async _ => await ExportWhitelistsAsync(), _ => Whitelists.Any(w => w.IsSelected));
         DeleteSelectedWhitelistsCommand = new RelayCommand(async _ => await DeleteSelectedWhitelistsAsync(), _ => Whitelists.Any(w => w.IsSelected));
+        SaveServerSettingsCommand = new RelayCommand(async _ => await SaveAllServerSettingsAsync());
         ToggleFiltrationCommand = new RelayCommand(async _ => await ToggleFiltrationAsync());
         StartServiceCommand = new RelayCommand(async _ => await StartServiceAsync());
         StopServiceCommand = new RelayCommand(async _ => await StopServiceAsync());
@@ -109,17 +77,52 @@ public class MainViewModel : ViewModelBase
         ExportServerLogsCommand = new RelayCommand(_ => ExportServerLogs());
         StartAutoRefresh();
         StartServiceStatusPolling();
-        StartLogReader();
+        _ipcService.EventReceived += OnEventReceived;
+        _ipcService.Resubscribed += OnEventResubscribed;
+        _ipcService.StartEventSubscription();
         _ = RefreshAllAsync();
         _ = LoadServerNameAsync();
         _ = LoadServerPortAsync();
         _ = LoadLogPathAsync();
     }
 
+    // Event-driven refresh: the server pushes state changes over SUBSCRIBE.
+    private void OnEventReceived(string type, Dictionary<string, string> data)
+    {
+        if (_disposed) return;
+        switch (type)
+        {
+            case "USER_CONNECTED":
+            case "USER_DISCONNECTED":
+                _ = RefreshClientsAsync();
+                _ = RefreshServerStatusAsync();
+                break;
+            case "PENDING_ADDED":
+            case "PENDING_REMOVED":
+            case "USER_APPROVED":
+            case "USER_REJECTED":
+                _ = RefreshPendingAsync();
+                _ = RefreshServerStatusAsync();
+                break;
+            case "WHITELIST_CHANGED":
+                _ = RefreshWhitelistsAsync();
+                _ = LoadActiveWhitelistAsync();
+                break;
+            case "FILTRATION_TOGGLED":
+                _ = RefreshServerStatusAsync();
+                break;
+        }
+    }
+
+    private void OnEventResubscribed()
+    {
+        if (_disposed) return;
+        _ = RefreshAllAsync();
+    }
+
     public ObservableCollection<ConnectedClient> ConnectedClients { get; }
     public ObservableCollection<PendingRegistration> PendingRegistrations { get; }
     public ObservableCollection<WhitelistInfo> Whitelists { get; }
-    public ObservableCollection<string> LogEntries { get; }
 
     public string ServerStatus
     {
@@ -182,13 +185,31 @@ public class MainViewModel : ViewModelBase
     public string ServerName
     {
         get => _serverName;
-        set => SetProperty(ref _serverName, value);
+        set
+        {
+            if (SetProperty(ref _serverName, value)) MarkSettingsChanged();
+        }
     }
 
     public string ServerPort
     {
         get => _serverPort;
-        set => SetProperty(ref _serverPort, value);
+        set
+        {
+            if (SetProperty(ref _serverPort, value)) MarkSettingsChanged();
+        }
+    }
+
+    public bool HasSettingsChanges
+    {
+        get => _hasSettingsChanges;
+        set => SetProperty(ref _hasSettingsChanges, value);
+    }
+
+    private void MarkSettingsChanged()
+    {
+        if (!_hasSettingsChanges)
+            HasSettingsChanges = true;
     }
 
     public WhitelistInfo? SelectedWhitelist
@@ -250,6 +271,7 @@ public class MainViewModel : ViewModelBase
     public ICommand ImportWhitelistsCommand { get; }
     public ICommand ExportWhitelistsCommand { get; }
     public ICommand DeleteSelectedWhitelistsCommand { get; }
+    public ICommand SaveServerSettingsCommand { get; }
     public ICommand ToggleFiltrationCommand { get; }
     public ICommand StartServiceCommand { get; }
     public ICommand StopServiceCommand { get; }
@@ -260,7 +282,8 @@ public class MainViewModel : ViewModelBase
     public event Action? AutoScrollRequested;
     private void StartAutoRefresh()
     {
-        _refreshTimer = new System.Timers.Timer(5000);
+        // Safety net only: updates are event-driven via the server SUBSCRIBE feed.
+        _refreshTimer = new System.Timers.Timer(30000);
         _refreshTimer.Elapsed += async (s, e) =>
         {
             if (_disposed) return;
@@ -281,7 +304,31 @@ public class MainViewModel : ViewModelBase
                 var status = info?.Status.ToString() ?? "Not Found";
                 System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
                 {
-                    ServiceStatus = status;
+                    if (_disposed) return;
+                    if (ServiceStatus != status)
+                    {
+                        ServiceStatus = status;
+                        // Drive the main connection indicator off the service state
+                        // so it updates immediately instead of waiting on the IPC
+                        // refresh cycle.
+                        bool running = status == "Running";
+                        IsConnected = running;
+                        if (running)
+                        {
+                            _ = RefreshAllAsync();
+                        }
+                        else
+                        {
+                            // Service stopped — clear server-derived state right away.
+                            ServerStatus = "Не подключен";
+                            Uptime = "";
+                            ConnectedClientsCount = 0;
+                            PendingCount = 0;
+                            ConnectedClients.Clear();
+                            PendingRegistrations.Clear();
+                            FiltrationStatus = "N/A";
+                        }
+                    }
                 });
             }
             catch { }
@@ -294,6 +341,11 @@ public class MainViewModel : ViewModelBase
         AddLog("INFO", "Запуск службы...");
         var ok = await _serviceManager.StartServiceAsync();
         AddLog(ok ? "INFO" : "ERROR", ok ? "Служба запущена" : "Ошибка запуска службы");
+        if (ok)
+        {
+            await LoadLogPathAsync();
+            await RefreshAllAsync();
+        }
     }
 
     private async Task StopServiceAsync()
@@ -333,112 +385,39 @@ public class MainViewModel : ViewModelBase
         var path = await _ipcService.GetLogPathAsync();
         if (!string.IsNullOrEmpty(path))
         {
-            _logPath = path;
+            _logTailer.SetLogPath(path);
         }
     }
 
-    private void StartLogReader()
+    private void OnLogEntriesRead(List<ServerLogEntry> newEntries)
     {
-        _logReaderTimer = new System.Timers.Timer(500);
-        _logReaderTimer.Elapsed += (s, e) =>
+        if (_disposed) return;
+        System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
         {
             if (_disposed) return;
-            ReadServerLogs();
-        };
-        _logReaderTimer.Start();
-    }
-
-    private void ReadServerLogs()
-    {
-        if (string.IsNullOrEmpty(_logPath))
-        {
-            AddServerLogEntry("DEBUG", "Лог-путь не задан (IPC ещё не ответил)");
-            return;
-        }
-
-        try
-        {
-            var dir = new DirectoryInfo(_logPath);
-            if (!dir.Exists)
+            foreach (var entry in newEntries)
             {
-                AddServerLogEntry("DEBUG", $"Директория логов не найдена: {_logPath}");
-                return;
+                _serverLogs.Add(entry);
             }
+            while (_serverLogs.Count > 2000)
+                _serverLogs.RemoveAt(0);
 
-            var files = dir.GetFiles("*.log");
-            if (files.Length == 0)
+            if (string.IsNullOrEmpty(_logSearchText))
             {
-                AddServerLogEntry("DEBUG", $"Файлы *.log не найдены в {_logPath}");
-                return;
-            }
-
-            var file = files.OrderByDescending(f => f.LastWriteTime).First();
-
-            using var stream = new FileStream(file.FullName, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-
-            // New log file (e.g., after restart) — read from near the end
-            if (_lastLogFile != file.FullName)
-            {
-                _lastLogFile = file.FullName;
-                _lastLogPosition = Math.Max(0, stream.Length - 512 * 1024);
-            }
-
-            if (_lastLogPosition >= stream.Length) return;
-
-            stream.Seek(_lastLogPosition, SeekOrigin.Begin);
-            using var reader = new StreamReader(stream);
-            var newEntries = new List<ServerLogEntry>();
-            long lastPos = _lastLogPosition;
-
-            while (true)
-            {
-                var line = reader.ReadLine();
-                if (line == null) break;
-                lastPos = stream.Position;
-
-                try
+                // Incremental: mirror only the new entries (avoid full rebuild).
+                foreach (var entry in newEntries)
                 {
-                    using var doc = JsonDocument.Parse(line);
-                    var root = doc.RootElement;
-
-                    var ts = root.TryGetProperty("ts", out var tse) ? tse.GetString() ?? "" : "";
-                    var level = root.TryGetProperty("level", out var le) ? le.GetString() ?? "" : "";
-                    var src = root.TryGetProperty("source", out var se) ? se.GetString() ?? "" : "";
-                    var msg = root.TryGetProperty("msg", out var me) ? me.GetString() ?? "" : "";
-
-                    if (!string.IsNullOrEmpty(msg))
-                    {
-                        var time = ts.Length >= 19 ? ts.Substring(11, 8) : ts;
-                        newEntries.Add(new ServerLogEntry
-                        {
-                            Timestamp = time,
-                            Level = level,
-                            Source = src,
-                            Message = msg
-                        });
-                    }
+                    _filteredServerLogs.Add(entry);
                 }
-                catch { }
+                while (_filteredServerLogs.Count > _serverLogs.Count)
+                    _filteredServerLogs.RemoveAt(0);
             }
-
-            _lastLogPosition = lastPos;
-
-            if (newEntries.Count > 0)
+            else
             {
-                System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
-                {
-                    foreach (var entry in newEntries)
-                    {
-                        _serverLogs.Add(entry);
-                    }
-                    while (_serverLogs.Count > 2000)
-                        _serverLogs.RemoveAt(0);
-                    FilterServerLogs();
-                    if (_autoScroll) AutoScrollRequested?.Invoke();
-                });
+                FilterServerLogs();
             }
-        }
-        catch { }
+            if (_autoScroll) AutoScrollRequested?.Invoke();
+        });
     }
 
     private void FilterServerLogs()
@@ -460,21 +439,6 @@ public class MainViewModel : ViewModelBase
             foreach (var e in filtered)
                 _filteredServerLogs.Add(e);
         }
-    }
-
-    private void AddServerLogEntry(string level, string message)
-    {
-        System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
-        {
-            _serverLogs.Add(new ServerLogEntry
-            {
-                Timestamp = DateTime.Now.ToString("HH:mm:ss"),
-                Level = level,
-                Message = message
-            });
-            FilterServerLogs();
-            if (_autoScroll) AutoScrollRequested?.Invoke();
-        });
     }
 
     private void ClearServerLogs()
@@ -509,14 +473,25 @@ public class MainViewModel : ViewModelBase
 
     public async Task RefreshAllAsync()
     {
-        await Task.Run(async () =>
+        // Single-flight: coalesce overlapping refresh chains (timer + manual refresh)
+        // so the IPC retry storm doesn't pile up when the backend is starting.
+        if (Interlocked.CompareExchange(ref _refreshInProgress, 1, 0) != 0)
+            return;
+        try
         {
-            await RefreshServerStatusAsync();
-            await RefreshClientsAsync();
-            await RefreshPendingAsync();
-            await RefreshWhitelistsAsync();
-            await LoadActiveWhitelistAsync();
-        });
+            await Task.Run(async () =>
+            {
+                await RefreshServerStatusAsync();
+                await RefreshClientsAsync();
+                await RefreshPendingAsync();
+                await RefreshWhitelistsAsync();
+                await LoadActiveWhitelistAsync();
+            });
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _refreshInProgress, 0);
+        }
     }
 
     private async Task LoadActiveWhitelistAsync()
@@ -566,6 +541,13 @@ public class MainViewModel : ViewModelBase
             AddLog("ERROR", "Ошибка сохранения порта сервера");
     }
 
+    private async Task SaveAllServerSettingsAsync()
+    {
+        await SaveServerNameAsync();
+        await SaveServerPortAsync();
+        HasSettingsChanges = false;
+    }
+
     private async Task RefreshServerStatusAsync()
     {
         try
@@ -611,13 +593,28 @@ public class MainViewModel : ViewModelBase
             var clients = await _ipcService.GetClientsAsync();
             await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
             {
-                ConnectedClients.Clear();
-                foreach (var client in clients)
+                // Update in place to keep DataGrid rows stable (preserves context menu focus)
+                var toRemove = ConnectedClients.Where(c => !clients.Any(n => n.Name == c.Name)).ToList();
+                foreach (var c in toRemove)
+                    ConnectedClients.Remove(c);
+
+                foreach (var nc in clients)
                 {
-                    ConnectedClients.Add(client);
+                    var existing = ConnectedClients.FirstOrDefault(c => c.Name == nc.Name);
+                    if (existing != null)
+                    {
+                        existing.Address = nc.Address;
+                        existing.Status = nc.Status;
+                        existing.Whitelist = nc.Whitelist;
+                        existing.LastActivity = nc.LastActivity;
+                    }
+                    else
+                    {
+                        ConnectedClients.Add(nc);
+                    }
                 }
-                ConnectedClientsCount = clients.Count;
-                AddLog("INFO", $"Клиентов: {clients.Count}");
+                ConnectedClientsCount = ConnectedClients.Count;
+                AddLog("INFO", $"Клиентов: {ConnectedClients.Count}");
             });
         }
         catch (Exception ex)
@@ -636,14 +633,27 @@ public class MainViewModel : ViewModelBase
             var pending = await _ipcService.GetPendingAsync();
             await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
             {
-                PendingRegistrations.Clear();
-                foreach (var p in pending)
+                // Update in place to keep DataGrid rows stable (preserves context menu focus)
+                var toRemove = PendingRegistrations.Where(p => !pending.Any(n => n.Name == p.Name)).ToList();
+                foreach (var p in toRemove)
+                    PendingRegistrations.Remove(p);
+
+                foreach (var np in pending)
                 {
-                    PendingRegistrations.Add(p);
+                    var existing = PendingRegistrations.FirstOrDefault(p => p.Name == np.Name);
+                    if (existing != null)
+                    {
+                        existing.Address = np.Address;
+                        existing.CreatedAt = np.CreatedAt;
+                    }
+                    else
+                    {
+                        PendingRegistrations.Add(np);
+                    }
                 }
-                PendingCount = pending.Count;
-                if (pending.Count > 0)
-                    AddLog("INFO", $"Ожидают регистрации: {pending.Count}");
+                PendingCount = PendingRegistrations.Count;
+                if (PendingRegistrations.Count > 0)
+                    AddLog("INFO", $"Ожидают регистрации: {PendingRegistrations.Count}");
             });
         }
         catch (Exception ex)
@@ -766,62 +776,44 @@ public class MainViewModel : ViewModelBase
 
     private async Task OpenCreateWhitelistAsync()
     {
-        var dialog = new WhitelistEditWindow();
-        dialog.ViewModel.SetCreateMode();
-        dialog.Owner = Application.Current.MainWindow;
+        var result = await _whitelistDialog.ShowDialogAsync(WhitelistDialogMode.Create);
+        if (result == null) return; // cancelled
 
-        dialog.ViewModel.Saved += async (s, e) =>
+        var ok = await _ipcService.CreateWhitelistAsync(result.Name);
+        if (ok && result.Entries.Count > 0)
         {
-            var name = dialog.ViewModel.WhitelistName;
-            var entries = dialog.ViewModel.GetEntries();
-            var ok = await _ipcService.CreateWhitelistAsync(name);
-            if (ok && entries.Count > 0)
-            {
-                ok = await _ipcService.SaveWhitelistAsync(name, entries);
-            }
-            AddLog(ok ? "INFO" : "ERROR", ok ? $"Список {name} создан" : $"Ошибка создания списка {name}");
-            await RefreshWhitelistsAsync();
-            if (ok) dialog.DialogResult = true;
-        };
-
-        dialog.ShowDialog();
+            ok = await _ipcService.SaveWhitelistAsync(result.Name, result.Entries);
+        }
+        AddLog(ok ? "INFO" : "ERROR", ok ? $"Список {result.Name} создан" : $"Ошибка создания списка {result.Name}");
+        await RefreshWhitelistsAsync();
     }
 
     private async Task OpenEditWhitelistAsync(WhitelistInfo? whitelist)
     {
         if (whitelist == null) return;
 
-        var dialog = new WhitelistEditWindow();
-        dialog.Owner = Application.Current.MainWindow;
-
+        List<string> initialEntries;
         try
         {
-            var entries = await _ipcService.GetWhitelistEntriesAsync(whitelist.Name);
-            dialog.ViewModel.SetEditMode(whitelist.Name, entries);
+            initialEntries = await _ipcService.GetWhitelistEntriesAsync(whitelist.Name);
         }
         catch
         {
-            dialog.ViewModel.SetEditMode(whitelist.Name, new List<string>());
+            initialEntries = new List<string>();
         }
 
-        dialog.ViewModel.Saved += async (s, e) =>
+        var result = await _whitelistDialog.ShowDialogAsync(WhitelistDialogMode.Edit, whitelist.Name, initialEntries);
+        if (result == null) return; // cancelled
+
+        var ok = true;
+        if (whitelist.Name != result.Name)
         {
-            var newName = dialog.ViewModel.WhitelistName;
-            var entries = dialog.ViewModel.GetEntries();
-            var ok = true;
+            ok = await _ipcService.RenameWhitelistAsync(whitelist.Name, result.Name);
+        }
 
-            if (dialog.ViewModel.IsEditMode() && dialog.ViewModel.GetOriginalName() != newName)
-            {
-                ok = await _ipcService.RenameWhitelistAsync(dialog.ViewModel.GetOriginalName(), newName);
-            }
-
-            if (ok) ok = await _ipcService.SaveWhitelistAsync(newName, entries);
-            AddLog(ok ? "INFO" : "ERROR", ok ? $"Список {newName} сохранен" : $"Ошибка сохранения списка {newName}");
-            await RefreshWhitelistsAsync();
-            if (ok) dialog.DialogResult = true;
-        };
-
-        dialog.ShowDialog();
+        if (ok) ok = await _ipcService.SaveWhitelistAsync(result.Name, result.Entries);
+        AddLog(ok ? "INFO" : "ERROR", ok ? $"Список {result.Name} сохранен" : $"Ошибка сохранения списка {result.Name}");
+        await RefreshWhitelistsAsync();
     }
 
     private async Task ImportWhitelistsAsync()
@@ -995,11 +987,26 @@ public class MainViewModel : ViewModelBase
     {
         System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
         {
-            LogEntries.Add($"[{DateTime.Now:HH:mm:ss}] [{level}] {message}");
-            if (LogEntries.Count > 1000)
+            _serverLogs.Add(new ServerLogEntry
             {
-                LogEntries.RemoveAt(0);
+                Timestamp = DateTime.Now.ToString("HH:mm:ss"),
+                Level = level,
+                Source = "UI",
+                Message = message
+            });
+            while (_serverLogs.Count > 2000)
+                _serverLogs.RemoveAt(0);
+            if (string.IsNullOrEmpty(_logSearchText))
+            {
+                _filteredServerLogs.Add(_serverLogs[^1]);
+                while (_filteredServerLogs.Count > _serverLogs.Count)
+                    _filteredServerLogs.RemoveAt(0);
             }
+            else
+            {
+                FilterServerLogs();
+            }
+            if (_autoScroll) AutoScrollRequested?.Invoke();
         });
     }
 
@@ -1013,8 +1020,11 @@ public class MainViewModel : ViewModelBase
         _refreshTimer?.Dispose();
         _serviceStatusTimer?.Stop();
         _serviceStatusTimer?.Dispose();
-        _logReaderTimer?.Stop();
-        _logReaderTimer?.Dispose();
+        _ipcService.EventReceived -= OnEventReceived;
+        _ipcService.Resubscribed -= OnEventResubscribed;
+        _ipcService.StopEventSubscription();
+        _logTailer.EntriesRead -= OnLogEntriesRead;
+        _logTailer.Dispose();
         _ipcService.Dispose();
         _serviceManager.Dispose();
     }

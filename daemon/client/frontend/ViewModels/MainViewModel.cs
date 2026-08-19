@@ -9,39 +9,30 @@ using frontend.Services;
 
 namespace frontend.ViewModels;
 
-public class RelayCommand : ICommand
-{
-    private readonly Action<object?> _execute;
-    private readonly Func<object?, bool>? _canExecute;
-
-    public RelayCommand(Action<object?> execute, Func<object?, bool>? canExecute = null)
-    {
-        _execute = execute;
-        _canExecute = canExecute;
-    }
-
-    public event EventHandler? CanExecuteChanged
-    {
-        add => CommandManager.RequerySuggested += value;
-        remove => CommandManager.RequerySuggested -= value;
-    }
-
-    public bool CanExecute(object? parameter) => _canExecute?.Invoke(parameter) ?? true;
-    public void Execute(object? parameter) => _execute(parameter);
-}
-
 public class MainViewModel : ViewModelBase, IDisposable
 {
     private const int MaxLogs = 500;
 
     // Services
     private readonly IpcService _ipcService = new IpcService();
+    private readonly ServiceManager _serviceManager = new("BigBrother Firewall");
+    private readonly LogReader _clientLogReader = new();
+    private readonly LogReader _firewallLogReader = new();
+
+    /// <summary>Shared pipe service used by the ViewModel and the main window.</summary>
+    public IpcService IpcService => _ipcService;
+
+    private int _lastClientPid;
+    private string _lastClientLogPath = "";
+    private string _lastFirewallLogPath = "";
 
     // Status
     private string _daemonStatus = "Запущен";
     private string _clientStatus = "Запущен";
     private string _serverStatus = "Запущен";
     private bool _filtrationEnabled = true;
+    private bool _hasSettingsChanges;
+    private bool _isRegistering;
     private string _daemonConnectionStatus = "...";
     private string _clientConnectionStatus = "...";
     private string _serverConnectionStatus = "...";
@@ -206,8 +197,7 @@ public class MainViewModel : ViewModelBase, IDisposable
         get => _fallbackWhitelistEnabled;
         set
         {
-            if (SetProperty(ref _fallbackWhitelistEnabled, value))
-                _ = _ipcService.SetFallbackWhitelistEnabledAsync(value);
+            if (SetProperty(ref _fallbackWhitelistEnabled, value)) MarkSettingsChanged();
         }
     }
 
@@ -218,30 +208,62 @@ public class MainViewModel : ViewModelBase, IDisposable
         get => _filtrationAutoDisable;
         set
         {
-            if (SetProperty(ref _filtrationAutoDisable, value))
-                _ = _ipcService.SetFiltrationAutoDisableAsync(value);
+            if (SetProperty(ref _filtrationAutoDisable, value)) MarkSettingsChanged();
         }
+    }
+
+    public bool HasSettingsChanges
+    {
+        get => _hasSettingsChanges;
+        set => SetProperty(ref _hasSettingsChanges, value);
+    }
+
+    public bool IsRegistering
+    {
+        get => _isRegistering;
+        set
+        {
+            if (SetProperty(ref _isRegistering, value))
+                OnPropertyChanged(nameof(CanRegister));
+        }
+    }
+
+    public bool CanRegister => !_isRegistering;
+
+    private void MarkSettingsChanged()
+    {
+        if (!_hasSettingsChanges)
+            HasSettingsChanges = true;
     }
 
     private string _serverAddress = "";
     public string ServerAddress
     {
         get => _serverAddress;
-        set => SetProperty(ref _serverAddress, value);
+        set
+        {
+            if (SetProperty(ref _serverAddress, value)) MarkSettingsChanged();
+        }
     }
 
     private string _username = "";
     public string Username
     {
         get => _username;
-        set => SetProperty(ref _username, value);
+        set
+        {
+            if (SetProperty(ref _username, value)) MarkSettingsChanged();
+        }
     }
 
     private string _serverPort = "1984";
     public string ServerPort
     {
         get => _serverPort;
-        set => SetProperty(ref _serverPort, value);
+        set
+        {
+            if (SetProperty(ref _serverPort, value)) MarkSettingsChanged();
+        }
     }
 
     private bool _discoveryEnabled = true;
@@ -252,7 +274,7 @@ public class MainViewModel : ViewModelBase, IDisposable
         {
             if (SetProperty(ref _discoveryEnabled, value))
             {
-                _ = _ipcService.SetDiscoveryEnabledAsync(value);
+                MarkSettingsChanged();
                 System.Windows.Input.CommandManager.InvalidateRequerySuggested();
             }
         }
@@ -266,7 +288,7 @@ public class MainViewModel : ViewModelBase, IDisposable
         {
             if (SetProperty(ref _networkAuto, value))
             {
-                _ = _ipcService.SetNetworkAutoAsync(value);
+                MarkSettingsChanged();
                 OnPropertyChanged(nameof(NetworkManualMode));
             }
         }
@@ -278,14 +300,20 @@ public class MainViewModel : ViewModelBase, IDisposable
     public string NetworkGateway
     {
         get => _networkGateway;
-        set => SetProperty(ref _networkGateway, value);
+        set
+        {
+            if (SetProperty(ref _networkGateway, value)) MarkSettingsChanged();
+        }
     }
 
     private string _networkMask = "";
     public string NetworkMask
     {
         get => _networkMask;
-        set => SetProperty(ref _networkMask, value);
+        set
+        {
+            if (SetProperty(ref _networkMask, value)) MarkSettingsChanged();
+        }
     }
 
     private string _serverName = "";
@@ -304,7 +332,12 @@ public class MainViewModel : ViewModelBase, IDisposable
 
     // Whitelist revision tracking for change detection
     private uint _lastWhitelistRevision = 0;
-    private readonly System.Timers.Timer _statusTimer = new System.Timers.Timer(10000); // Poll every 10 seconds (reduced from 2s)
+    private readonly System.Timers.Timer _statusTimer = new System.Timers.Timer(60000); // Safety fallback (events drive updates)
+    private int _refreshInProgress;
+    private int _refreshQueued;
+
+    /// <summary>Raised after each status refresh with the latest daemon status.</summary>
+    public event Action<ClientStatus>? StatusRefreshed;
 
     public ObservableCollection<WhitelistEntry> WhitelistEntries { get; } = new();
     public ObservableCollection<string> FilteredWhitelist { get; } = new();
@@ -319,77 +352,133 @@ public class MainViewModel : ViewModelBase, IDisposable
     public ICommand DisconnectCommand { get; }
     public ICommand ChangeServerCommand { get; }
     public ICommand SaveServerPortCommand { get; }
+    public ICommand SaveSettingsCommand { get; }
     public ICommand SaveDiscoveryEnabledCommand { get; }
     public ICommand SaveNetworkAutoCommand { get; }
     public ICommand SaveNetworkGatewayCommand { get; }
     public ICommand SaveNetworkMaskCommand { get; }
     public ICommand ToggleFiltrationCommand { get; }
+    public ICommand StartDaemonCommand { get; }
+    public ICommand StopDaemonCommand { get; }
+    public ICommand RestartDaemonCommand { get; }
+    public ICommand RestartClientCommand { get; }
+    public ICommand RefreshStatusCommand { get; }
+    public ICommand OpenHistoryCommand { get; }
+    public ICommand OpenArchivedLogCommand { get; }
 
     // Event for auto-scroll notification
     public event Action? ScrollToBottomRequested;
+
+    /// <summary>Raised when the user requests the log-history viewer with the given sources.</summary>
+    public event Action<List<LogFileSource>>? LogViewRequested;
 
     private bool _disposed;
 
     private async void OnStatusTimerElapsed(object? sender, ElapsedEventArgs e)
     {
         if (_disposed) return;
+        await RefreshStateAsync();
+    }
+
+    private void OnStateChanged()
+    {
+        if (_disposed) return;
+        _ = RefreshStateAsync();
+    }
+
+    public async Task RefreshStateAsync()
+    {
+        // Single-flight: coalesce concurrent refreshes (event bursts + timer).
+        if (Interlocked.CompareExchange(ref _refreshInProgress, 1, 0) != 0)
+        {
+            Interlocked.Exchange(ref _refreshQueued, 1);
+            return;
+        }
+
         try
         {
-            var status = await _ipcService.GetStatusAsync().ConfigureAwait(false);
-            if (_disposed) return;
-            
-            System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
+            do
             {
-                if (_disposed) return;
-                ClientConnectionStatus = status.IsConnected ? "Подключено" : "Отключено";
-                FiltrationEnabled = status.FiltrationEnabled;
-            });
-
-            if (!status.IsConnected && SettingsAvailable)
-            {
-                System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
+                Interlocked.Exchange(ref _refreshQueued, 0);
+                try
                 {
+                    var status = await _ipcService.GetStatusAsync().ConfigureAwait(false);
                     if (_disposed) return;
-                    SettingsAvailable = false;
-                });
-            }
-            else if (status.IsConnected && !SettingsAvailable)
-            {
-                await LoadSettingsAsync();
-            }
-            
-            if (status.WhitelistRevision != 0 && status.WhitelistRevision != _lastWhitelistRevision)
-            {
-                _lastWhitelistRevision = status.WhitelistRevision;
-                
-                var whitelist = await _ipcService.GetWhitelistAsync().ConfigureAwait(false);
-                if (_disposed) return;
-                
-                if (whitelist.Count > 0)
-                {
+
                     System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
                     {
                         if (_disposed) return;
-                        WhitelistEntries.Clear();
-                        foreach (var domain in whitelist)
-                        {
-                            WhitelistEntries.Add(WhitelistEntry.Parse(domain));
-                        }
-                        
-                        UpdateWhitelistDisplay();
-                        AddLog("INFO", $"Whitelist updated ({whitelist.Count} domains)");
+                        DaemonConnectionStatus = status.DaemonStatus == "RUNNING" ? "Подключено" : "Отключено";
+                        DaemonStatus = status.DaemonStatus == "RUNNING" ? "Запущен" : "Остановлен";
+                        ClientConnectionStatus = status.IsConnected ? "Подключено" : "Отключено";
+                        ClientStatus = status.IsConnected ? "Запущен" : "Остановлен";
+                        ServerStatus = status.IsServerRunning ? "Запущен" : "Остановлен";
+                        ServerConnectionStatus = status.IsServerSessionActive ? "Подключено" : "Отключено";
+                        HostName = status.ClientName;
+                        IpAddress = status.IpAddress;
+                        ClientPid = status.ClientPid;
+                        FiltrationEnabled = status.FiltrationEnabled;
+                        LastUpdate = DateTime.Now;
+                        StatusRefreshed?.Invoke(status);
                     });
+
+                    UpdateLogReaders(status);
+
+                    if (!status.IsConnected && SettingsAvailable)
+                    {
+                        System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
+                        {
+                            if (_disposed) return;
+                            SettingsAvailable = false;
+                        });
+                    }
+                    else if (status.IsConnected && !SettingsAvailable)
+                    {
+                        await LoadSettingsAsync();
+                    }
+
+                    if (status.WhitelistRevision != 0 && status.WhitelistRevision != _lastWhitelistRevision)
+                    {
+                        _lastWhitelistRevision = status.WhitelistRevision;
+
+                        var whitelist = await _ipcService.GetWhitelistAsync().ConfigureAwait(false);
+                        if (_disposed) return;
+
+                        if (whitelist.Count > 0)
+                        {
+                            System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
+                            {
+                                if (_disposed) return;
+                                WhitelistEntries.Clear();
+                                foreach (var domain in whitelist)
+                                {
+                                    WhitelistEntries.Add(WhitelistEntry.Parse(domain));
+                                }
+
+                                UpdateWhitelistDisplay();
+                                AddLog("INFO", $"Whitelist updated ({whitelist.Count} domains)");
+                            });
+                        }
+                    }
                 }
-            }
+                catch
+                {
+                    if (_disposed) return;
+                    System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
+                    {
+                        if (_disposed) return;
+                        ClientConnectionStatus = "Отключено";
+                        ServerConnectionStatus = "Отключено";
+                        ServerStatus = "Остановлен";
+                        StatusRefreshed?.Invoke(new ClientStatus { ClientPid = 0 });
+                    });
+                    UpdateLogReaders(new ClientStatus { ClientPid = 0 });
+                }
+            } while (Interlocked.CompareExchange(ref _refreshQueued, 0, 1) == 1 && !_disposed);
         }
-        catch
+        finally
         {
-            if (_disposed) return;
-            System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
-            {
-                if (_disposed) return;
-                ClientConnectionStatus = "Отключено";
-            });
+            Interlocked.Exchange(ref _refreshInProgress, 0);
         }
     }
 
@@ -408,12 +497,32 @@ public class MainViewModel : ViewModelBase, IDisposable
         SaveNetworkAutoCommand = new RelayCommand(_ => { /* handled by property setter */ });
         SaveNetworkGatewayCommand = new RelayCommand(async _ => await SaveNetworkGatewayAsync());
         SaveNetworkMaskCommand = new RelayCommand(async _ => await SaveNetworkMaskAsync());
+        SaveSettingsCommand = new RelayCommand(async _ => await SaveAllSettingsAsync());
         ToggleFiltrationCommand = new RelayCommand(async _ => await ToggleFiltrationAsync());
+        StartDaemonCommand = new RelayCommand(async _ => await StartDaemonAsync());
+        StopDaemonCommand = new RelayCommand(async _ => await StopDaemonAsync());
+        RestartDaemonCommand = new RelayCommand(async _ => await RestartDaemonAsync());
+        RestartClientCommand = new RelayCommand(async _ => await RestartClientAsync());
+        RefreshStatusCommand = new RelayCommand(async _ => await RefreshStateAsync());
+        OpenHistoryCommand = new RelayCommand(_ => OpenHistory());
+        OpenArchivedLogCommand = new RelayCommand(_ => OpenArchivedLogs());
 
-        // Initialize whitelist status polling timer
+        // Initialize whitelist status polling timer (safety fallback; events drive updates)
         _statusTimer.Elapsed += OnStatusTimerElapsed;
         _statusTimer.AutoReset = true;
         _statusTimer.Enabled = true;
+
+        // Event-driven updates from the daemon pipe
+        _ipcService.StateChanged += OnStateChanged;
+        _ipcService.StartEventSubscription();
+
+        // Log UI flush timer (batches log lines onto the UI thread)
+        var logFlushTimer = new System.Windows.Threading.DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(500)
+        };
+        logFlushTimer.Tick += (s, e) => FlushPendingLogs();
+        logFlushTimer.Start();
 
         AddLog("INFO", "Клиент запущен");
 
@@ -493,6 +602,20 @@ public class MainViewModel : ViewModelBase, IDisposable
         AddLog(ok ? "INFO" : "ERROR", ok ? $"Маска сохранена: {mask}" : "Ошибка сохранения маски");
     }
 
+    private async Task SaveAllSettingsAsync()
+    {
+        await SaveServerAddressAsync();
+        await SaveUsernameAsync();
+        await SaveServerPortAsync();
+        await SaveNetworkGatewayAsync();
+        await SaveNetworkMaskAsync();
+        await _ipcService.SetFallbackWhitelistEnabledAsync(FallbackWhitelistEnabled);
+        await _ipcService.SetDiscoveryEnabledAsync(DiscoveryEnabled);
+        await _ipcService.SetNetworkAutoAsync(NetworkAuto);
+        await _ipcService.SetFiltrationAutoDisableAsync(FiltrationAutoDisable);
+        HasSettingsChanges = false;
+    }
+
     private async Task ToggleFiltrationAsync()
     {
         var newState = !FiltrationEnabled;
@@ -516,11 +639,32 @@ public class MainViewModel : ViewModelBase, IDisposable
         var name = Username?.Trim() ?? "";
         if (string.IsNullOrEmpty(name))
         {
+            System.Windows.MessageBox.Show("Укажите имя пользователя в поле «Пользователь» и нажмите «Сохранить».", "Регистрация",
+                System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Warning);
             AddLog("ERROR", "Укажите имя пользователя в настройках");
             return;
         }
-        var ok = await _ipcService.RegisterAsync(name);
-        AddLog(ok ? "INFO" : "ERROR", ok ? $"Запрос на регистрацию отправлен: {name}" : "Ошибка регистрации");
+
+        IsRegistering = true;
+        try
+        {
+            var ok = await _ipcService.RegisterAsync(name);
+            AddLog(ok ? "INFO" : "ERROR", ok ? $"Запрос на регистрацию отправлен: {name}" : "Ошибка регистрации");
+            if (ok)
+            {
+                System.Windows.MessageBox.Show("Запрос на регистрацию принят. Ожидайте подтверждения.",
+                    "Регистрация", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
+            }
+            else
+            {
+                System.Windows.MessageBox.Show("Ошибка регистрации.",
+                    "Регистрация", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
+            }
+        }
+        finally
+        {
+            IsRegistering = false;
+        }
     }
 
     private async Task ConnectAsync()
@@ -613,7 +757,7 @@ public class MainViewModel : ViewModelBase, IDisposable
         System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
         {
             int logsToRemove = Logs.Count + toAdd.Count - MaxLogs;
-            
+
             if (logsToRemove > 0)
             {
                 int removeCount = Math.Min(logsToRemove, Logs.Count);
@@ -621,8 +765,12 @@ public class MainViewModel : ViewModelBase, IDisposable
                 {
                     Logs.RemoveAt(0);
                 }
+                // Keep the filtered mirror in sync when the source is trimmed.
+                while (FilteredLogs.Count > Logs.Count)
+                    FilteredLogs.RemoveAt(0);
             }
-            
+
+            var newEntries = new List<LogEntry>(toAdd.Count);
             foreach (var msg in toAdd)
             {
                 string level = "INFO";
@@ -630,27 +778,28 @@ public class MainViewModel : ViewModelBase, IDisposable
                 else if (msg.Contains("[WARNING]") || msg.Contains("[WARN]")) level = "WARNING";
                 else if (msg.Contains("[DNS]")) level = "DNS";
                 else if (msg.Contains("[BLOCKED]")) level = "BLOCKED";
-                
+
                 var entry = new LogEntry
                 {
                     Timestamp = DateTime.Now.ToString("HH:mm:ss"),
                     Level = level,
                     Message = msg
                 };
-                
+
                 Logs.Add(entry);
+                newEntries.Add(entry);
             }
-            
+
             if (!string.IsNullOrEmpty(LogSearchText))
             {
                 UpdateFilteredLogs();
             }
             else
             {
-                FilteredLogs.Clear();
-                foreach (var log in Logs)
+                // Incremental: mirror only the new entries (avoid full rebuild).
+                foreach (var entry in newEntries)
                 {
-                    FilteredLogs.Add(log);
+                    FilteredLogs.Add(entry);
                 }
             }
 
@@ -745,13 +894,224 @@ public class MainViewModel : ViewModelBase, IDisposable
         AddLog("INFO", $"Уведомление: {title} - {message}");
     }
 
-    // Commands (placeholders)
-    public void StartDaemon() { }
-    public void StopDaemon() { }
-    public void RestartDaemon() { }
-    public void StartClient() { }
-    public void StopClient() { }
-    public void RestartClient() { }
+    private async Task StartDaemonAsync()
+    {
+        AddLog("INFO", "Запуск демона...");
+        try
+        {
+            var result = await _serviceManager.StartServiceAsync();
+            AddLog(result ? "INFO" : "ERROR", result ? "Демон запущен" : "Не удалось запустить демон");
+            await Task.Delay(2000);
+            await RefreshStateAsync();
+        }
+        catch (Exception ex)
+        {
+            AddLog("ERROR", $"Ошибка: {ex.Message}");
+        }
+    }
+
+    private async Task StopDaemonAsync()
+    {
+        AddLog("INFO", "Остановка демона...");
+        try
+        {
+            var result = await _serviceManager.StopServiceAsync();
+            AddLog(result ? "INFO" : "ERROR", result ? "Демон остановлен" : "Не удалось остановить демон");
+            await RefreshStateAsync();
+        }
+        catch (Exception ex)
+        {
+            AddLog("ERROR", $"Ошибка: {ex.Message}");
+        }
+    }
+
+    private async Task RestartDaemonAsync()
+    {
+        AddLog("INFO", "Рестарт демона...");
+        try
+        {
+            var result = await _serviceManager.RestartServiceAsync();
+            AddLog(result ? "INFO" : "ERROR", result ? "Демон перезапущен" : "Не удалось перезапустить демон");
+            await Task.Delay(3000);
+            await RefreshStateAsync();
+        }
+        catch (Exception ex)
+        {
+            AddLog("ERROR", $"Ошибка: {ex.Message}");
+        }
+    }
+
+    private async Task RestartClientAsync()
+    {
+        AddLog("INFO", "Перезапуск клиента...");
+        var result = await _ipcService.RestartClientAsync();
+        AddLog(result ? "INFO" : "ERROR", result ? "Клиент перезапущен" : "Не удалось перезапустить клиент");
+        await Task.Delay(2000);
+        await RefreshStateAsync();
+    }
+
+    // Log reader lifecycle: start/stop the binary log tailers as the client process appears.
+    private void UpdateLogReaders(ClientStatus status)
+    {
+        if (status.ClientPid != 0 && _lastClientPid == 0)
+        {
+            _ = StartLogReadersAsync();
+        }
+        else if (status.ClientPid == 0 && _lastClientPid != 0)
+        {
+            _clientLogReader.Stop();
+            _firewallLogReader.Stop();
+        }
+        _lastClientPid = status.ClientPid;
+    }
+
+    private async Task StartLogReadersAsync()
+    {
+        string clientLog = "";
+        string firewallLog = "";
+
+        try
+        {
+            var paths = await _ipcService.GetLogPathAsync();
+            clientLog = paths.clientLog;
+            firewallLog = paths.firewallLog;
+        }
+        catch { }
+
+        // If IPC failed, try to use previous paths
+        if (string.IsNullOrEmpty(clientLog))
+            clientLog = _lastClientLogPath;
+        if (string.IsNullOrEmpty(firewallLog))
+            firewallLog = _lastFirewallLogPath;
+
+        // Save for next time
+        if (!string.IsNullOrEmpty(clientLog))
+            _lastClientLogPath = clientLog;
+        if (!string.IsNullOrEmpty(firewallLog))
+            _lastFirewallLogPath = firewallLog;
+
+        if (!string.IsNullOrEmpty(clientLog) && File.Exists(clientLog))
+        {
+            _clientLogReader.Stop();
+            _clientLogReader.OnNewLine -= OnLogLineReceived;
+            _clientLogReader.OnNewLine += OnLogLineReceived;
+            _clientLogReader.Start(clientLog, Lib.LogSource.Client);
+        }
+
+        if (!string.IsNullOrEmpty(firewallLog) && File.Exists(firewallLog))
+        {
+            _firewallLogReader.Stop();
+            _firewallLogReader.OnNewLine -= OnLogLineReceived;
+            _firewallLogReader.OnNewLine += OnLogLineReceived;
+            _firewallLogReader.Start(firewallLog, Lib.LogSource.Firewall);
+        }
+
+        if (!string.IsNullOrEmpty(clientLog) || !string.IsNullOrEmpty(firewallLog))
+        {
+            AddLog("INFO", $"Чтение логов: client={clientLog}, firewall={firewallLog}");
+        }
+    }
+
+    private void OnLogLineReceived(string line)
+    {
+        // LogReader already dispatches to the UI thread before calling this.
+        string level = "INFO";
+        if (line.Contains("[ERROR]") || line.Contains("ERROR"))
+            level = "ERROR";
+        else if (line.Contains("[WARNING]") || line.Contains("[WARN]"))
+            level = "WARNING";
+        else if (line.Contains("[DNS]"))
+            level = "DNS";
+        else if (line.Contains("[BLOCKED]"))
+            level = "BLOCKED";
+
+        AddLog(level, line);
+    }
+
+    public void OpenHistory()
+    {
+        string clientLog = _lastClientLogPath;
+        string firewallLog = _lastFirewallLogPath;
+
+        // Only try IPC if we have a valid client PID (connected)
+        if (_lastClientPid != 0)
+        {
+            try
+            {
+                var paths = _ipcService.GetLogPathAsync().GetAwaiter().GetResult();
+                if (!string.IsNullOrEmpty(paths.clientLog))
+                    clientLog = paths.clientLog;
+                if (!string.IsNullOrEmpty(paths.firewallLog))
+                    firewallLog = paths.firewallLog;
+            }
+            catch { }
+        }
+
+        // Save for next time
+        if (!string.IsNullOrEmpty(clientLog))
+            _lastClientLogPath = clientLog;
+        if (!string.IsNullOrEmpty(firewallLog))
+            _lastFirewallLogPath = firewallLog;
+
+        if (string.IsNullOrEmpty(clientLog) && string.IsNullOrEmpty(firewallLog))
+        {
+            System.Windows.MessageBox.Show("Нет доступных логов", "Ошибка", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var sources = new List<LogFileSource>();
+        if (!string.IsNullOrEmpty(firewallLog))
+        {
+            sources.Add(new LogFileSource
+            {
+                Label = "Firewall",
+                FilePath = firewallLog,
+                Source = Lib.LogSource.Firewall
+            });
+        }
+        if (!string.IsNullOrEmpty(clientLog))
+        {
+            sources.Add(new LogFileSource
+            {
+                Label = "Client",
+                FilePath = clientLog,
+                Source = Lib.LogSource.Client
+            });
+        }
+
+        LogViewRequested?.Invoke(sources);
+    }
+
+    public void OpenArchivedLogs()
+    {
+        var dialog = new Microsoft.Win32.OpenFileDialog
+        {
+            Filter = "Binary log files (*.binlog)|*.binlog|All files (*.*)|*.*",
+            Multiselect = true,
+            Title = "Выберите файлы логов"
+        };
+
+        if (dialog.ShowDialog() != true || dialog.FileNames.Length == 0)
+            return;
+
+        var sources = new List<LogFileSource>();
+        foreach (var path in dialog.FileNames)
+        {
+            var fileName = Path.GetFileNameWithoutExtension(path);
+            var label = fileName.Contains("firewall") ? "Firewall"
+                : fileName.Contains("client") ? "Client"
+                : fileName;
+
+            sources.Add(new LogFileSource
+            {
+                Label = label,
+                FilePath = path,
+                Source = Lib.LogSource.Unknown
+            });
+        }
+
+        LogViewRequested?.Invoke(sources);
+    }
 
     public void Dispose()
     {
@@ -759,5 +1119,10 @@ public class MainViewModel : ViewModelBase, IDisposable
         _disposed = true;
         _statusTimer?.Stop();
         _statusTimer?.Dispose();
+        _ipcService.StateChanged -= OnStateChanged;
+        _ipcService.StopEventSubscription();
+        _clientLogReader.Stop();
+        _firewallLogReader.Stop();
+        _ipcService.Dispose();
     }
 }

@@ -4,9 +4,14 @@
              xmlns:local="clr-namespace:frontend"
              StartupUri="MainWindow.xaml">
     <Application.Resources>
-        <Style TargetType="TabItem">
-            <Setter Property="Padding" Value="10,5"/>
-            <Setter Property="FontSize" Value="14"/>
-        </Style>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="pack://application:,,,/BigBrother.Frontend.Shared;component/Theme.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+            <Style TargetType="TabItem">
+                <Setter Property="Padding" Value="10,5"/>
+                <Setter Property="FontSize" Value="14"/>
+            </Style>
+        </ResourceDictionary>
     </Application.Resources>
 </Application>

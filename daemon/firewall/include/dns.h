@@ -86,25 +86,28 @@ DnsPacket DnsParse(const uint8_t* payload, size_t payload_len);
 void DnsFree(DnsPacket* packet);
 
 /**
- * @brief Check if domain matches any whitelist entry.
- * @param[in] domain          Domain name to check.
- * @param[in] whitelist       Array of whitelist entries.
- * @param[in] whitelist_count Number of entries in whitelist array.
- * @return 1 if whitelisted, 0 if not, -1 on error.
- */
-int DnsCheckDomains(const char* domain, const char* whitelist[], size_t whitelist_count);
-
-/**
- * @brief Check if domain matches a single whitelist pattern.
+ * @brief Check if a (lowercased) domain matches a (lowercased) whitelist pattern.
  *
  * Supports exact match (e.g., "github.com"), wildcard suffix
- * (e.g., "*.github.com"), and substring (e.g., "\"github\"").
- * Comparison is case-insensitive.
+ * (e.g., "*.github.com"), and substring (e.g., "\"github\""). Comparison is
+ * case-insensitive, so both inputs must already be lowercased.
  *
- * @param[in] domain   Domain name to check (e.g., "api.github.com").
- * @param[in] pattern Whitelist pattern string.
+ * @param[in] domain_lower   Lowercased domain name.
+ * @param[in] pattern_lower  Lowercased whitelist pattern.
  * @return 1 if matches, 0 if not, -1 on error (null parameters).
  */
-int DnsCheckDomain(const char* domain, const char* pattern);
+int DnsCheckDomainLower(const char* domain_lower, const char* pattern_lower);
+
+/**
+ * @brief Compute the offset just past the first question section (name + type + class).
+ *
+ * Used to append answer records after the question so DNS compression pointers
+ * (0xC00C) that reference the question name remain valid.
+ *
+ * @param[in] payload     Pointer to DNS data.
+ * @param[in] payload_len Length of DNS data.
+ * @return Offset past the question, or 0 on error.
+ */
+size_t DnsGetQuestionEnd(const uint8_t* payload, size_t payload_len);
 
 #endif

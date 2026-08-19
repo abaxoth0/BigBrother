@@ -1,24 +1,9 @@
 using System.IO;
 using System.IO.Pipes;
 using System.Text;
+using frontend.Models;
 
 namespace frontend.Services;
-
-public class ClientStatus
-{
-    public string ClientName { get; set; } = "";
-    public string IpAddress { get; set; } = "";
-    public string DaemonStatus { get; set; } = "NOT_RUNNING";
-    public string ClientBackendStatus { get; set; } = "NOT_RUNNING";
-    public string ServerRunning { get; set; } = "NOT_RUNNING";
-    public string ServerSessionActive { get; set; } = "NOT_CONNECTED";
-    public int ClientPid { get; set; }
-    public bool IsConnected => ClientBackendStatus == "RUNNING";
-    public bool IsServerRunning => ServerRunning == "RUNNING";
-    public bool IsServerSessionActive => ServerSessionActive == "CONNECTED";
-    public uint WhitelistRevision { get; set; }
-    public bool FiltrationEnabled { get; set; } = true;
-}
 
 public class IpcService : IDisposable
 {
@@ -29,12 +14,96 @@ public class IpcService : IDisposable
     private bool _isConnected;
     private string _lastError = "";
     private readonly SemaphoreSlim _connectionLock = new(1, 1);
+    private CancellationTokenSource? _eventSubCts;
+
+    public event Action? StateChanged;
 
     public bool IsConnected => _isConnected;
     public string LastError => _lastError;
 
+    public void StartEventSubscription()
+    {
+        if (_eventSubCts != null) return;
+        _eventSubCts = new CancellationTokenSource();
+        _ = SubscribeLoopAsync(_eventSubCts.Token);
+    }
+
+    public void StopEventSubscription()
+    {
+        if (_eventSubCts != null)
+        {
+            _eventSubCts.Cancel();
+            _eventSubCts.Dispose();
+            _eventSubCts = null;
+        }
+    }
+
+    private async Task SubscribeLoopAsync(CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                using var pipe = new NamedPipeClientStream(".", PipeName, PipeDirection.InOut);
+                // Non-blocking probe: fails instantly when the daemon is not running
+                // (a timed ConnectAsync busy-waits for the full timeout, burning CPU).
+                await pipe.ConnectAsync(0, ct);
+                var writer = new StreamWriter(pipe) { AutoFlush = true };
+                var reader = new StreamReader(pipe);
+
+                // SUBSCRIBE\n\n (no username needed)
+                await writer.WriteAsync("SUBSCRIBE\n\n").ConfigureAwait(false);
+                await writer.FlushAsync().ConfigureAwait(false);
+
+                var status = await reader.ReadLineAsync(ct).ConfigureAwait(false);
+                if (status != "OK")
+                {
+                    await Task.Delay(1000, ct).ConfigureAwait(false);
+                    continue;
+                }
+                // consume empty line terminator
+                await reader.ReadLineAsync(ct).ConfigureAwait(false);
+
+                // Subscribed — signal UI to refresh once (covers reconnects)
+                StateChanged?.Invoke();
+
+                while (!ct.IsCancellationRequested)
+                {
+                    var line = await reader.ReadLineAsync(ct).ConfigureAwait(false);
+                    if (line == null) break; // pipe closed
+                    if (line == "EVENT")
+                    {
+                        StateChanged?.Invoke();
+                        // Skip remaining event TLV lines
+                        string? evLine;
+                        while ((evLine = await reader.ReadLineAsync(ct).ConfigureAwait(false)) != null && evLine.Length > 0)
+                        {
+                            // consume until empty line
+                        }
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+            catch (Exception)
+            {
+                // pipe unavailable — retry after delay
+            }
+
+            if (!ct.IsCancellationRequested)
+            {
+                try { await Task.Delay(1000, ct).ConfigureAwait(false); } catch (OperationCanceledException) { return; }
+            }
+        }
+    }
+
     public async Task<bool> ConnectAsync(int timeoutMs = 3000)
     {
+        // IMPORTANT: use a non-blocking probe (ConnectAsync(0)). When the pipe
+        // server is absent, a timed ConnectAsync busy-waits (SpinWait) for the
+        // full timeout, burning CPU on every retry while the daemon is down.
         try
         {
             if (_pipe != null)
@@ -49,10 +118,24 @@ public class IpcService : IDisposable
                 try
                 {
                     _pipe = new NamedPipeClientStream(".", PipeName, PipeDirection.InOut);
-                    await _pipe.ConnectAsync(timeoutMs);
+                    await _pipe.ConnectAsync(0);
                     _isConnected = true;
                     _lastError = "";
                     return true;
+                }
+                catch (TimeoutException)
+                {
+                    // Daemon not running — fail fast instead of busy-waiting.
+                    _isConnected = false;
+                    if (_pipe != null)
+                    {
+                        try { _pipe.Dispose(); } catch { }
+                        _pipe = null;
+                    }
+                    if (attempt < MaxRetries - 1)
+                    {
+                        await Task.Delay(50 * (attempt + 1));
+                    }
                 }
                 catch (Exception)
                 {
@@ -913,6 +996,7 @@ public class IpcService : IDisposable
 
     public void Dispose()
     {
+        StopEventSubscription();
         try
         {
             if (_pipe != null)

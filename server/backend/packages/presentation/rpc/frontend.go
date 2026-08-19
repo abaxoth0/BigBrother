@@ -14,6 +14,7 @@ import (
 	"bigbrother_server_backend/packages/domain/entity"
 	"bigbrother_server_backend/packages/infrastructure/connection"
 	"bigbrother_server_backend/packages/infrastructure/database"
+	"bigbrother_server_backend/packages/infrastructure/notification"
 	"bigbrother_server_backend/packages/infrastructure/pending"
 )
 
@@ -25,23 +26,23 @@ type ServerStatus struct {
 type FrontendHandler struct {
 	db           database.DBInstance
 	connManager  connection.Manager
-	activeWl 	  string // TODO refactor?
 	pendingUsers *pending.UserStorage
 	startTime    time.Time
+	bus          *notification.Manager
 }
 
 func NewFrontendHandler(
 	db database.DBInstance,
 	connManager connection.Manager,
 	pendingUsers *pending.UserStorage,
+	bus *notification.Manager,
 ) *FrontendHandler {
-	activeWl, _ := db.GetSetting("active_whitelist")
 	return &FrontendHandler{
 		db:           db,
 		connManager:  connManager,
 		pendingUsers: pendingUsers,
-		activeWl:     activeWl,
 		startTime:    time.Now(),
+		bus:          bus,
 	}
 }
 
@@ -71,6 +72,10 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 				continue
 			}
 			h.SetActiveWhitelist(args[0])
+			h.bus.Publish(notification.Event{
+				Type: notification.WhitelistChanged,
+				Data: map[string]string{},
+			})
 			writeOK(conn)
 
 		case "GET_SERVER_STATUS":
@@ -100,6 +105,10 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 				log.Error("Approving user \""+args[0]+"\"", err.Error(), nil)
 				writeErrorTLV(conn, err.Error())
 			} else {
+				h.bus.Publish(notification.Event{
+					Type: notification.UserApproved,
+					Data: map[string]string{"name": args[0]},
+				})
 				log.Info("Approving user \""+args[0]+"\": OK", nil)
 				writeOK(conn)
 			}
@@ -110,6 +119,10 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 				continue
 			}
 			h.RejectUser(args[0])
+			h.bus.Publish(notification.Event{
+				Type: notification.UserRejected,
+				Data: map[string]string{"name": args[0]},
+			})
 			writeOK(conn)
 
 		case "DISCONNECT":
@@ -120,6 +133,10 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 			if err := h.DisconnectUser(args[0]); err != nil {
 				writeErrorTLV(conn, err.Error())
 			} else {
+				h.bus.Publish(notification.Event{
+					Type: notification.UserDisconnected,
+					Data: map[string]string{"name": args[0]},
+				})
 				writeOK(conn)
 			}
 
@@ -198,6 +215,10 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 			if err := h.CreateWhitelist(args[0]); err != nil {
 				writeErrorTLV(conn, err.Error())
 			} else {
+				h.bus.Publish(notification.Event{
+					Type: notification.WhitelistChanged,
+					Data: map[string]string{},
+				})
 				writeOK(conn)
 			}
 
@@ -209,6 +230,10 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 			if err := h.DeleteWhitelist(args[0]); err != nil {
 				writeErrorTLV(conn, err.Error())
 			} else {
+				h.bus.Publish(notification.Event{
+					Type: notification.WhitelistChanged,
+					Data: map[string]string{},
+				})
 				writeOK(conn)
 			}
 
@@ -220,6 +245,10 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 			if err := h.ChangeWhitelistName(args[0], args[1]); err != nil {
 				writeErrorTLV(conn, err.Error())
 			} else {
+				h.bus.Publish(notification.Event{
+					Type: notification.WhitelistChanged,
+					Data: map[string]string{},
+				})
 				writeOK(conn)
 			}
 
@@ -233,6 +262,10 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 			if err := h.SetWhitelistEntries(wlName, entries); err != nil {
 				writeErrorTLV(conn, err.Error())
 			} else {
+				h.bus.Publish(notification.Event{
+					Type: notification.WhitelistChanged,
+					Data: map[string]string{},
+				})
 				writeOK(conn)
 			}
 
@@ -282,7 +315,22 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 				continue
 			}
 			h.db.SetSetting("filtration_enabled", args[0])
+			h.bus.Publish(notification.Event{
+				Type: notification.FiltrationToggled,
+				Data: map[string]string{"enabled": args[0]},
+			})
 			writeOK(conn)
+
+		case "SUBSCRIBE":
+			sub := notification.NewSubscriber(conn, 65536)
+			writeOK(conn)
+			h.bus.Add(sub)
+			scanner := bufio.NewScanner(conn)
+			for scanner.Scan() {
+				// Keep connection alive until client disconnects
+			}
+			h.bus.Remove(sub)
+			return
 
 		default:
 			writeErrorTLV(conn, fmt.Sprintf("unknown command: %s", cmd))
@@ -310,8 +358,8 @@ func (h *FrontendHandler) DeleteWhitelist(name string) error {
 	if err := h.db.DeleteWhitelist(name); err != nil {
 		return err
 	}
-	if h.activeWl == name {
-		h.activeWl = ""
+	activeWl, _ := h.db.GetSetting("active_whitelist")
+	if activeWl == name {
 		h.db.SetSetting("active_whitelist", "")
 	}
 	return nil
@@ -321,50 +369,15 @@ func (h *FrontendHandler) ChangeWhitelistName(oldName, newName string) error {
 	if err := h.db.ChangeWhitelistName(oldName, newName); err != nil {
 		return err
 	}
-	if h.activeWl == oldName {
-		h.activeWl = newName
+	activeWl, _ := h.db.GetSetting("active_whitelist")
+	if activeWl == oldName {
 		h.db.SetSetting("active_whitelist", newName)
 	}
 	return nil
 }
 
 func (h *FrontendHandler) SetWhitelistEntries(name string, entries []string) error {
-	existingEntries, err := h.db.GetWhitelistEntries(name)
-	if err != nil {
-		return err
-	}
-
-	existingSet := make(map[string]bool)
-	for _, e := range existingEntries {
-		existingSet[e.Value] = true
-	}
-
-	newSet := make(map[string]bool)
-	for _, e := range entries {
-		newSet[e] = true
-	}
-
-	for _, e := range existingEntries {
-		if !newSet[e.Value] {
-			// TODO put this in a transaction
-			if err := h.db.DeleteWhitelistEntry(e.Value, name); err != nil {
-				return err
-			}
-		}
-	}
-
-	// TODO union this two methods
-
-	for _, e := range entries {
-		if !existingSet[e] {
-			// TODO put this in a transaction
-			if err := h.db.AddWhitelistEntry(e, name); err != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
+	return h.db.ReplaceWhitelistEntries(entries, name)
 }
 
 func (h *FrontendHandler) ApproveUser(name string) error {
@@ -407,11 +420,11 @@ func (h *FrontendHandler) DeleteUsers(names ...string) error {
 }
 
 func (h *FrontendHandler) GetActiveWhitelist() string {
-	return h.activeWl
+	activeWl, _ := h.db.GetSetting("active_whitelist")
+	return activeWl
 }
 
 func (h *FrontendHandler) SetActiveWhitelist(name string) {
-	h.activeWl = name
 	h.db.SetSetting("active_whitelist", name)
 }
 

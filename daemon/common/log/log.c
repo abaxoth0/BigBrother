@@ -6,6 +6,10 @@
 FILE* LogFile = NULL;
 LoggerContext* g_logger = NULL;
 
+// Serializes producers (log_write_async is called from multiple threads).
+static CRITICAL_SECTION g_log_write_lock;
+static int g_log_lock_initialized = 0;
+
 static uint32_t align_up(uint32_t size, uint32_t align) {
     return (size + align - 1) & ~(align - 1);
 }
@@ -17,6 +21,11 @@ static void rotate_log(LoggerContext* ctx);
 int log_init_async(uint32_t buffer_size) {
     if (g_logger) {
         return 0;  // Already initialized
+    }
+
+    if (!g_log_lock_initialized) {
+        InitializeCriticalSection(&g_log_write_lock);
+        g_log_lock_initialized = 1;
     }
 
     // Round up buffer size to page size (4KB)
@@ -112,6 +121,13 @@ static DWORD WINAPI logger_thread_func(LPVOID param) {
         // Read entry from ring buffer (4 byte header: type + payload_len)
         uint32_t tail = rb->tail;
         uint16_t payload_len = *(uint16_t*)&rb->data[tail + 2];
+
+        // Validate entry so a corrupted length can't overflow the batch slot (512 bytes).
+        if (payload_len > 490 || payload_len < 9) {
+            // Corrupted or out-of-range entry — resync by dropping it.
+            rb->tail = (tail + 4 + payload_len) % rb->capacity;
+            continue;
+        }
 
         uint32_t next_tail = tail + 4 + payload_len;
         if (next_tail >= rb->capacity) {
@@ -312,10 +328,24 @@ void log_write_async(uint16_t type, uint8_t level, const char* msg) {
         return;
     }
 
+    // Serialize producers: the ring buffer is single-writer, and without a lock two
+    // threads can interleave head updates and corrupt the buffer. The wait-for-space
+    // loop below can Sleep(1), which briefly blocks other loggers — acceptable.
+    if (g_log_lock_initialized) EnterCriticalSection(&g_log_write_lock);
+
     RingBuffer* rb = g_logger->rb;
 
     uint64_t timestamp = (uint64_t)time(NULL);
-    uint16_t msg_len = (uint16_t)strlen(msg) + 1;
+
+    // Cap the message so a single entry always fits within a batch slot (512 bytes).
+    // batch_buffer entries are laid out at LOG_BATCH_SIZE * 512 with a fixed 512-byte
+    // stride, so payload_len must be < 512 - 4 (header). 490 leaves headroom.
+    size_t msg_len_full = strlen(msg);
+    uint16_t msg_len = (uint16_t)(msg_len_full + 1);
+    const uint16_t MAX_PAYLOAD = 490; // 8 ts + 1 level + msg(+null)
+    if (msg_len > MAX_PAYLOAD - 9) {
+        msg_len = MAX_PAYLOAD - 9;
+    }
     uint16_t payload_len = 8 + 1 + msg_len;  // timestamp + level + message
 
     // Total size: 4 (type+len header) + payload
@@ -333,7 +363,25 @@ void log_write_async(uint16_t type, uint8_t level, const char* msg) {
             available = (tail - head) - 1;
         }
 
-        if (available >= total_size) {
+        // The entry must also fit contiguously from head (or be splittable). If it
+        // would cross the buffer end, force a wrap by treating the tail region as the
+        // only contiguous space available.
+        uint32_t contig;
+        if (head >= tail) {
+            contig = rb->capacity - head;
+            if (contig >= total_size) {
+                // fits before the end
+            } else if (tail >= total_size + 1) {
+                // wrap to the start (tail is behind head, so the space [0, tail) is free)
+                contig = tail;
+            } else {
+                contig = 0; // cannot fit contiguously yet
+            }
+        } else {
+            contig = tail - head;
+        }
+
+        if (contig >= total_size && available >= total_size) {
             break;
         }
 
@@ -343,6 +391,12 @@ void log_write_async(uint16_t type, uint8_t level, const char* msg) {
 
     // Write entry to ring buffer
     uint32_t head = rb->head;
+
+    // If the entry doesn't fit contiguously from head, wrap head to 0.
+    if (head + total_size > rb->capacity) {
+        head = 0;
+        rb->head = head;
+    }
 
     // Write TYPE and payload_len header
     *(uint16_t*)&rb->data[head] = type;
@@ -358,8 +412,8 @@ void log_write_async(uint16_t type, uint8_t level, const char* msg) {
     // level (1 byte)
     rb->data[offset + i++] = level;
     // message (null-terminated)
-    memcpy(&rb->data[offset + i], msg, msg_len);
-    i += msg_len;
+    memcpy(&rb->data[offset + i], msg, msg_len - 1);
+    rb->data[offset + i + msg_len - 1] = '\0';
 
     // Update head (total = 4 header + payload)
     uint32_t new_head = head + 4 + payload_len;
@@ -370,6 +424,8 @@ void log_write_async(uint16_t type, uint8_t level, const char* msg) {
 
     // Signal logger thread
     ReleaseSemaphore(g_logger->write_semaphore, 1, NULL);
+
+    if (g_log_lock_initialized) LeaveCriticalSection(&g_log_write_lock);
 }
 
 void log_write_sync(uint16_t type, uint8_t level, const char* msg) {

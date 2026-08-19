@@ -16,6 +16,7 @@ public class LogReader
     private readonly object _lock = new();
     
     private const int InitialReadKB = 512; // Read last 512KB on startup
+    private const int PollIntervalMs = 500; // log tailing poll interval
 
     public event Action<string>? OnNewLine;
     public string CurrentFile => _currentFile;
@@ -77,7 +78,7 @@ public class LogReader
         {
             try
             {
-                await Task.Delay(100, ct);
+                await Task.Delay(PollIntervalMs, ct);
                 if (!_isRunning) break;
                 
                 ReadNewEntries(buffer);

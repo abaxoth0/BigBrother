@@ -3,6 +3,11 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Просмотр логов" Height="600" Width="900"
         WindowStartupLocation="CenterOwner">
+    <Window.Resources>
+        <DataTemplate x:Key="LogLineTemplate">
+            <TextBlock Text="{Binding Message}" FontFamily="Consolas" FontSize="12"/>
+        </DataTemplate>
+    </Window.Resources>
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -21,14 +26,15 @@
             
             <TextBox Grid.Column="0" x:Name="SearchTextBox" 
                      VerticalContentAlignment="Center"
+                     Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
                      Margin="0,0,10,0"/>
             
             <Button Grid.Column="1" Content="Перезагрузить" 
-                    Click="Reload_Click" Margin="0,0,5,0" Padding="10,5"/>
+                    Command="{Binding ReloadCommand}" Margin="0,0,5,0" Padding="10,5"/>
             <Button Grid.Column="2" Content="Экспорт" 
-                    Click="Export_Click" Margin="0,0,5,0" Padding="10,5"/>
+                    Command="{Binding ExportCommand}" Margin="0,0,5,0" Padding="10,5"/>
             <Button Grid.Column="3" Content="Закрыть" 
-                    Click="Close_Click" Padding="10,5"/>
+                    Command="{Binding CloseCommand}" Padding="10,5"/>
         </Grid>
         
         <!-- Tabs with logs -->

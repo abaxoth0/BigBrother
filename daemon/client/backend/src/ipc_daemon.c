@@ -8,6 +8,7 @@
 #include <iphlpapi.h>
 
 #include "../include/ipc_daemon.h"
+#include "../include/ipc_client.h"
 #include "../../../common/log/log.h"
 #include <windows.h>
 #include <stdlib.h>
@@ -18,15 +19,23 @@
 #define CONFIG_INI_PATH "config\\config.ini"
 #define INI_LINE_MAX 512
 
+#define SRV_HEARTBEAT_INTERVAL_MS 10000
+#define SRV_LOCAL_DAEMON_CHECK_MS 10000
+
 static char g_server_ip[64] = {0};
 static int g_server_session_active = 0;
 static int g_registration_tried = 0;
 static int g_fallback_whitelist_enabled = 1;
 static int g_filtration_enabled = 1;
-static int g_filtration_auto_disable = 0;
+
+static char g_last_whitelist[DAEMON_MAX_MESSAGE_SIZE] = {0};
+static int g_blocked_all_pushed = 0;
 
 void SetServerSessionActive(int active) {
-    g_server_session_active = active;
+    if (g_server_session_active != active) {
+        g_server_session_active = active;
+        NotifyStateChanged();
+    }
 }
 
 int IsServerSessionActive(void) {
@@ -355,17 +364,39 @@ static int send_command_tlv(const char* command, const char** args, size_t arg_c
 
     FlushFileBuffers(pipe);
 
-    // Read response using old firewall format - read entire message
+    // Read response using old firewall format. The firewall pipe is message
+    // mode with up to 64KB messages; a single byte-mode ReadFile truncates
+    // large responses (e.g. a >8KB whitelist dump). Switch to message read
+    // mode and loop on ERROR_MORE_DATA to assemble the full response.
+    DWORD pipe_mode = PIPE_READMODE_MESSAGE;
+    SetNamedPipeHandleState(pipe, &pipe_mode, NULL, NULL);
+
+    size_t total = 0;
     DWORD bytes_read = 0;
-    if (!ReadFile(pipe, out_buffer, (DWORD)(buffer_size - 1), &bytes_read, NULL)) {
+    BOOL ok = FALSE;
+
+    for (;;) {
+        if (total >= buffer_size - 1) break;
+        ok = ReadFile(pipe, out_buffer + total, (DWORD)(buffer_size - 1 - total), &bytes_read, NULL);
+        if (ok) {
+            total += bytes_read;
+            break; // complete message read
+        }
+        if (GetLastError() != ERROR_MORE_DATA) break;
+        if (bytes_read == 0) break;
+        total += bytes_read;
+        if (total >= buffer_size - 1) break;
+    }
+
+    if (!ok && total == 0) {
         CloseHandle(pipe);
         return -1;
     }
-    out_buffer[bytes_read] = '\0';
+    out_buffer[total] = '\0';
 
     // Remove trailing newlines
-    while (bytes_read > 0 && (out_buffer[bytes_read - 1] == '\n' || out_buffer[bytes_read - 1] == '\r')) {
-        out_buffer[--bytes_read] = '\0';
+    while (total > 0 && (out_buffer[total - 1] == '\n' || out_buffer[total - 1] == '\r')) {
+        out_buffer[--total] = '\0';
     }
 
     CloseHandle(pipe);
@@ -411,6 +442,7 @@ int DaemonSetFiltration(int enabled) {
     char buf[16] = {0};
     if (send_command_tlv("SET_FILTRATION", args, 1, buf, sizeof(buf)) == 0) {
         g_filtration_enabled = enabled;
+        NotifyStateChanged();
         return 0;
     }
     return -1;
@@ -432,14 +464,14 @@ void SetFiltrationAutoDisableEnabled(int enabled) {
 }
 
 static void apply_auto_disable(void) {
-    if (IsFiltrationAutoDisableEnabled()) {
+    if (IsFiltrationAutoDisableEnabled() && IsFiltrationEnabled()) {
         LOGF("[Daemon] Auto-disable: disabling filtration (server disconnected)");
         DaemonSetFiltration(0);
     }
 }
 
 static void apply_auto_enable(void) {
-    if (IsFiltrationAutoDisableEnabled()) {
+    if (IsFiltrationAutoDisableEnabled() && !IsFiltrationEnabled()) {
         LOGF("[Daemon] Auto-disable: enabling filtration (server connected)");
         DaemonSetFiltration(1);
     }
@@ -687,7 +719,7 @@ int ServerConnect(const char* name) {
     char response[256] = {0};
     int result = send_to_server_tlv("CONNECT", args, local_ip[0] ? 2 : 1, response, sizeof(response));
     if (result == 0 || strstr(response, "already connected") != NULL) {
-        g_server_session_active = 1;
+        SetServerSessionActive(1);
         return 0;
     }
     if (response[0]) {
@@ -703,7 +735,7 @@ int ServerDisconnect(const char* name) {
     const char* args[1] = {name};
     char response[256];
     int result = send_to_server_tlv("DISCONNECT", args, 1, response, sizeof(response));
-    if (result == 0) g_server_session_active = 0;
+    if (result == 0) SetServerSessionActive(0);
     return result;
 }
 
@@ -712,7 +744,7 @@ int ServerRefresh(const char* name) {
     const char* args[1] = {name};
     char response[256];
     int result = send_to_server_tlv("REFRESH", args, 1, response, sizeof(response));
-    if (result == 0) g_server_session_active = 1;
+    if (result == 0) SetServerSessionActive(1);
     return result;
 }
 
@@ -728,16 +760,426 @@ int PingServer(void) {
     return send_to_server_tlv("PING", NULL, 0, response, sizeof(response));
 }
 
-int DaemonRun(const char* server_ip, int poll_interval_secs) {
-    char whitelist_buf[8192];
-    char last_whitelist[8192] = {0};
-    char username[128] = {0};
-    int server_connected = 0;
-    int startup_retries = 30; // Wait up to 30 seconds for daemon to be ready
+// --- Event-driven server subscription helpers ---
 
-    // Track whether we've pushed an empty whitelist for block-all mode
-    int blocked_all_pushed = 0;
+// Buffered line reader used by server_subscribe_loop
+typedef struct {
+    SOCKET sock;
+    char buf[4096];
+    size_t pos;
+    size_t len;
+} SrvLineReader;
+
+static void srv_line_reader_init(SrvLineReader* r, SOCKET sock) {
+    r->sock = sock;
+    r->pos = 0;
+    r->len = 0;
+}
+
+// Read a single LF-terminated line (strips CR). Returns 1 on success,
+// 2 on recv timeout, 0 on error/disconnect.
+static int srv_readline(SrvLineReader* r, char* out, size_t out_size) {
+    size_t consumed = 0;
+    while (consumed + 1 < out_size) {
+        if (r->pos >= r->len) {
+            r->pos = 0;
+            r->len = 0;
+            int n = recv(r->sock, r->buf, sizeof(r->buf) - 1, 0);
+            if (n <= 0) {
+                if (n == 0) return 0; // connection closed
+                if (WSAGetLastError() == WSAETIMEDOUT) return 2; // recv timeout
+                return 0; // real error
+            }
+            r->len = (size_t)n;
+        }
+        char c = r->buf[r->pos++];
+        if (c == '\n') {
+            out[consumed] = '\0';
+            return 1;
+        }
+        if (c != '\r') {
+            out[consumed++] = c;
+        }
+    }
+    out[consumed] = '\0';
+    return 1;
+}
+
+// Read a TLV value (length line + data line) via line reader.
+static int srv_read_tlv(SrvLineReader* r, char* out, size_t out_size) {
+    char len_str[32];
+    if (srv_readline(r, len_str, sizeof(len_str)) != 1) return 0;
+    int expected = atoi(len_str);
+    if (expected < 0 || (size_t)expected >= out_size) return 0;
+    // Read exactly expected bytes
+    size_t got = 0;
+    while (got < (size_t)expected) {
+        if (r->pos >= r->len) {
+            int n = recv(r->sock, r->buf, sizeof(r->buf) - 1, 0);
+            if (n <= 0) return 0;
+            r->pos = 0;
+            r->len = (size_t)n;
+        }
+        size_t avail = r->len - r->pos;
+        size_t want = (size_t)expected - got;
+        size_t copy = avail < want ? avail : want;
+        memcpy(out + got, r->buf + r->pos, copy);
+        r->pos += copy;
+        got += copy;
+    }
+    out[got] = '\0';
+    // Consume trailing newline
+    if (r->pos >= r->len) {
+        int n = recv(r->sock, r->buf, sizeof(r->buf) - 1, 0);
+        if (n <= 0) return 0;
+        r->pos = 0;
+        r->len = (size_t)n;
+    }
+    if (r->buf[r->pos] == '\r') r->pos++;
+    if (r->pos < r->len && r->buf[r->pos] == '\n') r->pos++;
+    return 1;
+}
+
+// Fetches and applies the whitelist from the server.
+static void sync_whitelist_from_server(const char* username) {
+    char whitelist_buf[DAEMON_MAX_MESSAGE_SIZE];
+    const char* wl_args[1] = {username};
+    char response[DAEMON_MAX_MESSAGE_SIZE] = {0};
+
+    if (send_to_server_tlv("GET_WHITELIST", wl_args, 1, response, sizeof(response)) != 0) {
+        LOGF("[Daemon] Failed to fetch whitelist from server");
+        return;
+    }
+
+    // Server whitelist sync disabled
+    if (strcmp(response, "SYNC_DISABLED") == 0) {
+        if (strcmp(g_last_whitelist, "SYNC_DISABLED") != 0) {
+            if (g_fallback_whitelist_enabled) {
+                LOGF("[Daemon] Server whitelist sync is disabled, keeping local whitelist");
+            } else {
+                LOGF("[Daemon] Server whitelist sync is disabled, fallback off - blocking all traffic");
+                if (DaemonSetWhitelist("", 0, whitelist_buf, sizeof(whitelist_buf)) == 0) {
+                    g_whitelist_revision++;
+                    g_blocked_all_pushed = 1;
+                    NotifyStateChanged();
+                }
+            }
+            strncpy(g_last_whitelist, "SYNC_DISABLED", sizeof(g_last_whitelist) - 1);
+            g_last_whitelist[sizeof(g_last_whitelist) - 1] = '\0';
+        }
+        return;
+    }
+
+    if (g_blocked_all_pushed) {
+        g_blocked_all_pushed = 0;
+        g_last_whitelist[0] = '\0';
+    }
+    if (strcmp(response, g_last_whitelist) == 0) {
+        return;
+    }
+    size_t copy_len = strlen(response);
+    if (copy_len >= sizeof(g_last_whitelist)) copy_len = sizeof(g_last_whitelist) - 1;
+    memcpy(g_last_whitelist, response, copy_len);
+    g_last_whitelist[copy_len] = '\0';
+
+    if (DaemonSetWhitelist(response, strlen(response), whitelist_buf, sizeof(whitelist_buf)) != 0) {
+        LOGF("[Daemon] Failed to set whitelist on daemon");
+    } else {
+        LOGF("[Daemon] Whitelist updated");
+        g_whitelist_revision++;
+        NotifyStateChanged();
+    }
+}
+
+// Syncs filtration state from the server.
+static void sync_filtration_from_server(void) {
+    char filt_buf[16] = {0};
+    if (send_to_server_tlv("GET_FILTRATION", NULL, 0, filt_buf, sizeof(filt_buf)) != 0) return;
+    int server_filt = (filt_buf[0] == '1');
+    if (server_filt != g_filtration_enabled) {
+        LOGF("[Daemon] Server filtration %s, updating local firewall", server_filt ? "enabled" : "disabled");
+        DaemonSetFiltration(server_filt);
+    }
+}
+
+// Blocks all traffic if the server is unreachable and fallback is disabled.
+static void block_all_if_no_fallback(void) {
+    if (g_fallback_whitelist_enabled || g_blocked_all_pushed) return;
+    char whitelist_buf[DAEMON_MAX_MESSAGE_SIZE];
+    LOGF("[Daemon] Server unreachable and fallback off - blocking all traffic");
+    if (DaemonSetWhitelist("", 0, whitelist_buf, sizeof(whitelist_buf)) == 0) {
+        g_whitelist_revision++;
+        g_blocked_all_pushed = 1;
+        NotifyStateChanged();
+    }
+}
+
+// Tries to rediscover the configured server. Returns 1 if found.
+static int try_discover_server(void) {
+    char expected_name[128] = {0};
+    ini_get_string("server", "name", expected_name, sizeof(expected_name));
+    if (expected_name[0] == '\0') return 0;
+
+    char local_ip[64] = {0}, bcast_list[4096] = {0};
+    GetAllBroadcastAddresses(local_ip, sizeof(local_ip), bcast_list, sizeof(bcast_list));
+    if (bcast_list[0] == '\0') return 0;
+
+    char disco_resp[8192] = {0};
+    int found = DiscoverServers(bcast_list, 42069, 2000, disco_resp, sizeof(disco_resp));
+    if (found <= 0) return 0;
+
+    char* line = disco_resp;
+    for (int i = 0; i < found && line && *line; i++) {
+        char* first_pipe = strchr(line, '|');
+        if (!first_pipe) { char* nl = strchr(line, '\n'); if (nl) line = nl + 1; else break; continue; }
+        *first_pipe = '\0';
+        char* name = line;
+        char* rest = first_pipe + 1;
+        if (strcmp(name, expected_name) == 0) {
+            char* second_pipe = strchr(rest, '|');
+            char* server_ip = rest;
+            char* server_port = "1984";
+            if (second_pipe) {
+                *second_pipe = '\0';
+                server_port = second_pipe + 1;
+                char* nl = strchr(server_port, '\n');
+                if (nl) *nl = '\0';
+            } else {
+                char* nl = strchr(server_ip, '\n');
+                if (nl) *nl = '\0';
+            }
+            if (local_ip[0] != '\0' && strcmp(server_ip, local_ip) == 0) {
+                SetServerIp(".");
+            } else {
+                SetServerIp(server_ip);
+            }
+            ini_set_string("server", "port", server_port);
+            LOGF("[Daemon] Server '%s' found at %s:%s", expected_name, server_ip, server_port);
+            *first_pipe = '|';
+            return 1;
+        }
+        *first_pipe = '|';
+        char* nl = strchr(line, '\n');
+        if (nl) line = nl + 1; else break;
+    }
+    return 0;
+}
+
+// Handle a server-pushed event. Reads the event's data TLV lines (terminated
+// by an empty line) and applies the change. Returns 0 to continue, 1 to resubscribe.
+static int handle_server_event(const char* event_type, SrvLineReader* reader, const char* username) {
+    // Read data key=value lines until empty line
+    char data[8][256];
+    int data_count = 0;
+    while (data_count < 8) {
+        char line[256];
+        if (srv_readline(reader, line, sizeof(line)) != 1) return 0;
+        if (line[0] == '\0') break; // empty line terminates event
+        strncpy(data[data_count], line, sizeof(data[data_count]) - 1);
+        data[data_count][sizeof(data[data_count]) - 1] = '\0';
+        data_count++;
+    }
+
+    if (strcmp(event_type, "WHITELIST_CHANGED") == 0) {
+        sync_whitelist_from_server(username);
+        return 0;
+    }
+    if (strcmp(event_type, "FILTRATION_TOGGLED") == 0) {
+        for (int i = 0; i < data_count; i++) {
+            char* eq = strchr(data[i], '=');
+            if (eq && strncmp(data[i], "enabled", (size_t)(eq - data[i])) == 0) {
+                int val = (*(eq + 1) == '1');
+                if (val != g_filtration_enabled) {
+                    LOGF("[Daemon] Server filtration toggled to %d, updating local firewall", val);
+                    DaemonSetFiltration(val);
+                }
+            }
+        }
+        return 0;
+    }
+    if (strcmp(event_type, "USER_APPROVED") == 0) {
+        for (int i = 0; i < data_count; i++) {
+            char* eq = strchr(data[i], '=');
+            if (eq && strncmp(data[i], "name", (size_t)(eq - data[i])) == 0) {
+                const char* approved_name = eq + 1;
+                if (strcmp(approved_name, username) == 0) {
+                    LOGF("[Daemon] User '%s' approved, connecting to server...", approved_name);
+                    if (ServerConnect(username) == 0) {
+                        SetServerSessionActive(1);
+                        apply_auto_enable();
+                        sync_whitelist_from_server(username);
+                        sync_filtration_from_server();
+                    }
+                }
+            }
+        }
+        return 0;
+    }
+    // Unknown event type — data already consumed above
+    return 0;
+}
+
+// Runs the server subscription loop. Returns 0 on connection loss, 1 on service stop.
+// Blocks until the connection drops or the service should shut down.
+static int server_subscribe_loop(const char* username, int* consecutive_failures) {
+    WSADATA wsa;
+    if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) return 0;
+
+    const char* target_ip = g_server_ip;
+    if (strcmp(g_server_ip, ".") == 0 || strcmp(g_server_ip, "127.0.0.1") == 0) {
+        target_ip = "127.0.0.1";
+    }
+    int port = get_server_port();
+
+    SOCKET sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (sock == INVALID_SOCKET) { WSACleanup(); return 0; }
+
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons((unsigned short)port);
+    inet_pton(AF_INET, target_ip, &addr.sin_addr);
+
+    // Set receive timeout for event parsing
+    int timeout_ms = 3000;
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout_ms, sizeof(timeout_ms));
+
+    if (connect(sock, (struct sockaddr*)&addr, sizeof(addr)) != 0) {
+        closesocket(sock);
+        WSACleanup();
+        if (consecutive_failures) (*consecutive_failures)++;
+        return 0;
+    }
+
+    // Send SUBSCRIBE with username
+    char sub_req[1024];
+    int sub_len = snprintf(sub_req, sizeof(sub_req), "SUBSCRIBE\n%zu\n%s\n\n",
+                           strlen(username), username);
+    if (send(sock, sub_req, sub_len, 0) <= 0) {
+        closesocket(sock);
+        WSACleanup();
+        return 0;
+    }
+
+    // Read OK response
+    SrvLineReader reader;
+    srv_line_reader_init(&reader, sock);
+    char status[32];
+    if (!srv_readline(&reader, status, sizeof(status)) || strcmp(status, "OK") != 0) {
+        LOGF("[Daemon] SUBSCRIBE handshake failed: '%s'", status);
+        closesocket(sock);
+        WSACleanup();
+        return 0;
+    }
+    // Consume empty line terminator
+    char empty_line[4];
+    srv_readline(&reader, empty_line, sizeof(empty_line));
+
+    LOGF("[Daemon] Subscribed to server events for user '%s'", username);
+
+    // On successful subscribe, ensure we are connected and synced
+    if (ServerConnect(username) == 0) {
+        SetServerSessionActive(1);
+        apply_auto_enable();
+    } else {
+        apply_auto_disable();
+    }
+    sync_whitelist_from_server(username);
+    sync_filtration_from_server();
+    if (consecutive_failures) *consecutive_failures = 0;
+
+    // Event loop
+    DWORD last_heartbeat = GetTickCount();
+    DWORD last_local_check = GetTickCount();
+    int keep_going = 1;
+
+    while (keep_going) {
+        // Check for service stop
+        if (g_ServiceStopEvent != INVALID_HANDLE_VALUE &&
+            WaitForSingleObject(g_ServiceStopEvent, 0) == WAIT_OBJECT_0) {
+            keep_going = 0;
+            break;
+        }
+
+        // Heartbeat every SRV_HEARTBEAT_INTERVAL_MS
+        DWORD now = GetTickCount();
+        if (now - last_heartbeat >= SRV_HEARTBEAT_INTERVAL_MS) {
+            last_heartbeat = now;
+            if (send(sock, "K\n", 2, 0) <= 0) {
+                LOGF("[Daemon] Heartbeat send failed, connection lost");
+                break;
+            }
+        }
+
+        // Check local daemon health
+        if (now - last_local_check >= SRV_LOCAL_DAEMON_CHECK_MS) {
+            last_local_check = now;
+            PingDaemon(); // just check — failure is non-fatal here
+        }
+
+        // Try to read a line (non-blocking with SO_RCVTIMEO)
+        char line[512];
+        int rd = srv_readline(&reader, line, sizeof(line));
+        if (rd == 0) {
+            // Connection closed or real error — leave loop
+            keep_going = 0;
+            break;
+        }
+        if (rd == 2) {
+            // recv timeout — loop back to check heartbeat/stop
+            continue;
+        }
+
+        if (strcmp(line, "EVENT") == 0) {
+            char event_type[64];
+            if (!srv_read_tlv(&reader, event_type, sizeof(event_type))) {
+                break; // bad data
+            }
+
+            if (handle_server_event(event_type, &reader, username) == 1) {
+                // Resubscribe requested
+                break;
+            }
+        } else if (strcmp(line, "K") == 0) {
+            // Server heartbeat reply — ignore
+        } else {
+            // Unknown line — skip rest of event if any
+            while (1) {
+                char tmp[256];
+                if (!srv_readline(&reader, tmp, sizeof(tmp))) {
+                    keep_going = 0;
+                    break;
+                }
+                if (tmp[0] == '\0') break;
+            }
+        }
+    }
+
+    closesocket(sock);
+    WSACleanup();
+    return keep_going; // 1 = service stop, 0 = connection lost
+}
+
+// Sleep in increments of 1 second, checking for service stop.
+// Returns 1 if stop was requested, 0 if slept the full duration.
+static int sleep_with_stop_check(int total_ms) {
+    int slept = 0;
+    while (slept < total_ms) {
+        if (g_ServiceStopEvent != INVALID_HANDLE_VALUE) {
+            if (WaitForSingleObject(g_ServiceStopEvent, 0) == WAIT_OBJECT_0) {
+                return 1;
+            }
+        }
+        Sleep(1000);
+        slept += 1000;
+    }
+    return 0;
+}
+
+int DaemonRun(const char* server_ip) {
+    char username[128] = {0};
     int consecutive_failures = 0;
+    int startup_retries = 30;
 
     LOGF("[Daemon] Waiting for local daemon to be ready...");
     int local_ready = 0;
@@ -753,7 +1195,6 @@ int DaemonRun(const char* server_ip, int poll_interval_secs) {
 
     if (!local_ready) {
         LOGF("[Daemon] Local daemon not available, continuing without it (pid: %lu)", GetCurrentProcessId());
-        // Don't exit - continue in degraded mode
     }
 
     // Try to connect to server on startup
@@ -761,7 +1202,7 @@ int DaemonRun(const char* server_ip, int poll_interval_secs) {
         LOGF("[Daemon] Found saved username: %s, connecting to server...", username);
         if (ServerConnect(username) == 0) {
             LOGF("[Daemon] Connected to server successfully");
-            server_connected = 1;
+            SetServerSessionActive(1);
             apply_auto_enable();
         } else {
             LOGF("[Daemon] Failed to connect to server (may not be registered/approved yet)");
@@ -777,8 +1218,9 @@ int DaemonRun(const char* server_ip, int poll_interval_secs) {
         apply_auto_disable();
     }
 
+    // Event-driven subscription loop
     while (1) {
-        // Re-read username from config on each iteration (may have been set via frontend)
+        // Re-read username from config (may have been set via frontend)
         username[0] = '\0';
         LoadUserName(username, sizeof(username));
 
@@ -791,178 +1233,47 @@ int DaemonRun(const char* server_ip, int poll_interval_secs) {
         }
 
         if (local_ready && PingDaemon() != 0) {
-            LOGF("[Daemon] Local daemon not responding (pid: %lu), continuing in degraded mode", GetCurrentProcessId());
+            LOGF("[Daemon] Local daemon not responding, continuing in degraded mode");
             local_ready = 0;
         }
 
-        // Refresh connection periodically
-        if (server_connected && username[0] != '\0') {
-            ServerRefresh(username);
+        if (username[0] == '\0') {
+            // No username yet — sleep and retry
+            sleep_with_stop_check(5000);
+            continue;
         }
 
-        // Always try to get whitelist from remote server (detects active WL changes)
-        if (username[0] != '\0') {
-            const char* wl_args[1] = {username};
-            char response[8192] = {0};
-            if (send_to_server_tlv("GET_WHITELIST", wl_args, 1, response, sizeof(response)) == 0) {
+        // Try to subscribe to server events
+        int sub_result = server_subscribe_loop(username, &consecutive_failures);
+        if (sub_result == 1) {
+            // Service stop requested
+            break;
+        }
+
+        // Connection lost — clean up state
+        LOGF("[Daemon] Lost connection to server %s, retrying...", g_server_ip);
+        SetServerSessionActive(0);
+        apply_auto_disable();
+        block_all_if_no_fallback();
+
+        consecutive_failures++;
+        if (consecutive_failures >= 3) {
+            if (try_discover_server()) {
                 consecutive_failures = 0;
-                if (!server_connected) {
-                    server_connected = 1;
-                    g_server_session_active = 1;
-                    ServerConnect(username);
-                    apply_auto_enable();
-                }
-
-                // Sync filtration state from server
-                {
-                    char filt_buf[16] = {0};
-                    int tlv_ret = send_to_server_tlv("GET_FILTRATION", NULL, 0, filt_buf, sizeof(filt_buf));
-                    if (tlv_ret == 0) {
-                        int server_filt = (filt_buf[0] == '1');
-                        LOGF("[Daemon] Server GET_FILTRATION returned '%s' (server_filt=%d, local=%d)",
-                             filt_buf, server_filt, g_filtration_enabled);
-                        if (server_filt != g_filtration_enabled) {
-                            LOGF("[Daemon] Server filtration %s, updating local firewall", server_filt ? "enabled" : "disabled");
-                            int df_ret = DaemonSetFiltration(server_filt);
-                            LOGF("[Daemon] DaemonSetFiltration returned %d", df_ret);
-                        }
-                    } else {
-                        LOGF("[Daemon] GET_FILTRATION from server failed (ret=%d)", tlv_ret);
-                    }
-                }
-
-                // Check if server whitelist sync is disabled
-                if (strcmp(response, "SYNC_DISABLED") == 0) {
-                    if (strcmp(last_whitelist, "SYNC_DISABLED") != 0) {
-                        if (g_fallback_whitelist_enabled) {
-                            LOGF("[Daemon] Server whitelist sync is disabled, keeping local whitelist");
-                        } else {
-                            LOGF("[Daemon] Server whitelist sync is disabled, fallback off - blocking all traffic");
-                            if (DaemonSetWhitelist("", 0, whitelist_buf, sizeof(whitelist_buf)) == 0) {
-                                g_whitelist_revision++;
-                                blocked_all_pushed = 1;
-                            }
-                        }
-                        strncpy(last_whitelist, "SYNC_DISABLED", sizeof(last_whitelist) - 1);
-                        last_whitelist[sizeof(last_whitelist) - 1] = '\0';
-                    }
-                    goto wait;
-                }
-
-                // Server returned actual whitelist entries - push if changed
-                if (blocked_all_pushed) {
-                    blocked_all_pushed = 0;
-                    last_whitelist[0] = '\0';
-                }
-                if (strcmp(response, last_whitelist) == 0) {
-                    goto wait;
-                }
-                size_t copy_len = strlen(response);
-                if (copy_len >= sizeof(last_whitelist)) copy_len = sizeof(last_whitelist) - 1;
-                memcpy(last_whitelist, response, copy_len);
-                last_whitelist[copy_len] = '\0';
-
-                if (DaemonSetWhitelist(response, strlen(response), whitelist_buf, sizeof(whitelist_buf)) != 0) {
-                    LOGF("[Daemon] Failed to set whitelist on daemon");
-                } else {
-                    LOGF("[Daemon] Whitelist updated");
-                    g_whitelist_revision++;
-                }
             } else {
-                if (server_connected) {
-                    LOGF("[Daemon] Lost connection to server %s", g_server_ip);
-                    apply_auto_disable();
-                } else {
-                    LOGF("[Daemon] Cannot connect to server %s, retrying...", g_server_ip);
-                }
-                server_connected = 0;
-                g_server_session_active = 0;
-
-                consecutive_failures++;
-                if (consecutive_failures >= 3) {
-                    LOGF("[Daemon] %d consecutive failures, trying server discovery...", consecutive_failures);
-                    char expected_name[128] = {0};
-                    ini_get_string("server", "name", expected_name, sizeof(expected_name));
-                    if (expected_name[0] != '\0') {
-                        char local_ip[64] = {0}, bcast_list[4096] = {0};
-                        GetAllBroadcastAddresses(local_ip, sizeof(local_ip), bcast_list, sizeof(bcast_list));
-                        if (bcast_list[0] != '\0') {
-                            char disco_resp[8192] = {0};
-                            int found = DiscoverServers(bcast_list, 42069, 2000, disco_resp, sizeof(disco_resp));
-                            if (found > 0) {
-                                char* line = disco_resp;
-                                for (int i = 0; i < found && line && *line; i++) {
-                                    char* first_pipe = strchr(line, '|');
-                                    if (!first_pipe) { char* nl = strchr(line, '\n'); if (nl) line = nl + 1; else break; continue; }
-                                    *first_pipe = '\0';
-                                    char* name = line;
-                                    char* rest = first_pipe + 1;
-                                    if (strcmp(name, expected_name) == 0) {
-                                        // Parse "ip|port"
-                                        char* second_pipe = strchr(rest, '|');
-                                        char* server_ip = rest;
-                                        char* server_port = "1984";
-                                        if (second_pipe) {
-                                            *second_pipe = '\0';
-                                            server_port = second_pipe + 1;
-                                            char* nl = strchr(server_port, '\n');
-                                            if (nl) *nl = '\0';
-                                        } else {
-                                            char* nl = strchr(server_ip, '\n');
-                                            if (nl) *nl = '\0';
-                                        }
-
-                                        // If server is on the same machine, use "." (localhost TCP)
-                                        if (local_ip[0] != '\0' && strcmp(server_ip, local_ip) == 0) {
-                                            SetServerIp(".");
-                                        } else {
-                                            SetServerIp(server_ip);
-                                        }
-                                        ini_set_string("server", "port", server_port);
-                                        LOGF("[Daemon] Server '%s' found at %s:%s", expected_name, server_ip, server_port);
-                                        consecutive_failures = 0;
-                                        break;
-                                    }
-                                    *first_pipe = '|';
-                                    char* nl = strchr(line, '\n');
-                                    if (nl) line = nl + 1; else break;
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if (!g_fallback_whitelist_enabled && local_ready && !blocked_all_pushed) {
-                    LOGF("[Daemon] Server unreachable and fallback off - blocking all traffic");
-                    if (DaemonSetWhitelist("", 0, whitelist_buf, sizeof(whitelist_buf)) == 0) {
-                        g_whitelist_revision++;
-                        blocked_all_pushed = 1;
-                    }
-                }
-                if (!g_registration_tried) {
-                    LOGF("[Daemon] Attempting to register...");
-                    ServerRegister(username);
-                    g_registration_tried = 1;
-                }
+                LOGF("[Daemon] Server discovery failed");
             }
-        } else {
-            LOGF("[Daemon] No username, skipping server whitelist fetch");
-            goto wait;
         }
 
-        wait:
-        // Sleep in small increments to check for stop
-        for (int i = 0; i < poll_interval_secs; i++) {
-            if (g_ServiceStopEvent != INVALID_HANDLE_VALUE) {
-                if (WaitForSingleObject(g_ServiceStopEvent, 0) == WAIT_OBJECT_0) {
-                    LOGF("[Daemon] Stop signal received during sleep, exiting...");
-                    goto stop;
-                }
-            }
-            Sleep(1000);
+        if (!g_registration_tried) {
+            LOGF("[Daemon] Attempting to register...");
+            ServerRegister(username);
+            g_registration_tried = 1;
         }
+
+        // Wait before retrying
+        sleep_with_stop_check(5000);
     }
 
-stop:
     return 0;
 }

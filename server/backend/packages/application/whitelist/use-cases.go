@@ -20,6 +20,7 @@ type CommandHandler interface {
 	AddWhitelistEntry(value string, whitelistName string) error
 	UpdateWhitelistEntry(value string, newValue string, whitelistName string) error
 	DeleteWhitelistEntry(value string, whitelistName string) error
+	ReplaceWhitelistEntries(entries []string, whitelistName string) error
 }
 
 type UseCases interface {

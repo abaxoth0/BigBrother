@@ -15,12 +15,32 @@
 #define CLIENT_PIPE_NAME "\\\\.\\pipe\\BigBrother.Client.Backend"
 #define CLIENT_PIPE_BUFFER_SIZE 4096
 
+#define MAX_EVENT_SUBSCRIBERS 8
+
 static HANDLE g_shutdown_event = NULL;
+
+// State change notification. SRWLOCK is statically initializable, so
+// NotifyStateChanged can be called from DaemonRun before client_server_thread
+// runs (which would be a race with a runtime-initialized CRITICAL_SECTION).
+static volatile unsigned int g_state_generation = 0;
+static HANDLE g_sub_events[MAX_EVENT_SUBSCRIBERS] = {NULL};
+static SRWLOCK g_sub_lock = SRWLOCK_INIT;
 
 void SignalClientServerShutdown(void) {
     if (g_shutdown_event) {
         SetEvent(g_shutdown_event);
     }
+}
+
+void NotifyStateChanged(void) {
+    InterlockedIncrement((volatile LONG*)&g_state_generation);
+    AcquireSRWLockExclusive(&g_sub_lock);
+    for (int i = 0; i < MAX_EVENT_SUBSCRIBERS; i++) {
+        if (g_sub_events[i]) {
+            SetEvent(g_sub_events[i]);
+        }
+    }
+    ReleaseSRWLockExclusive(&g_sub_lock);
 }
 
 // Write response: status\n[TLV data...\n]<empty line>
@@ -221,7 +241,7 @@ DWORD WINAPI client_handler(LPVOID param) {
         write_response_tlv(pipe, "OK", data, 9);
 
     } else if (strcmp(buffer, "GET_WHITELIST") == 0) {
-        char whitelist_buf[8192];
+        char whitelist_buf[DAEMON_MAX_MESSAGE_SIZE];
         if (DaemonGetWhitelist(whitelist_buf, sizeof(whitelist_buf)) != 0) {
             write_error_tlv(pipe, "failed to get whitelist");
         } else {
@@ -576,6 +596,70 @@ DWORD WINAPI client_handler(LPVOID param) {
                 write_ok(pipe);
             }
         }
+
+    } else if (strcmp(buffer, "SUBSCRIBE") == 0) {
+        HANDLE sub_event = CreateEvent(NULL, TRUE, FALSE, NULL);
+        if (!sub_event) {
+            write_error_tlv(pipe, "failed to create subscriber event");
+        } else {
+            write_ok(pipe);
+            FlushFileBuffers(pipe);
+
+            AcquireSRWLockExclusive(&g_sub_lock);
+            int slot = -1;
+            for (int i = 0; i < MAX_EVENT_SUBSCRIBERS; i++) {
+                if (!g_sub_events[i]) {
+                    g_sub_events[i] = sub_event;
+                    slot = i;
+                    break;
+                }
+            }
+            ReleaseSRWLockExclusive(&g_sub_lock);
+
+            if (slot < 0) {
+                CloseHandle(sub_event);
+                write_error_tlv(pipe, "too many subscribers");
+            } else {
+                unsigned int last_generation = g_state_generation;
+                int keep_going = 1;
+                while (keep_going) {
+                    HANDLE waits[2] = {sub_event, g_shutdown_event};
+                    DWORD w = WaitForMultipleObjects(2, waits, FALSE, 1000);
+                    if (w == WAIT_OBJECT_0) {
+                        if (g_state_generation != last_generation) {
+                            last_generation = g_state_generation;
+                            ResetEvent(sub_event);
+                            const char* payload = "EVENT\n13\nSTATE_CHANGED\n\n";
+                            DWORD written = 0;
+                            if (!WriteFile(pipe, payload, (DWORD)strlen(payload), &written, NULL) ||
+                                written != (DWORD)strlen(payload)) {
+                                keep_going = 0;
+                            }
+                        }
+                    } else if (w == WAIT_OBJECT_0 + 1) {
+                        keep_going = 0;
+                    }
+                    // Detect client disconnect
+                    DWORD bytes_avail = 0;
+                    if (keep_going &&
+                        (!PeekNamedPipe(pipe, NULL, 0, NULL, &bytes_avail, NULL) &&
+                         GetLastError() == ERROR_BROKEN_PIPE)) {
+                        keep_going = 0;
+                    }
+                }
+
+                AcquireSRWLockExclusive(&g_sub_lock);
+                if (g_sub_events[slot] == sub_event) g_sub_events[slot] = NULL;
+                ReleaseSRWLockExclusive(&g_sub_lock);
+                CloseHandle(sub_event);
+            }
+        }
+        CloseHandle(pipe);
+        if (args) {
+            for (int i = 0; i < arg_count; i++) free(args[i]);
+            free(args);
+        }
+        return 0;
 
     } else {
         write_error_tlv(pipe, "unknown command");

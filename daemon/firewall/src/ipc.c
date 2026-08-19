@@ -15,7 +15,11 @@
 #define IPC_PIPE_PREFIX "\\\\.\\pipe\\" IPC_PIPE_NAME
 
 static int reload_whitelist(void) {
-    return LoadWhiteList(NULL);
+    AcquireSRWLockExclusive(&g_AllowlistLock);
+    int ret = LoadWhiteList(NULL);
+    ReleaseSRWLockExclusive(&g_AllowlistLock);
+    PreResolveWhitelist();
+    return ret;
 }
 
 static void write_str(HANDLE pipe, const char* str) {
@@ -27,11 +31,10 @@ static void write_status(HANDLE pipe) {
     char buffer[IPC_BUFFER_SIZE];
     AcquireSRWLockShared(&g_AllowlistLock);
     snprintf(buffer, sizeof(buffer), "STATUS\n%zu\n%zu\nrunning\n%d\n",
-             g_Whitelist.count, g_IpAllowlist.count, g_FiltrationEnabled);
+             g_Whitelist.count + g_Blacklist.count, g_IpAllowlist.count, g_FiltrationEnabled);
     ReleaseSRWLockShared(&g_AllowlistLock);
     write_str(pipe, buffer);
 }
-
 static void write_ok(HANDLE pipe) {
     write_str(pipe, "OK\n");
 }
@@ -43,28 +46,30 @@ static void write_error(HANDLE pipe, const char* error) {
 }
 
 static void write_whitelist(HANDLE pipe) {
-    char* domains[256];
-    AcquireSRWLockShared(&g_AllowlistLock);
-    for (size_t i = 0; i < g_Whitelist.count && i < 256; i++) {
-        domains[i] = g_Whitelist.entries[i].domain;
+    char* buffer = malloc(IPC_MAX_MESSAGE_SIZE);
+    if (!buffer) {
+        return;
     }
-
-    char buffer[IPC_BUFFER_SIZE * 4];
     size_t pos = 0;
-    int n = snprintf(buffer + pos, sizeof(buffer) - pos, "WHITELIST\n");
-    if (n > 0) pos += n;
+    int n = snprintf(buffer + pos, IPC_MAX_MESSAGE_SIZE - pos, "WHITELIST\n");
+    if (n > 0) pos += (size_t)n;
 
-    for (size_t i = 0; i < g_Whitelist.count && pos < sizeof(buffer) - 1; i++) {
-        if (g_Whitelist.entries[i].is_exception) {
-            n = snprintf(buffer + pos, sizeof(buffer) - pos, "!%s\n", domains[i]);
-        } else {
-            n = snprintf(buffer + pos, sizeof(buffer) - pos, "%s\n", domains[i]);
-        }
-        if (n > 0) pos += n;
+    AcquireSRWLockShared(&g_AllowlistLock);
+
+    // Allow rules first, then exception rules (prefixed with '!').
+    for (size_t i = 0; i < g_Whitelist.count && pos < IPC_MAX_MESSAGE_SIZE - 1; i++) {
+        n = snprintf(buffer + pos, IPC_MAX_MESSAGE_SIZE - pos, "%s\n", g_Whitelist.entries[i].domain);
+        if (n > 0) pos += (size_t)n;
     }
+    for (size_t i = 0; i < g_Blacklist.count && pos < IPC_MAX_MESSAGE_SIZE - 1; i++) {
+        n = snprintf(buffer + pos, IPC_MAX_MESSAGE_SIZE - pos, "!%s\n", g_Blacklist.entries[i].domain);
+        if (n > 0) pos += (size_t)n;
+    }
+
     ReleaseSRWLockShared(&g_AllowlistLock);
 
     write_str(pipe, buffer);
+    free(buffer);
 }
 
 static int parse_and_execute(HANDLE pipe, char* buffer, size_t size) {
@@ -145,13 +150,44 @@ static int parse_and_execute(HANDLE pipe, char* buffer, size_t size) {
 
 static DWORD WINAPI ipc_client_handler(LPVOID param) {
     HANDLE pipe = (HANDLE)param;
-    char buffer[IPC_BUFFER_SIZE];
-    DWORD bytes_read;
 
-    if (ReadFile(pipe, buffer, sizeof(buffer) - 1, &bytes_read, NULL)) {
-        parse_and_execute(pipe, buffer, bytes_read);
+    // Message-mode named pipes report ERROR_MORE_DATA when a message is larger
+    // than the read buffer. Read in a loop to assemble the full message so large
+    // SET_WHITELIST payloads are not silently truncated.
+    char* buffer = malloc(IPC_MAX_MESSAGE_SIZE + 1);
+    if (!buffer) {
+        CloseHandle(pipe);
+        return 1;
     }
 
+    size_t total = 0;
+    DWORD bytes_read = 0;
+    BOOL ok = FALSE;
+
+    for (;;) {
+        ok = ReadFile(pipe, buffer + total, (DWORD)(IPC_MAX_MESSAGE_SIZE - total), &bytes_read, NULL);
+        if (ok) {
+            // A successful ReadFile returns a complete message — stop here.
+            // Continuing would block waiting for a second request the client
+            // never sends (it is already waiting for our response).
+            total += bytes_read;
+            break;
+        }
+
+        if (GetLastError() != ERROR_MORE_DATA) break;
+        if (bytes_read == 0) break;
+
+        // Message larger than the buffer — append this chunk and keep reading
+        // the remainder of the SAME message.
+        total += bytes_read;
+        if (total >= IPC_MAX_MESSAGE_SIZE) break;
+    }
+
+    if (ok && total > 0) {
+        parse_and_execute(pipe, buffer, total);
+    }
+
+    free(buffer);
     FlushFileBuffers(pipe);
     DisconnectNamedPipe(pipe);
     CloseHandle(pipe);
@@ -160,7 +196,7 @@ static DWORD WINAPI ipc_client_handler(LPVOID param) {
 }
 
 static DWORD WINAPI ipc_server_thread(LPVOID param) {
-    HANDLE stop_event = *(HANDLE*)param;
+    HANDLE stop_event = (HANDLE)(uintptr_t)param;
     HANDLE pipes[16];
     int num_pipes = 0;
     
@@ -171,8 +207,8 @@ static DWORD WINAPI ipc_server_thread(LPVOID param) {
                 PIPE_ACCESS_DUPLEX,
                 PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT,
                 PIPE_UNLIMITED_INSTANCES,
-                IPC_BUFFER_SIZE,
-                IPC_BUFFER_SIZE,
+                IPC_MAX_MESSAGE_SIZE,
+                IPC_MAX_MESSAGE_SIZE,
                 0,
                 NULL
             );
@@ -224,7 +260,9 @@ static DWORD WINAPI ipc_server_thread(LPVOID param) {
 }
 
 int IpcStart(HANDLE stop_event) {
-    HANDLE thread = CreateThread(NULL, 0, ipc_server_thread, &stop_event, 0, NULL);
+    // Pass the handle by value (cast through LPVOID). Passing &stop_event would hand
+    // the thread a pointer to a stack local that goes out of scope on return.
+    HANDLE thread = CreateThread(NULL, 0, ipc_server_thread, (LPVOID)(uintptr_t)stop_event, 0, NULL);
     if (!thread) {
         return -1;
     }
@@ -233,10 +271,7 @@ int IpcStart(HANDLE stop_event) {
 }
 
 int IpcReloadWhitelist(void) {
-    AcquireSRWLockExclusive(&g_AllowlistLock);
-    int ret = reload_whitelist();
-    ReleaseSRWLockExclusive(&g_AllowlistLock);
-    return ret;
+    return reload_whitelist();
 }
 
 int IpcSetWhitelist(const char* data, size_t size) {
@@ -244,15 +279,21 @@ int IpcSetWhitelist(const char* data, size_t size) {
         // Empty data means clear the whitelist (block all)
         AcquireSRWLockExclusive(&g_AllowlistLock);
         WhitelistClear(&g_Whitelist);
+        WhitelistClear(&g_Blacklist);
         IpAllowlistClear(&g_IpAllowlist);
+        IpAllowlistClear(&g_IpBlocklist);
         ReleaseSRWLockExclusive(&g_AllowlistLock);
         return 0;
     }
 
     AcquireSRWLockExclusive(&g_AllowlistLock);
-    WhitelistLoadFromData(&g_Whitelist, data, size);
-    // Don't clear the IP allowlist — existing connections keep working.
-    // New IPs will be added via DNS responses or PreResolveWhitelist.
+    WhitelistLoadFromData(&g_Whitelist, &g_Blacklist, data, size);
+    // Purge allowlist entries for domains that are no longer whitelisted, so a
+    // removed domain stops being reachable immediately instead of lingering for
+    // the TTL. Existing still-whitelisted connections keep working.
+    IpAllowlistPurgeUnowned(&g_IpAllowlist, &g_Whitelist);
+    // The blocklist is exception-derived and rebuilt by PreResolveWhitelist.
+    IpAllowlistClear(&g_IpBlocklist);
     ReleaseSRWLockExclusive(&g_AllowlistLock);
 
     PreResolveWhitelist();
