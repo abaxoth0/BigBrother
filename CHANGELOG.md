@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [1.1.0] - 19-08-2026
+
 ### Fixed
 
 - Firewall: `IpcSetWhitelist` allowlist purge no longer deletes literal-IP allow rules (e.g. `8.8.8.8` from the whitelist file) — only domain-learned entries whose domain is no longer whitelisted are removed
