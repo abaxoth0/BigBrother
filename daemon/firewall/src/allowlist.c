@@ -1,6 +1,8 @@
 #include "../include/allowlist.h"
 #include "../include/common.h"
 #include "../include/dns.h"
+#include <winsock2.h>
+#include <ws2tcpip.h>
 #include <stdio.h>
 
 // Grow a dynamic array (same realloc-doubling pattern as DA_GROW in common.h)
@@ -33,8 +35,9 @@ int WhitelistAdd(Whitelist* wl, const char* domain) {
     if (!wl || !domain) {
         return -1;
     }
+    // Dedup case-insensitively (matching is done on the lowercased pattern).
     for (size_t i = 0; i < wl->count; i++) {
-        if (strcmp(wl->entries[i].domain, domain) == 0) {
+        if (strcmp(wl->entries[i].pattern_lower, domain) == 0) {
             return 0;
         }
     }
@@ -210,13 +213,20 @@ int IpAllowlistRemove(IpAllowlist* al, uint32_t ip) {
 // Remove allowlist entries whose learned domain no longer matches any allow
 // rule in `wl` (e.g. after the server pushes a whitelist that drops a domain).
 // Domain learned from a DNS response is already lowercase; patterns are
-// pre-lowercased. Caller must hold the exclusive allowlist lock.
+// pre-lowercased. Literal-IP entries (added from the whitelist file) are kept —
+// their "domain" is an IP string that never matches a domain pattern. Caller
+// must hold the exclusive allowlist lock.
 void IpAllowlistPurgeUnowned(IpAllowlist* al, const Whitelist* wl) {
     if (!al || !wl) return;
     AllowedIp* entry;
     AllowedIp* tmp;
     HASH_ITER(hh, al->head, entry, tmp) {
         if (entry->domain[0] == '\0') continue;
+
+        // Keep literal-IP allow rules (e.g. "8.8.8.8" from the whitelist file).
+        struct in_addr addr;
+        if (inet_pton(AF_INET, entry->domain, &addr) == 1) continue;
+
         int still_owned = 0;
         for (size_t w = 0; w < wl->count; w++) {
             if (DnsCheckDomainLower(entry->domain, wl->entries[w].pattern_lower)) {

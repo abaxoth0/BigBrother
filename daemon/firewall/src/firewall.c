@@ -525,7 +525,6 @@ static int should_log_block(uint32_t dest_ip) {
 }
 
 #define WINDIVERT_FILTER "ip"
-#define PACKET_PAYLOAD_SIZE 1500 // Ethernet MTU
 #define PACKET_QUEUE_TIMEOUT 500 // ms
 
 /**
@@ -558,10 +557,9 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
     PWINDIVERT_TCPHDR tcp_hdr = NULL;
     PWINDIVERT_UDPHDR udp_hdr = NULL;
 
-    // Currently it's used only for DNS payloads which usually < 512 bytes.
-    // Consider make it a dynamic array if you will need to get payload from other protocols.
-    char payload_buf[PACKET_PAYLOAD_SIZE];
-    void* payload_ptr = payload_buf;
+    // payload_ptr is set by WinDivertHelperParsePacket to point into the packet
+    // buffer; payload_len holds the parsed payload size (DNS payloads < 512 bytes).
+    void* payload_ptr = NULL;
     UINT payload_len = 0;
 
     OutputDebugString("Firewall started");
@@ -793,20 +791,6 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
         uint32_t src_ip = ntohl(ip_hdr->SrcAddr);
         uint32_t dest_ip = ntohl(ip_hdr->DstAddr);
 
-        /* Check if source/destination is a local IP address.
-         * Local IPs must not be blocked:
-         *   - 127.x.x.x (loopback)
-         *   - 192.168.x.x (private Class C)
-         *   - 10.x.x.x (private Class A)
-         *   - 172.(16-31).x.x (private Class B) */
-        int is_local_src = ((src_ip & 0xFF000000) == 0x7F000000) ||
-            ((src_ip & 0xFFF00000) == 0xAC100000) || ((src_ip & 0xFFFF0000) == 0xC0A80000) ||
-            ((src_ip & 0xFF000000) == 0x0A000000);
-        int is_local_dst = ((dest_ip & 0xFF000000) == 0x7F000000) ||
-            ((dest_ip & 0xFFF00000) == 0xAC100000) || ((dest_ip & 0xFFFF0000) == 0xC0A80000) ||
-            ((dest_ip & 0xFF000000) == 0x0A000000);
-        int is_local = is_local_src && is_local_dst;
-
         /*
          * Blocking logic:
          * - Only block outbound packets (inbound are always allowed)
@@ -819,6 +803,19 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
         static int packet_count = 0;
         static int blocked_count = 0;
         packet_count++;
+
+        // is_local is only needed when filtration is active, so compute it
+        // lazily instead of on every packet.
+        int is_local = 0;
+        if (g_FiltrationEnabled && addr.Outbound) {
+            int is_local_src = ((src_ip & 0xFF000000) == 0x7F000000) ||
+                ((src_ip & 0xFFF00000) == 0xAC100000) || ((src_ip & 0xFFFF0000) == 0xC0A80000) ||
+                ((src_ip & 0xFF000000) == 0x0A000000);
+            int is_local_dst = ((dest_ip & 0xFF000000) == 0x7F000000) ||
+                ((dest_ip & 0xFFF00000) == 0xAC100000) || ((dest_ip & 0xFFFF0000) == 0xC0A80000) ||
+                ((dest_ip & 0xFF000000) == 0x0A000000);
+            is_local = is_local_src && is_local_dst;
+        }
 
         if (g_FiltrationEnabled && addr.Outbound && !is_local) {
             int is_dns_udp = (udp_hdr && (ntohs(udp_hdr->DstPort) == 53));

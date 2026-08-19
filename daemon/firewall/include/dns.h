@@ -86,24 +86,11 @@ DnsPacket DnsParse(const uint8_t* payload, size_t payload_len);
 void DnsFree(DnsPacket* packet);
 
 /**
- * @brief Check if domain matches a single whitelist pattern.
- *
- * Supports exact match (e.g., "github.com"), wildcard suffix
- * (e.g., "*.github.com"), and substring (e.g., "\"github\"").
- * Comparison is case-insensitive.
- *
- * @param[in] domain   Domain name to check (e.g., "api.github.com").
- * @param[in] pattern Whitelist pattern string.
- * @return 1 if matches, 0 if not, -1 on error (null parameters).
- */
-int DnsCheckDomain(const char* domain, const char* pattern);
-
-/**
  * @brief Check if a (lowercased) domain matches a (lowercased) whitelist pattern.
  *
- * Same matching semantics as DnsCheckDomain, but both inputs must already be
- * lowercased. Use on the packet/DNS hot paths with the pre-lowercased pattern
- * stored in WhitelistEntry.pattern_lower to avoid re-lowercasing per lookup.
+ * Supports exact match (e.g., "github.com"), wildcard suffix
+ * (e.g., "*.github.com"), and substring (e.g., "\"github\""). Comparison is
+ * case-insensitive, so both inputs must already be lowercased.
  *
  * @param[in] domain_lower   Lowercased domain name.
  * @param[in] pattern_lower  Lowercased whitelist pattern.

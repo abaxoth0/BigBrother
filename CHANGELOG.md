@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Firewall: `IpcSetWhitelist` allowlist purge no longer deletes literal-IP allow rules (e.g. `8.8.8.8` from the whitelist file) — only domain-learned entries whose domain is no longer whitelisted are removed
+- Firewall: DNS response parser skips unused answer records (CNAME, AAAA, etc.) so they no longer consume answer slots — a response with many extra records before the A record can no longer cause the domain's IPv4 addresses to be dropped from the allowlist
+- Client backend: server-sourced whitelist buffers raised to 64KB (`g_last_whitelist`, GET_WHITELIST response) so a server whitelist larger than 8KB is no longer truncated before being pushed to the firewall
 - Client backend: firewall IPC response reads are now message-mode with ERROR_MORE_DATA looping and 64KB buffers — whitelist dumps larger than 8KB are no longer silently truncated (removed domains from a big whitelist previously vanished mid-stream)
 - Firewall: `IpcSetWhitelist` now purges allowlist entries whose domain is no longer whitelisted, so a domain dropped from the server-pushed whitelist stops being reachable immediately instead of lingering until its IP TTL expires
 - Firewall: pre-resolve re-validates each resolved domain against the current whitelist before applying, so a concurrent whitelist change cannot (re)allow a removed domain
@@ -31,6 +34,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Firewall: `is_local` private-range check computed lazily (only when filtration is active) instead of on every packet
+- Firewall: removed dead 1500-byte per-packet payload buffer and dead `DnsCheckDomain` wrapper
+- Firewall: whitelist dedup is case-insensitive (uses the pre-lowered pattern)
 - Firewall: packet hot path performs a single IP lookup with a cached timestamp (`IpAllowlistLookup`) instead of three separate `time()`-heavy `Contains`/`GetDomain` calls
 - Firewall: blocked-packet logging is rate-limited per destination IP (once/second) so heavy blocking no longer saturates the log critical section
 - Firewall: DNS response path uses a single lock acquisition (was shared+exclusive round-trips)

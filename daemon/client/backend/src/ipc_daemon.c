@@ -28,7 +28,7 @@ static int g_registration_tried = 0;
 static int g_fallback_whitelist_enabled = 1;
 static int g_filtration_enabled = 1;
 
-static char g_last_whitelist[8192] = {0};
+static char g_last_whitelist[DAEMON_MAX_MESSAGE_SIZE] = {0};
 static int g_blocked_all_pushed = 0;
 
 void SetServerSessionActive(int active) {
@@ -844,7 +844,7 @@ static int srv_read_tlv(SrvLineReader* r, char* out, size_t out_size) {
 static void sync_whitelist_from_server(const char* username) {
     char whitelist_buf[DAEMON_MAX_MESSAGE_SIZE];
     const char* wl_args[1] = {username};
-    char response[8192] = {0};
+    char response[DAEMON_MAX_MESSAGE_SIZE] = {0};
 
     if (send_to_server_tlv("GET_WHITELIST", wl_args, 1, response, sizeof(response)) != 0) {
         LOGF("[Daemon] Failed to fetch whitelist from server");

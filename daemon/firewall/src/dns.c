@@ -215,18 +215,19 @@ DnsPacket DnsParse(const uint8_t* payload, size_t payload_len) {
         // Verify that there are enough space for rdata
         if (offset + rdlen > payload_len) break;
 
+        // Skip records we don't use (CNAME, AAAA, etc.) so they don't consume
+        // answer slots: a response with many extra records before the A record
+        // could otherwise exhaust DNS_MAX_IPS and drop the A answer entirely.
         if (rtype == DNS_TYPE_A && rdlen == IP_V4_SIZE) { // IPv4
             uint32_t ip = ntohl(*(uint32_t*)(payload + offset));
             packet.answers[answer_idx].ip_count = 1;
             packet.answers[answer_idx].ips[0] = ip;
-        } else if (rtype == DNS_TYPE_AAAA && rdlen == IP_V6_SIZE) { // IPv6
-            memcpy(packet.answers[answer_idx].ip6s[0], payload + offset, IP_V6_SIZE);
-            packet.answers[answer_idx].ip6_count = 1;
+            packet.answers[answer_idx].ip6_count = 0;
+            strncpy(packet.answers[answer_idx].domain, name, DNS_MAX_STR_DOMAIN_LEN);
+            packet.answers[answer_idx].domain[DNS_MAX_STR_DOMAIN_LEN-1] = '\0';
+            packet.answers[answer_idx].ttl = ttl;
+            answer_idx++;
         }
-        strncpy(packet.answers[answer_idx].domain, name, DNS_MAX_STR_DOMAIN_LEN);
-        packet.answers[answer_idx].domain[DNS_MAX_STR_DOMAIN_LEN-1] = '\0';
-        packet.answers[answer_idx].ttl = ttl;
-        answer_idx++;
 
         offset += rdlen;
     }
@@ -241,30 +242,10 @@ void DnsFree(DnsPacket* packet) {
     memset(packet, 0, sizeof(DnsPacket));
 }
 
-int DnsCheckDomain(const char* domain, const char* pattern) {
-    /*
-     * Supported whitelist patterns:
-     * 1. Exact match: "github.com" matches only "github.com"
-     * 2. Wildcard suffix: "*.github.com" matches "api.github.com", "raw.githubusercontent.com"
-     * 3. Substring: "\"github\"" matches any domain containing "github"
-     *
-     * Comparison is case-insensitive.
-     */
-    if (domain == NULL) {
-        return -1;
-    }
-
-    char domain_lower[DNS_MAX_STR_DOMAIN_LEN];
-    char pattern_lower[DNS_MAX_STR_DOMAIN_LEN];
-    STR_COPY_LOWER(domain_lower, domain, DNS_MAX_STR_DOMAIN_LEN);
-    STR_COPY_LOWER(pattern_lower, pattern, DNS_MAX_STR_DOMAIN_LEN);
-    return DnsCheckDomainLower(domain_lower, pattern_lower);
-}
-
-// Same matching as DnsCheckDomain, but both inputs are expected to be already
-// lowercased (the pattern is pre-lowercased at whitelist load time, the domain
-// is lowercased once by the caller). Avoids per-entry re-lowercasing on the
-// packet/DNS hot paths. Does not modify either input.
+// Same matching as DnsCheckDomainLower's caller contract: both inputs are
+// expected to be already lowercased (the pattern is pre-lowercased at whitelist
+// load time, the domain is lowercased once by the caller). Avoids per-entry
+// re-lowercasing on the packet/DNS hot paths. Does not modify either input.
 int DnsCheckDomainLower(const char* domain_lower, const char* pattern_lower) {
     if (domain_lower == NULL) {
         return -1;
