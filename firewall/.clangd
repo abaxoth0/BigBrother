@@ -2,6 +2,8 @@ CompileFlags:
   Add:
     - --target=x86_64-w64-mingw32
     - --sysroot=/usr/x86_64-w64-mingw32
-    - -I/home/abaxoth/proj/BigBrother/daemon/firewall/include/third-party/WinDivert-2.2.2-A/include
+    - -I/home/abaxoth/tmp/shared/BigBrother/firewall/include/third-party/WinDivert-2.2.2-A/include
+    - -I/home/abaxoth/tmp/shared/BigBrother/common
+    - -I/home/abaxoth/tmp/shared/BigBrother/lib/c
   Remove:
     - -mwindows
