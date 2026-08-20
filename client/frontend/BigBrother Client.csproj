@@ -16,7 +16,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\..\lib\cs\BigBrother.Frontend.Shared\BigBrother.Frontend.Shared.csproj" />
+    <ProjectReference Include="..\..\lib\cs\BigBrother.Frontend.Shared\BigBrother.Frontend.Shared.csproj" />
   </ItemGroup>
 
 </Project>

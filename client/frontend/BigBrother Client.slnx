@@ -1,4 +1,4 @@
 <Solution>
   <Project Path="BigBrother Client.csproj" />
-  <Project Path="..\..\..\lib\cs\BigBrother.Frontend.Shared\BigBrother.Frontend.Shared.csproj" />
+  <Project Path="..\..\lib\cs\BigBrother.Frontend.Shared\BigBrother.Frontend.Shared.csproj" />
 </Solution>
