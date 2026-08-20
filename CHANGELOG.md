@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Client backend: frontend pipe TLV parsing is now buffered (chunked `ReadFile` instead of byte-at-a-time) with a dedicated pipe reader
+- Client backend: server event line reader drains over-long lines so event framing stays intact (a long line no longer splits into a bogus follow-up line)
+- Client backend: `send_to_server_tlv` connect retries reduced (3×200ms, was 10×500ms) so the subscribe loop isn't stalled up to 5s on an unreachable server
 - Client backend: frontend pipe server accept loop is shutdown-safe — uses an overlapped `ConnectNamedPipe` waited on alongside the shutdown event, so the daemon exits cleanly on service stop even when no frontend is connected
 - Client backend: `set` command checks file size and `malloc` result before reading (no more crash on oversized files or OOM)
 - Client backend: `log_init` no longer leaks the `FILE*` from the log-path probe

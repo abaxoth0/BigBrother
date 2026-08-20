@@ -607,7 +607,9 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
 
     // TCP socket
     SOCKET sock = INVALID_SOCKET;
-    int retries = 10;
+    // The subscribe loop calls this repeatedly; keep the worst-case blocking
+    // time bounded (3 x 200ms = 600ms) instead of stalling on retries.
+    int retries = 3;
 
     while (retries > 0 && sock == INVALID_SOCKET) {
         sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
@@ -627,7 +629,7 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
             printf("[send_to_server] connect() failed: %lu (retries left: %d)\n", (unsigned long)WSAGetLastError(), retries);
             closesocket(sock);
             sock = INVALID_SOCKET;
-            Sleep(500);
+            Sleep(200);
             retries--;
         }
     }
@@ -865,9 +867,13 @@ static void srv_line_reader_init(SrvLineReader* r, SOCKET sock) {
 
 // Read a single LF-terminated line (strips CR). Returns 1 on success,
 // 2 on recv timeout, 0 on error/disconnect.
+//
+// If the line is longer than out_size-1 it is truncated, but the remainder of
+// the line is still drained so the next read starts at a clean line boundary
+// (otherwise event framing would split on the tail of a long line).
 static int srv_readline(SrvLineReader* r, char* out, size_t out_size) {
     size_t consumed = 0;
-    while (consumed + 1 < out_size) {
+    for (;;) {
         if (r->pos >= r->len) {
             r->pos = 0;
             r->len = 0;
@@ -884,12 +890,12 @@ static int srv_readline(SrvLineReader* r, char* out, size_t out_size) {
             out[consumed] = '\0';
             return 1;
         }
-        if (c != '\r') {
+        if (c == '\r') continue;
+        // Truncate over-long lines but keep draining so framing stays intact.
+        if (consumed + 1 < out_size) {
             out[consumed++] = c;
         }
     }
-    out[consumed] = '\0';
-    return 1;
 }
 
 // Read a TLV value (length line + data line) via line reader.
