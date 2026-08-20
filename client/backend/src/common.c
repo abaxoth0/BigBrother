@@ -19,12 +19,17 @@ void log_init(void) {
 
     char log_path[LOG_PATH_MAX];
     snprintf(log_path, sizeof(log_path), "%s\\client.binlog", logs_dir);
-    
+
     // Determine actual path (in case first one fails)
-    if (fopen(log_path, "a") == NULL) {
-        char temp_path[LOG_PATH_MAX];
-        GetTempPath(sizeof(temp_path), temp_path);
-        snprintf(log_path, sizeof(log_path), "%sBigBrother_client.binlog", temp_path);
+    {
+        FILE* probe = fopen(log_path, "a");
+        if (probe == NULL) {
+            char temp_path[LOG_PATH_MAX];
+            GetTempPath(sizeof(temp_path), temp_path);
+            snprintf(log_path, sizeof(log_path), "%sBigBrother_client.binlog", temp_path);
+        } else {
+            fclose(probe);
+        }
     }
     
     // Initialize async logger with path set FIRST

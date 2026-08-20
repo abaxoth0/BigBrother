@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Client backend: frontend pipe server accept loop is shutdown-safe — uses an overlapped `ConnectNamedPipe` waited on alongside the shutdown event, so the daemon exits cleanly on service stop even when no frontend is connected
+- Client backend: `set` command checks file size and `malloc` result before reading (no more crash on oversized files or OOM)
+- Client backend: `log_init` no longer leaks the `FILE*` from the log-path probe
+- Client backend: frontend TLV responses stream field-by-field when they exceed 64KB, so large whitelist relays are no longer silently truncated
 - Client backend: server IPC response parsing is now buffered and bounds-checked — length lines no longer overflow a 32-byte stack buffer, and oversized TLV values are drained so the parser stays in sync with the terminating empty line
 - Client backend: `read_tlv_request` length lines are bounds-checked and value sizes capped (a malformed peer can no longer overflow the length buffer or force a giant allocation / blocking read)
 - Client backend: whitelist relay to the frontend no longer caps at 256 domains (was silently dropping domains from large whitelists)

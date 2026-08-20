@@ -44,15 +44,26 @@ void NotifyStateChanged(void) {
 }
 
 // Write response: status\n[TLV data...\n]<empty line>
-// Assembles the whole response into one buffer and writes it once.
+// Assembles into a fixed buffer when it fits; otherwise streams field-by-field
+// so large responses (e.g. a full whitelist) are never truncated.
 static void write_response_tlv(HANDLE pipe, const char* status, const char** data, size_t data_count) {
-    char buffer[DAEMON_MAX_MESSAGE_SIZE];
-    size_t pos = 0;
+    DWORD written;
 
-    int n = snprintf(buffer + pos, sizeof(buffer) - pos, "%s\n", status);
-    if (n > 0) pos += (size_t)n;
-
-    if (data && data_count > 0) {
+    // Compute total size first.
+    size_t total = strlen(status) + 2; // status + \n + trailing \n
+    for (size_t i = 0; i < data_count; i++) {
+        if (data[i]) {
+            size_t vlen = strlen(data[i]);
+            total += 1 + 32; // \n + len line (digits + \n) — worst case
+            total += vlen + 1;
+        }
+    }
+    if (total <= 64 * 1024) {
+        // Single-buffer path (common, small responses).
+        char buffer[64 * 1024];
+        size_t pos = 0;
+        int n = snprintf(buffer + pos, sizeof(buffer) - pos, "%s\n", status);
+        if (n > 0) pos += (size_t)n;
         for (size_t i = 0; i < data_count; i++) {
             if (data[i] && pos < sizeof(buffer)) {
                 int len = snprintf(buffer + pos, sizeof(buffer) - pos, "%zu\n", strlen(data[i]));
@@ -68,14 +79,26 @@ static void write_response_tlv(HANDLE pipe, const char* status, const char** dat
                 }
             }
         }
-    }
-    // Empty line terminates response
-    if (pos < sizeof(buffer)) {
-        buffer[pos++] = '\n';
+        if (pos < sizeof(buffer)) {
+            buffer[pos++] = '\n';
+        }
+        WriteFile(pipe, buffer, (DWORD)pos, &written, NULL);
+        FlushFileBuffers(pipe);
+        return;
     }
 
-    DWORD written;
-    WriteFile(pipe, buffer, (DWORD)pos, &written, NULL);
+    // Streaming path: large payloads (whitelist relays). Write per field.
+    WriteFile(pipe, status, (DWORD)strlen(status), &written, NULL);
+    WriteFile(pipe, "\n", 1, &written, NULL);
+    for (size_t i = 0; i < data_count; i++) {
+        if (!data[i]) continue;
+        char len_buf[32];
+        int len = snprintf(len_buf, sizeof(len_buf), "%zu\n", strlen(data[i]));
+        WriteFile(pipe, len_buf, (DWORD)len, &written, NULL);
+        WriteFile(pipe, data[i], (DWORD)strlen(data[i]), &written, NULL);
+        WriteFile(pipe, "\n", 1, &written, NULL);
+    }
+    WriteFile(pipe, "\n", 1, &written, NULL);
     FlushFileBuffers(pipe);
 }
 
@@ -706,7 +729,7 @@ DWORD WINAPI client_server_thread(LPVOID param) {
     while (1) {
         HANDLE pipe = CreateNamedPipe(
             CLIENT_PIPE_NAME,
-            PIPE_ACCESS_DUPLEX,
+            PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
             PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
             PIPE_UNLIMITED_INSTANCES,
             CLIENT_PIPE_BUFFER_SIZE,
@@ -720,31 +743,52 @@ DWORD WINAPI client_server_thread(LPVOID param) {
             continue;
         }
 
-        // Check for shutdown before waiting for connection
-        if (WaitForSingleObject(g_shutdown_event, 0) == WAIT_OBJECT_0) {
+        // Overlapped ConnectNamedPipe: wait on the connect event alongside the
+        // shutdown event so the accept loop can be interrupted on service stop
+        // even when no frontend ever connects.
+        OVERLAPPED ov = {0};
+        HANDLE connect_event = CreateEvent(NULL, TRUE, FALSE, NULL);
+        if (!connect_event) {
             CloseHandle(pipe);
-            break;
+            continue;
         }
+        ov.hEvent = connect_event;
 
-        // Use timeout-based approach to allow shutdown
-        if (ConnectNamedPipe(pipe, NULL) || GetLastError() == ERROR_PIPE_CONNECTED) {
-            // Check again for shutdown
-            if (WaitForSingleObject(g_shutdown_event, 0) == WAIT_OBJECT_0) {
+        BOOL ok = ConnectNamedPipe(pipe, &ov);
+        if (!ok && GetLastError() == ERROR_IO_PENDING) {
+            HANDLE waits[2] = {connect_event, g_shutdown_event};
+            DWORD w = WaitForMultipleObjects(2, waits, FALSE, INFINITE);
+            if (w == WAIT_OBJECT_0 + 1) {
+                // Shutdown requested — abort and close.
                 CloseHandle(pipe);
-                break;
+                CloseHandle(connect_event);
+                goto shutdown;
             }
-            HANDLE thread = CreateThread(NULL, 0, client_handler, pipe, 0, NULL);
-            if (thread) {
-                CloseHandle(thread);
+            if (w == WAIT_FAILED) {
+                CloseHandle(pipe);
+                CloseHandle(connect_event);
+                Sleep(100);
+                continue;
             }
+        } else if (ok || GetLastError() == ERROR_PIPE_CONNECTED) {
+            // Client connected synchronously (rare) — nothing to wait on.
         } else {
             CloseHandle(pipe);
+            CloseHandle(connect_event);
+            Sleep(100);
+            continue;
         }
 
-        // Small sleep to prevent CPU spinning
-        Sleep(100);
+        CloseHandle(connect_event);
+
+        // Spawn a handler for the connected client.
+        HANDLE thread = CreateThread(NULL, 0, client_handler, pipe, 0, NULL);
+        if (thread) {
+            CloseHandle(thread);
+        }
     }
 
+shutdown:
     return 0;
 }
 
