@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed
+
+- Client backend: server IPC response parsing is now buffered and bounds-checked — length lines no longer overflow a 32-byte stack buffer, and oversized TLV values are drained so the parser stays in sync with the terminating empty line
+- Client backend: `read_tlv_request` length lines are bounds-checked and value sizes capped (a malformed peer can no longer overflow the length buffer or force a giant allocation / blocking read)
+- Client backend: whitelist relay to the frontend no longer caps at 256 domains (was silently dropping domains from large whitelists)
+- Client backend: client log rotation size raised from a leftover 2KB test value to the standard 10MB
+- Client backend: config.ini access is serialized with a critical section and rewritten atomically (`MoveFileEx` replace), so concurrent handler threads can't corrupt or temporarily delete the config file
+
+### Changed
+
+- Client backend: server↔daemon TLV response reading uses a buffered socket reader instead of byte-at-a-time `recv()` calls (large whitelist syncs are far faster)
+- Client backend: frontend pipe responses are assembled into one buffer and written once instead of one `WriteFile` per field
+
 ## [1.1.0] - 19-08-2026
 
 ### Fixed

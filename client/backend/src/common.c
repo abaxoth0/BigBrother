@@ -34,7 +34,7 @@ void log_init(void) {
     extern LoggerContext* g_logger;
     if (g_logger) {
         snprintf(g_logger->log_path, sizeof(g_logger->log_path), "%s", log_path);
-        g_logger->max_file_size = 2 * 1024;  // 2KB for testing
+        g_logger->max_file_size = LOG_MAX_FILE_SIZE;
         g_logger->max_files = LOG_MAX_FILES;
     }
     

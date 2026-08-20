@@ -44,28 +44,38 @@ void NotifyStateChanged(void) {
 }
 
 // Write response: status\n[TLV data...\n]<empty line>
+// Assembles the whole response into one buffer and writes it once.
 static void write_response_tlv(HANDLE pipe, const char* status, const char** data, size_t data_count) {
-    DWORD written;
-    // Write status line
-    WriteFile(pipe, status, (DWORD)strlen(status), &written, NULL);
-    WriteFile(pipe, "\n", 1, &written, NULL);
+    char buffer[DAEMON_MAX_MESSAGE_SIZE];
+    size_t pos = 0;
+
+    int n = snprintf(buffer + pos, sizeof(buffer) - pos, "%s\n", status);
+    if (n > 0) pos += (size_t)n;
 
     if (data && data_count > 0) {
         for (size_t i = 0; i < data_count; i++) {
-            if (data[i]) {
-                // Write length line
-                char len_buf[32];
-                int len = snprintf(len_buf, sizeof(len_buf), "%zu", strlen(data[i]));
-                WriteFile(pipe, len_buf, (DWORD)len, &written, NULL);
-                WriteFile(pipe, "\n", 1, &written, NULL);
-                // Write value line
-                WriteFile(pipe, data[i], (DWORD)strlen(data[i]), &written, NULL);
-                WriteFile(pipe, "\n", 1, &written, NULL);
+            if (data[i] && pos < sizeof(buffer)) {
+                int len = snprintf(buffer + pos, sizeof(buffer) - pos, "%zu\n", strlen(data[i]));
+                if (len > 0) pos += (size_t)len;
+                if (pos < sizeof(buffer)) {
+                    size_t vlen = strlen(data[i]);
+                    if (vlen > sizeof(buffer) - pos) vlen = sizeof(buffer) - pos - 1;
+                    memcpy(buffer + pos, data[i], vlen);
+                    pos += vlen;
+                }
+                if (pos < sizeof(buffer)) {
+                    buffer[pos++] = '\n';
+                }
             }
         }
     }
     // Empty line terminates response
-    WriteFile(pipe, "\n", 1, &written, NULL);
+    if (pos < sizeof(buffer)) {
+        buffer[pos++] = '\n';
+    }
+
+    DWORD written;
+    WriteFile(pipe, buffer, (DWORD)pos, &written, NULL);
     FlushFileBuffers(pipe);
 }
 
@@ -116,12 +126,13 @@ static int read_tlv_request(HANDLE pipe, char* cmd_buf, size_t cmd_size,
 
     // Read arguments until empty line
     while (1) {
-        // Read length line
+        // Read length line (bounds-checked)
         char len_line[32] = {0};
         char* p = len_line;
+        char* len_end = len_line + sizeof(len_line) - 1;
         int last_was_cr = 0;
         int is_empty_line = 0;
-        while (1) {
+        while (p < len_end) {
             char c;
             if (!ReadFile(pipe, &c, 1, &bytes_read, NULL) || bytes_read == 0) {
                 goto error;
@@ -144,12 +155,16 @@ static int read_tlv_request(HANDLE pipe, char* cmd_buf, size_t cmd_size,
             last_was_cr = 0;
             *p++ = c;
         }
+        *p = '\0';
 
         // Empty line terminates request (or \r\n)
         if (is_empty_line || strlen(len_line) == 0) break;
 
         int expected_len = atoi(len_line);
         if (expected_len < 0) goto error;
+        // Cap the value size so a malformed peer can't force a giant allocation
+        // or a blocking read of an unbounded number of bytes.
+        if ((size_t)expected_len > DAEMON_MAX_MESSAGE_SIZE) goto error;
 
         // Read value bytes
         char* value = malloc(expected_len + 1);
@@ -251,20 +266,28 @@ DWORD WINAPI client_handler(LPVOID param) {
             if (!line) {
                 write_error_tlv(pipe, "invalid whitelist format");
             } else {
-                char* domains[256];
-                int domain_count = 0;
-                line++; // skip past newline
+                // Allocate the pointer array dynamically: the whitelist is
+                // unbounded, so a fixed cap would silently drop domains.
+                size_t max_domains = sizeof(whitelist_buf) / 2;
+                char** domains = malloc(max_domains * sizeof(char*));
+                if (!domains) {
+                    write_error_tlv(pipe, "out of memory");
+                } else {
+                    int domain_count = 0;
+                    line++; // skip past newline
 
-                while (line && *line && domain_count < 256) {
-                    char* next_line = strchr(line, '\n');
-                    if (next_line) *next_line = '\0';
-                    if (strlen(line) > 0) {
-                        domains[domain_count++] = line;
+                    while (line && *line && domain_count < (int)max_domains) {
+                        char* next_line = strchr(line, '\n');
+                        if (next_line) *next_line = '\0';
+                        if (strlen(line) > 0) {
+                            domains[domain_count++] = line;
+                        }
+                        line = next_line ? next_line + 1 : NULL;
                     }
-                    line = next_line ? next_line + 1 : NULL;
-                }
 
-                write_response_tlv(pipe, "OK", (const char**)domains, domain_count);
+                    write_response_tlv(pipe, "OK", (const char**)domains, domain_count);
+                    free(domains);
+                }
             }
         }
 
