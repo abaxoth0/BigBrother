@@ -22,6 +22,21 @@
 #define SRV_HEARTBEAT_INTERVAL_MS 10000
 #define SRV_LOCAL_DAEMON_CHECK_MS 10000
 
+// Serializes config.ini access since handlers run on multiple threads
+// and ini_set_string rewrites the file (non-atomic without the lock).
+static CRITICAL_SECTION g_config_lock;
+static int g_config_lock_initialized = 0;
+
+static void config_lock_init(void) {
+    if (!g_config_lock_initialized) {
+        InitializeCriticalSection(&g_config_lock);
+        g_config_lock_initialized = 1;
+    }
+}
+
+static int ini_get_string_locked(const char* section, const char* key, char* out, size_t out_size);
+static int ini_set_string_locked(const char* section, const char* key, const char* value);
+
 static char g_server_ip[64] = {0};
 static int g_server_session_active = 0;
 static int g_registration_tried = 0;
@@ -79,6 +94,14 @@ int ini_get_string(const char* section, const char* key, char* out, size_t out_s
     if (!out || out_size == 0) return 0;
     out[0] = '\0';
 
+    config_lock_init();
+    EnterCriticalSection(&g_config_lock);
+    int found = ini_get_string_locked(section, key, out, out_size);
+    LeaveCriticalSection(&g_config_lock);
+    return found;
+}
+
+static int ini_get_string_locked(const char* section, const char* key, char* out, size_t out_size) {
     char ini_path[MAX_PATH];
     build_ini_path(ini_path, sizeof(ini_path));
 
@@ -139,6 +162,14 @@ int ini_get_string(const char* section, const char* key, char* out, size_t out_s
 // Write or update a string value in config.ini.
 // Retains all other sections and keys.
 int ini_set_string(const char* section, const char* key, const char* value) {
+    config_lock_init();
+    EnterCriticalSection(&g_config_lock);
+    int result = ini_set_string_locked(section, key, value);
+    LeaveCriticalSection(&g_config_lock);
+    return result;
+}
+
+static int ini_set_string_locked(const char* section, const char* key, const char* value) {
     char ini_path[MAX_PATH];
     build_ini_path(ini_path, sizeof(ini_path));
 
@@ -254,9 +285,12 @@ int ini_set_string(const char* section, const char* key, const char* value) {
 
     fclose(out);
 
-    // Replace original
-    remove(ini_path);
-    rename(tmp_path, ini_path);
+    // Replace original atomically (no window where the file is missing).
+    if (!MoveFileEx(tmp_path, ini_path, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+        // Fallback: remove + rename (best effort)
+        remove(ini_path);
+        rename(tmp_path, ini_path);
+    }
 
     for (int i = 0; i < line_count; i++) free(lines[i]);
     free(lines);
@@ -503,7 +537,7 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
 
     // TCP socket
     SOCKET sock = INVALID_SOCKET;
-    int retries = 10;
+    int retries = 3;
 
     while (retries > 0 && sock == INVALID_SOCKET) {
         sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
@@ -523,7 +557,7 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
             printf("[send_to_server] connect() failed: %lu (retries left: %d)\n", (unsigned long)WSAGetLastError(), retries);
             closesocket(sock);
             sock = INVALID_SOCKET;
-            Sleep(500);
+            Sleep(200);
             retries--;
         }
     }
@@ -780,7 +814,7 @@ static void srv_line_reader_init(SrvLineReader* r, SOCKET sock) {
 // 2 on recv timeout, 0 on error/disconnect.
 static int srv_readline(SrvLineReader* r, char* out, size_t out_size) {
     size_t consumed = 0;
-    while (consumed + 1 < out_size) {
+    for (;;) {
         if (r->pos >= r->len) {
             r->pos = 0;
             r->len = 0;
@@ -797,12 +831,11 @@ static int srv_readline(SrvLineReader* r, char* out, size_t out_size) {
             out[consumed] = '\0';
             return 1;
         }
-        if (c != '\r') {
+        if (c == '\r') continue;
+        if (consumed + 1 < out_size) {
             out[consumed++] = c;
         }
     }
-    out[consumed] = '\0';
-    return 1;
 }
 
 // Read a TLV value (length line + data line) via line reader.

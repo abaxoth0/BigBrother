@@ -10,22 +10,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Client backend: frontend pipe TLV parsing is now buffered (chunked `ReadFile` instead of byte-at-a-time) with a dedicated pipe reader
-- Client backend: server event line reader drains over-long lines so event framing stays intact (a long line no longer splits into a bogus follow-up line)
-- Client backend: `send_to_server_tlv` connect retries reduced (3×200ms, was 10×500ms) so the subscribe loop isn't stalled up to 5s on an unreachable server
-- Client backend: frontend pipe server accept loop is shutdown-safe — uses an overlapped `ConnectNamedPipe` waited on alongside the shutdown event, so the daemon exits cleanly on service stop even when no frontend is connected
-- Client backend: `set` command checks file size and `malloc` result before reading (no more crash on oversized files or OOM)
+- Client backend: server event line reader drains over-long lines so event framing stays intact
+- Client backend: `send_to_server_tlv` connect retries reduced (3×200ms, was 10×500ms)
+- Client backend: named pipe server accept loop can now be shut down cleanly via a self-connect wakeup
+- Client backend: `set` command checks file size and `malloc` result before reading
 - Client backend: `log_init` no longer leaks the `FILE*` from the log-path probe
-- Client backend: frontend TLV responses stream field-by-field when they exceed 64KB, so large whitelist relays are no longer silently truncated
-- Client backend: server IPC response parsing is now buffered and bounds-checked — length lines no longer overflow a 32-byte stack buffer, and oversized TLV values are drained so the parser stays in sync with the terminating empty line
-- Client backend: `read_tlv_request` length lines are bounds-checked and value sizes capped (a malformed peer can no longer overflow the length buffer or force a giant allocation / blocking read)
-- Client backend: whitelist relay to the frontend no longer caps at 256 domains (was silently dropping domains from large whitelists)
-- Client backend: client log rotation size raised from a leftover 2KB test value to the standard 10MB
-- Client backend: config.ini access is serialized with a critical section and rewritten atomically (`MoveFileEx` replace), so concurrent handler threads can't corrupt or temporarily delete the config file
+- Client backend: frontend TLV responses stream field-by-field when they exceed 64KB
+- Client backend: `read_tlv_request` length lines are bounds-checked and value sizes capped
+- Client backend: whitelist relay to the frontend no longer caps at 256 domains
+- Client backend: client log rotation size raised from 2KB to 10MB
+- Client backend: config.ini access is serialized with a critical section and atomic `MoveFileEx`
 
 ### Changed
 
-- Client backend: adapter enumeration calls are cached (`get_adapters()`) so `GetLocalIp`, `is_local_ip`, `find_adapter_by_gateway`, `GetAllBroadcastAddresses`, and `DiscoverServersTCP` reuse the same query instead of each doing a probe+alloc+fill cycle
-- Client backend: `GetLocalIp` uses adapter enumeration instead of a UDP connect to port 445 (works when port 445 is filtered)
+- Client backend: adapter enumeration calls are cached (`get_adapters()`) so local-IP lookups reuse the same query
+- Client backend: `GetLocalIp` uses adapter enumeration instead of a UDP connect to port 445
 
 ## [1.1.0] - 19-08-2026
 
