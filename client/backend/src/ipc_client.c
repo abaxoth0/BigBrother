@@ -30,6 +30,14 @@ void SignalClientServerShutdown(void) {
     if (g_shutdown_event) {
         SetEvent(g_shutdown_event);
     }
+
+    // Connect to our own pipe to wake up ConnectNamedPipe so the listener
+    // thread can exit on service stop even when no frontend is connected.
+    HANDLE wake = CreateFile(CLIENT_PIPE_NAME, GENERIC_READ | GENERIC_WRITE,
+                              0, NULL, OPEN_EXISTING, 0, NULL);
+    if (wake != INVALID_HANDLE_VALUE) {
+        CloseHandle(wake);
+    }
 }
 
 void NotifyStateChanged(void) {
@@ -44,60 +52,27 @@ void NotifyStateChanged(void) {
 }
 
 // Write response: status\n[TLV data...\n]<empty line>
-// Assembles into a fixed buffer when it fits; otherwise streams field-by-field
-// so large responses (e.g. a full whitelist) are never truncated.
 static void write_response_tlv(HANDLE pipe, const char* status, const char** data, size_t data_count) {
     DWORD written;
-
-    // Compute total size first.
-    size_t total = strlen(status) + 2; // status + \n + trailing \n
-    for (size_t i = 0; i < data_count; i++) {
-        if (data[i]) {
-            size_t vlen = strlen(data[i]);
-            total += 1 + 32; // \n + len line (digits + \n) — worst case
-            total += vlen + 1;
-        }
-    }
-    if (total <= 64 * 1024) {
-        // Single-buffer path (common, small responses).
-        char buffer[64 * 1024];
-        size_t pos = 0;
-        int n = snprintf(buffer + pos, sizeof(buffer) - pos, "%s\n", status);
-        if (n > 0) pos += (size_t)n;
-        for (size_t i = 0; i < data_count; i++) {
-            if (data[i] && pos < sizeof(buffer)) {
-                int len = snprintf(buffer + pos, sizeof(buffer) - pos, "%zu\n", strlen(data[i]));
-                if (len > 0) pos += (size_t)len;
-                if (pos < sizeof(buffer)) {
-                    size_t vlen = strlen(data[i]);
-                    if (vlen > sizeof(buffer) - pos) vlen = sizeof(buffer) - pos - 1;
-                    memcpy(buffer + pos, data[i], vlen);
-                    pos += vlen;
-                }
-                if (pos < sizeof(buffer)) {
-                    buffer[pos++] = '\n';
-                }
-            }
-        }
-        if (pos < sizeof(buffer)) {
-            buffer[pos++] = '\n';
-        }
-        WriteFile(pipe, buffer, (DWORD)pos, &written, NULL);
-        FlushFileBuffers(pipe);
-        return;
-    }
-
-    // Streaming path: large payloads (whitelist relays). Write per field.
+    // Write status line
     WriteFile(pipe, status, (DWORD)strlen(status), &written, NULL);
     WriteFile(pipe, "\n", 1, &written, NULL);
-    for (size_t i = 0; i < data_count; i++) {
-        if (!data[i]) continue;
-        char len_buf[32];
-        int len = snprintf(len_buf, sizeof(len_buf), "%zu\n", strlen(data[i]));
-        WriteFile(pipe, len_buf, (DWORD)len, &written, NULL);
-        WriteFile(pipe, data[i], (DWORD)strlen(data[i]), &written, NULL);
-        WriteFile(pipe, "\n", 1, &written, NULL);
+
+    if (data && data_count > 0) {
+        for (size_t i = 0; i < data_count; i++) {
+            if (data[i]) {
+                // Write length line
+                char len_buf[32];
+                int len = snprintf(len_buf, sizeof(len_buf), "%zu", strlen(data[i]));
+                WriteFile(pipe, len_buf, (DWORD)len, &written, NULL);
+                WriteFile(pipe, "\n", 1, &written, NULL);
+                // Write value line
+                WriteFile(pipe, data[i], (DWORD)strlen(data[i]), &written, NULL);
+                WriteFile(pipe, "\n", 1, &written, NULL);
+            }
+        }
     }
+    // Empty line terminates response
     WriteFile(pipe, "\n", 1, &written, NULL);
     FlushFileBuffers(pipe);
 }
@@ -112,124 +87,93 @@ static void write_ok(HANDLE pipe) {
     write_response_tlv(pipe, "OK", NULL, 0);
 }
 
-// Buffered byte reader over a pipe: reads in chunks instead of one byte per
-// ReadFile() call (the previous TLV parser fetched every byte individually).
-typedef struct {
-    HANDLE pipe;
-    char buf[4096];
-    size_t pos;
-    size_t len;
-} PipeByteReader;
-
-static void pipe_reader_init(PipeByteReader* r, HANDLE pipe) {
-    r->pipe = pipe;
-    r->pos = 0;
-    r->len = 0;
-}
-
-// Fill the buffer from the pipe. Returns 0 on error/disconnect.
-static int pipe_reader_fill(PipeByteReader* r) {
-    r->pos = 0;
-    r->len = 0;
-    DWORD bytes_read;
-    if (!ReadFile(r->pipe, r->buf, sizeof(r->buf), &bytes_read, NULL) || bytes_read == 0) {
-        return 0;
-    }
-    r->len = (size_t)bytes_read;
-    return 1;
-}
-
-// Read a single byte. Returns 0 on error/disconnect.
-static int pipe_reader_getc(PipeByteReader* r, char* out) {
-    if (r->pos >= r->len) {
-        if (!pipe_reader_fill(r)) return 0;
-    }
-    *out = r->buf[r->pos++];
-    return 1;
-}
-
-// Read an LF-terminated line into `out` (strips CR). Truncates over-long lines
-// but keeps draining so framing stays intact. Returns 1 on success, 0 on error.
-static int pipe_reader_readline(PipeByteReader* r, char* out, size_t out_size) {
-    size_t used = 0;
-    for (;;) {
-        char c;
-        if (!pipe_reader_getc(r, &c)) return 0;
-        if (c == '\n') {
-            out[used] = '\0';
-            return 1;
-        }
-        if (c == '\r') continue;
-        if (used + 1 < out_size) {
-            out[used++] = c;
-        }
-    }
-}
-
-// Read exactly `n` bytes into `out`. Returns 0 on error/disconnect.
-static int pipe_reader_read(PipeByteReader* r, char* out, size_t n) {
-    size_t got = 0;
-    while (got < n) {
-        if (r->pos >= r->len) {
-            if (!pipe_reader_fill(r)) return 0;
-        }
-        size_t avail = r->len - r->pos;
-        size_t want = n - got;
-        size_t copy = avail < want ? avail : want;
-        memcpy(out + got, r->buf + r->pos, copy);
-        r->pos += copy;
-        got += copy;
-    }
-    return 1;
-}
-
 // Read TLV request: command\n<len>\n<arg>\n...\n<empty line>
 // Returns command in buffer, args in args array (caller must free)
 // Returns number of args, or -1 on error
 static int read_tlv_request(HANDLE pipe, char* cmd_buf, size_t cmd_size,
                                 char*** args_out) {
-    PipeByteReader reader;
-    pipe_reader_init(&reader, pipe);
+    DWORD bytes_read;
     size_t arg_count = 0;
     char** args = NULL;
 
-    // Read command line until newline
-    if (!pipe_reader_readline(&reader, cmd_buf, cmd_size)) {
-        return -1;
+    // Read command line byte by byte until newline
+    char* p = cmd_buf;
+    size_t remaining = cmd_size - 1;
+    int last_was_cr = 0;
+    while (remaining > 0) {
+        char c;
+        if (!ReadFile(pipe, &c, 1, &bytes_read, NULL) || bytes_read == 0) {
+            return -1;
+        }
+        if (c == '\r') {
+            last_was_cr = 1;
+            continue;
+        }
+        if (c == '\n') {
+            // If last was CR, this is \r\n - we already got the newline
+            if (last_was_cr) {
+                last_was_cr = 0;
+            }
+            break;
+        }
+        last_was_cr = 0;
+        *p++ = c;
+        remaining--;
     }
+    *p = '\0';
 
     // Read arguments until empty line
     while (1) {
-        // Read length line (bounds-checked)
+        // Read length line
         char len_line[32] = {0};
-        if (!pipe_reader_readline(&reader, len_line, sizeof(len_line))) {
-            goto error;
+        char* p = len_line;
+        int last_was_cr = 0;
+        int is_empty_line = 0;
+        while (1) {
+            char c;
+            if (!ReadFile(pipe, &c, 1, &bytes_read, NULL) || bytes_read == 0) {
+                goto error;
+            }
+            if (c == '\r') {
+                last_was_cr = 1;
+                continue;
+            }
+            if (c == '\n') {
+                if (last_was_cr) {
+                    // This is \r\n - if line is empty, it's the terminator
+                    if (strlen(len_line) == 0) {
+                        is_empty_line = 1;
+                    }
+                    last_was_cr = 0;
+                    break;
+                }
+                break;
+            }
+            last_was_cr = 0;
+            *p++ = c;
         }
 
-        // Empty line terminates request
-        if (len_line[0] == '\0') break;
+        // Empty line terminates request (or \r\n)
+        if (is_empty_line || strlen(len_line) == 0) break;
 
         int expected_len = atoi(len_line);
         if (expected_len < 0) goto error;
-        // Cap the value size so a malformed peer can't force a giant allocation
-        // or a blocking read of an unbounded number of bytes.
-        if ((size_t)expected_len > DAEMON_MAX_MESSAGE_SIZE) goto error;
 
         // Read value bytes
         char* value = malloc(expected_len + 1);
         if (!value) goto error;
-        if (!pipe_reader_read(&reader, value, (size_t)expected_len)) {
+        if (!ReadFile(pipe, value, (DWORD)expected_len, &bytes_read, NULL) || bytes_read != (DWORD)expected_len) {
             free(value);
             goto error;
         }
         value[expected_len] = '\0';
 
-        // Consume newline after value (may be \n or \r\n)
-        {
-            char nl;
-            if (!pipe_reader_getc(&reader, &nl)) { free(value); goto error; }
+        // Read newline after value (may be \n or \r\n)
+        char nl;
+        if (ReadFile(pipe, &nl, 1, &bytes_read, NULL) && bytes_read == 1) {
             if (nl == '\r') {
-                if (!pipe_reader_getc(&reader, &nl)) { free(value); goto error; }
+                // Skip the following \n
+                ReadFile(pipe, &nl, 1, &bytes_read, NULL);
             }
         }
 
@@ -315,28 +259,20 @@ DWORD WINAPI client_handler(LPVOID param) {
             if (!line) {
                 write_error_tlv(pipe, "invalid whitelist format");
             } else {
-                // Allocate the pointer array dynamically: the whitelist is
-                // unbounded, so a fixed cap would silently drop domains.
-                size_t max_domains = sizeof(whitelist_buf) / 2;
-                char** domains = malloc(max_domains * sizeof(char*));
-                if (!domains) {
-                    write_error_tlv(pipe, "out of memory");
-                } else {
-                    int domain_count = 0;
-                    line++; // skip past newline
+                char* domains[256];
+                int domain_count = 0;
+                line++; // skip past newline
 
-                    while (line && *line && domain_count < (int)max_domains) {
-                        char* next_line = strchr(line, '\n');
-                        if (next_line) *next_line = '\0';
-                        if (strlen(line) > 0) {
-                            domains[domain_count++] = line;
-                        }
-                        line = next_line ? next_line + 1 : NULL;
+                while (line && *line && domain_count < 256) {
+                    char* next_line = strchr(line, '\n');
+                    if (next_line) *next_line = '\0';
+                    if (strlen(line) > 0) {
+                        domains[domain_count++] = line;
                     }
-
-                    write_response_tlv(pipe, "OK", (const char**)domains, domain_count);
-                    free(domains);
+                    line = next_line ? next_line + 1 : NULL;
                 }
+
+                write_response_tlv(pipe, "OK", (const char**)domains, domain_count);
             }
         }
 
@@ -755,7 +691,7 @@ DWORD WINAPI client_server_thread(LPVOID param) {
     while (1) {
         HANDLE pipe = CreateNamedPipe(
             CLIENT_PIPE_NAME,
-            PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
+            PIPE_ACCESS_DUPLEX,
             PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
             PIPE_UNLIMITED_INSTANCES,
             CLIENT_PIPE_BUFFER_SIZE,
@@ -769,52 +705,31 @@ DWORD WINAPI client_server_thread(LPVOID param) {
             continue;
         }
 
-        // Overlapped ConnectNamedPipe: wait on the connect event alongside the
-        // shutdown event so the accept loop can be interrupted on service stop
-        // even when no frontend ever connects.
-        OVERLAPPED ov = {0};
-        HANDLE connect_event = CreateEvent(NULL, TRUE, FALSE, NULL);
-        if (!connect_event) {
+        // Check for shutdown before waiting for connection
+        if (WaitForSingleObject(g_shutdown_event, 0) == WAIT_OBJECT_0) {
             CloseHandle(pipe);
-            continue;
+            break;
         }
-        ov.hEvent = connect_event;
 
-        BOOL ok = ConnectNamedPipe(pipe, &ov);
-        if (!ok && GetLastError() == ERROR_IO_PENDING) {
-            HANDLE waits[2] = {connect_event, g_shutdown_event};
-            DWORD w = WaitForMultipleObjects(2, waits, FALSE, INFINITE);
-            if (w == WAIT_OBJECT_0 + 1) {
-                // Shutdown requested — abort and close.
+        // Use timeout-based approach to allow shutdown
+        if (ConnectNamedPipe(pipe, NULL) || GetLastError() == ERROR_PIPE_CONNECTED) {
+            // Check again for shutdown
+            if (WaitForSingleObject(g_shutdown_event, 0) == WAIT_OBJECT_0) {
                 CloseHandle(pipe);
-                CloseHandle(connect_event);
-                goto shutdown;
+                break;
             }
-            if (w == WAIT_FAILED) {
-                CloseHandle(pipe);
-                CloseHandle(connect_event);
-                Sleep(100);
-                continue;
+            HANDLE thread = CreateThread(NULL, 0, client_handler, pipe, 0, NULL);
+            if (thread) {
+                CloseHandle(thread);
             }
-        } else if (ok || GetLastError() == ERROR_PIPE_CONNECTED) {
-            // Client connected synchronously (rare) — nothing to wait on.
         } else {
             CloseHandle(pipe);
-            CloseHandle(connect_event);
-            Sleep(100);
-            continue;
         }
 
-        CloseHandle(connect_event);
-
-        // Spawn a handler for the connected client.
-        HANDLE thread = CreateThread(NULL, 0, client_handler, pipe, 0, NULL);
-        if (thread) {
-            CloseHandle(thread);
-        }
+        // Small sleep to prevent CPU spinning
+        Sleep(100);
     }
 
-shutdown:
     return 0;
 }
 

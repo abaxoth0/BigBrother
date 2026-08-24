@@ -22,18 +22,6 @@
 #define SRV_HEARTBEAT_INTERVAL_MS 10000
 #define SRV_LOCAL_DAEMON_CHECK_MS 10000
 
-// Serializes config.ini access: handlers run on multiple threads and can
-// read/write the file concurrently (ini_set_string rewrites the file).
-static CRITICAL_SECTION g_config_lock;
-static int g_config_lock_initialized = 0;
-
-static void config_lock_init(void) {
-    if (!g_config_lock_initialized) {
-        InitializeCriticalSection(&g_config_lock);
-        g_config_lock_initialized = 1;
-    }
-}
-
 static char g_server_ip[64] = {0};
 static int g_server_session_active = 0;
 static int g_registration_tried = 0;
@@ -85,25 +73,12 @@ static char* trim_ws(char* s) {
     return s;
 }
 
-// Locked implementations of the config accessors; callers must hold
-// g_config_lock. Declared here so the public wrappers can call them.
-static int ini_get_string_locked(const char* section, const char* key, char* out, size_t out_size);
-static int ini_set_string_locked(const char* section, const char* key, const char* value);
-
 // Read string value from config.ini.
 // Returns 1 if found, 0 if not found.
 int ini_get_string(const char* section, const char* key, char* out, size_t out_size) {
     if (!out || out_size == 0) return 0;
     out[0] = '\0';
 
-    config_lock_init();
-    EnterCriticalSection(&g_config_lock);
-    int found = ini_get_string_locked(section, key, out, out_size);
-    LeaveCriticalSection(&g_config_lock);
-    return found;
-}
-
-static int ini_get_string_locked(const char* section, const char* key, char* out, size_t out_size) {
     char ini_path[MAX_PATH];
     build_ini_path(ini_path, sizeof(ini_path));
 
@@ -164,14 +139,6 @@ static int ini_get_string_locked(const char* section, const char* key, char* out
 // Write or update a string value in config.ini.
 // Retains all other sections and keys.
 int ini_set_string(const char* section, const char* key, const char* value) {
-    config_lock_init();
-    EnterCriticalSection(&g_config_lock);
-    int result = ini_set_string_locked(section, key, value);
-    LeaveCriticalSection(&g_config_lock);
-    return result;
-}
-
-static int ini_set_string_locked(const char* section, const char* key, const char* value) {
     char ini_path[MAX_PATH];
     build_ini_path(ini_path, sizeof(ini_path));
 
@@ -287,12 +254,9 @@ static int ini_set_string_locked(const char* section, const char* key, const cha
 
     fclose(out);
 
-    // Replace original atomically (no window where the file is missing).
-    if (!MoveFileEx(tmp_path, ini_path, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
-        // Fallback: remove + rename (best effort)
-        remove(ini_path);
-        rename(tmp_path, ini_path);
-    }
+    // Replace original
+    remove(ini_path);
+    rename(tmp_path, ini_path);
 
     for (int i = 0; i < line_count; i++) free(lines[i]);
     free(lines);
@@ -513,74 +477,6 @@ static void apply_auto_enable(void) {
     }
 }
 
-// Buffered byte reader over a socket: reads in chunks instead of one byte per
-// recv() call (large TLV values were previously fetched byte-at-a-time).
-typedef struct {
-    SOCKET sock;
-    char buf[4096];
-    size_t pos;
-    size_t len;
-} SrvByteReader;
-
-static void srv_byte_reader_init(SrvByteReader* r, SOCKET sock) {
-    r->sock = sock;
-    r->pos = 0;
-    r->len = 0;
-}
-
-// Fill the buffer from the socket. Returns 0 on error/disconnect.
-static int srv_byte_reader_fill(SrvByteReader* r) {
-    r->pos = 0;
-    r->len = 0;
-    int n = recv(r->sock, r->buf, sizeof(r->buf), 0);
-    if (n <= 0) return 0;
-    r->len = (size_t)n;
-    return 1;
-}
-
-// Read a single byte. Returns 0 on error/disconnect.
-static int srv_byte_reader_getc(SrvByteReader* r, char* out) {
-    if (r->pos >= r->len) {
-        if (!srv_byte_reader_fill(r)) return 0;
-    }
-    *out = r->buf[r->pos++];
-    return 1;
-}
-
-// Read an LF-terminated line into `out` (strips CR). Bounds-checked: lines
-// longer than out_size-1 are truncated. Returns 1 on success, 0 on error.
-static int srv_byte_reader_readline(SrvByteReader* r, char* out, size_t out_size) {
-    size_t used = 0;
-    while (used + 1 < out_size) {
-        char c;
-        if (!srv_byte_reader_getc(r, &c)) return 0;
-        if (c == '\n') {
-            out[used] = '\0';
-            return 1;
-        }
-        if (c != '\r') out[used++] = c;
-    }
-    out[used] = '\0';
-    return 1;
-}
-
-// Read exactly `n` bytes into `out`. Returns 0 on error/disconnect.
-static int srv_byte_reader_read(SrvByteReader* r, char* out, size_t n) {
-    size_t got = 0;
-    while (got < n) {
-        if (r->pos >= r->len) {
-            if (!srv_byte_reader_fill(r)) return 0;
-        }
-        size_t avail = r->len - r->pos;
-        size_t want = n - got;
-        size_t copy = avail < want ? avail : want;
-        memcpy(out + got, r->buf + r->pos, copy);
-        r->pos += copy;
-        got += copy;
-    }
-    return 1;
-}
-
 static int send_to_server_tlv(const char* command, const char** args, size_t arg_count,
                               char* out_buffer, size_t buffer_size) {
     if (!g_server_ip[0] || !command || !out_buffer || buffer_size == 0) {
@@ -607,9 +503,7 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
 
     // TCP socket
     SOCKET sock = INVALID_SOCKET;
-    // The subscribe loop calls this repeatedly; keep the worst-case blocking
-    // time bounded (3 x 200ms = 600ms) instead of stalling on retries.
-    int retries = 3;
+    int retries = 10;
 
     while (retries > 0 && sock == INVALID_SOCKET) {
         sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
@@ -629,7 +523,7 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
             printf("[send_to_server] connect() failed: %lu (retries left: %d)\n", (unsigned long)WSAGetLastError(), retries);
             closesocket(sock);
             sock = INVALID_SOCKET;
-            Sleep(200);
+            Sleep(500);
             retries--;
         }
     }
@@ -690,15 +584,18 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
     }
 
     // Read response: status\n[TLV data...\n]<empty line>
-    SrvByteReader reader;
-    srv_byte_reader_init(&reader, sock);
-
     char status_buf[32] = {0};
-    if (!srv_byte_reader_readline(&reader, status_buf, sizeof(status_buf))) {
-        closesocket(sock);
-        WSACleanup();
-        return -1;
+    char* status_out = status_buf;
+    size_t status_remaining = sizeof(status_buf) - 1;
+    while (status_remaining > 0) {
+        char c;
+        int n = recv(sock, &c, 1, 0);
+        if (n <= 0) break;
+        if (c == '\n') break;
+        *status_out++ = c;
+        status_remaining--;
     }
+    *status_out = '\0';
 
     printf("[send_to_server] Response status: '%s'\n", status_buf);
     fflush(stdout);
@@ -706,12 +603,20 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
     int result = -1;
 
     if (strcmp(status_buf, "OK") == 0) {
-        size_t out_pos = 0;
+        char* out = out_buffer;
+        size_t remaining = buffer_size - 1;
         int first = 1;
 
         while (1) {
             char len_line[32] = {0};
-            if (!srv_byte_reader_readline(&reader, len_line, sizeof(len_line))) break;
+            char* lp = len_line;
+            while (1) {
+                char c;
+                int n = recv(sock, &c, 1, 0);
+                if (n <= 0) break;
+                if (c == '\n') break;
+                *lp++ = c;
+            }
 
             // Empty line terminates response
             if (strlen(len_line) == 0) break;
@@ -721,50 +626,56 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
 
             // Add newline separator between values (for whitelist domains)
             if (!first) {
-                if (out_pos + 1 < buffer_size) out_buffer[out_pos++] = '\n';
+                if (remaining > 1) {
+                    *out++ = '\n';
+                    remaining--;
+                }
             }
             first = 0;
 
-            // Read value (bounded by remaining output space). If the value is
-            // larger than the buffer, drain the excess so the stream stays in
-            // sync with the terminating empty line.
-            size_t want = (size_t)expected_len;
-            if (want > buffer_size - 1 - out_pos) want = buffer_size - 1 - out_pos;
-            if (!srv_byte_reader_read(&reader, out_buffer + out_pos, want)) {
-                result = -1;
-                break;
-            }
-            out_pos += want;
-            out_buffer[out_pos] = '\0';
+        // Read value
+        int count = 0;
+        while (count < expected_len && remaining > 0) {
+            char c;
+            int n = recv(sock, &c, 1, 0);
+            if (n <= 0) break;
+            *out++ = c;
+            count++;
+            remaining--;
+        }
+        *out = '\0';
 
-            for (size_t left = (size_t)expected_len - want; left > 0; left--) {
-                char drain;
-                if (!srv_byte_reader_getc(&reader, &drain)) { result = -1; break; }
+        // Consume trailing newline after TLV value
+        {
+            char nl;
+            int n = recv(sock, &nl, 1, 0);
+            if (n == 1 && nl == '\r') {
+                recv(sock, &nl, 1, 0); // consume \n after \r
             }
-
-            // Consume trailing newline after TLV value
-            {
-                char nl;
-                if (!srv_byte_reader_getc(&reader, &nl)) { result = -1; break; }
-                if (nl == '\r') {
-                    if (!srv_byte_reader_getc(&reader, &nl)) { result = -1; break; }
-                }
-            }
+        }
         }
         result = 0;
     } else if (strcmp(status_buf, "ERROR") == 0) {
         char len_line[32] = {0};
-        if (srv_byte_reader_readline(&reader, len_line, sizeof(len_line))) {
-            if (strlen(len_line) > 0) {
-                int expected_len = atoi(len_line);
-                if (expected_len > 0 && expected_len < (int)buffer_size) {
-                    if (!srv_byte_reader_read(&reader, out_buffer, (size_t)expected_len)) {
-                        closesocket(sock);
-                        WSACleanup();
-                        return -1;
-                    }
-                    out_buffer[expected_len] = '\0';
+        char* lp = len_line;
+        while (1) {
+            char c;
+            int n = recv(sock, &c, 1, 0);
+            if (n <= 0) break;
+            if (c == '\n') break;
+            *lp++ = c;
+        }
+
+        if (strlen(len_line) > 0) {
+            int expected_len = atoi(len_line);
+            if (expected_len > 0 && expected_len < (int)buffer_size) {
+                int bytes_read = 0;
+                while (bytes_read < expected_len) {
+                    int n = recv(sock, out_buffer + bytes_read, expected_len - bytes_read, 0);
+                    if (n <= 0) break;
+                    bytes_read += n;
                 }
+                out_buffer[bytes_read] = '\0';
             }
         }
         result = -1;
@@ -867,13 +778,9 @@ static void srv_line_reader_init(SrvLineReader* r, SOCKET sock) {
 
 // Read a single LF-terminated line (strips CR). Returns 1 on success,
 // 2 on recv timeout, 0 on error/disconnect.
-//
-// If the line is longer than out_size-1 it is truncated, but the remainder of
-// the line is still drained so the next read starts at a clean line boundary
-// (otherwise event framing would split on the tail of a long line).
 static int srv_readline(SrvLineReader* r, char* out, size_t out_size) {
     size_t consumed = 0;
-    for (;;) {
+    while (consumed + 1 < out_size) {
         if (r->pos >= r->len) {
             r->pos = 0;
             r->len = 0;
@@ -890,12 +797,12 @@ static int srv_readline(SrvLineReader* r, char* out, size_t out_size) {
             out[consumed] = '\0';
             return 1;
         }
-        if (c == '\r') continue;
-        // Truncate over-long lines but keep draining so framing stays intact.
-        if (consumed + 1 < out_size) {
+        if (c != '\r') {
             out[consumed++] = c;
         }
     }
+    out[consumed] = '\0';
+    return 1;
 }
 
 // Read a TLV value (length line + data line) via line reader.
