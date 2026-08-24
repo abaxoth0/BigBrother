@@ -13,68 +13,6 @@
 #include <wchar.h>
 
 // ---------------------------------------------------------------------------
-// Local IP helper
-// ---------------------------------------------------------------------------
-
-int GetLocalIp(const char* server_ip, char* buffer, size_t buffer_size) {
-    if (!buffer || buffer_size == 0) return -1;
-    buffer[0] = '\0';
-
-    WSADATA wsaData;
-    if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0)
-        return -1;
-
-    int ret = -1;
-
-    if (server_ip && server_ip[0]) {
-        SOCKET sock = socket(AF_INET, SOCK_DGRAM, 0);
-        if (sock != INVALID_SOCKET) {
-            struct sockaddr_in addr;
-            addr.sin_family = AF_INET;
-            addr.sin_port = htons(445);
-            addr.sin_addr.s_addr = inet_addr(server_ip);
-
-            if (connect(sock, (struct sockaddr*)&addr, sizeof(addr)) == 0) {
-                struct sockaddr_in local_addr;
-                int len = sizeof(local_addr);
-                if (getsockname(sock, (struct sockaddr*)&local_addr, &len) == 0) {
-                    char* ip = inet_ntoa(local_addr.sin_addr);
-                    if (ip) {
-                        strncpy(buffer, ip, buffer_size - 1);
-                        buffer[buffer_size - 1] = '\0';
-                        ret = 0;
-                    }
-                }
-            }
-            closesocket(sock);
-        }
-    }
-
-    if (ret != 0) {
-        char hostname[256];
-        if (gethostname(hostname, sizeof(hostname)) == 0) {
-            struct addrinfo hints, *res = NULL;
-            memset(&hints, 0, sizeof(hints));
-            hints.ai_family = AF_INET;
-            hints.ai_socktype = SOCK_STREAM;
-            if (getaddrinfo(hostname, NULL, &hints, &res) == 0 && res) {
-                struct sockaddr_in* sa = (struct sockaddr_in*)res->ai_addr;
-                char* ip = inet_ntoa(sa->sin_addr);
-                if (ip) {
-                    strncpy(buffer, ip, buffer_size - 1);
-                    buffer[buffer_size - 1] = '\0';
-                    ret = 0;
-                }
-                freeaddrinfo(res);
-            }
-        }
-    }
-
-    WSACleanup();
-    return ret;
-}
-
-// ---------------------------------------------------------------------------
 // Port and discovery toggle
 // ---------------------------------------------------------------------------
 
@@ -99,6 +37,28 @@ int is_discovery_enabled(void) {
 // Network adapter enumeration
 // ---------------------------------------------------------------------------
 
+// Shared adapter cache: allocates once, reused by all callers. Frees on
+// module exit via atexit or on the next init. Avoids repeated size-probe +
+// alloc + fill cycles in every discovery / local-IP / lookup function.
+static IP_ADAPTER_ADDRESSES* g_adapters = NULL;
+static ULONG g_adapter_buf_len = 0;
+
+static IP_ADAPTER_ADDRESSES* get_adapters(void) {
+    if (g_adapters) return g_adapters;
+    ULONG buf_len = 0;
+    GetAdaptersAddresses(AF_INET, GAA_FLAG_INCLUDE_GATEWAYS, NULL, NULL, &buf_len);
+    if (buf_len == 0) return NULL;
+    IP_ADAPTER_ADDRESSES* a = (IP_ADAPTER_ADDRESSES*)malloc(buf_len);
+    if (!a) return NULL;
+    ULONG ret = GetAdaptersAddresses(AF_INET, GAA_FLAG_INCLUDE_GATEWAYS, NULL, a, &buf_len);
+    if (ret != NO_ERROR) { free(a); return NULL; }
+    g_adapters = a;
+    g_adapter_buf_len = buf_len;
+    return g_adapters;
+}
+
+static int is_virtual_adapter(const IP_ADAPTER_ADDRESSES* a);
+
 // Parse an IP string "1.2.3.4" into a uint32_t in HOST byte order. Returns 0 on error.
 static uint32_t parse_ip(const char* str) {
     unsigned int a, b, c, d;
@@ -119,15 +79,8 @@ static int find_adapter_by_gateway(const char* gateway_str, char* ip_str, size_t
     uint32_t target_gw = parse_ip(gateway_str);
     if (!target_gw) return 0;
 
-    ULONG buf_len = 0;
-    GetAdaptersAddresses(AF_INET, GAA_FLAG_INCLUDE_GATEWAYS, NULL, NULL, &buf_len);
-    if (buf_len == 0) return 0;
-
-    IP_ADAPTER_ADDRESSES* adapters = (IP_ADAPTER_ADDRESSES*)malloc(buf_len);
+    IP_ADAPTER_ADDRESSES* adapters = get_adapters();
     if (!adapters) return 0;
-
-    ULONG ret = GetAdaptersAddresses(AF_INET, GAA_FLAG_INCLUDE_GATEWAYS, NULL, adapters, &buf_len);
-    if (ret != NO_ERROR) { free(adapters); return 0; }
 
     int found = 0;
     for (IP_ADAPTER_ADDRESSES* a = adapters; a; a = a->Next) {
@@ -168,7 +121,6 @@ static int find_adapter_by_gateway(const char* gateway_str, char* ip_str, size_t
         break;
     }
 
-    free(adapters);
     return found;
 }
 
@@ -210,30 +162,55 @@ static int is_virtual_adapter(const IP_ADAPTER_ADDRESSES* a) {
     return 0;
 }
 
-static int is_local_ip(uint32_t ip) {
-    ULONG buf_len = 0;
-    GetAdaptersAddresses(AF_INET, GAA_FLAG_INCLUDE_GATEWAYS, NULL, NULL, &buf_len);
-    if (buf_len == 0) return 0;
+// Find the local IP of the first physical (non-virtual, non-loopback) adapter
+// that is up and has a gateway. Returns 0 on success, -1 on failure.
+int GetLocalIp(const char* server_ip, char* buffer, size_t buffer_size) {
+    (void)server_ip;
+    if (!buffer || buffer_size == 0) return -1;
+    buffer[0] = '\0';
 
-    IP_ADAPTER_ADDRESSES* adapters = (IP_ADAPTER_ADDRESSES*)malloc(buf_len);
+    // Use adapter enumeration instead of the old UDP-connect-to-port-445 trick:
+    // that fails when port 445 is filtered (common on hardened networks).
+    IP_ADAPTER_ADDRESSES* adapters = get_adapters();
+    if (!adapters) return -1;
+
+    for (IP_ADAPTER_ADDRESSES* a = adapters; a; a = a->Next) {
+        if (a->OperStatus != IfOperStatusUp) continue;
+        if (a->FirstUnicastAddress == NULL) continue;
+        if (a->FirstGatewayAddress == NULL || a->FirstGatewayAddress->Address.lpSockaddr == NULL) continue;
+        if (is_virtual_adapter(a)) continue;
+
+        struct sockaddr_in* sin = (struct sockaddr_in*)a->FirstUnicastAddress->Address.lpSockaddr;
+        if (!sin) continue;
+
+        uint32_t ip = ntohl(sin->sin_addr.s_addr);
+        if (ip == 0x7f000001) continue;
+
+        char* s = inet_ntoa(sin->sin_addr);
+        if (s) {
+            strncpy(buffer, s, buffer_size - 1);
+            buffer[buffer_size - 1] = '\0';
+            return 0;
+        }
+    }
+
+    return -1;
+}
+
+static int is_local_ip(uint32_t ip) {
+    IP_ADAPTER_ADDRESSES* adapters = get_adapters();
     if (!adapters) return 0;
 
-    ULONG ret = GetAdaptersAddresses(AF_INET, GAA_FLAG_INCLUDE_GATEWAYS, NULL, adapters, &buf_len);
-    if (ret != NO_ERROR) { free(adapters); return 0; }
-
-    int found = 0;
     for (IP_ADAPTER_ADDRESSES* a = adapters; a; a = a->Next) {
         if (a->OperStatus != IfOperStatusUp) continue;
         if (a->FirstUnicastAddress == NULL) continue;
         struct sockaddr_in* sin = (struct sockaddr_in*)a->FirstUnicastAddress->Address.lpSockaddr;
         if (!sin) continue;
         uint32_t adapter_ip = ntohl(sin->sin_addr.s_addr);
-        if (adapter_ip == ip) { found = 1; break; }
+        if (adapter_ip == ip) { return 1; }
         if (adapter_ip == 0x7f000001) continue;
     }
-
-    free(adapters);
-    return found;
+    return 0;
 }
 
 int GetAllBroadcastAddresses(char* ip_str, size_t ip_size, char* bcast_out, size_t bcast_size) {
@@ -273,24 +250,13 @@ int GetAllBroadcastAddresses(char* ip_str, size_t ip_size, char* bcast_out, size
         return 0;
     }
 
-    ULONG buf_len = 0;
-    GetAdaptersAddresses(AF_INET, GAA_FLAG_INCLUDE_GATEWAYS, NULL, NULL, &buf_len);
-    if (buf_len == 0) return 0;
-
-    IP_ADAPTER_ADDRESSES* adapters = (IP_ADAPTER_ADDRESSES*)malloc(buf_len);
-    if (!adapters) return 0;
-
-    ULONG ret = GetAdaptersAddresses(AF_INET, GAA_FLAG_INCLUDE_GATEWAYS, NULL, adapters, &buf_len);
-    if (ret != NO_ERROR) {
-        free(adapters);
-        return 0;
-    }
+    IP_ADAPTER_ADDRESSES* gaa_adapters = get_adapters();
 
     int count = 0;
     char* out = bcast_out;
     size_t remaining = bcast_size;
 
-    for (IP_ADAPTER_ADDRESSES* a = adapters; a; a = a->Next) {
+    for (IP_ADAPTER_ADDRESSES* a = gaa_adapters; a; a = a->Next) {
         if (a->OperStatus != IfOperStatusUp) continue;
         if (a->FirstUnicastAddress == NULL) continue;
         if (a->FirstGatewayAddress == NULL || a->FirstGatewayAddress->Address.lpSockaddr == NULL) continue;
@@ -319,8 +285,6 @@ int GetAllBroadcastAddresses(char* ip_str, size_t ip_size, char* bcast_out, size
             }
         }
     }
-
-    free(adapters);
 
     if (count == 0 && discovery_enabled && bcast_out && bcast_size > 0) {
         snprintf(bcast_out, bcast_size, "255.255.255.255\n");
@@ -507,19 +471,9 @@ int DiscoverServersTCP(char* out, size_t out_size, int timeout_ms) {
     WSADATA wsa;
     if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) return 0;
 
-    ULONG buf_len = 0;
-    GetAdaptersAddresses(AF_INET, GAA_FLAG_INCLUDE_GATEWAYS, NULL, NULL, &buf_len);
-    if (buf_len == 0) { WSACleanup(); return 0; }
-
-    IP_ADAPTER_ADDRESSES* adapters = (IP_ADAPTER_ADDRESSES*)malloc(buf_len);
-    if (!adapters) { WSACleanup(); return 0; }
-
-    ULONG ret = GetAdaptersAddresses(AF_INET, GAA_FLAG_INCLUDE_GATEWAYS, NULL, adapters, &buf_len);
-    if (ret != NO_ERROR) {
-        free(adapters);
-        WSACleanup();
-        return 0;
-    }
+    // Use cached adapters — the old per-call probe+alloc+fill is gone.
+    IP_ADAPTER_ADDRESSES* gaa_adapters = get_adapters();
+    if (!gaa_adapters) { WSACleanup(); return 0; }
 
     int count = 0;
     char* out_pos = out;
@@ -617,7 +571,7 @@ int DiscoverServersTCP(char* out, size_t out_size, int timeout_ms) {
     }
 
     // Auto mode: scan all physical adapters
-    for (IP_ADAPTER_ADDRESSES* a = adapters; a; a = a->Next) {
+    for (IP_ADAPTER_ADDRESSES* a = gaa_adapters; a; a = a->Next) {
         if (a->OperStatus != IfOperStatusUp) continue;
         if (a->FirstUnicastAddress == NULL) continue;
         if (a->FirstGatewayAddress == NULL || a->FirstGatewayAddress->Address.lpSockaddr == NULL) continue;
@@ -840,7 +794,6 @@ probe_localhost:
     }
 
 done:
-    free(adapters);
     WSACleanup();
     LOGF("[Discovery] TCP scan complete: %d servers found", count);
     return count;

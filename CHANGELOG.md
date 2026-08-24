@@ -24,8 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Client backend: server↔daemon TLV response reading uses a buffered socket reader instead of byte-at-a-time `recv()` calls (large whitelist syncs are far faster)
-- Client backend: frontend pipe responses are assembled into one buffer and written once instead of one `WriteFile` per field
+- Client backend: adapter enumeration calls are cached (`get_adapters()`) so `GetLocalIp`, `is_local_ip`, `find_adapter_by_gateway`, `GetAllBroadcastAddresses`, and `DiscoverServersTCP` reuse the same query instead of each doing a probe+alloc+fill cycle
+- Client backend: `GetLocalIp` uses adapter enumeration instead of a UDP connect to port 445 (works when port 445 is filtered)
 
 ## [1.1.0] - 19-08-2026
 
