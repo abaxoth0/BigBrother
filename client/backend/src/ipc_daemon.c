@@ -537,7 +537,9 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
 
     // TCP socket
     SOCKET sock = INVALID_SOCKET;
-    int retries = 10;
+    // The subscribe loop calls this repeatedly; keep the worst-case blocking
+    // time bounded (3 x 200ms = 600ms) instead of stalling on 10 x 500ms.
+    int retries = 3;
 
     while (retries > 0 && sock == INVALID_SOCKET) {
         sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
@@ -557,7 +559,7 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
             printf("[send_to_server] connect() failed: %lu (retries left: %d)\n", (unsigned long)WSAGetLastError(), retries);
             closesocket(sock);
             sock = INVALID_SOCKET;
-            Sleep(500);
+            Sleep(200);
             retries--;
         }
     }
