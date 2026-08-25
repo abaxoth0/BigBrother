@@ -184,7 +184,18 @@ int main(int argc, char** argv) {
         long size = ftell(f);
         fseek(f, 0, SEEK_SET);
 
+        if (size < 0 || size > DAEMON_MAX_MESSAGE_SIZE) {
+            printf("Error: file too large (max %d bytes)\n", DAEMON_MAX_MESSAGE_SIZE);
+            fclose(f);
+            return 1;
+        }
+
         char* data = malloc(size + 1);
+        if (!data) {
+            printf("Error: out of memory\n");
+            fclose(f);
+            return 1;
+        }
         fread(data, 1, size, f);
         data[size] = '\0';
         fclose(f);
