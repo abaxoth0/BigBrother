@@ -811,10 +811,11 @@ static void srv_line_reader_init(SrvLineReader* r, SOCKET sock) {
 }
 
 // Read a single LF-terminated line (strips CR). Returns 1 on success,
-// 2 on recv timeout, 0 on error/disconnect.
+// 2 on recv timeout, 0 on error/disconnect. Over-long lines are truncated
+// but fully drained so framing stays intact (no bogus follow-up line).
 static int srv_readline(SrvLineReader* r, char* out, size_t out_size) {
     size_t consumed = 0;
-    while (consumed + 1 < out_size) {
+    for (;;) {
         if (r->pos >= r->len) {
             r->pos = 0;
             r->len = 0;
@@ -831,12 +832,11 @@ static int srv_readline(SrvLineReader* r, char* out, size_t out_size) {
             out[consumed] = '\0';
             return 1;
         }
-        if (c != '\r') {
+        if (c == '\r') continue;
+        if (consumed + 1 < out_size) {
             out[consumed++] = c;
         }
     }
-    out[consumed] = '\0';
-    return 1;
 }
 
 // Read a TLV value (length line + data line) via line reader.
