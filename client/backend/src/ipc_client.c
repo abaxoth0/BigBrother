@@ -124,12 +124,13 @@ static int read_tlv_request(HANDLE pipe, char* cmd_buf, size_t cmd_size,
 
     // Read arguments until empty line
     while (1) {
-        // Read length line
+        // Read length line (bounds-checked)
         char len_line[32] = {0};
         char* p = len_line;
+        char* len_end = len_line + sizeof(len_line) - 1;
         int last_was_cr = 0;
         int is_empty_line = 0;
-        while (1) {
+        while (p < len_end) {
             char c;
             if (!ReadFile(pipe, &c, 1, &bytes_read, NULL) || bytes_read == 0) {
                 goto error;
@@ -152,12 +153,14 @@ static int read_tlv_request(HANDLE pipe, char* cmd_buf, size_t cmd_size,
             last_was_cr = 0;
             *p++ = c;
         }
+        *p = '\0';
 
         // Empty line terminates request (or \r\n)
         if (is_empty_line || strlen(len_line) == 0) break;
 
         int expected_len = atoi(len_line);
         if (expected_len < 0) goto error;
+        if ((size_t)expected_len > DAEMON_MAX_MESSAGE_SIZE) goto error;
 
         // Read value bytes
         char* value = malloc(expected_len + 1);
