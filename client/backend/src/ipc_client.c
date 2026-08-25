@@ -52,27 +52,60 @@ void NotifyStateChanged(void) {
 }
 
 // Write response: status\n[TLV data...\n]<empty line>
+// Assembles into a fixed buffer when it fits; otherwise streams field-by-field
+// so large responses (e.g. a full whitelist) are never truncated.
 static void write_response_tlv(HANDLE pipe, const char* status, const char** data, size_t data_count) {
     DWORD written;
-    // Write status line
-    WriteFile(pipe, status, (DWORD)strlen(status), &written, NULL);
-    WriteFile(pipe, "\n", 1, &written, NULL);
 
-    if (data && data_count > 0) {
-        for (size_t i = 0; i < data_count; i++) {
-            if (data[i]) {
-                // Write length line
-                char len_buf[32];
-                int len = snprintf(len_buf, sizeof(len_buf), "%zu", strlen(data[i]));
-                WriteFile(pipe, len_buf, (DWORD)len, &written, NULL);
-                WriteFile(pipe, "\n", 1, &written, NULL);
-                // Write value line
-                WriteFile(pipe, data[i], (DWORD)strlen(data[i]), &written, NULL);
-                WriteFile(pipe, "\n", 1, &written, NULL);
-            }
+    // Compute total size first.
+    size_t total = strlen(status) + 2; // status + \n + trailing \n
+    for (size_t i = 0; i < data_count; i++) {
+        if (data[i]) {
+            size_t vlen = strlen(data[i]);
+            total += 1 + 32; // \n + len line (digits + \n) — worst case
+            total += vlen + 1;
         }
     }
-    // Empty line terminates response
+    if (total <= 64 * 1024) {
+        // Single-buffer path (common, small responses).
+        char buffer[64 * 1024];
+        size_t pos = 0;
+        int n = snprintf(buffer + pos, sizeof(buffer) - pos, "%s\n", status);
+        if (n > 0) pos += (size_t)n;
+        for (size_t i = 0; i < data_count; i++) {
+            if (data[i] && pos < sizeof(buffer)) {
+                int len = snprintf(buffer + pos, sizeof(buffer) - pos, "%zu\n", strlen(data[i]));
+                if (len > 0) pos += (size_t)len;
+                if (pos < sizeof(buffer)) {
+                    size_t vlen = strlen(data[i]);
+                    if (vlen > sizeof(buffer) - pos) vlen = sizeof(buffer) - pos - 1;
+                    memcpy(buffer + pos, data[i], vlen);
+                    pos += vlen;
+                }
+                if (pos < sizeof(buffer)) {
+                    buffer[pos++] = '\n';
+                }
+            }
+        }
+        if (pos < sizeof(buffer)) {
+            buffer[pos++] = '\n';
+        }
+        WriteFile(pipe, buffer, (DWORD)pos, &written, NULL);
+        FlushFileBuffers(pipe);
+        return;
+    }
+
+    // Streaming path: large payloads (whitelist relays). Write per field.
+    WriteFile(pipe, status, (DWORD)strlen(status), &written, NULL);
+    WriteFile(pipe, "\n", 1, &written, NULL);
+    for (size_t i = 0; i < data_count; i++) {
+        if (!data[i]) continue;
+        char len_buf[32];
+        int len = snprintf(len_buf, sizeof(len_buf), "%zu\n", strlen(data[i]));
+        WriteFile(pipe, len_buf, (DWORD)len, &written, NULL);
+        WriteFile(pipe, data[i], (DWORD)strlen(data[i]), &written, NULL);
+        WriteFile(pipe, "\n", 1, &written, NULL);
+    }
     WriteFile(pipe, "\n", 1, &written, NULL);
     FlushFileBuffers(pipe);
 }
@@ -87,40 +120,86 @@ static void write_ok(HANDLE pipe) {
     write_response_tlv(pipe, "OK", NULL, 0);
 }
 
+// Buffered byte reader over a pipe: reads in chunks instead of one byte per
+// ReadFile() call.
+typedef struct {
+    HANDLE pipe;
+    char buf[4096];
+    size_t pos;
+    size_t len;
+} PipeByteReader;
+
+static void pipe_reader_init(PipeByteReader* r, HANDLE pipe) {
+    r->pipe = pipe;
+    r->pos = 0;
+    r->len = 0;
+}
+
+static int pipe_reader_fill(PipeByteReader* r) {
+    r->pos = 0;
+    r->len = 0;
+    DWORD bytes_read;
+    if (!ReadFile(r->pipe, r->buf, sizeof(r->buf), &bytes_read, NULL) || bytes_read == 0) {
+        return 0;
+    }
+    r->len = (size_t)bytes_read;
+    return 1;
+}
+
+static int pipe_reader_getc(PipeByteReader* r, char* out) {
+    if (r->pos >= r->len) {
+        if (!pipe_reader_fill(r)) return 0;
+    }
+    *out = r->buf[r->pos++];
+    return 1;
+}
+
+static int pipe_reader_readline(PipeByteReader* r, char* out, size_t out_size) {
+    size_t used = 0;
+    for (;;) {
+        char c;
+        if (!pipe_reader_getc(r, &c)) return 0;
+        if (c == '\n') {
+            out[used] = '\0';
+            return 1;
+        }
+        if (c == '\r') continue;
+        if (used + 1 < out_size) {
+            out[used++] = c;
+        }
+    }
+}
+
+static int pipe_reader_read(PipeByteReader* r, char* out, size_t n) {
+    size_t got = 0;
+    while (got < n) {
+        if (r->pos >= r->len) {
+            if (!pipe_reader_fill(r)) return 0;
+        }
+        size_t avail = r->len - r->pos;
+        size_t want = n - got;
+        size_t copy = avail < want ? avail : want;
+        memcpy(out + got, r->buf + r->pos, copy);
+        r->pos += copy;
+        got += copy;
+    }
+    return 1;
+}
+
 // Read TLV request: command\n<len>\n<arg>\n...\n<empty line>
 // Returns command in buffer, args in args array (caller must free)
 // Returns number of args, or -1 on error
 static int read_tlv_request(HANDLE pipe, char* cmd_buf, size_t cmd_size,
                                 char*** args_out) {
-    DWORD bytes_read;
+    PipeByteReader reader;
+    pipe_reader_init(&reader, pipe);
     size_t arg_count = 0;
     char** args = NULL;
 
-    // Read command line byte by byte until newline
-    char* p = cmd_buf;
-    size_t remaining = cmd_size - 1;
-    int last_was_cr = 0;
-    while (remaining > 0) {
-        char c;
-        if (!ReadFile(pipe, &c, 1, &bytes_read, NULL) || bytes_read == 0) {
-            return -1;
-        }
-        if (c == '\r') {
-            last_was_cr = 1;
-            continue;
-        }
-        if (c == '\n') {
-            // If last was CR, this is \r\n - we already got the newline
-            if (last_was_cr) {
-                last_was_cr = 0;
-            }
-            break;
-        }
-        last_was_cr = 0;
-        *p++ = c;
-        remaining--;
+    // Read command line until newline
+    if (!pipe_reader_readline(&reader, cmd_buf, cmd_size)) {
+        return -1;
     }
-    *p = '\0';
 
     // Read arguments until empty line
     while (1) {
@@ -128,35 +207,19 @@ static int read_tlv_request(HANDLE pipe, char* cmd_buf, size_t cmd_size,
         char len_line[32] = {0};
         char* p = len_line;
         char* len_end = len_line + sizeof(len_line) - 1;
-        int last_was_cr = 0;
-        int is_empty_line = 0;
         while (p < len_end) {
             char c;
-            if (!ReadFile(pipe, &c, 1, &bytes_read, NULL) || bytes_read == 0) {
+            if (!pipe_reader_getc(&reader, &c)) {
                 goto error;
             }
-            if (c == '\r') {
-                last_was_cr = 1;
-                continue;
-            }
-            if (c == '\n') {
-                if (last_was_cr) {
-                    // This is \r\n - if line is empty, it's the terminator
-                    if (strlen(len_line) == 0) {
-                        is_empty_line = 1;
-                    }
-                    last_was_cr = 0;
-                    break;
-                }
-                break;
-            }
-            last_was_cr = 0;
+            if (c == '\r') continue;
+            if (c == '\n') break;
             *p++ = c;
         }
         *p = '\0';
 
-        // Empty line terminates request (or \r\n)
-        if (is_empty_line || strlen(len_line) == 0) break;
+        // Empty line terminates request
+        if (len_line[0] == '\0') break;
 
         int expected_len = atoi(len_line);
         if (expected_len < 0) goto error;
@@ -165,18 +228,18 @@ static int read_tlv_request(HANDLE pipe, char* cmd_buf, size_t cmd_size,
         // Read value bytes
         char* value = malloc(expected_len + 1);
         if (!value) goto error;
-        if (!ReadFile(pipe, value, (DWORD)expected_len, &bytes_read, NULL) || bytes_read != (DWORD)expected_len) {
+        if (!pipe_reader_read(&reader, value, (size_t)expected_len)) {
             free(value);
             goto error;
         }
         value[expected_len] = '\0';
 
-        // Read newline after value (may be \n or \r\n)
-        char nl;
-        if (ReadFile(pipe, &nl, 1, &bytes_read, NULL) && bytes_read == 1) {
+        // Consume newline after value (may be \n or \r\n)
+        {
+            char nl;
+            if (!pipe_reader_getc(&reader, &nl)) { free(value); goto error; }
             if (nl == '\r') {
-                // Skip the following \n
-                ReadFile(pipe, &nl, 1, &bytes_read, NULL);
+                if (!pipe_reader_getc(&reader, &nl)) { free(value); goto error; }
             }
         }
 
