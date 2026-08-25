@@ -262,20 +262,26 @@ DWORD WINAPI client_handler(LPVOID param) {
             if (!line) {
                 write_error_tlv(pipe, "invalid whitelist format");
             } else {
-                char* domains[256];
-                int domain_count = 0;
-                line++; // skip past newline
+                size_t max_domains = sizeof(whitelist_buf) / 2;
+                char** domains = malloc(max_domains * sizeof(char*));
+                if (!domains) {
+                    write_error_tlv(pipe, "out of memory");
+                } else {
+                    int domain_count = 0;
+                    line++; // skip past newline
 
-                while (line && *line && domain_count < 256) {
-                    char* next_line = strchr(line, '\n');
-                    if (next_line) *next_line = '\0';
-                    if (strlen(line) > 0) {
-                        domains[domain_count++] = line;
+                    while (line && *line && domain_count < (int)max_domains) {
+                        char* next_line = strchr(line, '\n');
+                        if (next_line) *next_line = '\0';
+                        if (strlen(line) > 0) {
+                            domains[domain_count++] = line;
+                        }
+                        line = next_line ? next_line + 1 : NULL;
                     }
-                    line = next_line ? next_line + 1 : NULL;
-                }
 
-                write_response_tlv(pipe, "OK", (const char**)domains, domain_count);
+                    write_response_tlv(pipe, "OK", (const char**)domains, domain_count);
+                    free(domains);
+                }
             }
         }
 
