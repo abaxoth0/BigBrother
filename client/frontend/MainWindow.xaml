@@ -18,7 +18,6 @@
     </Window.DataContext>
 
     <Window.Resources>
-        <conv:ConnectionStatusToColorConverter x:Key="ConnectionStatusToColor"/>
         <conv:BoolToVisibilityConverter x:Key="BoolToVisibility"/>
         <conv:InverseBoolToVisibilityConverter x:Key="InverseBoolToVisibility"/>
 
@@ -28,10 +27,24 @@
             <Setter Property="Margin" Value="2"/>
             <Setter Property="MinWidth" Value="70"/>
         </Style>
+        <Style x:Key="SmallButton" TargetType="Button" BasedOn="{StaticResource ControlButton}">
+            <Setter Property="MinWidth" Value="0"/>
+            <Setter Property="Padding" Value="8,4"/>
+            <Setter Property="FontSize" Value="12"/>
+        </Style>
 
-        <!-- Connection Status Style -->
-        <Style x:Key="ConnectionText" TargetType="TextBlock">
-            <Setter Property="FontWeight" Value="SemiBold"/>
+        <!-- Level filter pill -->
+        <Style x:Key="FilterToggle" TargetType="ToggleButton" BasedOn="{StaticResource SmallButton}">
+            <Setter Property="Margin" Value="2"/>
+        </Style>
+
+        <!-- Status dot -->
+        <Style x:Key="StatusDot" TargetType="Ellipse">
+            <Setter Property="Width" Value="12"/>
+            <Setter Property="Height" Value="12"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Fill" Value="{StaticResource StatusDisconnected}"/>
+            <Setter Property="Margin" Value="0,0,8,0"/>
         </Style>
     </Window.Resources>
 
@@ -39,6 +52,7 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
         <!-- Menu Bar -->
@@ -49,6 +63,7 @@
                 <MenuItem Header="_Выход" Click="Exit_Click"/>
             </MenuItem>
             <MenuItem Header="_Вид">
+                <MenuItem Header="История логов" Command="{Binding OpenHistoryCommand}"/>
                 <MenuItem Header="_Обновить" Command="{Binding RefreshStatusCommand}"/>
             </MenuItem>
         </Menu>
@@ -62,23 +77,48 @@
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
 
-                    <!-- Logs Section (Top) -->
-                    <Grid Grid.Row="0">
+                    <!-- Health banner -->
+                    <Border Grid.Row="0" CornerRadius="4" Padding="12,8" Margin="0,0,0,8">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Background" Value="{StaticResource StatusWarning}"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding OverallHealth}" Value="AllOk">
+                                        <Setter Property="Background" Value="{StaticResource StatusRunning}"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding OverallHealth}" Value="Critical">
+                                        <Setter Property="Background" Value="{StaticResource StatusDisconnected}"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding OverallHealth}" Value="Unknown">
+                                        <Setter Property="Background" Value="#9E9E9E"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="{Binding OverallHealthText}" FontWeight="Bold" Foreground="White"
+                                       VerticalAlignment="Center" FontSize="15"/>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Logs Section -->
+                    <Grid Grid.Row="1">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="250" MinHeight="100"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*" MinHeight="120"/>
                         </Grid.RowDefinitions>
 
                         <!-- Logs Header -->
                         <Grid Grid.Row="0" Background="{StaticResource HeaderBackground}" Margin="0,0,0,2">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="Auto"/>
@@ -89,29 +129,50 @@
                             <TextBlock Grid.Column="0" Text="ЛОГИ" FontWeight="Bold"
                                        VerticalAlignment="Center" Margin="10,5"/>
 
-                            <TextBlock Grid.Column="1" Text="{Binding LastUpdateFormatted}"
-                                       Foreground="Gray" VerticalAlignment="Center" Margin="10,5,0,0"/>
+                            <TextBox Grid.Column="1" Height="26" Margin="10,5,5,5"
+                                     VerticalContentAlignment="Center"
+                                     ToolTip="Поиск по тексту или уровню">
+                                <TextBox.Style>
+                                    <Style TargetType="TextBox">
+                                        <Style.Triggers>
+                                            <Trigger Property="Text" Value="">
+                                                <Setter Property="Tag" Value="true"/>
+                                            </Trigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBox.Style>
+                                <Binding Path="LogSearchText" UpdateSourceTrigger="PropertyChanged"/>
+                            </TextBox>
 
                             <CheckBox Grid.Column="2" Content="Авто-скролл"
                                       IsChecked="{Binding AutoScroll}"
                                       VerticalAlignment="Center" Margin="15,5,5,5"/>
 
-                            <TextBox Grid.Column="3" Width="150" Margin="5"
-                                     Text="{Binding LogSearchText, UpdateSourceTrigger=PropertyChanged}"
-                                     VerticalContentAlignment="Center"/>
+                            <Button Grid.Column="3" Content="К последнему" Style="{StaticResource SmallButton}"
+                                    Command="{Binding JumpToBottomCommand}" Margin="2"/>
 
-                             <Button Grid.Column="5" Content="Открыть" Style="{StaticResource ControlButton}"
-                                     Command="{Binding OpenArchivedLogCommand}" Margin="2" x:Name="OpenButton"/>
-                             <Button Grid.Column="6" Content="История" Style="{StaticResource ControlButton}"
-                                     Command="{Binding OpenHistoryCommand}" Margin="2" x:Name="HistoryButton"/>
-                             <Button Grid.Column="7" Content="Экспорт" Style="{StaticResource ControlButton}"
-                                     Command="{Binding ExportLogsCommand}" Margin="2" x:Name="ExportButton"/>
-                             <Button Grid.Column="8" Content="Очистить" Style="{StaticResource ControlButton}"
-                                     Command="{Binding ClearLogsCommand}" Margin="2" x:Name="ClearButton"/>
+                            <Button Grid.Column="5" Content="Открыть" Style="{StaticResource ControlButton}"
+                                    Command="{Binding OpenArchivedLogCommand}" Margin="2"/>
+                            <Button Grid.Column="6" Content="История" Style="{StaticResource ControlButton}"
+                                    Command="{Binding OpenHistoryCommand}" Margin="2"/>
+                            <Button Grid.Column="7" Content="Экспорт" Style="{StaticResource ControlButton}"
+                                    Command="{Binding ExportLogsCommand}" Margin="2"/>
+                            <Button Grid.Column="8" Content="Очистить" Style="{StaticResource ControlButton}"
+                                    Command="{Binding ClearLogsCommand}" Margin="2"/>
                         </Grid>
 
+                        <!-- Level filters -->
+                        <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="2,4,2,4">
+                            <TextBlock Text="Уровень:" VerticalAlignment="Center" Margin="4,0" Foreground="Gray"/>
+                            <ToggleButton Content="INFO" Style="{StaticResource FilterToggle}" IsChecked="{Binding ShowInfo}"/>
+                            <ToggleButton Content="ERROR" Style="{StaticResource FilterToggle}" IsChecked="{Binding ShowErrors}"/>
+                            <ToggleButton Content="WARNING" Style="{StaticResource FilterToggle}" IsChecked="{Binding ShowWarnings}"/>
+                            <ToggleButton Content="DNS" Style="{StaticResource FilterToggle}" IsChecked="{Binding ShowDns}"/>
+                            <ToggleButton Content="BLOCKED" Style="{StaticResource FilterToggle}" IsChecked="{Binding ShowBlocked}"/>
+                        </StackPanel>
+
                         <!-- Logs ListBox with colored levels -->
-                        <ListBox Grid.Row="1" x:Name="LogsListBox"
+                        <ListBox Grid.Row="2" x:Name="LogsListBox"
                                  Background="{StaticResource LogBackground}"
                                  ItemsSource="{Binding FilteredLogs}"
                                  FontFamily="Consolas" FontSize="12"
@@ -122,55 +183,78 @@
                                 <Style TargetType="ListBoxItem">
                                     <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
                                     <Setter Property="VerticalContentAlignment" Value="Center"/>
-                                    <Setter Property="Padding" Value="0"/>
+                                    <Setter Property="Padding" Value="4,2"/>
                                 </Style>
                             </ListBox.ItemContainerStyle>
                             <ListBox.ItemTemplate>
                                 <DataTemplate>
-                                    <TextBlock Text="{Binding Message}"
-                                               Foreground="{StaticResource LogInfo}">
-                                        <TextBlock.Style>
-                                            <Style TargetType="TextBlock">
-                                                <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding Level}" Value="ERROR">
-                                                        <Setter Property="Foreground" Value="{StaticResource LogError}"/>
-                                                    </DataTrigger>
-                                                    <DataTrigger Binding="{Binding Level}" Value="WARNING">
-                                                        <Setter Property="Foreground" Value="{StaticResource LogWarning}"/>
-                                                    </DataTrigger>
-                                                    <DataTrigger Binding="{Binding Level}" Value="DNS">
-                                                        <Setter Property="Foreground" Value="{StaticResource LogDns}"/>
-                                                    </DataTrigger>
-                                                    <DataTrigger Binding="{Binding Level}" Value="BLOCKED">
-                                                        <Setter Property="Foreground" Value="{StaticResource LogBlocked}"/>
-                                                    </DataTrigger>
-                                                </Style.Triggers>
-                                            </Style>
-                                        </TextBlock.Style>
-                                    </TextBlock>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+
+                                        <TextBlock Grid.Column="0" Text="{Binding Timestamp}"
+                                                   Foreground="#8A8A8A" Margin="0,0,10,0"/>
+                                        <Border Grid.Column="1" CornerRadius="3" Padding="4,1" Margin="0,0,10,0">
+                                            <Border.Style>
+                                                <Style TargetType="Border">
+                                                    <Setter Property="Background" Value="{StaticResource LogLevelInfoBg}"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding Level}" Value="ERROR">
+                                                            <Setter Property="Background" Value="{StaticResource LogLevelErrorBg}"/>
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding Level}" Value="WARNING">
+                                                            <Setter Property="Background" Value="{StaticResource LogLevelWarningBg}"/>
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding Level}" Value="DNS">
+                                                            <Setter Property="Background" Value="{StaticResource LogLevelDnsBg}"/>
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding Level}" Value="BLOCKED">
+                                                            <Setter Property="Background" Value="{StaticResource LogLevelBlockedBg}"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Border.Style>
+                                            <TextBlock Text="{Binding Level}" FontSize="10" FontWeight="Bold" Foreground="White"/>
+                                        </Border>
+                                        <TextBlock Grid.Column="2" Text="{Binding Message}"
+                                                   TextWrapping="Wrap">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="Foreground" Value="{StaticResource LogInfo}"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding Level}" Value="ERROR">
+                                                            <Setter Property="Foreground" Value="{StaticResource LogError}"/>
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding Level}" Value="WARNING">
+                                                            <Setter Property="Foreground" Value="{StaticResource LogWarning}"/>
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding Level}" Value="DNS">
+                                                            <Setter Property="Foreground" Value="{StaticResource LogDns}"/>
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding Level}" Value="BLOCKED">
+                                                            <Setter Property="Foreground" Value="{StaticResource LogBlocked}"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+                                    </Grid>
                                 </DataTemplate>
                             </ListBox.ItemTemplate>
                         </ListBox>
                     </Grid>
 
-                    <!-- Control Panel Section (Bottom) -->
-                    <Border Grid.Row="1" BorderBrush="{StaticResource BorderBrush}"
-                            BorderThickness="1" Margin="0,5,0,0" Padding="10">
-                        <Grid>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="Auto"/>
-                            </Grid.RowDefinitions>
-
-                            <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,10" VerticalAlignment="Center">
-                                <TextBlock Text="ПАНЕЛЬ УПРАВЛЕНИЯ" FontWeight="Bold" VerticalAlignment="Center"/>
-                                <TextBlock Text="{Binding LastUpdate, StringFormat=' | Обновлено: {0:HH:mm:ss}'}"
-                                           Foreground="Gray" FontSize="11" VerticalAlignment="Center" Margin="15,0,0,0"/>
-                                <Button Content="Обновить" Style="{StaticResource ControlButton}"
-                                        Command="{Binding RefreshStatusCommand}" Margin="15,0,0,0" Padding="8,4" VerticalAlignment="Center"/>
-                            </StackPanel>
-
-                            <Grid Grid.Row="1">
+                    <!-- Control Panel Section (collapsible) -->
+                    <Expander Grid.Row="2" Margin="0,5,0,0" IsExpanded="True"
+                              BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Background="White">
+                        <Expander.Header>
+                            <TextBlock Text="ПАНЕЛЬ УПРАВЛЕНИЯ" FontWeight="Bold" Padding="4,3"/>
+                        </Expander.Header>
+                        <Border Padding="10,6,10,8" Background="{StaticResource HeaderBackground}">
+                            <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="*"/>
@@ -179,77 +263,98 @@
 
                                 <!-- Firewall Control -->
                                 <StackPanel Grid.Column="0">
-                                    <StackPanel Orientation="Horizontal" Margin="0,5">
-                                        <TextBlock Text="Firewall:" Width="80" FontWeight="SemiBold" VerticalAlignment="Center"/>
-                                        <Ellipse Width="12" Height="12"
-                                                 Fill="{StaticResource StatusRunning}"
-                                                 VerticalAlignment="Center"/>
-                                        <TextBlock Text="{Binding DaemonStatus}"
-                                                   Margin="5,0" VerticalAlignment="Center"/>
+                                    <StackPanel Orientation="Horizontal" Margin="0,4">
+                                        <Ellipse>
+                                            <Ellipse.Style>
+                                                <Style TargetType="Ellipse" BasedOn="{StaticResource StatusDot}">
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding FirewallRunning}" Value="True">
+                                                            <Setter Property="Fill" Value="{StaticResource StatusRunning}"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Ellipse.Style>
+                                        </Ellipse>
+                                        <TextBlock Text="Firewall" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                        <TextBlock VerticalAlignment="Center">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="Text" Value="Остановлен"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding FirewallRunning}" Value="True">
+                                                            <Setter Property="Text" Value="Запущен"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
                                     </StackPanel>
-                                    <StackPanel Orientation="Horizontal" Margin="0,5">
-                                        <TextBlock Text="Соединение:" Width="100" Foreground="Gray" VerticalAlignment="Center"/>
-                                        <TextBlock Text="{Binding DaemonConnectionStatus}"
-                                                   Style="{StaticResource ConnectionText}"
-                                                   Foreground="{Binding DaemonConnectionStatus, Converter={StaticResource ConnectionStatusToColor}}"/>
-                                    </StackPanel>
-                                    <StackPanel Orientation="Horizontal" Margin="0,5">
-                                        <TextBlock Text="Фильтрация:" Width="100" Foreground="Gray" VerticalAlignment="Center"/>
-                                        <CheckBox IsChecked="{Binding FiltrationEnabled}" IsEnabled="False" VerticalAlignment="Center"/>
-                                        <Button Content="Вкл/Выкл" Style="{StaticResource ControlButton}" Command="{Binding ToggleFiltrationCommand}" MinWidth="50" Padding="5,2" FontSize="11" Margin="5,0,0,0"/>
-                                    </StackPanel>
-                                    <StackPanel Orientation="Horizontal" Margin="0,5">
-                                        <Button Content="Старт" Style="{StaticResource ControlButton}" Command="{Binding StartDaemonCommand}"/>
-                                        <Button Content="Стоп" Style="{StaticResource ControlButton}" Command="{Binding StopDaemonCommand}"/>
-                                        <Button Content="Рестарт" Style="{StaticResource ControlButton}" Command="{Binding RestartDaemonCommand}"/>
+                                    <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                                        <Button Content="Старт" Style="{StaticResource SmallButton}" Command="{Binding StartDaemonCommand}"/>
+                                        <Button Content="Стоп" Style="{StaticResource SmallButton}" Command="{Binding StopDaemonCommand}"/>
+                                        <Button Content="Рестарт" Style="{StaticResource SmallButton}" Command="{Binding RestartDaemonCommand}"/>
                                     </StackPanel>
                                 </StackPanel>
 
                                 <!-- Server Control -->
                                 <StackPanel Grid.Column="1">
-                                    <StackPanel Orientation="Horizontal" Margin="0,5">
-                                        <TextBlock Text="Сервер:" Width="80" FontWeight="SemiBold" VerticalAlignment="Center"/>
-                                        <Ellipse Width="12" Height="12"
-                                                 Fill="{StaticResource StatusRunning}"
-                                                 VerticalAlignment="Center"/>
-                                        <TextBlock Text="{Binding ServerStatus}"
-                                                   Margin="5,0" VerticalAlignment="Center"/>
+                                    <StackPanel Orientation="Horizontal" Margin="0,4">
+                                        <Ellipse>
+                                            <Ellipse.Style>
+                                                <Style TargetType="Ellipse" BasedOn="{StaticResource StatusDot}">
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding ServerConnected}" Value="True">
+                                                            <Setter Property="Fill" Value="{StaticResource StatusRunning}"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Ellipse.Style>
+                                        </Ellipse>
+                                        <TextBlock Text="Сервер" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                        <TextBlock VerticalAlignment="Center">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="Text" Value="Нет связи"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding ServerConnected}" Value="True">
+                                                            <Setter Property="Text" Value="Подключено"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
                                     </StackPanel>
-                                    <StackPanel Orientation="Horizontal" Margin="0,5">
-                                        <TextBlock Text="Соединение:" Width="100" Foreground="Gray" VerticalAlignment="Center"/>
-                                        <TextBlock Text="{Binding ServerConnectionStatus}"
-                                                   Style="{StaticResource ConnectionText}"
-                                                   Foreground="{Binding ServerConnectionStatus, Converter={StaticResource ConnectionStatusToColor}}"/>
-                                    </StackPanel>
-                                    <StackPanel Orientation="Horizontal" Margin="0,5">
-                                        <Button Content="Подключиться" Style="{StaticResource ControlButton}" Command="{Binding ConnectCommand}"/>
-                                        <Button Content="Отключиться" Style="{StaticResource ControlButton}" Command="{Binding DisconnectCommand}"/>
+                                    <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                                        <Button Content="Подключиться" Style="{StaticResource SmallButton}" Command="{Binding ConnectCommand}"/>
+                                        <Button Content="Отключиться" Style="{StaticResource SmallButton}" Command="{Binding DisconnectCommand}"/>
                                     </StackPanel>
                                 </StackPanel>
 
-                                <!-- Client Control -->
+                                <!-- Filtration & Client -->
                                 <StackPanel Grid.Column="2">
-                                    <StackPanel Orientation="Horizontal" Margin="0,5">
-                                        <TextBlock Text="Клиент:" Width="80" FontWeight="SemiBold" VerticalAlignment="Center"/>
-                                        <Ellipse Width="12" Height="12"
-                                                 Fill="{StaticResource StatusRunning}"
-                                                 VerticalAlignment="Center"/>
-                                        <TextBlock Text="{Binding ClientStatus}"
-                                                   Margin="5,0" VerticalAlignment="Center"/>
+                                    <StackPanel Orientation="Horizontal" Margin="0,4">
+                                        <TextBlock Text="Фильтрация" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                        <TextBlock Text="Вкл" VerticalAlignment="Center">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="Text" Value="Выкл"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding FiltrationEnabled}" Value="True">
+                                                            <Setter Property="Text" Value="Вкл"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
                                     </StackPanel>
-                                    <StackPanel Orientation="Horizontal" Margin="0,5">
-                                        <TextBlock Text="Соединение:" Width="100" Foreground="Gray" VerticalAlignment="Center"/>
-                                        <TextBlock Text="{Binding ClientConnectionStatus}"
-                                                   Style="{StaticResource ConnectionText}"
-                                                   Foreground="{Binding ClientConnectionStatus, Converter={StaticResource ConnectionStatusToColor}}"/>
-                                    </StackPanel>
-                                    <StackPanel Orientation="Horizontal" Margin="0,5">
-                                        <Button Content="Рестарт" Style="{StaticResource ControlButton}" Command="{Binding RestartClientCommand}"/>
+                                    <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                                        <Button Content="Вкл/Выкл" Style="{StaticResource SmallButton}" Command="{Binding ToggleFiltrationCommand}" Margin="0,0,10,0"/>
+                                        <Button Content="Рестарт клиента" Style="{StaticResource SmallButton}" Command="{Binding RestartClientCommand}"/>
                                     </StackPanel>
                                 </StackPanel>
                             </Grid>
-                        </Grid>
-                    </Border>
+                        </Border>
+                    </Expander>
                 </Grid>
             </TabItem>
 
@@ -363,7 +468,7 @@
 
                             <GroupBox Header="Белый список" Margin="0,0,0,10" Padding="10">
                                 <StackPanel>
-                                    <CheckBox IsChecked="{Binding FallbackWhitelistEnabled}" 
+                                    <CheckBox IsChecked="{Binding FallbackWhitelistEnabled}"
                                               Content="Использовать локальный список при отключении синхронизации"
                                               Margin="0,5"/>
                                     <TextBlock TextWrapping="Wrap" Foreground="Gray" FontSize="11" Margin="20,0,0,0">
@@ -376,7 +481,7 @@
 
                             <GroupBox Header="Обнаружение сервера" Margin="0,0,0,10" Padding="10">
                                 <StackPanel>
-                                    <CheckBox IsChecked="{Binding DiscoveryEnabled}" 
+                                    <CheckBox IsChecked="{Binding DiscoveryEnabled}"
                                               Content="Автоматическое обнаружение сервера в сети"
                                               Margin="0,5"/>
                                     <TextBlock TextWrapping="Wrap" Foreground="Gray" FontSize="11" Margin="20,0,0,0">
@@ -387,7 +492,7 @@
 
                             <GroupBox Header="Сеть" Margin="0,0,0,10" Padding="10">
                                 <StackPanel>
-                                    <CheckBox IsChecked="{Binding NetworkAuto}" 
+                                    <CheckBox IsChecked="{Binding NetworkAuto}"
                                               Content="Автоматическое определение сети"
                                               Margin="0,5"/>
                                     <StackPanel Orientation="Horizontal" Margin="0,5">
@@ -430,5 +535,17 @@
             </TabItem>
 
         </TabControl>
+
+        <!-- Status Bar -->
+        <Border Grid.Row="2" Background="{StaticResource HeaderBackground}"
+                BorderThickness="0,1,0,0" BorderBrush="{StaticResource BorderBrush}">
+            <DockPanel LastChildFill="False" Margin="8,4">
+                <TextBlock DockPanel.Dock="Left" Text="{Binding OverallHealthText}" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                <Button DockPanel.Dock="Right" Content="Обновить" Style="{StaticResource SmallButton}"
+                        Command="{Binding RefreshStatusCommand}"/>
+                <TextBlock DockPanel.Dock="Right" Text="{Binding LastUpdateFormatted}" Foreground="Gray"
+                           VerticalAlignment="Center" Margin="0,0,15,0"/>
+            </DockPanel>
+        </Border>
     </Grid>
 </Window>

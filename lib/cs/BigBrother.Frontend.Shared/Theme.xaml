@@ -16,4 +16,11 @@
     <SolidColorBrush x:Key="LogDns" Color="#6B9FFF"/>
     <SolidColorBrush x:Key="LogBlocked" Color="#FF4444"/>
 
+    <!-- Log level chip backgrounds (translucent tints on dark console) -->
+    <SolidColorBrush x:Key="LogLevelInfoBg" Color="#66C8C8C8"/>
+    <SolidColorBrush x:Key="LogLevelWarningBg" Color="#99FFA500"/>
+    <SolidColorBrush x:Key="LogLevelErrorBg" Color="#99FF6B6B"/>
+    <SolidColorBrush x:Key="LogLevelDnsBg" Color="#996B9FFF"/>
+    <SolidColorBrush x:Key="LogLevelBlockedBg" Color="#99FF4444"/>
+
 </ResourceDictionary>
