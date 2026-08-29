@@ -272,9 +272,6 @@
                             <Setter TargetName="Bd" Property="Background" Value="{StaticResource Accent}"/>
                             <Setter Property="Foreground" Value="{StaticResource OnAccent}"/>
                         </Trigger>
-                        <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource SurfaceAltHover}"/>
-                        </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value>

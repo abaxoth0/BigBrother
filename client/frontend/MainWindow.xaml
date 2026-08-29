@@ -659,7 +659,7 @@
             <Border Grid.Column="1" Background="{StaticResource SurfaceAlt}"
                     BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="4">
                 <StackPanel Margin="8,10">
-                    <TextBlock Text="РАЗДЕЛЫ" FontWeight="Bold" Foreground="{StaticResource TextDim}"
+                    <TextBlock Text="Меню" FontWeight="Bold" Foreground="{StaticResource TextDim}"
                                FontSize="11" Margin="6,0,0,8"/>
 
                     <RadioButton Content="Главная" GroupName="Nav"
