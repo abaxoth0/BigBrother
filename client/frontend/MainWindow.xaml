@@ -50,6 +50,28 @@
             <Setter Property="Background" Value="{StaticResource SurfaceAlt}"/>
             <Setter Property="Foreground" Value="{StaticResource TitleBarText}"/>
             <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border x:Name="Bd" Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1"
+                                CornerRadius="4" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter x:Name="Cp" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                              TextElement.Foreground="{TemplateBinding Foreground}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource SurfaceAltHover}"/>
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource Accent}"/>
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource Accent}"/>
+                                <Setter TargetName="Cp" Property="TextElement.Foreground" Value="{StaticResource OnAccent}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
 
         <!-- Status dot -->
@@ -513,6 +535,7 @@
                                  IsReadOnly="True"
                                  TextWrapping="Wrap"
                                  VerticalScrollBarVisibility="Auto"
+                                 VerticalContentAlignment="Top"
                                  FontFamily="Consolas" FontSize="14"
                                  Background="{StaticResource LogBackground}"
                                  Foreground="{StaticResource LogInfo}"
@@ -648,10 +671,6 @@
                     <RadioButton Content="Настройки" GroupName="Nav"
                                  Style="{StaticResource NavItem}"
                                  IsChecked="{Binding SelectedSection, Converter={StaticResource EnumToBool}, ConverterParameter=Settings}"/>
-
-                    <Border Height="1" Background="{StaticResource BorderBrush}" Margin="6,12,6,12"/>
-                    <TextBlock Text="{Binding OverallHealthText}" TextWrapping="Wrap"
-                               Foreground="{StaticResource TextDim}" FontSize="12" Margin="6,0"/>
                 </StackPanel>
             </Border>
         </Grid>
@@ -663,7 +682,7 @@
                 <TextBlock DockPanel.Dock="Left" Text="{Binding OverallHealthText}" FontWeight="SemiBold" VerticalAlignment="Center"/>
                 <Button DockPanel.Dock="Right" Content="Обновить" Style="{StaticResource SmallButton}"
                         Command="{Binding RefreshStatusCommand}"/>
-                <TextBlock DockPanel.Dock="Right" Text="{Binding LastUpdateFormatted}" Foreground="Gray"
+                <TextBlock DockPanel.Dock="Right" Text="{Binding LastUpdateFormatted}" Foreground="{StaticResource TextDim}"
                            VerticalAlignment="Center" Margin="0,0,15,0"/>
             </DockPanel>
         </Border>
