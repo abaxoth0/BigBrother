@@ -44,11 +44,6 @@ namespace frontend
             viewWindow.Show();
         }
 
-        private void Exit_Click(object sender, RoutedEventArgs e)
-        {
-            Close();
-        }
-
         protected override void OnClosed(EventArgs e)
         {
             if (DataContext is MainViewModel vm)

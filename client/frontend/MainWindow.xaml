@@ -97,7 +97,6 @@
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
@@ -129,21 +128,8 @@
             </Grid>
         </Border>
 
-        <!-- Menu Bar -->
-        <Menu Grid.Row="1" Background="{StaticResource HeaderBackground}" Foreground="{StaticResource TitleBarText}">
-            <MenuItem Header="_Файл">
-                <MenuItem Header="_Экспорт логов..." Command="{Binding ExportLogsCommand}"/>
-                <Separator/>
-                <MenuItem Header="_Выход" Click="Exit_Click"/>
-            </MenuItem>
-            <MenuItem Header="_Вид">
-                <MenuItem Header="История логов" Command="{Binding OpenHistoryCommand}"/>
-                <MenuItem Header="_Обновить" Command="{Binding RefreshStatusCommand}"/>
-            </MenuItem>
-        </Menu>
-
         <!-- Content + Side Navigation -->
-        <Grid Grid.Row="2" Margin="5">
+        <Grid Grid.Row="1" Margin="5">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="190"/>
@@ -671,7 +657,7 @@
         </Grid>
 
         <!-- Status Bar -->
-        <Border Grid.Row="3" Background="{StaticResource HeaderBackground}"
+        <Border Grid.Row="2" Background="{StaticResource HeaderBackground}"
                 BorderThickness="0,1,0,0" BorderBrush="{StaticResource BorderBrush}">
             <DockPanel LastChildFill="False" Margin="8,4">
                 <TextBlock DockPanel.Dock="Left" Text="{Binding OverallHealthText}" FontWeight="SemiBold" VerticalAlignment="Center"/>
