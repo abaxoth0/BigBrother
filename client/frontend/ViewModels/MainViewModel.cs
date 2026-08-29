@@ -17,6 +17,13 @@ public enum HealthState
     Critical
 }
 
+public enum NavigationSection
+{
+    Main,
+    Whitelist,
+    Settings
+}
+
 public class MainViewModel : ViewModelBase, IDisposable
 {
     private const int MaxLogs = 500;
@@ -82,11 +89,18 @@ public class MainViewModel : ViewModelBase, IDisposable
 
     public string OverallHealthText => OverallHealth switch
     {
-        HealthState.AllOk => "Всё работает",
-        HealthState.Degraded => "Работает с ограничениями",
-        HealthState.Critical => "Клиент недоступен",
+        HealthState.AllOk => "Работает",
+        HealthState.Degraded => "Отсутствует подключение к серверу",
+        HealthState.Critical => "Отсутствует подключение к Firewall'у",
         _ => "Проверка статуса..."
     };
+
+    private NavigationSection _selectedSection = NavigationSection.Main;
+    public NavigationSection SelectedSection
+    {
+        get => _selectedSection;
+        set => SetProperty(ref _selectedSection, value);
+    }
 
     public int WhitelistCount
     {
