@@ -425,7 +425,7 @@
                                         </TextBlock>
                                     </StackPanel>
                                     <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
-                                        <Button Content="Подключиться" Style="{StaticResource PrimaryButton}" Command="{Binding ConnectCommand}"/>
+                                        <Button Content="Подключиться" Style="{StaticResource SmallButton}" Command="{Binding ConnectCommand}"/>
                                         <Button Content="Отключиться" Style="{StaticResource SmallButton}" Command="{Binding DisconnectCommand}"/>
                                     </StackPanel>
                                 </StackPanel>
