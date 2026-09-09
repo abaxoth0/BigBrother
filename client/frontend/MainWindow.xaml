@@ -8,7 +8,7 @@
         xmlns:conv="clr-namespace:frontend.Converters;assembly=BigBrother.Frontend.Shared"
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         mc:Ignorable="d"
-        Title="Big Brother Клиент"
+        Title="BigBrother"
         Height="700" Width="1200"
         MinHeight="500" MinWidth="950"
         Background="{StaticResource WindowBackground}"
@@ -133,7 +133,7 @@
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
-                <TextBlock Grid.Column="0" Text="Big Brother Клиент" Foreground="{StaticResource TitleBarText}"
+                <TextBlock Grid.Column="0" Text="BigBrother" Foreground="{StaticResource TitleBarText}"
                            FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" Margin="14,0,0,0"/>
 
                 <StackPanel Grid.Column="2" Orientation="Horizontal">
