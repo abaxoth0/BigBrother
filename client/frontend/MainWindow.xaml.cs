@@ -5,7 +5,7 @@ using frontend.ViewModels;
 
 namespace frontend
 {
-    public partial class MainWindow : Window
+    public partial class MainWindow : ChromeWindow
     {
         private Action? _scrollToBottomHandler;
 
@@ -42,11 +42,6 @@ namespace frontend
         {
             var viewWindow = new LogViewWindow(sources) { Owner = this };
             viewWindow.Show();
-        }
-
-        private void Exit_Click(object sender, RoutedEventArgs e)
-        {
-            Close();
         }
 
         protected override void OnClosed(EventArgs e)

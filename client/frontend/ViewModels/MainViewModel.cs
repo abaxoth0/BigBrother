@@ -9,6 +9,21 @@ using frontend.Services;
 
 namespace frontend.ViewModels;
 
+public enum HealthState
+{
+    Unknown,
+    AllOk,
+    Degraded,
+    Critical
+}
+
+public enum NavigationSection
+{
+    Main,
+    Whitelist,
+    Settings
+}
+
 public class MainViewModel : ViewModelBase, IDisposable
 {
     private const int MaxLogs = 500;
@@ -27,22 +42,12 @@ public class MainViewModel : ViewModelBase, IDisposable
     private string _lastFirewallLogPath = "";
 
     // Status
-    private string _daemonStatus = "Запущен";
-    private string _clientStatus = "Запущен";
-    private string _serverStatus = "Запущен";
     private bool _filtrationEnabled = true;
     private bool _hasSettingsChanges;
     private bool _isRegistering;
-    private string _daemonConnectionStatus = "...";
-    private string _clientConnectionStatus = "...";
-    private string _serverConnectionStatus = "...";
-    private string _hostName = "DESKTOP-PC";
-    private string _ipAddress = "192.168.1.100";
-    private int _daemonPid = 1234;
-    private int _clientPid = 5678;
-    private int _whitelistCount = 5;
-    private DateTime _lastUpdate = DateTime.Now;
     private bool _autoScroll = true;
+    private int _whitelistCount = 0;
+    private DateTime _lastUpdate = DateTime.Now;
 
     public bool AutoScroll
     {
@@ -50,22 +55,20 @@ public class MainViewModel : ViewModelBase, IDisposable
         set => SetProperty(ref _autoScroll, value);
     }
 
-    public string DaemonStatus
+    private bool _firewallRunning = true;
+    private bool _serverConnected;
+    private HealthState _overallHealth = HealthState.Unknown;
+
+    public bool FirewallRunning
     {
-        get => _daemonStatus;
-        set => SetProperty(ref _daemonStatus, value);
+        get => _firewallRunning;
+        set => SetProperty(ref _firewallRunning, value);
     }
 
-    public string ClientStatus
+    public bool ServerConnected
     {
-        get => _clientStatus;
-        set => SetProperty(ref _clientStatus, value);
-    }
-
-    public string ServerStatus
-    {
-        get => _serverStatus;
-        set => SetProperty(ref _serverStatus, value);
+        get => _serverConnected;
+        set => SetProperty(ref _serverConnected, value);
     }
 
     public bool FiltrationEnabled
@@ -74,46 +77,29 @@ public class MainViewModel : ViewModelBase, IDisposable
         set => SetProperty(ref _filtrationEnabled, value);
     }
 
-    public string DaemonConnectionStatus
+    public HealthState OverallHealth
     {
-        get => _daemonConnectionStatus;
-        set => SetProperty(ref _daemonConnectionStatus, value);
+        get => _overallHealth;
+        set
+        {
+            if (SetProperty(ref _overallHealth, value))
+                OnPropertyChanged(nameof(OverallHealthText));
+        }
     }
 
-    public string ClientConnectionStatus
+    public string OverallHealthText => OverallHealth switch
     {
-        get => _clientConnectionStatus;
-        set => SetProperty(ref _clientConnectionStatus, value);
-    }
+        HealthState.AllOk => "Работает",
+        HealthState.Degraded => "Отсутствует подключение к серверу",
+        HealthState.Critical => "Отсутствует подключение к Firewall'у",
+        _ => "Проверка статуса..."
+    };
 
-    public string ServerConnectionStatus
+    private NavigationSection _selectedSection = NavigationSection.Main;
+    public NavigationSection SelectedSection
     {
-        get => _serverConnectionStatus;
-        set => SetProperty(ref _serverConnectionStatus, value);
-    }
-
-    public string HostName
-    {
-        get => _hostName;
-        set => SetProperty(ref _hostName, value);
-    }
-
-    public string IpAddress
-    {
-        get => _ipAddress;
-        set => SetProperty(ref _ipAddress, value);
-    }
-
-    public int DaemonPid
-    {
-        get => _daemonPid;
-        set => SetProperty(ref _daemonPid, value);
-    }
-
-    public int ClientPid
-    {
-        get => _clientPid;
-        set => SetProperty(ref _clientPid, value);
+        get => _selectedSection;
+        set => SetProperty(ref _selectedSection, value);
     }
 
     public int WhitelistCount
@@ -148,6 +134,19 @@ public class MainViewModel : ViewModelBase, IDisposable
 
     public ObservableCollection<LogEntry> Logs { get; } = new();
     public ObservableCollection<LogEntry> FilteredLogs { get; } = new();
+
+    // Log level filters
+    private bool _showInfo = true;
+    private bool _showErrors = true;
+    private bool _showWarnings = true;
+    private bool _showDns = true;
+    private bool _showBlocked = true;
+
+    public bool ShowInfo { get => _showInfo; set { if (SetProperty(ref _showInfo, value)) UpdateFilteredLogs(); } }
+    public bool ShowErrors { get => _showErrors; set { if (SetProperty(ref _showErrors, value)) UpdateFilteredLogs(); } }
+    public bool ShowWarnings { get => _showWarnings; set { if (SetProperty(ref _showWarnings, value)) UpdateFilteredLogs(); } }
+    public bool ShowDns { get => _showDns; set { if (SetProperty(ref _showDns, value)) UpdateFilteredLogs(); } }
+    public bool ShowBlocked { get => _showBlocked; set { if (SetProperty(ref _showBlocked, value)) UpdateFilteredLogs(); } }
 
     // Whitelist
     private bool _showPrettyWhitelist = true;
@@ -345,18 +344,11 @@ public class MainViewModel : ViewModelBase, IDisposable
     // Commands
     public ICommand ClearLogsCommand { get; }
     public ICommand ExportLogsCommand { get; }
-    public ICommand SaveServerAddressCommand { get; }
-    public ICommand SaveUsernameCommand { get; }
     public ICommand RegisterCommand { get; }
     public ICommand ConnectCommand { get; }
     public ICommand DisconnectCommand { get; }
     public ICommand ChangeServerCommand { get; }
-    public ICommand SaveServerPortCommand { get; }
     public ICommand SaveSettingsCommand { get; }
-    public ICommand SaveDiscoveryEnabledCommand { get; }
-    public ICommand SaveNetworkAutoCommand { get; }
-    public ICommand SaveNetworkGatewayCommand { get; }
-    public ICommand SaveNetworkMaskCommand { get; }
     public ICommand ToggleFiltrationCommand { get; }
     public ICommand StartDaemonCommand { get; }
     public ICommand StopDaemonCommand { get; }
@@ -365,6 +357,7 @@ public class MainViewModel : ViewModelBase, IDisposable
     public ICommand RefreshStatusCommand { get; }
     public ICommand OpenHistoryCommand { get; }
     public ICommand OpenArchivedLogCommand { get; }
+    public ICommand JumpToBottomCommand { get; }
 
     // Event for auto-scroll notification
     public event Action? ScrollToBottomRequested;
@@ -408,16 +401,7 @@ public class MainViewModel : ViewModelBase, IDisposable
                     System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
                     {
                         if (_disposed) return;
-                        DaemonConnectionStatus = status.DaemonStatus == "RUNNING" ? "Подключено" : "Отключено";
-                        DaemonStatus = status.DaemonStatus == "RUNNING" ? "Запущен" : "Остановлен";
-                        ClientConnectionStatus = status.IsConnected ? "Подключено" : "Отключено";
-                        ClientStatus = status.IsConnected ? "Запущен" : "Остановлен";
-                        ServerStatus = status.IsServerRunning ? "Запущен" : "Остановлен";
-                        ServerConnectionStatus = status.IsServerSessionActive ? "Подключено" : "Отключено";
-                        HostName = status.ClientName;
-                        IpAddress = status.IpAddress;
-                        ClientPid = status.ClientPid;
-                        FiltrationEnabled = status.FiltrationEnabled;
+                        UpdateStatus(status);
                         LastUpdate = DateTime.Now;
                         StatusRefreshed?.Invoke(status);
                     });
@@ -467,9 +451,9 @@ public class MainViewModel : ViewModelBase, IDisposable
                     System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
                     {
                         if (_disposed) return;
-                        ClientConnectionStatus = "Отключено";
-                        ServerConnectionStatus = "Отключено";
-                        ServerStatus = "Остановлен";
+                        FirewallRunning = false;
+                        ServerConnected = false;
+                        OverallHealth = HealthState.Critical;
                         StatusRefreshed?.Invoke(new ClientStatus { ClientPid = 0 });
                     });
                     UpdateLogReaders(new ClientStatus { ClientPid = 0 });
@@ -486,17 +470,10 @@ public class MainViewModel : ViewModelBase, IDisposable
     {
         ClearLogsCommand = new RelayCommand(_ => ClearLogs());
         ExportLogsCommand = new RelayCommand(_ => ExportLogs());
-        SaveServerAddressCommand = new RelayCommand(async _ => await SaveServerAddressAsync());
-        SaveUsernameCommand = new RelayCommand(async _ => await SaveUsernameAsync());
         RegisterCommand = new RelayCommand(async _ => await RegisterAsync());
         ConnectCommand = new RelayCommand(async _ => await ConnectAsync());
         DisconnectCommand = new RelayCommand(async _ => await DisconnectAsync());
         ChangeServerCommand = new RelayCommand(async _ => await ChangeServerAsync(), _ => DiscoveryEnabled);
-        SaveServerPortCommand = new RelayCommand(async _ => await SaveServerPortAsync());
-        SaveDiscoveryEnabledCommand = new RelayCommand(_ => { /* handled by property setter */ });
-        SaveNetworkAutoCommand = new RelayCommand(_ => { /* handled by property setter */ });
-        SaveNetworkGatewayCommand = new RelayCommand(async _ => await SaveNetworkGatewayAsync());
-        SaveNetworkMaskCommand = new RelayCommand(async _ => await SaveNetworkMaskAsync());
         SaveSettingsCommand = new RelayCommand(async _ => await SaveAllSettingsAsync());
         ToggleFiltrationCommand = new RelayCommand(async _ => await ToggleFiltrationAsync());
         StartDaemonCommand = new RelayCommand(async _ => await StartDaemonAsync());
@@ -506,6 +483,7 @@ public class MainViewModel : ViewModelBase, IDisposable
         RefreshStatusCommand = new RelayCommand(async _ => await RefreshStateAsync());
         OpenHistoryCommand = new RelayCommand(_ => OpenHistory());
         OpenArchivedLogCommand = new RelayCommand(_ => OpenArchivedLogs());
+        JumpToBottomCommand = new RelayCommand(_ => ScrollToBottomRequested?.Invoke());
 
         // Initialize whitelist status polling timer (safety fallback; events drive updates)
         _statusTimer.Elapsed += OnStatusTimerElapsed;
@@ -570,50 +548,26 @@ public class MainViewModel : ViewModelBase, IDisposable
         });
     }
 
-    private async Task SaveServerAddressAsync()
-    {
-        var addr = ServerAddress?.Trim() ?? "";
-        if (string.IsNullOrEmpty(addr)) return;
-        var ok = await _ipcService.SetServerAddressAsync(addr);
-        AddLog(ok ? "INFO" : "ERROR", ok ? $"Адрес сервера сохранён: {addr}" : "Ошибка сохранения адреса сервера");
-    }
-
-    private async Task SaveServerPortAsync()
-    {
-        var port = ServerPort?.Trim() ?? "";
-        if (string.IsNullOrEmpty(port)) return;
-        var ok = await _ipcService.SetServerPortAsync(port);
-        AddLog(ok ? "INFO" : "ERROR", ok ? $"Порт сервера сохранён: {port}" : "Ошибка сохранения порта");
-    }
-
-    private async Task SaveNetworkGatewayAsync()
-    {
-        var gw = NetworkGateway?.Trim() ?? "";
-        if (string.IsNullOrEmpty(gw)) return;
-        var ok = await _ipcService.SetNetworkGatewayAsync(gw);
-        AddLog(ok ? "INFO" : "ERROR", ok ? $"Шлюз сохранён: {gw}" : "Ошибка сохранения шлюза");
-    }
-
-    private async Task SaveNetworkMaskAsync()
-    {
-        var mask = NetworkMask?.Trim() ?? "";
-        if (string.IsNullOrEmpty(mask)) return;
-        var ok = await _ipcService.SetNetworkMaskAsync(mask);
-        AddLog(ok ? "INFO" : "ERROR", ok ? $"Маска сохранена: {mask}" : "Ошибка сохранения маски");
-    }
-
     private async Task SaveAllSettingsAsync()
     {
-        await SaveServerAddressAsync();
-        await SaveUsernameAsync();
-        await SaveServerPortAsync();
-        await SaveNetworkGatewayAsync();
-        await SaveNetworkMaskAsync();
+        await SaveFieldAsync("Адрес сервера", ServerAddress, s => _ipcService.SetServerAddressAsync(s));
+        await SaveFieldAsync("Имя пользователя", Username, s => _ipcService.SetUsernameAsync(s));
+        await SaveFieldAsync("Порт сервера", ServerPort, s => _ipcService.SetServerPortAsync(s));
+        await SaveFieldAsync("Шлюз", NetworkGateway, s => _ipcService.SetNetworkGatewayAsync(s));
+        await SaveFieldAsync("Маска подсети", NetworkMask, s => _ipcService.SetNetworkMaskAsync(s));
         await _ipcService.SetFallbackWhitelistEnabledAsync(FallbackWhitelistEnabled);
         await _ipcService.SetDiscoveryEnabledAsync(DiscoveryEnabled);
         await _ipcService.SetNetworkAutoAsync(NetworkAuto);
         await _ipcService.SetFiltrationAutoDisableAsync(FiltrationAutoDisable);
         HasSettingsChanges = false;
+    }
+
+    private async Task SaveFieldAsync(string label, string value, Func<string, Task<bool>> setter)
+    {
+        var v = value?.Trim() ?? "";
+        if (string.IsNullOrEmpty(v)) return;
+        var ok = await setter(v);
+        AddLog(ok ? "INFO" : "ERROR", ok ? $"{label}: сохранено" : $"Ошибка сохранения: {label}");
     }
 
     private async Task ToggleFiltrationAsync()
@@ -624,14 +578,6 @@ public class MainViewModel : ViewModelBase, IDisposable
             ? $"Фильтрация {(newState ? "включена" : "отключена")}"
             : "Ошибка переключения фильтрации");
         if (ok) FiltrationEnabled = newState;
-    }
-
-    private async Task SaveUsernameAsync()
-    {
-        var name = Username?.Trim() ?? "";
-        if (string.IsNullOrEmpty(name)) return;
-        var ok = await _ipcService.SetUsernameAsync(name);
-        AddLog(ok ? "INFO" : "ERROR", ok ? $"Имя пользователя сохранено: {name}" : "Ошибка сохранения имени");
     }
 
     private async Task RegisterAsync()
@@ -799,7 +745,8 @@ public class MainViewModel : ViewModelBase, IDisposable
                 // Incremental: mirror only the new entries (avoid full rebuild).
                 foreach (var entry in newEntries)
                 {
-                    FilteredLogs.Add(entry);
+                    if (IsLevelVisible(entry.Level))
+                        FilteredLogs.Add(entry);
                 }
             }
 
@@ -813,26 +760,30 @@ public class MainViewModel : ViewModelBase, IDisposable
     private void UpdateFilteredLogs()
     {
         FilteredLogs.Clear();
-        
-        // Only filter if there's search text - otherwise show all
-        if (string.IsNullOrEmpty(LogSearchText))
-        {
-            foreach (var log in Logs)
-            {
-                FilteredLogs.Add(log);
-            }
-            return;
-        }
-        
-        var searchLower = LogSearchText.ToLower();
+
+        var searchLower = LogSearchText?.ToLower() ?? "";
         foreach (var log in Logs)
         {
-            if (log.Message.ToLower().Contains(searchLower) ||
+            if (!IsLevelVisible(log.Level)) continue;
+            if (string.IsNullOrEmpty(searchLower) ||
+                log.Message.ToLower().Contains(searchLower) ||
                 log.Level.ToLower().Contains(searchLower))
             {
                 FilteredLogs.Add(log);
             }
         }
+    }
+
+    private bool IsLevelVisible(string level)
+    {
+        return level switch
+        {
+            "ERROR" => ShowErrors,
+            "WARNING" => ShowWarnings,
+            "DNS" => ShowDns,
+            "BLOCKED" => ShowBlocked,
+            _ => ShowInfo
+        };
     }
 
     private void UpdateWhitelistDisplay()
@@ -868,6 +819,22 @@ public class MainViewModel : ViewModelBase, IDisposable
         Logs.Clear();
         FilteredLogs.Clear();
         AddLog("INFO", "Логи очищены");
+    }
+
+    private void UpdateStatus(ClientStatus status)
+    {
+        var daemonRunning = status.DaemonStatus == "RUNNING";
+        var serverConnected = status.IsServerSessionActive;
+        FirewallRunning = daemonRunning;
+        ServerConnected = serverConnected;
+        FiltrationEnabled = status.FiltrationEnabled;
+
+        if (!daemonRunning)
+            OverallHealth = HealthState.Critical;
+        else if (!serverConnected || !status.FiltrationEnabled)
+            OverallHealth = HealthState.Degraded;
+        else
+            OverallHealth = HealthState.AllOk;
     }
 
     public void ExportLogs()

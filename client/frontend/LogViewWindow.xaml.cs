@@ -9,7 +9,7 @@ using frontend.ViewModels;
 
 namespace frontend;
 
-public partial class LogViewWindow : Window
+public partial class LogViewWindow : ChromeWindow
 {
     private readonly LogViewViewModel _vm;
     private readonly List<System.Windows.Controls.ListBox> _listBoxes = new();

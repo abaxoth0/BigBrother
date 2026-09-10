@@ -11,7 +11,7 @@ public class ServerInfo
     public string DisplayText => $"{Name} ({Ip}:{Port})";
 }
 
-public partial class ServerSelectWindow : Window
+public partial class ServerSelectWindow : ChromeWindow
 {
     public ServerInfo? SelectedServer { get; private set; }
 
