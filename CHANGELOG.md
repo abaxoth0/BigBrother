@@ -5,7 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## [1.2.0] - 10-09-2026
+
+### Fixed
+
+- Client frontend: log-level filter toggle style no longer inherits the `Button`-based style (startup `XamlParseException`)
+- Client frontend: combo-box dropdown hover showed dark-grey background with dark gold text (unreadable); hover is now gold with dark text
+- Client frontend: gold buttons rendered white text — implicit `TextBlock` style overrode inherited foreground; removed it so text inherits the control color
+
+- Client backend: frontend pipe TLV parsing is now buffered (chunked `ReadFile` instead of byte-at-a-time) with a dedicated pipe reader
+- Client backend: server event line reader drains over-long lines so event framing stays intact (a long line no longer splits into a bogus follow-up line)
+- Client backend: `send_to_server_tlv` connect retries reduced (3×200ms, was 10×500ms) so the subscribe loop isn't stalled up to 5s on an unreachable server
+- Client backend: frontend pipe server accept loop is shutdown-safe — uses an overlapped `ConnectNamedPipe` waited on alongside the shutdown event, so the daemon exits cleanly on service stop even when no frontend is connected
+- Client backend: `set` command checks file size and `malloc` result before reading (no more crash on oversized files or OOM)
+- Client backend: `log_init` no longer leaks the `FILE*` from the log-path probe
+- Client backend: frontend TLV responses stream field-by-field when they exceed 64KB, so large whitelist relays are no longer silently truncated
+- Client backend: server IPC response parsing is now buffered and bounds-checked — length lines no longer overflow a 32-byte stack buffer, and oversized TLV values are drained so the parser stays in sync with the terminating empty line
+- Client backend: `read_tlv_request` length lines are bounds-checked and value sizes capped (a malformed peer can no longer overflow the length buffer or force a giant allocation / blocking read)
+- Client backend: whitelist relay to the frontend no longer caps at 256 domains (was silently dropping domains from large whitelists)
+- Client backend: client log rotation size raised from a leftover 2KB test value to the standard 10MB
+- Client backend: config.ini access is serialized with a critical section and rewritten atomically (`MoveFileEx` replace), so concurrent handler threads can't corrupt or temporarily delete the config file
+
+### Changed
+
+- Client frontend: GUI rework — truthful status indicators (dots reflected actual daemon/server state instead of being hardcoded green), overall health banner, log console readability (timestamps, level chips, level filter toggles, jump-to-bottom), collapsible control panel, removal of redundant status rows and duplicated "last update"/refresh controls
+- Client frontend: tabs replaced with a right-side navigation menu; window widened ~20% (1000×700 → 1200×700, min 950×500)
+- Client frontend: custom dark title bar (WindowChrome) with minimize/close and no maximize — replaces the default Windows chrome on the main window and dialogs
+- Client frontend: dark "Command Gold" theme — new `ClientDark.xaml` palette (dark graphite surfaces, gold accent, consistent control styles: buttons, inputs, checkbox, combo box + dropdown, scrollbar, group boxes, expander) merged after the shared `Theme.xaml`; shared `Theme.xaml` keeps the original light values so the server frontend is visually unaffected
+- Client frontend: removed the top menu bar (Файл/Вид) — actions remain available on the log header and status bar
+- Client frontend: removed dead/unbound settings save commands; settings saved through one consolidated path
+- Client frontend: window title normalized to "BigBrother"
+
+- Client backend: adapter enumeration calls are cached (`get_adapters()`) so `GetLocalIp`, `is_local_ip`, `find_adapter_by_gateway`, `GetAllBroadcastAddresses`, and `DiscoverServersTCP` reuse the same query instead of each doing a probe+alloc+fill cycle
+- Client backend: `GetLocalIp` uses adapter enumeration instead of a UDP connect to port 445 (works when port 445 is filtered)
 
 ## [1.1.0] - 19-08-2026
 

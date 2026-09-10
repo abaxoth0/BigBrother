@@ -37,3 +37,24 @@ public class InverseBoolToVisibilityConverter : IValueConverter
         throw new NotImplementedException();
     }
 }
+
+public class EnumToBoolConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        if (value != null && parameter is string param)
+        {
+            return value.ToString() == param;
+        }
+        return false;
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        if (value is bool boolValue && boolValue && parameter is string param && targetType.IsEnum)
+        {
+            return Enum.Parse(targetType, param);
+        }
+        return Binding.DoNothing;
+    }
+}

@@ -1,0 +1,8 @@
+CompileFlags:
+  Add:
+    - --target=x86_64-w64-mingw32
+    - --sysroot=/usr/x86_64-w64-mingw32
+    - -I/home/abaxoth/tmp/shared/BigBrother/client/backend/include
+    - -I/home/abaxoth/tmp/shared/BigBrother/common
+  Remove:
+    - -mwindows
