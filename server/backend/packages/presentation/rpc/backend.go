@@ -3,13 +3,13 @@
 package rpc
 
 import (
-	"bufio"
 	"errors"
 	"fmt"
 	"io"
 	"net"
 	"time"
 
+	"bigbrother_server_backend/packages/application/settings"
 	"bigbrother_server_backend/packages/domain/entity"
 	"bigbrother_server_backend/packages/infrastructure/connection"
 	"bigbrother_server_backend/packages/infrastructure/database"
@@ -21,6 +21,7 @@ type BackendHandler struct {
 	db           database.DBInstance
 	connManager  connection.Manager
 	pendingUsers *pending.UserStorage
+	startTime    time.Time
 	bus          *notification.Manager
 }
 
@@ -34,6 +35,7 @@ func NewBackendHandler(
 		db:           db,
 		connManager:  connManager,
 		pendingUsers: pendingUsers,
+		startTime:    time.Now(),
 		bus:          bus,
 	}
 }
@@ -49,8 +51,9 @@ func (h *BackendHandler) handle(conn net.Conn) {
 	}()
 	log.Info("Client connected", nil)
 
-	scanner := bufio.NewScanner(conn)
+	scanner := newScanner(conn)
 	for {
+		conn.SetReadDeadline(time.Now().Add(requestReadTimeout))
 		cmd, args, err := readRequest(scanner)
 		if err != nil {
 			if err != io.EOF {
@@ -121,7 +124,7 @@ func (h *BackendHandler) handle(conn net.Conn) {
 				writeErrorTLV(conn, "Missing name")
 				continue
 			}
-			if err := h.DisconnectUser(args[0]); err != nil {
+			if err := h.connManager.DeleteConnection(args[0]); err != nil {
 				writeErrorTLV(conn, err.Error())
 			} else {
 				h.bus.Publish(notification.Event{
@@ -155,7 +158,7 @@ func (h *BackendHandler) handle(conn net.Conn) {
 		case "GET_SERVER_NAME":
 			name, err := h.db.GetSetting("server_name")
 			if err != nil || name == "" {
-				name = "BigBrother Server"
+				name = settingsapplication.DefaultServerName
 			}
 			writeTLVResponse(conn, name)
 
@@ -189,7 +192,8 @@ func (h *BackendHandler) handle(conn net.Conn) {
 			sub := notification.NewSubscriber(conn, 4096)
 			writeOK(conn)
 			h.bus.Add(sub)
-			scanner := bufio.NewScanner(conn)
+			conn.SetReadDeadline(time.Time{}) // pushed events/heartbeats, no request deadline
+			scanner := newScanner(conn)
 			for scanner.Scan() {
 				line := scanner.Text()
 				if line == "" {
@@ -202,7 +206,7 @@ func (h *BackendHandler) handle(conn net.Conn) {
 			}
 			h.bus.Remove(sub)
 			if name != "" {
-				h.DisconnectUser(name)
+				h.connManager.DeleteConnection(name)
 			}
 			return
 
@@ -227,99 +231,8 @@ func (s *BackendHandler) GetWhitelist(username string) []*entity.WhitelistEntry 
 	return entries
 }
 
-func (s *BackendHandler) SetWhitelist(whitelistName string, usernames ...string) error {
-	err := s.db.ChangeUsersWhitelist(whitelistName, usernames...)
-	if err == nil {
-		s.bus.Publish(notification.Event{
-			Type: notification.WhitelistChanged,
-			Data: map[string]string{"whitelist": whitelistName},
-		})
-	}
-	return err
-}
-
-func (s *BackendHandler) AddWhitelistEntry(whitelistName, entry string) error {
-	return s.db.AddWhitelistEntry(entry, whitelistName)
-}
-
-func (s *BackendHandler) DeleteWhitelistEntry(whitelistName, entry string) error {
-	return s.db.DeleteWhitelistEntry(entry, whitelistName)
-}
-
-func (s *BackendHandler) GetConnections() []*connection.Connection {
-	return s.connManager.GetAllConnections()
-}
-
-func (s *BackendHandler) ConnectUser(name string, addr string) error {
-	user, err := s.db.GetUserByName(name)
-	if err != nil {
-		return errors.New("user not found")
-	}
-
-	if _, err := s.connManager.GetConnection(name); err == nil {
-		return errors.New("user already connected")
-	}
-
-	if err := s.db.ChangeUserAddr(name, addr); err != nil {
-		return err
-	}
-	user.Addr = addr
-	_, err = s.connManager.NewConnection(user)
-	return err
-}
-
-func (s *BackendHandler) DisconnectUser(name string) error {
-	return s.connManager.DeleteConnection(name)
-}
-
-func (s *BackendHandler) RefreshConnection(name string) error {
-	return s.connManager.RefreshConnection(name)
-}
-
-func (s *BackendHandler) ChangeUserName(oldName, newName string) error {
-	if _, err := s.connManager.GetConnection(oldName); err != nil {
-		return errors.New("user not connected")
-	}
-
-	if _, err := s.db.GetUserByName(newName); err == nil {
-		return errors.New("name already in use")
-	}
-
-	if err := s.db.ChangeUserName(oldName, newName); err != nil {
-		return err
-	}
-
-	conn, err := s.connManager.GetConnection(oldName)
-	if err != nil {
-		return nil
-	}
-
-	s.connManager.DeleteConnection(oldName)
-	user := conn.GetUser()
-	user.Name = newName
-	s.connManager.NewConnection(&user)
-
-	return nil
-}
-
 func (s *BackendHandler) DeleteUsers(usernames ...string) error {
-	if err := s.db.DeleteUsers(usernames...); err != nil {
-		return err
-	}
-	errMsgs := make([]string, 0, len(usernames))
-	for _, username := range usernames {
-		if err := s.connManager.DeleteConnection(username); err != nil {
-			errMsgs = append(errMsgs, err.Error())
-		}
-	}
-	if len(errMsgs) != 0 {
-		msg := fmt.Sprintf("Failed to delete %d connection(-s):\n", len(errMsgs))
-		for i, errMsg := range errMsgs {
-			msg += fmt.Sprintf("%d %s\n", i+1, errMsg)
-		}
-		return fmt.Errorf(msg)
-	}
-	return nil
+	return deleteUsers(s.db, s.connManager, usernames...)
 }
 
 func (s *BackendHandler) RegisterPendingUser(username, addr string) error {
@@ -327,23 +240,9 @@ func (s *BackendHandler) RegisterPendingUser(username, addr string) error {
 	return s.pendingUsers.Add(username, addr)
 }
 
-func (s *BackendHandler) Pair(username string) (*connection.Connection, error) {
-	user, err := s.db.GetUserByName(username)
-	if err != nil {
-		return nil, err
-	}
-	return s.connManager.NewConnection(user)
-}
-
-func (s *BackendHandler) Forget(username string) error {
-	return s.connManager.DeleteConnection(username)
-}
-
-var startTime = time.Now()
-
 func (s *BackendHandler) GetStatus() *ServerStatus {
 	return &ServerStatus{
 		Connections: s.connManager.GetAllConnections(),
-		Uptime:      time.Since(startTime),
+		Uptime:      time.Since(s.startTime),
 	}
 }

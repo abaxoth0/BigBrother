@@ -3,7 +3,6 @@
 package rpc
 
 import (
-	"bufio"
 	"fmt"
 	"io"
 	"net"
@@ -11,6 +10,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"bigbrother_server_backend/packages/application/settings"
 	"bigbrother_server_backend/packages/domain/entity"
 	"bigbrother_server_backend/packages/infrastructure/connection"
 	"bigbrother_server_backend/packages/infrastructure/database"
@@ -50,8 +50,9 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 	defer conn.Close()
 	log.Info("Frontend connected", nil)
 
-	scanner := bufio.NewScanner(conn)
+	scanner := newScanner(conn)
 	for {
+		conn.SetReadDeadline(time.Now().Add(requestReadTimeout))
 		cmd, args, err := readRequest(scanner)
 		if err != nil {
 			if err != io.EOF {
@@ -130,7 +131,7 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 				writeErrorTLV(conn, "Missing name")
 				continue
 			}
-			if err := h.DisconnectUser(args[0]); err != nil {
+			if err := h.connManager.DeleteConnection(args[0]); err != nil {
 				writeErrorTLV(conn, err.Error())
 			} else {
 				h.bus.Publish(notification.Event{
@@ -145,7 +146,7 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 				writeErrorTLV(conn, "Missing name")
 				continue
 			}
-			if err := h.DeleteUsers(args...); err != nil {
+			if err := deleteUsers(h.db, h.connManager, args...); err != nil {
 				writeErrorTLV(conn, err.Error())
 			} else {
 				writeOK(conn)
@@ -272,7 +273,7 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 		case "GET_SERVER_NAME":
 			name, _ := h.db.GetSetting("server_name")
 			if name == "" {
-				name = "BigBrother Server"
+				name = settingsapplication.DefaultServerName
 			}
 			writeTLVResponse(conn, name)
 
@@ -325,7 +326,8 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 			sub := notification.NewSubscriber(conn, 65536)
 			writeOK(conn)
 			h.bus.Add(sub)
-			scanner := bufio.NewScanner(conn)
+			conn.SetReadDeadline(time.Time{}) // pushed events only, no request deadline
+			scanner := newScanner(conn)
 			for scanner.Scan() {
 				// Keep connection alive until client disconnects
 			}
@@ -393,30 +395,6 @@ func (h *FrontendHandler) ApproveUser(name string) error {
 
 func (h *FrontendHandler) RejectUser(name string) {
 	h.pendingUsers.Pop(name) // ignore error, user just won't be approved
-}
-
-func (h *FrontendHandler) DisconnectUser(name string) error {
-	return h.connManager.DeleteConnection(name)
-}
-
-func (h *FrontendHandler) DeleteUsers(names ...string) error {
-	if err := h.db.DeleteUsers(names...); err != nil {
-		return err
-	}
-	errMsgs := make([]string, 0, len(names))
-	for _, name := range names {
-		if err := h.connManager.DeleteConnection(name); err != nil {
-			errMsgs = append(errMsgs, err.Error())
-		}
-	}
-	if len(errMsgs) != 0 {
-		msg := fmt.Sprintf("Failed to delete %d connection(-s):\n", len(errMsgs))
-		for i, errMsg := range errMsgs {
-			msg += fmt.Sprintf("%d %s\n", i+1, errMsg)
-		}
-		return fmt.Errorf(msg)
-	}
-	return nil
 }
 
 func (h *FrontendHandler) GetActiveWhitelist() string {

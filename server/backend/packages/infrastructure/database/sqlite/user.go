@@ -108,8 +108,8 @@ func (db *Database) CreateUser(name string, addr string) (string, error) {
 	return id.String(), nil
 }
 
-var userProperties  	  = []string{"name", "addr", "whitelist_id"}
-var uniqueUserProperties  = []string{"name", "addr"}
+var userProperties = []string{"name", "addr", "whitelist_id"}
+var uniqueUserProperties = []string{"name", "addr"}
 
 func (db *Database) changeUserProperty(property string, username string, newValue any, tx *sql.Tx) error {
 	var executor dbcommon.Executor = common.Ternary(tx == nil, dbcommon.Executor(db.conn), dbcommon.Executor(tx))
@@ -126,30 +126,27 @@ func (db *Database) changeUserProperty(property string, username string, newValu
 
 	if slices.Contains(uniqueUserProperties, property) {
 		var curUser *entity.User
-		var value any
 		switch property {
 		case "name":
 			curUser, err = db.GetUserByName(newValue.(string))
-			value = curUser.Name
 		case "addr":
 			curUser, err = db.GetUserByAddr(newValue.(string))
-			value = curUser.Addr
 		}
 
 		if errors.Is(err, sql.ErrNoRows) {
 			goto update
 		}
-		if err != nil {
+		if err != nil || curUser == nil {
 			return err
 		}
-		if value == newValue && curUser.Name != username {
+		if curUser.Name != username {
 			return errs.NewStatusError(
-				fmt.Sprintf("Unique constraint violation for attribute %s with value \"%s\"", property, newValue),
+				fmt.Sprintf("Unique constraint violation for attribute %s with value \"%v\"", property, newValue),
 				errs.StatusConflict.Status(),
 			)
 		}
 	}
-	update:
+update:
 
 	_, err = executor.Exec(
 		"UPDATE user SET "+property+" = ? WHERE name = ?",

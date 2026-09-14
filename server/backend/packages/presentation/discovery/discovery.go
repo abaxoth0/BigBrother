@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync"
 	"time"
 
+	settingsapplication "bigbrother_server_backend/packages/application/settings"
 	"bigbrother_server_backend/packages/common/log"
 	"bigbrother_server_backend/packages/infrastructure/database"
 
@@ -17,18 +19,19 @@ import (
 type discLogger = *logger.Source[*logger.FileLogger]
 
 const (
-	Port          = 42069
+	Port           = 42069
 	DiscoveryMagic = "BIGBROTHER_DISCOVERY"
 	ResponseMagic  = "BIGBROTHER_DISCOVERY_RESPONSE"
 	ReadTimeout    = time.Second * 2
 )
 
 type Listener struct {
-	db     database.DBInstance
-	conn   *net.UDPConn
-	stopCh chan struct{}
-	doneCh chan struct{}
-	logger discLogger
+	db       database.DBInstance
+	conn     *net.UDPConn
+	stopCh   chan struct{}
+	doneCh   chan struct{}
+	stopOnce sync.Once
+	logger   discLogger
 }
 
 func New(db database.DBInstance) *Listener {
@@ -54,11 +57,15 @@ func (l *Listener) Start() error {
 }
 
 func (l *Listener) Stop() {
-	close(l.stopCh)
+	l.stopOnce.Do(func() {
+		close(l.stopCh)
+		if l.conn != nil {
+			l.conn.Close()
+		}
+	})
 	if l.conn != nil {
-		l.conn.Close()
+		<-l.doneCh
 	}
-	<-l.doneCh
 }
 
 func (l *Listener) getLocalIP() string {
@@ -119,7 +126,7 @@ func (l *Listener) serve() {
 			if msg == DiscoveryMagic || strings.HasPrefix(msg, DiscoveryMagic+"\n") {
 				serverName, _ := l.db.GetSetting("server_name")
 				if serverName == "" {
-					serverName = "BigBrother Server"
+					serverName = settingsapplication.DefaultServerName
 				}
 				serverPort, _ := l.db.GetSetting("server_port")
 				if serverPort == "" {

@@ -9,7 +9,6 @@ type QueryHandler interface {
 	GetWhitelistID(whitelistName string) (string, error)
 
 	GetWhitelistEntries(whitelistID string) ([]*entity.WhitelistEntry, error)
-	GetUserWhitelistEntries(username string) ([]*entity.WhitelistEntry, error)
 }
 
 type CommandHandler interface {
