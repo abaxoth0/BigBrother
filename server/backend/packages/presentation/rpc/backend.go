@@ -235,6 +235,28 @@ func (s *BackendHandler) DeleteUsers(usernames ...string) error {
 	return deleteUsers(s.db, s.connManager, usernames...)
 }
 
+func (s *BackendHandler) ConnectUser(name string, addr string) error {
+	user, err := s.db.GetUserByName(name)
+	if err != nil {
+		return errors.New("user not found")
+	}
+
+	if _, err := s.connManager.GetConnection(name); err == nil {
+		return errors.New("user already connected")
+	}
+
+	if err := s.db.ChangeUserAddr(name, addr); err != nil {
+		return err
+	}
+	user.Addr = addr
+	_, err = s.connManager.NewConnection(user)
+	return err
+}
+
+func (s *BackendHandler) RefreshConnection(name string) error {
+	return s.connManager.RefreshConnection(name)
+}
+
 func (s *BackendHandler) RegisterPendingUser(username, addr string) error {
 	log.Info("Registration request for user \""+username+"\"", nil)
 	return s.pendingUsers.Add(username, addr)

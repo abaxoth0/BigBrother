@@ -33,11 +33,6 @@ func (db *Database) Connect() error {
 		return err
 	}
 
-	// SQLite serializes writers; a single connection avoids "database is locked"
-	// under concurrent handlers (WAL still permits parallel reads), and a busy
-	// timeout keeps short lock contention from failing immediately.
-	conn.SetMaxOpenConns(1)
-
 	db.conn = conn
 	db.isConnected = true
 
@@ -46,6 +41,10 @@ func (db *Database) Connect() error {
 		return err
 	}
 
+	// WAL allows concurrent readers while a writer holds the write lock, and
+	// busy_timeout keeps short lock contention from failing immediately.
+	// NOTE: do NOT pin MaxOpenConns(1) here — changeUserProperty reads through
+	// db.conn while a *sql.Tx is open, which would deadlock on a single conn.
 	if _, err := db.conn.Exec("PRAGMA journal_mode = WAL"); err != nil {
 		db.Disconnect()
 		return fmt.Errorf("Failed to enable WAL: %v", err)
