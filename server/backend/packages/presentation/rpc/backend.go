@@ -231,10 +231,6 @@ func (s *BackendHandler) GetWhitelist(username string) []*entity.WhitelistEntry 
 	return entries
 }
 
-func (s *BackendHandler) DeleteUsers(usernames ...string) error {
-	return deleteUsers(s.db, s.connManager, usernames...)
-}
-
 func (s *BackendHandler) ConnectUser(name string, addr string) error {
 	user, err := s.db.GetUserByName(name)
 	if err != nil {

@@ -120,20 +120,37 @@ func (m *Manager) Publish(event Event) {
 	}
 }
 
-func (m *Manager) writeEvent(sub *Subscriber, event Event) {
+func (m *Manager) writeEvent(sub *Subscriber, event Event) error {
 	writer := sub.Writer
-	fmt.Fprint(writer, "EVENT\n")
-	writeTLV(writer, event.Type.String())
-	for k, v := range event.Data {
-		writeTLV(writer, k+"="+v)
+	if _, err := fmt.Fprint(writer, "EVENT\n"); err != nil {
+		writer.Flush()
+		return err
 	}
-	fmt.Fprint(writer, "\n")
-	writer.Flush()
+	if err := writeTLV(writer, event.Type.String()); err != nil {
+		writer.Flush()
+		return err
+	}
+	for k, v := range event.Data {
+		if err := writeTLV(writer, k+"="+v); err != nil {
+			writer.Flush()
+			return err
+		}
+	}
+	if _, err := fmt.Fprint(writer, "\n"); err != nil {
+		writer.Flush()
+		return err
+	}
+	return writer.Flush()
 }
 
-func writeTLV(writer *bufio.Writer, value string) {
-	fmt.Fprint(writer, strconv.Itoa(len(value))+"\n")
-	fmt.Fprint(writer, value+"\n")
+func writeTLV(writer *bufio.Writer, value string) error {
+	if _, err := fmt.Fprint(writer, strconv.Itoa(len(value))+"\n"); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprint(writer, value+"\n"); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (m *Manager) writeLoop(sub *Subscriber) {
@@ -143,7 +160,12 @@ func (m *Manager) writeLoop(sub *Subscriber) {
 	for {
 		select {
 		case event := <-sub.EventCh:
-			m.writeEvent(sub, event)
+			if err := m.writeEvent(sub, event); err != nil {
+				// Stalled or broken subscriber: close its conn so the handler's
+				// read loop unblocks too, then exit; the deferred Remove cleans up.
+				sub.Conn.Close()
+				return
+			}
 		case <-sub.done:
 			return
 		}
