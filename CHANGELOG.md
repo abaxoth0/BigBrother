@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Fixed
+
+- Server backend: changing a user's name/address no longer crashes the whole server — `changeUserProperty` dereferenced a nil user when the target name/address wasn't in the DB (reachable via `CHANGE_NAME` to a free name or `CONNECT` with a new client IP)
+- Server backend: in-memory connection manager is now mutex-guarded — concurrent handler/cleanup access to the shared map caused `concurrent map writes` crashes under load
+- Server backend: DB transaction helper now rolls back the open transaction on a prep error (leaked transactions kept the SQLite write lock and caused `database is locked`)
+- Server backend: subscribers with a broken/stalled connection are dropped on write failure (`notification` write loop), no leaked goroutine/connection
+- Server backend: request TLV parsing uses a large scanner buffer and surfaces scanner errors — large whitelist saves no longer fail at the default 64KB scanner cap
+
+### Changed
+
+- Server backend: SQLite uses WAL journaling + 5s busy timeout for resilience to write contention (deliberately not pinned to a single connection, which would deadlock the read-inside-transaction paths)
+- Server backend: RPC server lifecycle hardened — idempotent `Start`/`Stop`, safe WaitGroup usage, and listener + active connections closed on shutdown so subscribed clients and idle peers exit cleanly; connection manager stopped on shutdown; discovery listener `Stop` idempotent
+- Server backend: per-request 60s read deadline in the command loops (cleared inside `SUBSCRIBE` so subscribed clients are unaffected)
+- Server backend: dedup and cleanup — shared `deleteUsers` helper; removed dead code (`sqlite.Test`, unused `writeStatus`/`readTLV`, dead backend-handler methods, unused package-level `pendingUsers` map, dormant per-user whitelist query); consolidated server-name default
+- Server backend: added tests — connection manager, pending users, DB transactions (incl. rollback-on-error), protocol framing (incl. >64KB values), sqlite integration, broken-subscriber handling; all files gofmt'd
+
 ## [1.2.0] - 10-09-2026
 
 ### Fixed

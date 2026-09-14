@@ -24,7 +24,7 @@ func NewUserStorage() *UserStorage {
 
 func (s *UserStorage) invalidate() {
 	now := time.Now()
-	for name, pu := range s.users{
+	for name, pu := range s.users {
 		if now.Sub(pu.CreatedAt) > PendingUserTimeout {
 			delete(s.users, name)
 		}

@@ -1,13 +1,12 @@
 package entity
 
 type WhitelistEntry struct {
-	ID 	  string
+	ID    string
 	Value string
 }
 
 type Whitelist struct {
-	ID 		 string
-	Name 	 string
+	ID       string
+	Name     string
 	ParentID string
 }
-

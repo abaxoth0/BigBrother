@@ -15,12 +15,12 @@ var (
 )
 
 type Executor interface {
-    Exec(query string, args ...any) (sql.Result, error)
+	Exec(query string, args ...any) (sql.Result, error)
 }
 
 type Transaction struct {
 	name string
-	tx *sql.Tx
+	tx   *sql.Tx
 }
 
 func NewTransaction[T any](name string, db *sql.DB, prepFunc func(*sql.Tx, T) error, prepEntries ...T) (*Transaction, error) {
@@ -31,6 +31,7 @@ func NewTransaction[T any](name string, db *sql.DB, prepFunc func(*sql.Tx, T) er
 	}
 	for _, entry := range prepEntries {
 		if err := prepFunc(tx, entry); err != nil {
+			tx.Rollback()
 			return nil, err
 		}
 	}
@@ -38,13 +39,14 @@ func NewTransaction[T any](name string, db *sql.DB, prepFunc func(*sql.Tx, T) er
 
 	return &Transaction{
 		name: name,
-		tx: tx,
+		tx:   tx,
 	}, nil
 }
 
 func (t *Transaction) Commit() error {
 	Log.Info("Committing \""+t.name+"\" update transaction...", nil)
 	if err := t.tx.Commit(); err != nil {
+		t.tx.Rollback()
 		return err
 	}
 	Log.Info("Committing \""+t.name+"\" transaction: OK", nil)

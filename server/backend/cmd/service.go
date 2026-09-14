@@ -3,6 +3,7 @@
 package main
 
 import (
+	"bigbrother_server_backend/packages/infrastructure/connection"
 	"bigbrother_server_backend/packages/presentation/discovery"
 	"bigbrother_server_backend/packages/presentation/rpc"
 	"fmt"
@@ -18,11 +19,12 @@ func isService() bool {
 	return isSvc
 }
 
-func runService(backendAddr, frontendPipePath string, discoveryListener *discovery.Listener, backendServer, frontendServer *rpc.Server) {
+func runService(backendAddr, frontendPipePath string, discoveryListener *discovery.Listener, connManager *connection.MemoryResidentConnectionManager, backendServer, frontendServer *rpc.Server) {
 	handler := &serviceHandler{
 		backendAddr:       backendAddr,
 		frontendPipePath:  frontendPipePath,
 		discoveryListener: discoveryListener,
+		connManager:       connManager,
 		backendServer:     backendServer,
 		frontendServer:    frontendServer,
 	}
@@ -35,6 +37,7 @@ type serviceHandler struct {
 	backendAddr       string
 	frontendPipePath  string
 	discoveryListener *discovery.Listener
+	connManager       *connection.MemoryResidentConnectionManager
 	backendServer     *rpc.Server
 	frontendServer    *rpc.Server
 }
@@ -43,7 +46,7 @@ func (h *serviceHandler) Execute(args []string, r <-chan svc.ChangeRequest, chan
 	changes <- svc.Status{State: svc.StartPending}
 
 	stopCh := make(chan struct{})
-	go startAndWait(h.backendAddr, h.frontendPipePath, h.discoveryListener, h.backendServer, h.frontendServer, stopCh)
+	go startAndWait(h.backendAddr, h.frontendPipePath, h.discoveryListener, h.backendServer, h.frontendServer, h.connManager, stopCh)
 
 	changes <- svc.Status{State: svc.Running, Accepts: svc.AcceptStop | svc.AcceptShutdown}
 
