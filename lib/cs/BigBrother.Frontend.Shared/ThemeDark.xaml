@@ -1,10 +1,10 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
-    <!-- Client-only dark "Command Gold" theme. Merged AFTER Theme.xaml in the
-         client's App.xaml so it overrides the shared base tokens and provides
-         the client-specific control styles. The server frontend merges only
-         Theme.xaml and is intentionally unaffected. -->
+    <!-- Shared dark theme (surfaces + generic control styles). Merged AFTER
+         Theme.xaml so it overrides the base tokens. Both frontends merge it;
+         each app can layer an accent override dictionary (e.g. ServerAccent.xaml)
+         on top to change only the accent tokens. -->
 
     <!-- Window / chrome surfaces -->
     <SolidColorBrush x:Key="WindowBackground" Color="#141518"/>
