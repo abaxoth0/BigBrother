@@ -359,6 +359,8 @@
 
                     <!-- Connected clients -->
                     <DataGrid Grid.Row="1" ItemsSource="{Binding FilteredConnected}" AutoGenerateColumns="False"
+                              Background="{StaticResource Surface}" Foreground="{StaticResource TitleBarText}"
+                              BorderBrush="{StaticResource BorderBrush}"
                               Visibility="{Binding UsersShowConnected, Converter={StaticResource BoolToVisibility}}"
                               CanUserAddRows="False" CanUserDeleteRows="False" IsReadOnly="True"
                               GridLinesVisibility="Horizontal" HeadersVisibility="Column"
@@ -379,6 +381,8 @@
 
                     <!-- Pending registrations -->
                     <DataGrid Grid.Row="1" ItemsSource="{Binding FilteredPending}" AutoGenerateColumns="False"
+                              Background="{StaticResource Surface}" Foreground="{StaticResource TitleBarText}"
+                              BorderBrush="{StaticResource BorderBrush}"
                               Visibility="{Binding UsersShowPending, Converter={StaticResource BoolToVisibility}}"
                               CanUserAddRows="False" CanUserDeleteRows="False" IsReadOnly="True"
                               GridLinesVisibility="Horizontal" HeadersVisibility="Column"
@@ -441,6 +445,8 @@
                     </Border>
 
                     <DataGrid Grid.Row="1" ItemsSource="{Binding Whitelists}" AutoGenerateColumns="False"
+                              Background="{StaticResource Surface}" Foreground="{StaticResource TitleBarText}"
+                              BorderBrush="{StaticResource BorderBrush}"
                               CanUserAddRows="False" CanUserDeleteRows="False"
                               SelectedItem="{Binding SelectedWhitelist}"
                               GridLinesVisibility="Horizontal" HeadersVisibility="Column"
