@@ -363,6 +363,10 @@
                               BorderBrush="{StaticResource BorderBrush}"
                               Visibility="{Binding UsersShowConnected, Converter={StaticResource BoolToVisibility}}"
                               CanUserAddRows="False" CanUserDeleteRows="False" IsReadOnly="True"
+                              RowBackground="{StaticResource Surface}"
+                              AlternatingRowBackground="{StaticResource SurfaceAlt}"
+                              HorizontalGridLinesBrush="{StaticResource BorderBrush}"
+                              VerticalGridLinesBrush="{StaticResource BorderBrush}"
                               GridLinesVisibility="Horizontal" HeadersVisibility="Column"
                               VerticalContentAlignment="Center" MinRowHeight="26">
                         <DataGrid.Columns>
@@ -385,6 +389,10 @@
                               BorderBrush="{StaticResource BorderBrush}"
                               Visibility="{Binding UsersShowPending, Converter={StaticResource BoolToVisibility}}"
                               CanUserAddRows="False" CanUserDeleteRows="False" IsReadOnly="True"
+                              RowBackground="{StaticResource Surface}"
+                              AlternatingRowBackground="{StaticResource SurfaceAlt}"
+                              HorizontalGridLinesBrush="{StaticResource BorderBrush}"
+                              VerticalGridLinesBrush="{StaticResource BorderBrush}"
                               GridLinesVisibility="Horizontal" HeadersVisibility="Column"
                               VerticalContentAlignment="Center" MinRowHeight="26">
                         <DataGrid.Columns>
@@ -449,6 +457,10 @@
                               BorderBrush="{StaticResource BorderBrush}"
                               CanUserAddRows="False" CanUserDeleteRows="False"
                               SelectedItem="{Binding SelectedWhitelist}"
+                              RowBackground="{StaticResource Surface}"
+                              AlternatingRowBackground="{StaticResource SurfaceAlt}"
+                              HorizontalGridLinesBrush="{StaticResource BorderBrush}"
+                              VerticalGridLinesBrush="{StaticResource BorderBrush}"
                               GridLinesVisibility="Horizontal" HeadersVisibility="Column"
                               VerticalContentAlignment="Center" MinRowHeight="26">
                         <DataGrid.Columns>

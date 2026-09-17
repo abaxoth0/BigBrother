@@ -45,11 +45,17 @@
         </Setter>
     </Style>
 
-    <!-- Dark DataGrid -->
+    <!-- Dark DataGrid (instance props on each grid also set the same values:
+         this DataGrid only exposes RowBackground/grid-line brushes as its own
+         themeable surface; cell/header colors come from Control + defaults). -->
     <Style TargetType="DataGrid">
         <Setter Property="Background" Value="{StaticResource Surface}"/>
         <Setter Property="Foreground" Value="{StaticResource TitleBarText}"/>
         <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
+        <Setter Property="RowBackground" Value="{StaticResource Surface}"/>
+        <Setter Property="AlternatingRowBackground" Value="{StaticResource SurfaceAlt}"/>
+        <Setter Property="HorizontalGridLinesBrush" Value="{StaticResource BorderBrush}"/>
+        <Setter Property="VerticalGridLinesBrush" Value="{StaticResource BorderBrush}"/>
     </Style>
 
     <!-- Dark context menu (property styles only: the framework's ContextMenu/MenuItem
