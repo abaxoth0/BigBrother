@@ -79,7 +79,7 @@
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
                             <Setter TargetName="Bd" Property="Background" Value="{StaticResource SurfaceAltHover}"/>
-                            <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource Accent}"/>
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Accent}"/>
                         </Trigger>
                         <Trigger Property="IsPressed" Value="True">
                             <Setter TargetName="Bd" Property="Background" Value="{StaticResource SurfaceAltPressed}"/>
@@ -95,8 +95,8 @@
 
     <!-- Primary (gold) action button -->
     <Style x:Key="PrimaryButton" TargetType="Button">
-        <Setter Property="Background" Value="{StaticResource Accent}"/>
-        <Setter Property="Foreground" Value="{StaticResource OnAccent}"/>
+        <Setter Property="Background" Value="{DynamicResource Accent}"/>
+        <Setter Property="Foreground" Value="{DynamicResource OnAccent}"/>
         <Setter Property="BorderBrush" Value="Transparent"/>
         <Setter Property="BorderThickness" Value="0"/>
         <Setter Property="Padding" Value="12,6"/>
@@ -117,10 +117,10 @@
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource AccentHover}"/>
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource AccentHover}"/>
                         </Trigger>
                         <Trigger Property="IsPressed" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource AccentPressed}"/>
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource AccentPressed}"/>
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
                             <Setter TargetName="Bd" Property="Opacity" Value="0.45"/>
@@ -137,7 +137,7 @@
         <Setter Property="Foreground" Value="{StaticResource TitleBarText}"/>
         <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
         <Setter Property="CaretBrush" Value="{StaticResource TitleBarText}"/>
-        <Setter Property="SelectionBrush" Value="{StaticResource Accent}"/>
+        <Setter Property="SelectionBrush" Value="{DynamicResource Accent}"/>
         <Setter Property="Padding" Value="4,2"/>
         <Setter Property="VerticalContentAlignment" Value="Center"/>
     </Style>
@@ -159,7 +159,7 @@
                                 BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
                                 VerticalAlignment="Center">
                             <Path x:Name="Check" Data="M 3,9 L 7,13 L 14,5"
-                                  Stroke="{StaticResource Accent}" StrokeThickness="2"
+                                  Stroke="{DynamicResource Accent}" StrokeThickness="2"
                                   StrokeStartLineCap="Round" StrokeEndLineCap="Round"
                                   Visibility="Collapsed" SnapsToDevicePixels="True"/>
                         </Border>
@@ -170,7 +170,7 @@
                     </Grid>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="Box" Property="BorderBrush" Value="{StaticResource Accent}"/>
+                            <Setter TargetName="Box" Property="BorderBrush" Value="{DynamicResource Accent}"/>
                         </Trigger>
                         <Trigger Property="IsChecked" Value="True">
                             <Setter TargetName="Check" Property="Visibility" Value="Visible"/>
@@ -246,11 +246,11 @@
                     </Grid>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource Accent}"/>
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Accent}"/>
                         </Trigger>
                         <Trigger Property="IsDropDownOpen" Value="True">
-                            <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource Accent}"/>
-                            <Setter TargetName="Arrow" Property="Stroke" Value="{StaticResource Accent}"/>
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Accent}"/>
+                            <Setter TargetName="Arrow" Property="Stroke" Value="{DynamicResource Accent}"/>
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
                             <Setter TargetName="Bd" Property="Opacity" Value="0.45"/>
@@ -274,8 +274,8 @@
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsHighlighted" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource Accent}"/>
-                            <Setter Property="Foreground" Value="{StaticResource OnAccent}"/>
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Accent}"/>
+                            <Setter Property="Foreground" Value="{DynamicResource OnAccent}"/>
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
@@ -328,7 +328,7 @@
                                 BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
                                 CornerRadius="6,6,0,0" Padding="10,6">
                             <ContentPresenter ContentSource="Header" RecognizesAccessKey="True"
-                                              TextElement.Foreground="{StaticResource Accent}"
+                                              TextElement.Foreground="{DynamicResource Accent}"
                                               TextElement.FontWeight="SemiBold"/>
                         </Border>
                         <Border Grid.Row="1" Background="{TemplateBinding Background}"
@@ -363,7 +363,7 @@
                                         <Border x:Name="Hd" Background="{StaticResource SurfaceAlt}" Padding="10,7" CornerRadius="6">
                                             <StackPanel Orientation="Horizontal">
                                                 <Path x:Name="Arrow" Data="M 0,0 L 5,4 L 10,0"
-                                                      Stroke="{StaticResource Accent}" StrokeThickness="1.6"
+                                                      Stroke="{DynamicResource Accent}" StrokeThickness="1.6"
                                                       VerticalAlignment="Center" Margin="0,0,8,0"/>
                                                 <ContentPresenter ContentSource="Content"
                                                                   TextElement.Foreground="{StaticResource TitleBarText}"
