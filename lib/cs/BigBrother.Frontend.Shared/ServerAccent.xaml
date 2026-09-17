@@ -10,7 +10,7 @@
     <SolidColorBrush x:Key="Accent" Color="#EB6F92"/>
     <SolidColorBrush x:Key="AccentHover" Color="#F48FA8"/>
     <SolidColorBrush x:Key="AccentPressed" Color="#D15D7F"/>
-    <SolidColorBrush x:Key="OnAccent" Color="#1C1116"/>
+    <SolidColorBrush x:Key="OnAccent" Color="#FFFFFF"/>
     <SolidColorBrush x:Key="SecondaryAccent" Color="#C4A7E7"/>
 
     <!-- Right-side nav item (mirrors the client nav) -->
