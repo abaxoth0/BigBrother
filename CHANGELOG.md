@@ -23,6 +23,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Server backend: dedup and cleanup — shared `deleteUsers` helper; removed dead code (`sqlite.Test`, unused `writeStatus`/`readTLV`, dead backend-handler methods, unused package-level `pendingUsers` map, dormant per-user whitelist query); consolidated server-name default
 - Server backend: added tests — connection manager, pending users, DB transactions (incl. rollback-on-error), protocol framing (incl. >64KB values), sqlite integration, broken-subscriber handling; all files gofmt'd
 
+- Server frontend: full GUI rework — dark "rose-pine" theme (reuses the shared dark surfaces from the renamed `ThemeDark.xaml`, with its own rose/iris accents via the new `ServerAccent.xaml`), custom title bar, and tabs replaced with a right-side navigation menu
+- Server frontend: users area reworked into a single table with a mode dropdown (connected clients / pending registrations) plus a name/address search box
+- Server frontend: "Главная" shows a service/filtration health banner, log console with level-filter toggles (INFO/DEBUG/TRACE/WARNING/ERROR/FATAL) and jump-to-bottom, and a bottom status bar with a per-state users counter
+- Server frontend: whitelist table reworked with "make active" toolbar action and highlighted active whitelist; dark table/chrome styling
+- Frontends: custom-window-chrome base `ChromeWindow` moved into the shared library and reused by both frontends; shared dark theme renamed `ClientDark.xaml` → `ThemeDark.xaml`
+- Server frontend: removed dead server-name/port save commands and dropped per-refresh log spam
+
 ## [1.2.0] - 10-09-2026
 
 ### Fixed
