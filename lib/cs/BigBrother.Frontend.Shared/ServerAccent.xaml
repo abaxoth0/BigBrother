@@ -1,5 +1,6 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:prim="clr-namespace:System.Windows.Controls.Primitives;assembly=PresentationFramework">
 
     <!-- Server-only accent ("rose-pine") theme. Merged AFTER ThemeDark.xaml in
          the server's App.xaml so it overrides the shared accent tokens, and
@@ -74,6 +75,18 @@
         <Setter Property="Padding" Value="16,5"/>
         <Setter Property="HorizontalContentAlignment" Value="Left"/>
         <Setter Property="FontSize" Value="13"/>
+    </Style>
+
+<!-- Dark DataGrid column headers -->
+    <Style x:Key="GridColumnHeaderStyle" TargetType="prim:DataGridColumnHeader">
+        <Setter Property="Background" Value="{StaticResource SurfaceAlt}"/>
+        <Setter Property="Foreground" Value="{StaticResource TitleBarText}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
+        <Setter Property="Padding" Value="6,4"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="HorizontalContentAlignment" Value="Left"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
+        <Setter Property="SeparatorBrush" Value="{StaticResource BorderBrush}"/>
     </Style>
 
 </ResourceDictionary>
