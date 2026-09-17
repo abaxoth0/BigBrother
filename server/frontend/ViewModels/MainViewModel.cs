@@ -229,14 +229,24 @@ public class MainViewModel : ViewModelBase
     public int ConnectedClientsCount
     {
         get => _connectedClientsCount;
-        set => SetProperty(ref _connectedClientsCount, value);
+        set
+        {
+            if (SetProperty(ref _connectedClientsCount, value))
+                OnPropertyChanged(nameof(UsersCounterText));
+        }
     }
 
     public int PendingCount
     {
         get => _pendingCount;
-        set => SetProperty(ref _pendingCount, value);
+        set
+        {
+            if (SetProperty(ref _pendingCount, value))
+                OnPropertyChanged(nameof(UsersCounterText));
+        }
     }
+
+    public string UsersCounterText => $"Пользователи (ожидают / подключено): {PendingCount} / {ConnectedClientsCount}";
 
     public bool IsConnected
     {

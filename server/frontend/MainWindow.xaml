@@ -556,10 +556,6 @@
                     <RadioButton Content="Настройки" GroupName="Nav"
                                  Style="{StaticResource NavItem}"
                                  IsChecked="{Binding SelectedSection, Converter={StaticResource EnumToBool}, ConverterParameter=Settings}"/>
-
-                    <Border Height="1" Background="{StaticResource BorderBrush}" Margin="6,12,6,12"/>
-                    <TextBlock Text="Ожидают регистрации:" Foreground="{StaticResource TextDim}" FontSize="11" Margin="6,0"/>
-                    <TextBlock Text="{Binding PendingCount}" FontWeight="Bold" FontSize="16" Margin="6,2"/>
                 </StackPanel>
             </Border>
         </Grid>
@@ -569,6 +565,8 @@
                 BorderThickness="0,1,0,0" BorderBrush="{StaticResource BorderBrush}">
             <DockPanel LastChildFill="False" Margin="8,4">
                 <TextBlock DockPanel.Dock="Left" Text="{Binding ServerStatus}" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                <TextBlock DockPanel.Dock="Left" Text="  |  " Foreground="{StaticResource TextDim}" VerticalAlignment="Center"/>
+                <TextBlock DockPanel.Dock="Left" Text="{Binding UsersCounterText}" VerticalAlignment="Center"/>
                 <Button DockPanel.Dock="Right" Content="Обновить" Style="{StaticResource SmallButton}"
                         Command="{Binding RefreshCommand}"/>
                 <TextBlock DockPanel.Dock="Right" Text="{Binding LastUpdateFormatted}" Foreground="{StaticResource TextDim}"
