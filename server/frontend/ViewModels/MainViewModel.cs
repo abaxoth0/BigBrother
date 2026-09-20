@@ -9,6 +9,20 @@ using frontend.Services;
 
 namespace frontend.ViewModels;
 
+public enum NavigationSection
+{
+    Main,
+    Users,
+    Lists,
+    Settings
+}
+
+public enum UsersFilterMode
+{
+    Connected,
+    Pending
+}
+
 public class MainViewModel : ViewModelBase
 {
     private readonly IpcService _ipcService;
@@ -43,6 +57,82 @@ public class MainViewModel : ViewModelBase
     public ObservableCollection<ServerLogEntry> ServerLogs => _serverLogs;
     public ObservableCollection<ServerLogEntry> FilteredServerLogs => _filteredServerLogs;
 
+    private NavigationSection _selectedSection = NavigationSection.Main;
+    public NavigationSection SelectedSection
+    {
+        get => _selectedSection;
+        set => SetProperty(ref _selectedSection, value);
+    }
+
+    private UsersFilterMode _usersFilter = UsersFilterMode.Connected;
+    public UsersFilterMode UsersFilter
+    {
+        get => _usersFilter;
+        set
+        {
+            if (SetProperty(ref _usersFilter, value))
+            {
+                OnPropertyChanged(nameof(UsersShowConnected));
+                OnPropertyChanged(nameof(UsersShowPending));
+                OnPropertyChanged(nameof(UsersFilterLabel));
+                RebuildUsersView();
+            }
+        }
+    }
+
+    public bool UsersShowConnected => UsersFilter == UsersFilterMode.Connected;
+    public bool UsersShowPending => UsersFilter == UsersFilterMode.Pending;
+    public string UsersFilterLabel => UsersShowConnected ? "Подключённые клиенты" : "Ожидающие регистрации";
+
+    public int UsersFilterIndex
+    {
+        get => UsersFilter == UsersFilterMode.Connected ? 0 : 1;
+        set => UsersFilter = value == 0 ? UsersFilterMode.Connected : UsersFilterMode.Pending;
+    }
+
+    public ObservableCollection<ConnectedClient> FilteredConnected { get; } = new();
+    public ObservableCollection<PendingRegistration> FilteredPending { get; } = new();
+
+    private string _usersSearchText = "";
+    public string UsersSearchText
+    {
+        get => _usersSearchText;
+        set
+        {
+            if (SetProperty(ref _usersSearchText, value))
+                RebuildUsersView();
+        }
+    }
+
+    private DateTime _lastUpdate = DateTime.Now;
+    public DateTime LastUpdate
+    {
+        get => _lastUpdate;
+        set
+        {
+            if (SetProperty(ref _lastUpdate, value))
+                OnPropertyChanged(nameof(LastUpdateFormatted));
+        }
+    }
+    public string LastUpdateFormatted => $"Обновлено: {LastUpdate:HH:mm:ss}";
+
+    // Log-level filters
+    private bool _showInfo = true;
+    private bool _showDebug = true;
+    private bool _showTrace = true;
+    private bool _showWarning = true;
+    private bool _showError = true;
+    private bool _showFatal = true;
+
+    public bool ShowInfo { get => _showInfo; set { if (SetProperty(ref _showInfo, value)) FilterServerLogs(); } }
+    public bool ShowDebug { get => _showDebug; set { if (SetProperty(ref _showDebug, value)) FilterServerLogs(); } }
+    public bool ShowTrace { get => _showTrace; set { if (SetProperty(ref _showTrace, value)) FilterServerLogs(); } }
+    public bool ShowWarning { get => _showWarning; set { if (SetProperty(ref _showWarning, value)) FilterServerLogs(); } }
+    public bool ShowError { get => _showError; set { if (SetProperty(ref _showError, value)) FilterServerLogs(); } }
+    public bool ShowFatal { get => _showFatal; set { if (SetProperty(ref _showFatal, value)) FilterServerLogs(); } }
+
+    public ICommand JumpToBottomCommand { get; }
+
     public MainViewModel()
     {
         _ipcService = new IpcService();
@@ -61,10 +151,9 @@ public class MainViewModel : ViewModelBase
         RefreshCommand = new RelayCommand(async _ => await RefreshAllAsync());
         DeleteWhitelistCommand = new RelayCommand(async o => await DeleteWhitelistAsync(o?.ToString()!), o => o != null);
         SetActiveWhitelistCommand = new RelayCommand(async o => await SetActiveWhitelistAsync(o?.ToString()!), o => o != null);
+        SetActiveSelectedWhitelistCommand = new RelayCommand(async _ => await SetActiveWhitelistAsync(SelectedWhitelist?.Name), _ => HasSelectedWhitelist);
         OpenCreateWhitelistCommand = new RelayCommand(async _ => await OpenCreateWhitelistAsync());
         OpenEditWhitelistCommand = new RelayCommand(async o => await OpenEditWhitelistAsync(o as WhitelistInfo), o => o is WhitelistInfo);
-        SaveServerNameCommand = new RelayCommand(async _ => await SaveServerNameAsync());
-        SaveServerPortCommand = new RelayCommand(async _ => await SaveServerPortAsync());
         ImportWhitelistsCommand = new RelayCommand(async _ => await ImportWhitelistsAsync());
         ExportWhitelistsCommand = new RelayCommand(async _ => await ExportWhitelistsAsync(), _ => Whitelists.Any(w => w.IsSelected));
         DeleteSelectedWhitelistsCommand = new RelayCommand(async _ => await DeleteSelectedWhitelistsAsync(), _ => Whitelists.Any(w => w.IsSelected));
@@ -75,6 +164,7 @@ public class MainViewModel : ViewModelBase
         RestartServiceCommand = new RelayCommand(async _ => await RestartServiceAsync());
         ClearServerLogsCommand = new RelayCommand(_ => ClearServerLogs());
         ExportServerLogsCommand = new RelayCommand(_ => ExportServerLogs());
+        JumpToBottomCommand = new RelayCommand(_ => AutoScrollRequested?.Invoke());
         StartAutoRefresh();
         StartServiceStatusPolling();
         _ipcService.EventReceived += OnEventReceived;
@@ -139,14 +229,24 @@ public class MainViewModel : ViewModelBase
     public int ConnectedClientsCount
     {
         get => _connectedClientsCount;
-        set => SetProperty(ref _connectedClientsCount, value);
+        set
+        {
+            if (SetProperty(ref _connectedClientsCount, value))
+                OnPropertyChanged(nameof(UsersCounterText));
+        }
     }
 
     public int PendingCount
     {
         get => _pendingCount;
-        set => SetProperty(ref _pendingCount, value);
+        set
+        {
+            if (SetProperty(ref _pendingCount, value))
+                OnPropertyChanged(nameof(UsersCounterText));
+        }
     }
+
+    public string UsersCounterText => $"Пользователи (ожидают / подключено): {PendingCount} / {ConnectedClientsCount}";
 
     public bool IsConnected
     {
@@ -264,10 +364,9 @@ public class MainViewModel : ViewModelBase
     public ICommand RefreshCommand { get; }
     public ICommand DeleteWhitelistCommand { get; }
     public ICommand SetActiveWhitelistCommand { get; }
+    public ICommand SetActiveSelectedWhitelistCommand { get; }
     public ICommand OpenCreateWhitelistCommand { get; }
     public ICommand OpenEditWhitelistCommand { get; }
-    public ICommand SaveServerNameCommand { get; }
-    public ICommand SaveServerPortCommand { get; }
     public ICommand ImportWhitelistsCommand { get; }
     public ICommand ExportWhitelistsCommand { get; }
     public ICommand DeleteSelectedWhitelistsCommand { get; }
@@ -404,10 +503,11 @@ public class MainViewModel : ViewModelBase
 
             if (string.IsNullOrEmpty(_logSearchText))
             {
-                // Incremental: mirror only the new entries (avoid full rebuild).
+                // Incremental: mirror only the visible new entries (avoid full rebuild).
                 foreach (var entry in newEntries)
                 {
-                    _filteredServerLogs.Add(entry);
+                    if (IsLevelVisible(entry.Level))
+                        _filteredServerLogs.Add(entry);
                 }
                 while (_filteredServerLogs.Count > _serverLogs.Count)
                     _filteredServerLogs.RemoveAt(0);
@@ -422,23 +522,34 @@ public class MainViewModel : ViewModelBase
 
     private void FilterServerLogs()
     {
-        if (string.IsNullOrEmpty(_logSearchText))
+        _filteredServerLogs.Clear();
+
+        var searchLower = _logSearchText?.ToLower() ?? "";
+        foreach (var e in _serverLogs)
         {
-            _filteredServerLogs.Clear();
-            foreach (var e in _serverLogs)
+            if (!IsLevelVisible(e.Level)) continue;
+            if (string.IsNullOrEmpty(searchLower) ||
+                e.Message.ToLower().Contains(searchLower) ||
+                e.Level.ToLower().Contains(searchLower) ||
+                e.Source.ToLower().Contains(searchLower))
+            {
                 _filteredServerLogs.Add(e);
+            }
         }
-        else
+    }
+
+    private bool IsLevelVisible(string level)
+    {
+        return level switch
         {
-            var filtered = _serverLogs
-                .Where(e => e.Message.Contains(_logSearchText, StringComparison.OrdinalIgnoreCase)
-                         || e.Level.Contains(_logSearchText, StringComparison.OrdinalIgnoreCase)
-                         || e.Source.Contains(_logSearchText, StringComparison.OrdinalIgnoreCase))
-                .ToList();
-            _filteredServerLogs.Clear();
-            foreach (var e in filtered)
-                _filteredServerLogs.Add(e);
-        }
+            "INFO" => ShowInfo,
+            "DEBUG" => ShowDebug,
+            "TRACE" => ShowTrace,
+            "WARNING" => ShowWarning,
+            "ERROR" => ShowError,
+            "FATAL" => ShowFatal,
+            _ => ShowInfo
+        };
     }
 
     private void ClearServerLogs()
@@ -564,6 +675,7 @@ public class MainViewModel : ViewModelBase
                 FiltrationStatus = serverStatus.IsRunning
                     ? (serverStatus.FiltrationEnabled ? "Вкл" : "Выкл")
                     : "N/A";
+                LastUpdate = DateTime.Now;
             });
         }
         catch (Exception ex)
@@ -583,6 +695,33 @@ public class MainViewModel : ViewModelBase
                 });
             }
             catch { }
+        }
+    }
+
+    private void RebuildUsersView()
+    {
+        var searchLower = UsersSearchText?.ToLower() ?? "";
+
+        FilteredConnected.Clear();
+        foreach (var c in ConnectedClients)
+        {
+            if (searchLower == "" ||
+                c.Name.ToLower().Contains(searchLower) ||
+                c.Address.ToLower().Contains(searchLower))
+            {
+                FilteredConnected.Add(c);
+            }
+        }
+
+        FilteredPending.Clear();
+        foreach (var p in PendingRegistrations)
+        {
+            if (searchLower == "" ||
+                p.Name.ToLower().Contains(searchLower) ||
+                p.Address.ToLower().Contains(searchLower))
+            {
+                FilteredPending.Add(p);
+            }
         }
     }
 
@@ -614,7 +753,7 @@ public class MainViewModel : ViewModelBase
                     }
                 }
                 ConnectedClientsCount = ConnectedClients.Count;
-                AddLog("INFO", $"Клиентов: {ConnectedClients.Count}");
+                RebuildUsersView();
             });
         }
         catch (Exception ex)
@@ -652,8 +791,7 @@ public class MainViewModel : ViewModelBase
                     }
                 }
                 PendingCount = PendingRegistrations.Count;
-                if (PendingRegistrations.Count > 0)
-                    AddLog("INFO", $"Ожидают регистрации: {PendingRegistrations.Count}");
+                RebuildUsersView();
             });
         }
         catch (Exception ex)
@@ -691,7 +829,6 @@ public class MainViewModel : ViewModelBase
                     }
                 }
                 UpdateAllSelectedState();
-                AddLog("INFO", $"Списков: {whitelists.Count}");
             });
         }
         catch (Exception ex)
@@ -998,9 +1135,12 @@ public class MainViewModel : ViewModelBase
                 _serverLogs.RemoveAt(0);
             if (string.IsNullOrEmpty(_logSearchText))
             {
-                _filteredServerLogs.Add(_serverLogs[^1]);
-                while (_filteredServerLogs.Count > _serverLogs.Count)
-                    _filteredServerLogs.RemoveAt(0);
+                if (IsLevelVisible(level))
+                {
+                    _filteredServerLogs.Add(_serverLogs[^1]);
+                    while (_filteredServerLogs.Count > _serverLogs.Count)
+                        _filteredServerLogs.RemoveAt(0);
+                }
             }
             else
             {

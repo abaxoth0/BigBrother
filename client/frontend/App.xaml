@@ -7,7 +7,7 @@
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
                 <ResourceDictionary Source="pack://application:,,,/BigBrother.Frontend.Shared;component/Theme.xaml"/>
-                <ResourceDictionary Source="pack://application:,,,/BigBrother.Frontend.Shared;component/ClientDark.xaml"/>
+                <ResourceDictionary Source="pack://application:,,,/BigBrother.Frontend.Shared;component/ThemeDark.xaml"/>
             </ResourceDictionary.MergedDictionaries>
         </ResourceDictionary>
     </Application.Resources>
