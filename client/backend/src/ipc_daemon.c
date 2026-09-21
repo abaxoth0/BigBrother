@@ -43,8 +43,37 @@ static int g_registration_tried = 0;
 static int g_fallback_whitelist_enabled = 1;
 static int g_filtration_enabled = 1;
 
-static char g_last_whitelist[DAEMON_MAX_MESSAGE_SIZE] = {0};
+// Last whitelist pushed to the firewall (heap-allocated, grows on demand so a
+// large server whitelist is not truncated at a fixed size).
+static char* g_last_whitelist = NULL;
+static size_t g_last_whitelist_cap = 0;
 static int g_blocked_all_pushed = 0;
+
+static int wl_last_reserve(size_t need) {
+    if (need + 1 <= g_last_whitelist_cap) return 0;
+    size_t cap = need + 1;
+    if (cap < 4096) cap = 4096;
+    char* nb = realloc(g_last_whitelist, cap);
+    if (!nb) return -1;
+    g_last_whitelist = nb;
+    g_last_whitelist_cap = cap;
+    return 0;
+}
+
+static void wl_last_set(const char* s) {
+    size_t len = strlen(s);
+    if (wl_last_reserve(len) == 0 && g_last_whitelist) {
+        memcpy(g_last_whitelist, s, len + 1);
+    }
+}
+
+static void wl_last_clear(void) {
+    if (g_last_whitelist) g_last_whitelist[0] = '\0';
+}
+
+static int wl_last_equals(const char* s) {
+    return g_last_whitelist && strcmp(g_last_whitelist, s) == 0;
+}
 
 void SetServerSessionActive(int active) {
     if (g_server_session_active != active) {
@@ -878,53 +907,61 @@ static int srv_read_tlv(SrvLineReader* r, char* out, size_t out_size) {
 
 // Fetches and applies the whitelist from the server.
 static void sync_whitelist_from_server(const char* username) {
-    char whitelist_buf[DAEMON_MAX_MESSAGE_SIZE];
     const char* wl_args[1] = {username};
-    char response[DAEMON_MAX_MESSAGE_SIZE] = {0};
 
-    if (send_to_server_tlv("GET_WHITELIST", wl_args, 1, response, sizeof(response)) != 0) {
+    // Server whitelist can be large; read it into a heap buffer (bounded only by
+    // the DAEMON_MAX_MESSAGE_SIZE soft cap).
+    char* response = malloc(DAEMON_MAX_MESSAGE_SIZE);
+    if (!response) {
+        LOGF("[Daemon] Out of memory fetching whitelist");
+        return;
+    }
+
+    if (send_to_server_tlv("GET_WHITELIST", wl_args, 1, response, DAEMON_MAX_MESSAGE_SIZE) != 0) {
         LOGF("[Daemon] Failed to fetch whitelist from server");
+        free(response);
         return;
     }
 
     // Server whitelist sync disabled
     if (strcmp(response, "SYNC_DISABLED") == 0) {
-        if (strcmp(g_last_whitelist, "SYNC_DISABLED") != 0) {
+        if (!wl_last_equals("SYNC_DISABLED")) {
             if (g_fallback_whitelist_enabled) {
                 LOGF("[Daemon] Server whitelist sync is disabled, keeping local whitelist");
             } else {
                 LOGF("[Daemon] Server whitelist sync is disabled, fallback off - blocking all traffic");
-                if (DaemonSetWhitelist("", 0, whitelist_buf, sizeof(whitelist_buf)) == 0) {
+                char ok_buf[16];
+                if (DaemonSetWhitelist("", 0, ok_buf, sizeof(ok_buf)) == 0) {
                     g_whitelist_revision++;
                     g_blocked_all_pushed = 1;
                     NotifyStateChanged();
                 }
             }
-            strncpy(g_last_whitelist, "SYNC_DISABLED", sizeof(g_last_whitelist) - 1);
-            g_last_whitelist[sizeof(g_last_whitelist) - 1] = '\0';
+            wl_last_set("SYNC_DISABLED");
         }
+        free(response);
         return;
     }
 
     if (g_blocked_all_pushed) {
         g_blocked_all_pushed = 0;
-        g_last_whitelist[0] = '\0';
+        wl_last_clear();
     }
-    if (strcmp(response, g_last_whitelist) == 0) {
+    if (wl_last_equals(response)) {
+        free(response);
         return;
     }
-    size_t copy_len = strlen(response);
-    if (copy_len >= sizeof(g_last_whitelist)) copy_len = sizeof(g_last_whitelist) - 1;
-    memcpy(g_last_whitelist, response, copy_len);
-    g_last_whitelist[copy_len] = '\0';
+    wl_last_set(response);
 
-    if (DaemonSetWhitelist(response, strlen(response), whitelist_buf, sizeof(whitelist_buf)) != 0) {
+    char ok_buf[16];
+    if (DaemonSetWhitelist(response, strlen(response), ok_buf, sizeof(ok_buf)) != 0) {
         LOGF("[Daemon] Failed to set whitelist on daemon");
     } else {
         LOGF("[Daemon] Whitelist updated");
         g_whitelist_revision++;
         NotifyStateChanged();
     }
+    free(response);
 }
 
 // Syncs filtration state from the server.
@@ -941,9 +978,9 @@ static void sync_filtration_from_server(void) {
 // Blocks all traffic if the server is unreachable and fallback is disabled.
 static void block_all_if_no_fallback(void) {
     if (g_fallback_whitelist_enabled || g_blocked_all_pushed) return;
-    char whitelist_buf[DAEMON_MAX_MESSAGE_SIZE];
+    char ok_buf[16];
     LOGF("[Daemon] Server unreachable and fallback off - blocking all traffic");
-    if (DaemonSetWhitelist("", 0, whitelist_buf, sizeof(whitelist_buf)) == 0) {
+    if (DaemonSetWhitelist("", 0, ok_buf, sizeof(ok_buf)) == 0) {
         g_whitelist_revision++;
         g_blocked_all_pushed = 1;
         NotifyStateChanged();

@@ -410,6 +410,10 @@ public class MainViewModel : ViewModelBase
                         // Drive the main connection indicator off the service state
                         // so it updates immediately instead of waiting on the IPC
                         // refresh cycle.
+                        // NOTE: this keys connectivity off the Windows *service* —
+                        // a server daemon run as a console process (not registered
+                        // as a service) won't appear connected here. A pipe-liveness
+                        // fallback is planned; see docs/TODO.md.
                         bool running = status == "Running";
                         IsConnected = running;
                         if (running)

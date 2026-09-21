@@ -1,1 +1,1 @@
-- Service discovery - how client should know exact server IP if network is configured using DHCP?
+- Server GUI: `IsConnected`/settings availability is driven by the **Windows service** state (via `ServiceManager`), not by pipe reachability. A server daemon started as a **console process** (not registered as a service) will not show as connected in the GUI. Planned: add a pipe-liveness fallback so console/dev runs reflect connectivity.
