@@ -14,6 +14,7 @@ public enum HealthState
     Unknown,
     AllOk,
     Degraded,
+    FiltrationOff,
     Critical
 }
 
@@ -91,6 +92,7 @@ public class MainViewModel : ViewModelBase, IDisposable
     {
         HealthState.AllOk => "Работает",
         HealthState.Degraded => "Отсутствует подключение к серверу",
+        HealthState.FiltrationOff => "Фильтрация отключена",
         HealthState.Critical => "Отсутствует подключение к Firewall'у",
         _ => "Проверка статуса..."
     };
@@ -831,8 +833,10 @@ public class MainViewModel : ViewModelBase, IDisposable
 
         if (!daemonRunning)
             OverallHealth = HealthState.Critical;
-        else if (!serverConnected || !status.FiltrationEnabled)
+        else if (!serverConnected)
             OverallHealth = HealthState.Degraded;
+        else if (!status.FiltrationEnabled)
+            OverallHealth = HealthState.FiltrationOff;
         else
             OverallHealth = HealthState.AllOk;
     }
