@@ -152,9 +152,10 @@ static DWORD WINAPI ipc_client_handler(LPVOID param) {
     HANDLE pipe = (HANDLE)param;
 
     // Message-mode named pipes report ERROR_MORE_DATA when a message is larger
-    // than the read buffer. Read in a loop to assemble the full message so large
-    // SET_WHITELIST payloads are not silently truncated.
-    char* buffer = malloc(IPC_MAX_MESSAGE_SIZE + 1);
+    // than the read buffer. Grow the buffer as needed (up to IPC_MAX_MESSAGE_SIZE)
+    // so large SET_WHITELIST payloads are not silently truncated.
+    size_t cap = 64 * 1024;
+    char* buffer = malloc(cap + 1);
     if (!buffer) {
         CloseHandle(pipe);
         return 1;
@@ -165,7 +166,17 @@ static DWORD WINAPI ipc_client_handler(LPVOID param) {
     BOOL ok = FALSE;
 
     for (;;) {
-        ok = ReadFile(pipe, buffer + total, (DWORD)(IPC_MAX_MESSAGE_SIZE - total), &bytes_read, NULL);
+        DWORD room = (DWORD)(cap - total);
+        if (room == 0) {
+            if (cap >= IPC_MAX_MESSAGE_SIZE) break;
+            cap = (cap * 2 < IPC_MAX_MESSAGE_SIZE) ? cap * 2 : IPC_MAX_MESSAGE_SIZE;
+            char* nb = realloc(buffer, cap + 1);
+            if (!nb) break;
+            buffer = nb;
+            room = (DWORD)(cap - total);
+        }
+
+        ok = ReadFile(pipe, buffer + total, room, &bytes_read, NULL);
         if (ok) {
             // A successful ReadFile returns a complete message — stop here.
             // Continuing would block waiting for a second request the client
@@ -175,10 +186,6 @@ static DWORD WINAPI ipc_client_handler(LPVOID param) {
         }
 
         if (GetLastError() != ERROR_MORE_DATA) break;
-        if (bytes_read == 0) break;
-
-        // Message larger than the buffer — append this chunk and keep reading
-        // the remainder of the SAME message.
         total += bytes_read;
         if (total >= IPC_MAX_MESSAGE_SIZE) break;
     }

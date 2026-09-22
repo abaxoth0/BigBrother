@@ -12,8 +12,10 @@
 
 #define IPC_PIPE_NAME "BigBrother.Firewall"
 #define IPC_BUFFER_SIZE 4096
-// Max IPC message size: large enough for a full whitelist (256 domains x 256 chars).
-#define IPC_MAX_MESSAGE_SIZE (64 * 1024)
+// Soft cap for an individual IPC message (e.g. a full whitelist dump). Named
+// pipes in message mode limit a single message by the pipe's buffer size, so
+// keep this generous (16 MB) and in sync with DAEMON_MAX_MESSAGE_SIZE.
+#define IPC_MAX_MESSAGE_SIZE (16 * 1024 * 1024)
 
 /**
  * @brief Start the IPC server in a separate thread.

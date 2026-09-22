@@ -30,6 +30,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Frontends: custom-window-chrome base `ChromeWindow` moved into the shared library and reused by both frontends; shared dark theme renamed `ClientDark.xaml` → `ThemeDark.xaml`
 - Server frontend: removed dead server-name/port save commands and dropped per-refresh log spam
 
+- Client backend/firewall: whitelist relay no longer capped at 64KB — the server-sync buffer and firewall IPC reader use growing (heap) buffers with a 16MB soft bound, so large server whitelists aren't truncated
+- Build: new committed `publish.sh` — one-shot publish of all daemons + self-contained win-x64 frontends into `dist/{client,server}-frontend`, then NSIS installers (previously the frontends had no scripted build step)
+
 ## [1.2.0] - 10-09-2026
 
 ### Fixed
