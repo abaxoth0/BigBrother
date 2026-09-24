@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Client frontend: filtration status label no longer stuck on "Вкл" — an inline `Text` value was overriding the style trigger, so it never reflected the real state
+- Client frontend: turning filtration off no longer shows "Отсутствует подключение к серверу" — a dedicated "Фильтрация отключена" health state now reports it accurately
+
 - Server backend: changing a user's name/address no longer crashes the whole server — `changeUserProperty` dereferenced a nil user when the target name/address wasn't in the DB (reachable via `CHANGE_NAME` to a free name or `CONNECT` with a new client IP)
 - Server backend: in-memory connection manager is now mutex-guarded — concurrent handler/cleanup access to the shared map caused `concurrent map writes` crashes under load
 - Server backend: DB transaction helper now rolls back the open transaction on a prep error (leaked transactions kept the SQLite write lock and caused `database is locked`)

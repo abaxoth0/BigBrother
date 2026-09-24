@@ -434,7 +434,7 @@
                                 <StackPanel Grid.Column="2">
                                     <StackPanel Orientation="Horizontal" Margin="0,4">
                                         <TextBlock Text="Фильтрация" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                                        <TextBlock Text="Вкл" VerticalAlignment="Center">
+                                        <TextBlock VerticalAlignment="Center">
                                             <TextBlock.Style>
                                                 <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
                                                     <Setter Property="Text" Value="Выкл"/>
