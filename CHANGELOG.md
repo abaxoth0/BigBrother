@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [1.3.0] - 27-09-2026
+
 ### Fixed
 
 - Client frontend: filtration status label no longer stuck on "Вкл" — an inline `Text` value was overriding the style trigger, so it never reflected the real state
