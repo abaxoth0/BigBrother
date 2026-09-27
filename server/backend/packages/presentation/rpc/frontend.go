@@ -3,8 +3,6 @@
 package rpc
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"io"
 	"net"
