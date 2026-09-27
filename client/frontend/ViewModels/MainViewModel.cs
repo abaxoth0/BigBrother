@@ -247,6 +247,16 @@ public class MainViewModel : ViewModelBase, IDisposable
         }
     }
 
+    private string _serverToken = "";
+    public string ServerToken
+    {
+        get => _serverToken;
+        set
+        {
+            if (SetProperty(ref _serverToken, value)) MarkSettingsChanged();
+        }
+    }
+
     private string _username = "";
     public string Username
     {
@@ -522,12 +532,15 @@ public class MainViewModel : ViewModelBase, IDisposable
         var netGw = await _ipcService.GetNetworkGatewayAsync();
         var netMask = await _ipcService.GetNetworkMaskAsync();
         var filtAuto = await _ipcService.GetFiltrationAutoDisableAsync();
+        var token = await _ipcService.GetServerTokenAsync();
         var available = addr != "" || name != "" || enabled || srvName != "";
 
         System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
         {
             _serverAddress = addr;
             OnPropertyChanged(nameof(ServerAddress));
+            _serverToken = token;
+            OnPropertyChanged(nameof(ServerToken));
             _username = name;
             OnPropertyChanged(nameof(Username));
             _serverName = srvName;
@@ -554,6 +567,7 @@ public class MainViewModel : ViewModelBase, IDisposable
     {
         await SaveFieldAsync("Адрес сервера", ServerAddress, s => _ipcService.SetServerAddressAsync(s));
         await SaveFieldAsync("Имя пользователя", Username, s => _ipcService.SetUsernameAsync(s));
+        await SaveFieldAsync("Токен сервера", ServerToken, s => _ipcService.SetServerTokenAsync(s));
         await SaveFieldAsync("Порт сервера", ServerPort, s => _ipcService.SetServerPortAsync(s));
         await SaveFieldAsync("Шлюз", NetworkGateway, s => _ipcService.SetNetworkGatewayAsync(s));
         await SaveFieldAsync("Маска подсети", NetworkMask, s => _ipcService.SetNetworkMaskAsync(s));

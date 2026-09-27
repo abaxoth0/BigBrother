@@ -448,6 +448,50 @@ public class IpcService : IDisposable
         }
     }
 
+    public async Task<string> GetUserTokenAsync(string name)
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return "";
+            try
+            {
+                var (status, data) = SendCommand("GET_USER_TOKEN", name);
+                return status == "OK" && data.Count > 0 ? data[0] : "";
+            }
+            finally
+            {
+                Disconnect();
+            }
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
+    public async Task<string> RegenerateUserTokenAsync(string name)
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return "";
+            try
+            {
+                var (status, data) = SendCommand("REGENERATE_TOKEN", name);
+                return status == "OK" && data.Count > 0 ? data[0] : "";
+            }
+            finally
+            {
+                Disconnect();
+            }
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
     public async Task<bool> RejectUserAsync(string name)
     {
         await _connectionLock.WaitAsync();

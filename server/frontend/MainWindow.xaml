@@ -380,6 +380,9 @@
                         <DataGrid.ContextMenu>
                             <ContextMenu>
                                 <MenuItem Header="Отключить" Command="{Binding DisconnectCommand}" CommandParameter="{Binding PlacementTarget.SelectedItem.Name, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                                <Separator/>
+                                <MenuItem Header="Показать токен" Command="{Binding ShowUserTokenCommand}" CommandParameter="{Binding PlacementTarget.SelectedItem.Name, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                                <MenuItem Header="Сбросить токен" Command="{Binding RegenerateTokenCommand}" CommandParameter="{Binding PlacementTarget.SelectedItem.Name, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
                             </ContextMenu>
                         </DataGrid.ContextMenu>
                     </DataGrid>

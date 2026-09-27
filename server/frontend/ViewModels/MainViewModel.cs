@@ -147,6 +147,8 @@ public class MainViewModel : ViewModelBase
 
         ApproveCommand = new RelayCommand(async o => await ApproveUserAsync(o?.ToString()!), o => o != null);
         RejectCommand = new RelayCommand(async o => await RejectUserAsync(o?.ToString()!), o => o != null);
+        ShowUserTokenCommand = new RelayCommand(async o => await ShowUserTokenAsync(o?.ToString()!), o => o != null);
+        RegenerateTokenCommand = new RelayCommand(async o => await RegenerateUserTokenAsync(o?.ToString()!), o => o != null);
         DisconnectCommand = new RelayCommand(async o => await DisconnectUserAsync(o?.ToString()!), o => o != null);
         RefreshCommand = new RelayCommand(async _ => await RefreshAllAsync());
         DeleteWhitelistCommand = new RelayCommand(async o => await DeleteWhitelistAsync(o?.ToString()!), o => o != null);
@@ -359,6 +361,8 @@ public class MainViewModel : ViewModelBase
     }
 
     public ICommand ApproveCommand { get; }
+    public ICommand ShowUserTokenCommand { get; }
+    public ICommand RegenerateTokenCommand { get; }
     public ICommand RejectCommand { get; }
     public ICommand DisconnectCommand { get; }
     public ICommand RefreshCommand { get; }
@@ -854,8 +858,43 @@ public class MainViewModel : ViewModelBase
         if (string.IsNullOrEmpty(name)) return;
         var ok = await _ipcService.ApproveUserAsync(name);
         AddLog(ok ? "INFO" : "ERROR", ok ? $"Пользователь {name} одобрен" : $"Ошибка одобрения {name}");
+        if (ok)
+        {
+            var token = await _ipcService.GetUserTokenAsync(name);
+            if (!string.IsNullOrEmpty(token))
+            {
+                MessageBox.Show($"Токен для клиента «{name}»:\n\n{token}\n\nВведите его в настройках клиента (поле «Токен сервера»).",
+                    "Токен доступа", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+        }
         await RefreshPendingAsync();
         await RefreshClientsAsync();
+    }
+
+    private async Task ShowUserTokenAsync(string? name)
+    {
+        if (string.IsNullOrEmpty(name)) return;
+        var token = await _ipcService.GetUserTokenAsync(name);
+        if (string.IsNullOrEmpty(token))
+        {
+            MessageBox.Show("Токен не установлен.", "Токен доступа", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+        MessageBox.Show($"Токен клиента «{name}»:\n\n{token}",
+            "Токен доступа", MessageBoxButton.OK, MessageBoxImage.Information);
+    }
+
+    private async Task RegenerateUserTokenAsync(string? name)
+    {
+        if (string.IsNullOrEmpty(name)) return;
+        var token = await _ipcService.RegenerateUserTokenAsync(name);
+        AddLog(string.IsNullOrEmpty(token) ? "ERROR" : "INFO",
+            string.IsNullOrEmpty(token) ? $"Ошибка сброса токена {name}" : $"Токен {name} обновлён");
+        if (!string.IsNullOrEmpty(token))
+        {
+            MessageBox.Show($"Новый токен для «{name}»:\n\n{token}\n\nВведите его в настройках клиента.",
+                "Токен доступа", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
     }
 
     private async Task RejectUserAsync(string? name)
