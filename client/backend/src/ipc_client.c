@@ -481,6 +481,20 @@ DWORD WINAPI client_handler(LPVOID param) {
             write_response_tlv(pipe, "OK", data, 1); // empty string = not set
         }
 
+    } else if (strcmp(buffer, "SET_TOKEN") == 0) {
+        if (arg_count < 1 || !args[0]) {
+            write_error_tlv(pipe, "missing token");
+        } else {
+            ini_set_string("client", "token", args[0]);
+            write_ok(pipe);
+        }
+
+    } else if (strcmp(buffer, "GET_TOKEN") == 0) {
+        char buf[256] = {0};
+        ini_get_string("client", "token", buf, sizeof(buf));
+        const char* data[1] = {buf};
+        write_response_tlv(pipe, "OK", data, 1);
+
     } else if (strcmp(buffer, "GET_FILTRATION") == 0) {
         char val[8];
         int enabled = IsFiltrationEnabled();

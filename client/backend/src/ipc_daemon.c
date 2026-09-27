@@ -9,6 +9,7 @@
 
 #include "../include/ipc_daemon.h"
 #include "../include/ipc_client.h"
+#include "../include/tls_client.h"
 #include "../../../common/log/log.h"
 #include <windows.h>
 #include <stdlib.h>
@@ -540,6 +541,9 @@ static void apply_auto_enable(void) {
     }
 }
 
+static int tls_connect_socket(SOCKET sock, bb_tls_t* tls);
+static void get_client_token(char* buf, size_t size);
+
 static int send_to_server_tlv(const char* command, const char** args, size_t arg_count,
                               char* out_buffer, size_t buffer_size) {
     if (!g_server_ip[0] || !command || !out_buffer || buffer_size == 0) {
@@ -566,8 +570,7 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
 
     // TCP socket
     SOCKET sock = INVALID_SOCKET;
-    // The subscribe loop calls this repeatedly; keep the worst-case blocking
-    // time bounded (3 x 200ms = 600ms) instead of stalling on 10 x 500ms.
+    // Keep the worst-case blocking time bounded instead of stalling.
     int retries = 3;
 
     while (retries > 0 && sock == INVALID_SOCKET) {
@@ -600,7 +603,15 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
         return -1;
     }
 
-    printf("[send_to_server] Connected, sending command...\n");
+    bb_tls_t tls;
+    if (tls_connect_socket(sock, &tls) != 0) {
+        printf("[send_to_server] TLS handshake or fingerprint verification failed\n");
+        closesocket(sock);
+        WSACleanup();
+        return -1;
+    }
+
+    printf("[send_to_server] Connected via TLS, sending command...\n");
     fflush(stdout);
 
     // Build TLV request
@@ -616,6 +627,7 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
 
     char* send_buf = malloc(total_size);
     if (!send_buf) {
+        bb_tls_free(&tls);
         closesocket(sock);
         WSACleanup();
         return -1;
@@ -639,10 +651,11 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
     }
     *sp++ = '\n';
 
-    int sent = send(sock, send_buf, (int)(sp - send_buf), 0);
+    int sent = bb_tls_write(&tls, send_buf, (size_t)(sp - send_buf));
     free(send_buf);
     if (sent <= 0) {
-        printf("[send_to_server] send() failed: %lu\n", (unsigned long)WSAGetLastError());
+        printf("[send_to_server] send() failed\n");
+        bb_tls_free(&tls);
         closesocket(sock);
         WSACleanup();
         return -1;
@@ -654,7 +667,7 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
     size_t status_remaining = sizeof(status_buf) - 1;
     while (status_remaining > 0) {
         char c;
-        int n = recv(sock, &c, 1, 0);
+        int n = bb_tls_read(&tls, &c, 1);
         if (n <= 0) break;
         if (c == '\n') break;
         *status_out++ = c;
@@ -677,7 +690,7 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
             char* lp = len_line;
             while (1) {
                 char c;
-                int n = recv(sock, &c, 1, 0);
+                int n = bb_tls_read(&tls, &c, 1);
                 if (n <= 0) break;
                 if (c == '\n') break;
                 *lp++ = c;
@@ -698,26 +711,26 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
             }
             first = 0;
 
-        // Read value
-        int count = 0;
-        while (count < expected_len && remaining > 0) {
-            char c;
-            int n = recv(sock, &c, 1, 0);
-            if (n <= 0) break;
-            *out++ = c;
-            count++;
-            remaining--;
-        }
-        *out = '\0';
-
-        // Consume trailing newline after TLV value
-        {
-            char nl;
-            int n = recv(sock, &nl, 1, 0);
-            if (n == 1 && nl == '\r') {
-                recv(sock, &nl, 1, 0); // consume \n after \r
+            // Read value
+            int count = 0;
+            while (count < expected_len && remaining > 0) {
+                char c;
+                int n = bb_tls_read(&tls, &c, 1);
+                if (n <= 0) break;
+                *out++ = c;
+                count++;
+                remaining--;
             }
-        }
+            *out = '\0';
+
+            // Consume trailing newline after TLV value
+            {
+                char nl;
+                int n = bb_tls_read(&tls, &nl, 1);
+                if (n == 1 && nl == '\r') {
+                    bb_tls_read(&tls, &nl, 1); // consume \n after \r
+                }
+            }
         }
         result = 0;
     } else if (strcmp(status_buf, "ERROR") == 0) {
@@ -725,7 +738,7 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
         char* lp = len_line;
         while (1) {
             char c;
-            int n = recv(sock, &c, 1, 0);
+            int n = bb_tls_read(&tls, &c, 1);
             if (n <= 0) break;
             if (c == '\n') break;
             *lp++ = c;
@@ -736,7 +749,7 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
             if (expected_len > 0 && expected_len < (int)buffer_size) {
                 int bytes_read = 0;
                 while (bytes_read < expected_len) {
-                    int n = recv(sock, out_buffer + bytes_read, expected_len - bytes_read, 0);
+                    int n = bb_tls_read(&tls, out_buffer + bytes_read, (size_t)(expected_len - bytes_read));
                     if (n <= 0) break;
                     bytes_read += n;
                 }
@@ -746,9 +759,33 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
         result = -1;
     }
 
+    bb_tls_free(&tls);
     closesocket(sock);
     WSACleanup();
     return result;
+}
+
+// Read a client auth token from config.ini.
+static void get_client_token(char* buf, size_t size) {
+    buf[0] = '\0';
+    ini_get_string("client", "token", buf, size);
+}
+
+// Establish a TLS session over an already-connected socket, verifying the
+// server certificate fingerprint (TOFU when not yet pinned).
+static int tls_connect_socket(SOCKET sock, bb_tls_t* tls) {
+    char pinned[65] = {0};
+    char got[65] = {0};
+    ini_get_string("server", "fingerprint", pinned, sizeof(pinned));
+    if (bb_tls_init(tls) != 0) return -1;
+    if (bb_tls_connect(tls, sock, pinned, got, sizeof(got)) != 0) {
+        bb_tls_free(tls);
+        return -1;
+    }
+    if (pinned[0] == '\0' && got[0] != '\0') {
+        ini_set_string("server", "fingerprint", got); // trust-on-first-use
+    }
+    return 0;
 }
 
 int ServerRegister(const char* name) {
@@ -780,9 +817,11 @@ int ServerConnect(const char* name) {
     if (!name) return -1;
     char local_ip[64] = {0};
     GetLocalIp(g_server_ip, local_ip, sizeof(local_ip));
-    const char* args[2] = {name, local_ip};
+    char token[256] = {0};
+    get_client_token(token, sizeof(token));
+    const char* args[3] = {name, local_ip, token};
     char response[256] = {0};
-    int result = send_to_server_tlv("CONNECT", args, local_ip[0] ? 2 : 1, response, sizeof(response));
+    int result = send_to_server_tlv("CONNECT", args, 3, response, sizeof(response));
     if (result == 0 || strstr(response, "already connected") != NULL) {
         SetServerSessionActive(1);
         return 0;
@@ -797,27 +836,33 @@ int ServerConnect(const char* name) {
 
 int ServerDisconnect(const char* name) {
     if (!name) return -1;
-    const char* args[1] = {name};
+    char token[256] = {0};
+    get_client_token(token, sizeof(token));
+    const char* args[2] = {name, token};
     char response[256];
-    int result = send_to_server_tlv("DISCONNECT", args, 1, response, sizeof(response));
+    int result = send_to_server_tlv("DISCONNECT", args, 2, response, sizeof(response));
     if (result == 0) SetServerSessionActive(0);
     return result;
 }
 
 int ServerRefresh(const char* name) {
     if (!name) return -1;
-    const char* args[1] = {name};
+    char token[256] = {0};
+    get_client_token(token, sizeof(token));
+    const char* args[2] = {name, token};
     char response[256];
-    int result = send_to_server_tlv("REFRESH", args, 1, response, sizeof(response));
+    int result = send_to_server_tlv("REFRESH", args, 2, response, sizeof(response));
     if (result == 0) SetServerSessionActive(1);
     return result;
 }
 
 int ServerChangeName(const char* oldName, const char* newName) {
     if (!oldName || !newName) return -1;
-    const char* args[2] = {oldName, newName};
+    char token[256] = {0};
+    get_client_token(token, sizeof(token));
+    const char* args[3] = {oldName, newName, token};
     char response[256];
-    return send_to_server_tlv("CHANGE_NAME", args, 2, response, sizeof(response));
+    return send_to_server_tlv("CHANGE_NAME", args, 3, response, sizeof(response));
 }
 
 int PingServer(void) {
@@ -829,20 +874,20 @@ int PingServer(void) {
 
 // Buffered line reader used by server_subscribe_loop
 typedef struct {
-    SOCKET sock;
+    bb_tls_t* tls;
     char buf[4096];
     size_t pos;
     size_t len;
 } SrvLineReader;
 
-static void srv_line_reader_init(SrvLineReader* r, SOCKET sock) {
-    r->sock = sock;
+static void srv_line_reader_init(SrvLineReader* r, bb_tls_t* tls) {
+    r->tls = tls;
     r->pos = 0;
     r->len = 0;
 }
 
 // Read a single LF-terminated line (strips CR). Returns 1 on success,
-// 2 on recv timeout, 0 on error/disconnect. Over-long lines are truncated
+// 2 on read timeout, 0 on error/disconnect. Over-long lines are truncated
 // but fully drained so framing stays intact (no bogus follow-up line).
 static int srv_readline(SrvLineReader* r, char* out, size_t out_size) {
     size_t consumed = 0;
@@ -850,11 +895,11 @@ static int srv_readline(SrvLineReader* r, char* out, size_t out_size) {
         if (r->pos >= r->len) {
             r->pos = 0;
             r->len = 0;
-            int n = recv(r->sock, r->buf, sizeof(r->buf) - 1, 0);
+            int n = bb_tls_read(r->tls, r->buf, sizeof(r->buf) - 1);
             if (n <= 0) {
-                if (n == 0) return 0; // connection closed
-                if (WSAGetLastError() == WSAETIMEDOUT) return 2; // recv timeout
-                return 0; // real error
+                if (n == 0) return 0;         // connection closed
+                if (n == BB_TLS_TRY_AGAIN) return 2; // idle timeout, retry
+                return 0;                     // real error
             }
             r->len = (size_t)n;
         }
@@ -880,7 +925,7 @@ static int srv_read_tlv(SrvLineReader* r, char* out, size_t out_size) {
     size_t got = 0;
     while (got < (size_t)expected) {
         if (r->pos >= r->len) {
-            int n = recv(r->sock, r->buf, sizeof(r->buf) - 1, 0);
+            int n = bb_tls_read(r->tls, r->buf, sizeof(r->buf) - 1);
             if (n <= 0) return 0;
             r->pos = 0;
             r->len = (size_t)n;
@@ -895,7 +940,7 @@ static int srv_read_tlv(SrvLineReader* r, char* out, size_t out_size) {
     out[got] = '\0';
     // Consume trailing newline
     if (r->pos >= r->len) {
-        int n = recv(r->sock, r->buf, sizeof(r->buf) - 1, 0);
+        int n = bb_tls_read(r->tls, r->buf, sizeof(r->buf) - 1);
         if (n <= 0) return 0;
         r->pos = 0;
         r->len = (size_t)n;
@@ -907,7 +952,9 @@ static int srv_read_tlv(SrvLineReader* r, char* out, size_t out_size) {
 
 // Fetches and applies the whitelist from the server.
 static void sync_whitelist_from_server(const char* username) {
-    const char* wl_args[1] = {username};
+    char token[256] = {0};
+    get_client_token(token, sizeof(token));
+    const char* wl_args[2] = {username, token};
 
     // Server whitelist can be large; read it into a heap buffer (bounded only by
     // the DAEMON_MAX_MESSAGE_SIZE soft cap).
@@ -917,7 +964,7 @@ static void sync_whitelist_from_server(const char* username) {
         return;
     }
 
-    if (send_to_server_tlv("GET_WHITELIST", wl_args, 1, response, DAEMON_MAX_MESSAGE_SIZE) != 0) {
+    if (send_to_server_tlv("GET_WHITELIST", wl_args, 2, response, DAEMON_MAX_MESSAGE_SIZE) != 0) {
         LOGF("[Daemon] Failed to fetch whitelist from server");
         free(response);
         return;
@@ -1124,11 +1171,23 @@ static int server_subscribe_loop(const char* username, int* consecutive_failures
         return 0;
     }
 
-    // Send SUBSCRIBE with username
-    char sub_req[1024];
-    int sub_len = snprintf(sub_req, sizeof(sub_req), "SUBSCRIBE\n%zu\n%s\n\n",
-                           strlen(username), username);
-    if (send(sock, sub_req, sub_len, 0) <= 0) {
+    // Establish TLS over the connected socket (fingerprint pinned).
+    bb_tls_t subscription_tls;
+    if (tls_connect_socket(sock, &subscription_tls) != 0) {
+        LOGF("[Daemon] SUBSCRIBE TLS handshake failed");
+        closesocket(sock);
+        WSACleanup();
+        return 0;
+    }
+
+    // Send SUBSCRIBE with username + client token
+    char token[256] = {0};
+    get_client_token(token, sizeof(token));
+    char sub_req[128 + 512];
+    int sub_len = snprintf(sub_req, sizeof(sub_req), "SUBSCRIBE\n%zu\n%s\n%zu\n%s\n\n",
+                           strlen(username), username, strlen(token), token);
+    if (bb_tls_write(&subscription_tls, sub_req, (size_t)sub_len) <= 0) {
+        bb_tls_free(&subscription_tls);
         closesocket(sock);
         WSACleanup();
         return 0;
@@ -1136,10 +1195,11 @@ static int server_subscribe_loop(const char* username, int* consecutive_failures
 
     // Read OK response
     SrvLineReader reader;
-    srv_line_reader_init(&reader, sock);
+    srv_line_reader_init(&reader, &subscription_tls);
     char status[32];
     if (!srv_readline(&reader, status, sizeof(status)) || strcmp(status, "OK") != 0) {
         LOGF("[Daemon] SUBSCRIBE handshake failed: '%s'", status);
+        bb_tls_free(&subscription_tls);
         closesocket(sock);
         WSACleanup();
         return 0;
@@ -1178,7 +1238,7 @@ static int server_subscribe_loop(const char* username, int* consecutive_failures
         DWORD now = GetTickCount();
         if (now - last_heartbeat >= SRV_HEARTBEAT_INTERVAL_MS) {
             last_heartbeat = now;
-            if (send(sock, "K\n", 2, 0) <= 0) {
+            if (bb_tls_write(&subscription_tls, "K\n", 2) <= 0) {
                 LOGF("[Daemon] Heartbeat send failed, connection lost");
                 break;
             }
@@ -1228,6 +1288,7 @@ static int server_subscribe_loop(const char* username, int* consecutive_failures
         }
     }
 
+    bb_tls_free(&subscription_tls);
     closesocket(sock);
     WSACleanup();
     return keep_going; // 1 = service stop, 0 = connection lost
