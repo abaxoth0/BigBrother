@@ -6,6 +6,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Status constants
@@ -14,9 +15,19 @@ const (
 	StatusError = "ERROR"
 )
 
-// writeStatus writes the status line
-func writeStatus(conn net.Conn, status string) error {
-	return writeLine(conn, status)
+// maxMessageSize caps a single TLV value (whitelist dumps can be large).
+const maxMessageSize = 4 * 1024 * 1024
+
+// requestReadTimeout bounds how long a peer may sit idle between commands so
+// a dead or malicious client can't pin a handler goroutine forever.
+// SUBSCRIBE handlers clear the deadline (they wait for pushed events/heartbeats).
+const requestReadTimeout = 60 * time.Second
+
+// newScanner creates a Scanner large enough to hold the largest TLV value.
+func newScanner(conn net.Conn) *bufio.Scanner {
+	s := bufio.NewScanner(conn)
+	s.Buffer(make([]byte, 64*1024), maxMessageSize)
+	return s
 }
 
 // writeOK writes "OK\n\n" - convenience (empty line terminates response)
@@ -59,27 +70,6 @@ func writeTLVResponse(conn net.Conn, dataLines ...string) error {
 	return writeLine(conn, "") // empty line terminates response
 }
 
-// readTLV reads a TLV: reads len line, then value line
-func readTLV(scanner *bufio.Scanner) (string, error) {
-	if !scanner.Scan() {
-		return "", fmt.Errorf("unexpected end of input reading length")
-	}
-	lenStr := scanner.Text()
-	expectedLen, err := strconv.Atoi(lenStr)
-	if err != nil {
-		return "", fmt.Errorf("invalid TLV length: %s", lenStr)
-	}
-
-	if !scanner.Scan() {
-		return "", fmt.Errorf("unexpected end of input reading value")
-	}
-	value := scanner.Text()
-	if len(value) != expectedLen {
-		return "", fmt.Errorf("TLV length mismatch: expected %d, got %d", expectedLen, len(value))
-	}
-	return value, nil
-}
-
 // readRequest reads command and TLV arguments until empty line
 func readRequest(scanner *bufio.Scanner) (cmd string, args []string, err error) {
 	// First non-empty line is command
@@ -89,6 +79,9 @@ func readRequest(scanner *bufio.Scanner) (cmd string, args []string, err error) 
 			cmd = line
 			break
 		}
+	}
+	if err := scanner.Err(); err != nil {
+		return "", nil, fmt.Errorf("reading command: %w", err)
 	}
 	if cmd == "" {
 		return "", nil, fmt.Errorf("empty request")
@@ -106,8 +99,14 @@ func readRequest(scanner *bufio.Scanner) (cmd string, args []string, err error) 
 		if err != nil {
 			return "", nil, fmt.Errorf("invalid TLV length: %s", line)
 		}
+		if expectedLen < 0 {
+			return "", nil, fmt.Errorf("invalid TLV length: %s", line)
+		}
 
 		if !scanner.Scan() {
+			if err := scanner.Err(); err != nil {
+				return "", nil, fmt.Errorf("reading TLV value: %w", err)
+			}
 			return "", nil, fmt.Errorf("unexpected end of input for TLV value")
 		}
 		value := scanner.Text()
@@ -115,6 +114,9 @@ func readRequest(scanner *bufio.Scanner) (cmd string, args []string, err error) 
 			return "", nil, fmt.Errorf("TLV length mismatch: expected %d, got %d", expectedLen, len(value))
 		}
 		args = append(args, value)
+	}
+	if err := scanner.Err(); err != nil {
+		return "", nil, fmt.Errorf("reading TLV argument: %w", err)
 	}
 
 	return cmd, args, nil

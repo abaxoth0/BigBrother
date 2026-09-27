@@ -1,9 +1,10 @@
 using System.Windows;
+using frontend;
 using frontend.ViewModels;
 
 namespace frontend.Views;
 
-public partial class WhitelistEditWindow : Window
+public partial class WhitelistEditWindow : ChromeWindow
 {
     private readonly WhitelistEditViewModel _viewModel;
 

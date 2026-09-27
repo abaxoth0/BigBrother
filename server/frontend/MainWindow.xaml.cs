@@ -3,7 +3,7 @@ using frontend.ViewModels;
 
 namespace frontend;
 
-public partial class MainWindow : Window
+public partial class MainWindow : ChromeWindow
 {
     public MainWindow()
     {

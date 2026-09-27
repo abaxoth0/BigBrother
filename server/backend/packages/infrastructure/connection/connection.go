@@ -17,17 +17,17 @@ var (
 )
 
 type Connection struct {
-	id 			string
-	user 		*entity.User
-	created_at 	time.Time
-	expires_at 	time.Time
+	id         string
+	user       *entity.User
+	created_at time.Time
+	expires_at time.Time
 }
 
 func newConnection(user *entity.User) *Connection {
 	now := time.Now()
 	return &Connection{
-		id: uuid.NewString(),
-		user: user,
+		id:         uuid.NewString(),
+		user:       user,
 		created_at: now,
 		expires_at: now.Add(ConnectionTTL),
 	}
@@ -50,6 +50,7 @@ type Manager interface {
 
 // Stores connections in application memory
 type MemoryResidentConnectionManager struct {
+	mu          sync.RWMutex
 	connections map[string]*Connection
 	stopCleanup chan struct{}
 	cleanupOnce sync.Once
@@ -83,6 +84,8 @@ func (m *MemoryResidentConnectionManager) Stop() {
 
 func (m *MemoryResidentConnectionManager) CleanupExpired() {
 	now := time.Now()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	for name, conn := range m.connections {
 		if now.After(conn.expires_at) {
 			delete(m.connections, name)
@@ -91,7 +94,9 @@ func (m *MemoryResidentConnectionManager) CleanupExpired() {
 }
 
 func (m *MemoryResidentConnectionManager) NewConnection(user *entity.User) (*Connection, error) {
-	m.CleanupExpired()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	if _, ok := m.connections[user.Name]; ok {
 		return nil, ErrAlreadyConnected
 	}
@@ -103,7 +108,9 @@ func (m *MemoryResidentConnectionManager) NewConnection(user *entity.User) (*Con
 }
 
 func (m *MemoryResidentConnectionManager) GetConnection(username string) (*Connection, error) {
-	m.CleanupExpired()
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	conn, ok := m.connections[username]
 	if !ok {
 		return nil, ErrConnectionNotFound
@@ -112,7 +119,9 @@ func (m *MemoryResidentConnectionManager) GetConnection(username string) (*Conne
 }
 
 func (m *MemoryResidentConnectionManager) GetAllConnections() []*Connection {
-	m.CleanupExpired()
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	list := make([]*Connection, 0, len(m.connections))
 	for _, conn := range m.connections {
 		list = append(list, conn)
@@ -121,11 +130,17 @@ func (m *MemoryResidentConnectionManager) GetAllConnections() []*Connection {
 }
 
 func (m *MemoryResidentConnectionManager) DeleteConnection(username string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	delete(m.connections, username)
 	return nil
 }
 
 func (m *MemoryResidentConnectionManager) RefreshConnection(username string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	conn, ok := m.connections[username]
 	if !ok {
 		return ErrConnectionNotFound

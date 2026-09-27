@@ -31,4 +31,3 @@ func InitDefaults() {
 
 	appLogger.Info("Initializing default logger: OK", nil)
 }
-

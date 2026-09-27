@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        xmlns:local="clr-namespace:frontend"
+        xmlns:local="clr-namespace:frontend;assembly=BigBrother.Frontend.Shared"
         xmlns:vm="clr-namespace:frontend.ViewModels"
         xmlns:conv="clr-namespace:frontend.Converters;assembly=BigBrother.Frontend.Shared"
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
@@ -434,7 +434,7 @@
                                 <StackPanel Grid.Column="2">
                                     <StackPanel Orientation="Horizontal" Margin="0,4">
                                         <TextBlock Text="Фильтрация" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                                        <TextBlock Text="Вкл" VerticalAlignment="Center">
+                                        <TextBlock VerticalAlignment="Center">
                                             <TextBlock.Style>
                                                 <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
                                                     <Setter Property="Text" Value="Выкл"/>

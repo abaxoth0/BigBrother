@@ -315,19 +315,24 @@ DWORD WINAPI client_handler(LPVOID param) {
         write_response_tlv(pipe, "OK", data, 9);
 
     } else if (strcmp(buffer, "GET_WHITELIST") == 0) {
-        char whitelist_buf[DAEMON_MAX_MESSAGE_SIZE];
-        if (DaemonGetWhitelist(whitelist_buf, sizeof(whitelist_buf)) != 0) {
+        char* whitelist_buf = malloc(DAEMON_MAX_MESSAGE_SIZE);
+        if (!whitelist_buf) {
+            write_error_tlv(pipe, "out of memory");
+        } else if (DaemonGetWhitelist(whitelist_buf, DAEMON_MAX_MESSAGE_SIZE) != 0) {
+            free(whitelist_buf);
             write_error_tlv(pipe, "failed to get whitelist");
         } else {
             // Parse firewall response: "WHITELIST\ndomain1\ndomain2\n..."
             // Skip "WHITELIST" header line
             char* line = strchr(whitelist_buf, '\n');
             if (!line) {
+                free(whitelist_buf);
                 write_error_tlv(pipe, "invalid whitelist format");
             } else {
-                size_t max_domains = sizeof(whitelist_buf) / 2;
+                size_t max_domains = DAEMON_MAX_MESSAGE_SIZE / 2;
                 char** domains = malloc(max_domains * sizeof(char*));
                 if (!domains) {
+                    free(whitelist_buf);
                     write_error_tlv(pipe, "out of memory");
                 } else {
                     int domain_count = 0;
@@ -344,6 +349,7 @@ DWORD WINAPI client_handler(LPVOID param) {
 
                     write_response_tlv(pipe, "OK", (const char**)domains, domain_count);
                     free(domains);
+                    free(whitelist_buf);
                 }
             }
         }

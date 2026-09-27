@@ -11,8 +11,8 @@ import (
 
 type Database struct {
 	isConnected bool
-	conn 		*sql.DB
-	path		string
+	conn        *sql.DB
+	path        string
 }
 
 func New(path string) *Database {
@@ -41,6 +41,19 @@ func (db *Database) Connect() error {
 		return err
 	}
 
+	// WAL allows concurrent readers while a writer holds the write lock, and
+	// busy_timeout keeps short lock contention from failing immediately.
+	// NOTE: do NOT pin MaxOpenConns(1) here — changeUserProperty reads through
+	// db.conn while a *sql.Tx is open, which would deadlock on a single conn.
+	if _, err := db.conn.Exec("PRAGMA journal_mode = WAL"); err != nil {
+		db.Disconnect()
+		return fmt.Errorf("Failed to enable WAL: %v", err)
+	}
+	if _, err := db.conn.Exec("PRAGMA busy_timeout = 5000"); err != nil {
+		db.Disconnect()
+		return fmt.Errorf("Failed to set busy timeout: %v", err)
+	}
+
 	dbcommon.Log.Info("Connecting: OK", nil)
 
 	return nil
@@ -49,7 +62,7 @@ func (db *Database) Connect() error {
 func (db *Database) Disconnect() error {
 	dbcommon.Log.Info("Disconnecting...", nil)
 
-	if (!db.isConnected) {
+	if !db.isConnected {
 		return dbcommon.ErrNotConnectedToDB
 	}
 	if err := db.conn.Close(); err != nil {
@@ -66,34 +79,34 @@ func (db *Database) Disconnect() error {
 func (db *Database) initTables() error {
 	dbcommon.Log.Info("Initializing tables...", nil)
 
-	if (!db.isConnected) {
+	if !db.isConnected {
 		return dbcommon.ErrNotConnectedToDB
 	}
 
 	// By default SQLite disables foreign key constraints for backward compatability, so need to enable them
 	enableForeignKeysSQL :=
-	`PRAGMA foreign_keys = ON`
+		`PRAGMA foreign_keys = ON`
 	createWhitelistTableSQL :=
-	`CREATE TABLE IF NOT EXISTS whitelist (
+		`CREATE TABLE IF NOT EXISTS whitelist (
 		id 				BLOB NOT NULL PRIMARY KEY,
 		name 			TEXT UNIQUE NOT NULL,
 		parent_id		BLOB REFERENCES whitelist(id) ON DELETE SET NULL
 	)`
 	createWhitelistDomainTableSQL :=
-	`CREATE TABLE IF NOT EXISTS whitelist_entry (
+		`CREATE TABLE IF NOT EXISTS whitelist_entry (
 		id 				BLOB NOT NULL PRIMARY KEY,
 		value 			TEXT NOT NULL,
 		whitelist_id	BLOB NOT NULL REFERENCES whitelist(id) ON DELETE CASCADE
 	)`
 	createUserTableSQL :=
-	`CREATE TABLE IF NOT EXISTS user (
+		`CREATE TABLE IF NOT EXISTS user (
 		id 				BLOB NOT NULL PRIMARY KEY,
 		name 			TEXT UNIQUE NOT NULL,
 		addr			TEXT UNIQUE NOT NULL,
 		whitelist_id	BLOB REFERENCES whitelist(id) ON DELETE SET NULL
 	)`
 	createSettingsTableSQL :=
-	`CREATE TABLE IF NOT EXISTS settings (
+		`CREATE TABLE IF NOT EXISTS settings (
 		key 	TEXT NOT NULL PRIMARY KEY,
 		value	TEXT NOT NULL
 	)`
@@ -112,55 +125,6 @@ func (db *Database) initTables() error {
 	}
 
 	dbcommon.Log.Info("Initializing tables: OK", nil)
-
-	return nil
-}
-
-func Test() error {
-	db := New("./bb-server.db")
-	if err := db.Connect(); err != nil {
-		return err
-	}
-	defer db.Disconnect()
-
-	// wlID, err := db.GetWhitelistID("main")
-	// if err != nil {
-	// 	return err
-	// }
-
-	// x, err := db.GetWhitelistEntries("main")
-	// if err != nil {
-	// 	return err
-	// }
-	// fmt.Println(len(x), x)
-
-	if err := db.DeleteWhitelistEntry("*.twitch.tv", "main"); err != nil {
-		return err
-	}
-
-	// _, err := db.conn.Exec(`INSERT INTO test (id, name) VALUES (?, ?)`, uuid.New(), "Obabo")
-	// if err != nil {
-	// 	return err
-	// }
-	//
-	// rows, err := db.conn.Query(`SELECT id, name FROM test`)
-	// if err != nil {
-	// 	return err
-	// }
-	// defer rows.Close()
-	//
-	// for rows.Next() {
-	// 	var id []byte
-	// 	var name string
-	// 	err := rows.Scan(&id, &name)
-	// 	if err != nil {
-	// 		return err
-	// 	}
-	// 	fmt.Println("DATA: ", string(id), name)
-	// }
-	// if err = rows.Err(); err != nil {
-	// 	return err
-	// }
 
 	return nil
 }

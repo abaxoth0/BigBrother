@@ -5,6 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+## [1.3.0] - 27-09-2026
+
+### Fixed
+
+- Client frontend: filtration status label no longer stuck on "Вкл" — an inline `Text` value was overriding the style trigger, so it never reflected the real state
+- Client frontend: turning filtration off no longer shows "Отсутствует подключение к серверу" — a dedicated "Фильтрация отключена" health state now reports it accurately
+
+- Server backend: changing a user's name/address no longer crashes the whole server — `changeUserProperty` dereferenced a nil user when the target name/address wasn't in the DB (reachable via `CHANGE_NAME` to a free name or `CONNECT` with a new client IP)
+- Server backend: in-memory connection manager is now mutex-guarded — concurrent handler/cleanup access to the shared map caused `concurrent map writes` crashes under load
+- Server backend: DB transaction helper now rolls back the open transaction on a prep error (leaked transactions kept the SQLite write lock and caused `database is locked`)
+- Server backend: subscribers with a broken/stalled connection are dropped on write failure (`notification` write loop), no leaked goroutine/connection
+- Server backend: request TLV parsing uses a large scanner buffer and surfaces scanner errors — large whitelist saves no longer fail at the default 64KB scanner cap
+
+### Changed
+
+- Server backend: SQLite uses WAL journaling + 5s busy timeout for resilience to write contention (deliberately not pinned to a single connection, which would deadlock the read-inside-transaction paths)
+- Server backend: RPC server lifecycle hardened — idempotent `Start`/`Stop`, safe WaitGroup usage, and listener + active connections closed on shutdown so subscribed clients and idle peers exit cleanly; connection manager stopped on shutdown; discovery listener `Stop` idempotent
+- Server backend: per-request 60s read deadline in the command loops (cleared inside `SUBSCRIBE` so subscribed clients are unaffected)
+- Server backend: dedup and cleanup — shared `deleteUsers` helper; removed dead code (`sqlite.Test`, unused `writeStatus`/`readTLV`, dead backend-handler methods, unused package-level `pendingUsers` map, dormant per-user whitelist query); consolidated server-name default
+- Server backend: added tests — connection manager, pending users, DB transactions (incl. rollback-on-error), protocol framing (incl. >64KB values), sqlite integration, broken-subscriber handling; all files gofmt'd
+
+- Server frontend: full GUI rework — dark "rose-pine" theme (reuses the shared dark surfaces from the renamed `ThemeDark.xaml`, with its own rose/iris accents via the new `ServerAccent.xaml`), custom title bar, and tabs replaced with a right-side navigation menu
+- Server frontend: users area reworked into a single table with a mode dropdown (connected clients / pending registrations) plus a name/address search box
+- Server frontend: "Главная" shows a service/filtration health banner, log console with level-filter toggles (INFO/DEBUG/TRACE/WARNING/ERROR/FATAL) and jump-to-bottom, and a bottom status bar with a per-state users counter
+- Server frontend: whitelist table reworked with "make active" toolbar action and highlighted active whitelist; dark table/chrome styling
+- Frontends: custom-window-chrome base `ChromeWindow` moved into the shared library and reused by both frontends; shared dark theme renamed `ClientDark.xaml` → `ThemeDark.xaml`
+- Server frontend: removed dead server-name/port save commands and dropped per-refresh log spam
+
+- Client backend/firewall: whitelist relay no longer capped at 64KB — the server-sync buffer and firewall IPC reader use growing (heap) buffers with a 16MB soft bound, so large server whitelists aren't truncated
+- Build: new committed `publish.sh` — one-shot publish of all daemons + self-contained win-x64 frontends into `dist/{client,server}-frontend`, then NSIS installers (previously the frontends had no scripted build step)
+
 ## [1.2.0] - 10-09-2026
 
 ### Fixed

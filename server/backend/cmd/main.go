@@ -116,14 +116,14 @@ func main() {
 
 	if isService() {
 		mainLogger.Info("Starting as Windows service...", nil)
-		runService(backendAddr, frontendPipePath, discoveryListener, backendServer, frontendServer)
+		runService(backendAddr, frontendPipePath, discoveryListener, connManager, backendServer, frontendServer)
 	} else {
 		mainLogger.Info("Starting in console mode...", nil)
-		runConsole(backendAddr, frontendPipePath, discoveryListener, backendServer, frontendServer)
+		runConsole(backendAddr, frontendPipePath, discoveryListener, backendServer, frontendServer, connManager)
 	}
 }
 
-func startAndWait(backendAddr, frontendPipePath string, discoveryListener *discovery.Listener, backendServer, frontendServer *rpc.Server, stopCh <-chan struct{}) {
+func startAndWait(backendAddr, frontendPipePath string, discoveryListener *discovery.Listener, backendServer, frontendServer *rpc.Server, connManager *connection.MemoryResidentConnectionManager, stopCh <-chan struct{}) {
 	if err := discoveryListener.Start(); err != nil {
 		mainLogger.Fatal("Discovery listener error", err.Error(), nil)
 	}
@@ -146,9 +146,10 @@ func startAndWait(backendAddr, frontendPipePath string, discoveryListener *disco
 	discoveryListener.Stop()
 	frontendServer.Stop(0)
 	backendServer.Stop(0)
+	connManager.Stop()
 }
 
-func runConsole(backendAddr, frontendPipePath string, discoveryListener *discovery.Listener, backendServer, frontendServer *rpc.Server) {
+func runConsole(backendAddr, frontendPipePath string, discoveryListener *discovery.Listener, backendServer, frontendServer *rpc.Server, connManager *connection.MemoryResidentConnectionManager) {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 	stopCh := make(chan struct{}, 1)
@@ -156,5 +157,5 @@ func runConsole(backendAddr, frontendPipePath string, discoveryListener *discove
 		<-sigCh
 		close(stopCh)
 	}()
-	startAndWait(backendAddr, frontendPipePath, discoveryListener, backendServer, frontendServer, stopCh)
+	startAndWait(backendAddr, frontendPipePath, discoveryListener, backendServer, frontendServer, connManager, stopCh)
 }
