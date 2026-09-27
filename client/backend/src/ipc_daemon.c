@@ -605,7 +605,9 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
 
     bb_tls_t tls;
     if (tls_connect_socket(sock, &tls) != 0) {
-        printf("[send_to_server] TLS handshake or fingerprint verification failed\n");
+        printf("[send_to_server] TLS handshake or fingerprint verification failed "
+               "(is the server running the TLS build?)\n");
+        LOGF("[Daemon] TLS connect to server failed (see client log for details)");
         closesocket(sock);
         WSACleanup();
         return -1;

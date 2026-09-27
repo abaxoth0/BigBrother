@@ -9,6 +9,14 @@
 #include <mbedtls/net_sockets.h>
 #include <mbedtls/debug.h>
 
+#include "../../../common/log/log.h"
+
+static void tls_log_ret(int ret, const char* what) {
+    char err[256];
+    mbedtls_strerror(ret, err, sizeof(err));
+    LOGF("[TLS] %s failed: -0x%04X %s", what, (unsigned int)(-ret), err);
+}
+
 static int net_send_cb(void* ctx, const unsigned char* buf, size_t len) {
     SOCKET s = *(SOCKET*)ctx;
     int n = send(s, (const char*)buf, (int)(len > 0x7FFFFFFF ? 0x7FFFFFFF : len), 0);
@@ -70,6 +78,7 @@ int bb_tls_connect(bb_tls_t* t, SOCKET sock, const char* pinned_fp_hex,
     ret = mbedtls_ctr_drbg_seed(&t->drbg, mbedtls_entropy_func, &t->entropy,
                                 (const unsigned char*)pers, strlen(pers));
     if (ret != 0) {
+        tls_log_ret(ret, "RNG seed");
         return -1;
     }
 
@@ -77,6 +86,7 @@ int bb_tls_connect(bb_tls_t* t, SOCKET sock, const char* pinned_fp_hex,
                                       MBEDTLS_SSL_TRANSPORT_STREAM,
                                       MBEDTLS_SSL_PRESET_DEFAULT);
     if (ret != 0) {
+        tls_log_ret(ret, "ssl config");
         return -1;
     }
     /* No CA: we pin the server's certificate fingerprint ourselves. */
@@ -85,11 +95,13 @@ int bb_tls_connect(bb_tls_t* t, SOCKET sock, const char* pinned_fp_hex,
 
     ret = mbedtls_ssl_setup(&t->ssl, &t->conf);
     if (ret != 0) {
+        tls_log_ret(ret, "ssl setup");
         return -1;
     }
     /* set_hostname is required for TLS1.3 and harmless for 1.2. */
     ret = mbedtls_ssl_set_hostname(&t->ssl, "BigBrotherServer");
     if (ret != 0) {
+        tls_log_ret(ret, "set_hostname");
         return -1;
     }
 
@@ -97,17 +109,20 @@ int bb_tls_connect(bb_tls_t* t, SOCKET sock, const char* pinned_fp_hex,
 
     ret = mbedtls_ssl_handshake(&t->ssl);
     if (ret != 0) {
+        tls_log_ret(ret, "handshake");
         return -1;
     }
 
     /* Compute the peer certificate SHA-256 fingerprint and verify the pin. */
     const mbedtls_x509_crt* peer = mbedtls_ssl_get_peer_cert(&t->ssl);
     if (!peer) {
+        LOGF("[TLS] no peer certificate from server");
         return -1;
     }
     unsigned char hash[32];
     ret = mbedtls_sha256(peer->raw.p, peer->raw.len, hash, 0);
     if (ret != 0) {
+        tls_log_ret(ret, "fingerprint");
         return -1;
     }
     char fp[65];
@@ -120,6 +135,7 @@ int bb_tls_connect(bb_tls_t* t, SOCKET sock, const char* pinned_fp_hex,
 
     if (pinned_fp_hex && pinned_fp_hex[0] != '\0') {
         if (_stricmp(pinned_fp_hex, fp) != 0) {
+            LOGF("[TLS] fingerprint mismatch: pinned=%s peer=%s", pinned_fp_hex, fp);
             return -1; /* fingerprint mismatch */
         }
     }
