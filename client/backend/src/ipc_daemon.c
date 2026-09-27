@@ -1200,7 +1200,13 @@ static int server_subscribe_loop(const char* username, int* consecutive_failures
     srv_line_reader_init(&reader, &subscription_tls);
     char status[32];
     if (!srv_readline(&reader, status, sizeof(status)) || strcmp(status, "OK") != 0) {
-        LOGF("[Daemon] SUBSCRIBE handshake failed: '%s'", status);
+        char emsg[256] = {0};
+        srv_read_tlv(&reader, emsg, sizeof(emsg));
+        if (emsg[0] != '\0') {
+            LOGF("[Daemon] SUBSCRIBE failed: '%s'", emsg);
+        } else {
+            LOGF("[Daemon] SUBSCRIBE handshake failed: '%s'", status[0] ? status : "(closed)");
+        }
         bb_tls_free(&subscription_tls);
         closesocket(sock);
         WSACleanup();

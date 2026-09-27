@@ -19,14 +19,6 @@ static void tls_log_ret(int ret, const char* what) {
     LOGF("[TLS] %s failed: -0x%04X %s", what, (unsigned int)(-ret), err);
 }
 
-static void tls_dbg_cb(void* ctx, int level, const char* file, int line, const char* str) {
-    (void)ctx;
-    (void)level;
-    (void)file;
-    (void)line;
-    LOGF("[TLS] %s", str);
-}
-
 static int net_send_cb(void* ctx, const unsigned char* buf, size_t len) {
     SOCKET s = *(SOCKET*)ctx;
     int n = send(s, (const char*)buf, (int)(len > 0x7FFFFFFF ? 0x7FFFFFFF : len), 0);
@@ -113,10 +105,6 @@ int bb_tls_connect(bb_tls_t* t, SOCKET sock, const char* pinned_fp_hex,
     /* No CA: we pin the server's certificate fingerprint ourselves. */
     mbedtls_ssl_conf_authmode(&t->conf, MBEDTLS_SSL_VERIFY_OPTIONAL);
     mbedtls_ssl_conf_rng(&t->conf, mbedtls_ctr_drbg_random, &t->drbg);
-
-    /* Diagnostics: log mbedTLS handshake progress into the daemon log. */
-    mbedtls_ssl_conf_dbg(&t->conf, tls_dbg_cb, NULL);
-    mbedtls_debug_set_threshold(1);
 
     /* Pin TLS 1.2: the TLS1.3 code path fails with an internal error on some
        Windows setups; the server supports 1.2, so this keeps a working secure
