@@ -9,6 +9,7 @@ import (
 	"bigbrother_server_backend/packages/infrastructure/database/sqlite"
 	"bigbrother_server_backend/packages/infrastructure/notification"
 	"bigbrother_server_backend/packages/infrastructure/pending"
+	"bigbrother_server_backend/packages/infrastructure/tlsutil"
 	"bigbrother_server_backend/packages/presentation/discovery"
 	"bigbrother_server_backend/packages/presentation/rpc"
 	"fmt"
@@ -73,11 +74,26 @@ func main() {
 
 	discoveryListener := discovery.New(db)
 
+	// TLS for the client↔server TCP channel. Self-signed cert is generated once
+	// and stored next to the database; clients pin its fingerprint.
+	tlsCert, err := tlsutil.LoadOrCreateCert(
+		filepath.Join(filepath.Dir(dbPath), "tls", "server.crt"),
+		filepath.Join(filepath.Dir(dbPath), "tls", "server.key"),
+	)
+	if err != nil {
+		mainLogger.Fatal("TLS certificate setup error", err.Error(), nil)
+	}
+	tlsConfig, err := tlsutil.ServerConfig(tlsCert)
+	if err != nil {
+		mainLogger.Fatal("TLS configuration error", err.Error(), nil)
+	}
+
 	backendServer := rpc.NewServer(
 		"Backend",
 		rpc.NewBackendHandler(db, connManager, pendingUsersStorage, notifMgr),
 		&rpc.ServerConfig{
-			Network: rpc.NetworkTCP,
+			Network:   rpc.NetworkTCP,
+			TLSConfig: tlsConfig,
 		},
 	)
 

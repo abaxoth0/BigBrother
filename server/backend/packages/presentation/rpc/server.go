@@ -3,6 +3,7 @@
 package rpc
 
 import (
+	"crypto/tls"
 	"fmt"
 	"net"
 	"strings"
@@ -23,6 +24,8 @@ type ServerConfig struct {
 	InputBufferSize    int32
 	OutputBufferSize   int32
 	SecurityDescriptor string
+	// TLSConfig enables TLS on the TCP listener (ignored for pipes).
+	TLSConfig *tls.Config
 }
 
 type Handler interface {
@@ -119,6 +122,9 @@ func (s *Server) Start(addr string) error {
 
 	case NetworkTCP:
 		listener, err = net.Listen("tcp", addr)
+		if err == nil && s.config.TLSConfig != nil {
+			listener = tls.NewListener(listener, s.config.TLSConfig)
+		}
 
 	default:
 		return fmt.Errorf("unsupported network: %s", network)

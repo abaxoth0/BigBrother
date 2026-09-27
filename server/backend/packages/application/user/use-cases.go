@@ -13,6 +13,7 @@ type CommandHandler interface {
 	ChangeUserName(username string, newUsername string) error
 	ChangeUsersWhitelist(newWhitelistName string, usernames ...string) error
 	DeleteUsers(usernames ...string) error
+	SetUserToken(username string, token string) error
 }
 
 type UseCases interface {

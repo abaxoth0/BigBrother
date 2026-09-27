@@ -7,6 +7,7 @@ type User struct {
 	Name        string
 	Addr        string
 	WhitelistID string
+	Token       string
 }
 
 type PendingUser struct {
