@@ -8,6 +8,8 @@
 #include <mbedtls/x509_crt.h>
 #include <mbedtls/net_sockets.h>
 #include <mbedtls/debug.h>
+#include <mbedtls/psa_util.h>
+#include <psa/crypto.h>
 
 #include "../../../common/log/log.h"
 
@@ -73,6 +75,17 @@ int bb_tls_connect(bb_tls_t* t, SOCKET sock, const char* pinned_fp_hex,
     const char* pers = "bigbrother-client";
 
     t->sock = sock;
+
+#if defined(MBEDTLS_PSA_CRYPTO_C)
+    /* TLS 1.3 in mbedTLS 3.x uses PSA crypto internally; it must be initialized
+       before any handshake, otherwise the handshake fails with an internal
+       error (-0x6C00). */
+    psa_status_t psa_ret = psa_crypto_init();
+    if (psa_ret != PSA_SUCCESS) {
+        LOGF("[TLS] PSA crypto init failed: %d", (int)psa_ret);
+        return -1;
+    }
+#endif
 
     /* Seed RNG from OS entropy. */
     ret = mbedtls_ctr_drbg_seed(&t->drbg, mbedtls_entropy_func, &t->entropy,
