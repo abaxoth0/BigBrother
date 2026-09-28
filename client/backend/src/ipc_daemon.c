@@ -768,10 +768,24 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
     return result;
 }
 
-// Read a client auth token from config.ini.
+// Read a client auth token from config.ini, falling back to an in-memory copy
+// set when the token is auto-fetched (some config storages may not persist).
+static char g_client_token[256] = {0};
+
 static void get_client_token(char* buf, size_t size) {
     buf[0] = '\0';
-    ini_get_string("client", "token", buf, size);
+    if (!ini_get_string("client", "token", buf, size) || buf[0] == '\0') {
+        if (g_client_token[0] != '\0') {
+            strncpy(buf, g_client_token, size - 1);
+            buf[size - 1] = '\0';
+        }
+    }
+}
+
+static void set_client_token(const char* token) {
+    strncpy(g_client_token, token, sizeof(g_client_token) - 1);
+    g_client_token[sizeof(g_client_token) - 1] = '\0';
+    ini_set_string("client", "token", token); // best effort persistence
 }
 
 // Establish a TLS session over an already-connected socket, verifying the
@@ -824,7 +838,7 @@ static void fetch_token_if_needed(const char* username) {
     if (!username || username[0] == '\0') return;
     char tokbuf[64] = {0};
     ini_get_string("client", "token", tokbuf, sizeof(tokbuf));
-    if (tokbuf[0] != '\0') return; // already have a token
+    if (tokbuf[0] != '\0' || g_client_token[0] != '\0') return; // already have a token
 
     mbedtls_pk_context pk;
     if (client_key_ensure(sig_key_path(), &pk) != 0) {
@@ -862,8 +876,8 @@ static void fetch_token_if_needed(const char* username) {
         LOGF("[Daemon] Token fetch: token not set yet");
         return;
     }
-    ini_set_string("client", "token", resp);
-    LOGF("[Daemon] Token received from server automatically");
+    set_client_token(resp);
+    LOGF("[Daemon] Token received from server automatically (len=%zu)", strlen(resp));
 }
 
 int ServerRegister(const char* name) {
@@ -906,6 +920,7 @@ int ServerConnect(const char* name) {
     get_client_token(token, sizeof(token));
     const char* args[3] = {name, local_ip, token};
     char response[256] = {0};
+    LOGF("[Daemon] CONNECT with token len=%zu (ip='%s')", strlen(token), local_ip);
     int result = send_to_server_tlv("CONNECT", args, 3, response, sizeof(response));
     if (result == 0 || strstr(response, "already connected") != NULL) {
         SetServerSessionActive(1);
