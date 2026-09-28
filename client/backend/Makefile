@@ -11,7 +11,7 @@ COMMON_FLAGS = -Wall -Wno-format-truncation -mconsole \
 DEBUG_FLAGS = -g3 -O0
 RELEASE_FLAGS = -O2
 
-t-units = src/main.c src/common.c src/ipc_daemon.c src/ipc_client.c src/net_client.c src/tls_client.c $(ROOT)/common/encoding/encoding.c $(ROOT)/common/log/log.c
+t-units = src/main.c src/common.c src/ipc_daemon.c src/ipc_client.c src/net_client.c src/tls_client.c src/client_key.c $(ROOT)/common/encoding/encoding.c $(ROOT)/common/log/log.c
 
 # mbedTLS library sources (excluding the ARM-only AESCE accelerator).
 MB_UNITS := $(wildcard $(MBEDTLS_DIR)/library/*.c)

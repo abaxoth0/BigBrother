@@ -91,7 +91,11 @@ func (h *BackendHandler) handle(conn net.Conn) {
 			if len(args) >= 2 && args[1] != "" {
 				addr = args[1]
 			}
-			if err := h.RegisterPendingUser(args[0], addr); err != nil {
+			signPublic := ""
+			if len(args) >= 3 {
+				signPublic = args[2]
+			}
+			if err := h.RegisterPendingUser(args[0], addr, signPublic); err != nil {
 				writeErrorTLV(conn, err.Error())
 			} else {
 				h.bus.Publish(notification.Event{
@@ -197,6 +201,50 @@ func (h *BackendHandler) handle(conn net.Conn) {
 			})
 			writeOK(conn)
 
+		case "GET_TOKEN_CHALLENGE":
+			if len(args) < 1 {
+				writeErrorTLV(conn, "Missing name")
+				continue
+			}
+			if _, err := h.db.GetUserByName(args[0]); err != nil {
+				writeErrorTLV(conn, "user not found")
+				continue
+			}
+			nonce, err := newChallenge(args[0])
+			if err != nil {
+				writeErrorTLV(conn, "failed to issue challenge")
+				continue
+			}
+			writeTLVResponse(conn, nonce)
+
+		case "GET_TOKEN":
+			if len(args) < 3 {
+				writeErrorTLV(conn, "Missing name, challenge or signature")
+				continue
+			}
+			if !consumeChallenge(args[0], args[1]) {
+				writeErrorTLV(conn, "invalid or expired challenge")
+				continue
+			}
+			u, err := h.db.GetUserByName(args[0])
+			if err != nil {
+				writeErrorTLV(conn, "user not found")
+				continue
+			}
+			if u.SignPublic == "" {
+				writeErrorTLV(conn, "client key not registered")
+				continue
+			}
+			if !verifyClientSignature(u.SignPublic, args[0], args[1], args[2]) {
+				writeErrorTLV(conn, "signature verify failed")
+				continue
+			}
+			if u.Token == "" {
+				writeTLVResponse(conn, "NOT_SET")
+				continue
+			}
+			writeTLVResponse(conn, u.Token)
+
 		case "SUBSCRIBE":
 			if len(args) < 2 {
 				writeErrorTLV(conn, "Missing name or token")
@@ -277,9 +325,9 @@ func (s *BackendHandler) authenticate(username, token string) bool {
 	return subtle.ConstantTimeCompare([]byte(u.Token), []byte(token)) == 1
 }
 
-func (s *BackendHandler) RegisterPendingUser(username, addr string) error {
+func (s *BackendHandler) RegisterPendingUser(username, addr, signPublic string) error {
 	log.Info("Registration request for user \""+username+"\"", nil)
-	return s.pendingUsers.Add(username, addr)
+	return s.pendingUsers.Add(username, addr, signPublic)
 }
 
 func (s *BackendHandler) GetStatus() *ServerStatus {

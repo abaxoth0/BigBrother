@@ -18,7 +18,7 @@ func (db *Database) GetUserByName(username string) (*entity.User, error) {
 	dbcommon.Log.Trace("Getting user with name \""+username+"\"...", nil)
 
 	row := db.conn.QueryRow(
-		"SELECT id, name, addr, whitelist_id, token FROM user WHERE name = ?",
+		"SELECT id, name, addr, whitelist_id, token, sign_public FROM user WHERE name = ?",
 		username,
 	)
 
@@ -26,12 +26,14 @@ func (db *Database) GetUserByName(username string) (*entity.User, error) {
 	var id []byte
 	var wlID sql.NullString
 	var token sql.NullString
-	if err := row.Scan(&id, &user.Name, &user.Addr, &wlID, &token); err != nil {
+	var signPublic sql.NullString
+	if err := row.Scan(&id, &user.Name, &user.Addr, &wlID, &token, &signPublic); err != nil {
 		return nil, err
 	}
 	user.Id = string(id)
 	user.WhitelistID = wlID.String
 	user.Token = token.String
+	user.SignPublic = signPublic.String
 
 	dbcommon.Log.Trace("Getting user with name \""+username+"\": OK", nil)
 
@@ -43,7 +45,7 @@ func (db *Database) GetUserByAddr(userAddr string) (*entity.User, error) {
 	dbcommon.Log.Trace("Getting user with address \""+userAddr+"\"...", nil)
 
 	row := db.conn.QueryRow(
-		"SELECT id, name, addr, whitelist_id, token FROM user WHERE addr = ?",
+		"SELECT id, name, addr, whitelist_id, token, sign_public FROM user WHERE addr = ?",
 		userAddr,
 	)
 
@@ -51,12 +53,14 @@ func (db *Database) GetUserByAddr(userAddr string) (*entity.User, error) {
 	var id []byte
 	var wlID sql.NullString
 	var token sql.NullString
-	if err := row.Scan(&id, &user.Name, &user.Addr, &wlID, &token); err != nil {
+	var signPublic sql.NullString
+	if err := row.Scan(&id, &user.Name, &user.Addr, &wlID, &token, &signPublic); err != nil {
 		return nil, err
 	}
 	user.Id = string(id)
 	user.WhitelistID = wlID.String
 	user.Token = token.String
+	user.SignPublic = signPublic.String
 
 	dbcommon.Log.Trace("Getting user with address \""+userAddr+"\": OK", nil)
 
@@ -66,6 +70,12 @@ func (db *Database) GetUserByAddr(userAddr string) (*entity.User, error) {
 // SetUserToken stores (or clears) the auth token for a user.
 func (db *Database) SetUserToken(username string, token string) error {
 	_, err := db.conn.Exec("UPDATE user SET token = ? WHERE name = ?", token, username)
+	return err
+}
+
+// SetUserSignPublic stores the client's Ed25519 public key (hex).
+func (db *Database) SetUserSignPublic(username string, signPublic string) error {
+	_, err := db.conn.Exec("UPDATE user SET sign_public = ? WHERE name = ?", signPublic, username)
 	return err
 }
 

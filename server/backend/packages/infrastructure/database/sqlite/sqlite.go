@@ -104,7 +104,8 @@ func (db *Database) initTables() error {
 		name 			TEXT UNIQUE NOT NULL,
 		addr			TEXT UNIQUE NOT NULL,
 		whitelist_id	BLOB REFERENCES whitelist(id) ON DELETE SET NULL,
-		token			TEXT
+		token			TEXT,
+		sign_public		TEXT
 	)`
 	createSettingsTableSQL :=
 		`CREATE TABLE IF NOT EXISTS settings (
@@ -175,6 +176,9 @@ func (db *Database) migrate() error {
 	}
 
 	if err := ensureColumn("user", "token", "ALTER TABLE user ADD COLUMN token TEXT"); err != nil {
+		return fmt.Errorf("Failed to migrate user table: %v", err)
+	}
+	if err := ensureColumn("user", "sign_public", "ALTER TABLE user ADD COLUMN sign_public TEXT"); err != nil {
 		return fmt.Errorf("Failed to migrate user table: %v", err)
 	}
 	return nil

@@ -10,6 +10,7 @@
 #include "../include/ipc_daemon.h"
 #include "../include/ipc_client.h"
 #include "../include/tls_client.h"
+#include "../include/client_key.h"
 #include "../../../common/log/log.h"
 #include <windows.h>
 #include <stdlib.h>
@@ -790,19 +791,87 @@ static int tls_connect_socket(SOCKET sock, bb_tls_t* tls) {
     return 0;
 }
 
+// Path of the client's persistent ECDSA identity key (beside the executable).
+static const char* sig_key_path(void) {
+    static char p[MAX_PATH] = {0};
+    if (p[0] == '\0') {
+        char exe[MAX_PATH];
+        get_exe_path(exe, sizeof(exe));
+        snprintf(p, sizeof(p), "%s\\client_sigkey.key", exe);
+    }
+    return p;
+}
+
+// Ensures the identity key exists and fills out with its uncompressed P-256
+// public point as hex (130 chars). Returns 0 on success.
+static int client_identity_pub_hex(char* out, size_t cap) {
+    mbedtls_pk_context pk;
+    if (client_key_ensure(sig_key_path(), &pk) != 0) return -1;
+    int r = client_key_public_point_hex(&pk, out, cap);
+    mbedtls_pk_free(&pk);
+    return r;
+}
+
+// Fetches the per-user token automatically when the client has no token yet.
+// Flow: GET_TOKEN_CHALLENGE -> sign(username||nonce) -> GET_TOKEN -> save.
+// Before approval the server refuses (user not found / key not registered),
+// which is fine — REGISTER already carried the public key; we retry each loop.
+static void fetch_token_if_needed(const char* username) {
+    if (!username || username[0] == '\0') return;
+    char tokbuf[64] = {0};
+    ini_get_string("client", "token", tokbuf, sizeof(tokbuf));
+    if (tokbuf[0] != '\0') return; // already have a token
+
+    mbedtls_pk_context pk;
+    if (client_key_ensure(sig_key_path(), &pk) != 0) return;
+
+    const char* chal_args[1] = {username};
+    char nonce[256] = {0};
+    if (send_to_server_tlv("GET_TOKEN_CHALLENGE", chal_args, 1, nonce, sizeof(nonce)) != 0 ||
+        nonce[0] == '\0') {
+        mbedtls_pk_free(&pk);
+        return;
+    }
+
+    char msg[384];
+    snprintf(msg, sizeof(msg), "%s%s", username, nonce);
+    char sighex[300];
+    if (client_key_sign(&pk, (const unsigned char*)msg, strlen(msg), sighex, sizeof(sighex)) != 0) {
+        mbedtls_pk_free(&pk);
+        return;
+    }
+    mbedtls_pk_free(&pk);
+
+    const char* tok_args[3] = {username, nonce, sighex};
+    char resp[128] = {0};
+    if (send_to_server_tlv("GET_TOKEN", tok_args, 3, resp, sizeof(resp)) != 0 ||
+        resp[0] == '\0' || strcmp(resp, "NOT_SET") == 0) {
+        return; // not approved yet — retried on the next loop
+    }
+    ini_set_string("client", "token", resp);
+    LOGF("[Daemon] Token received from server");
+}
+
 int ServerRegister(const char* name) {
     if (!name) return -1;
 
     char local_ip[64] = {0};
     GetLocalIp(g_server_ip, local_ip, sizeof(local_ip));
-    const char* args[2] = {name, local_ip};
+
+    // Client identity public key (ECDSA P-256 point, hex), bound server-side at
+    // approval and later used to authorize automatic token delivery.
+    char sigpub[160] = {0};
+    client_identity_pub_hex(sigpub, sizeof(sigpub));
+
+    const char* args[3] = {name, local_ip, sigpub};
+    size_t arg_count = local_ip[0] ? 3 : (sigpub[0] ? 2 : 1);
     char response[256];
     memset(response, 0, sizeof(response));
 
-    printf("[DEBUG] ServerRegister: local_ip='%s', calling send_to_server...\n", local_ip);
+    printf("[DEBUG] ServerRegister: local_ip='%s', pub='%s', sending to server...\n", local_ip, sigpub);
     fflush(stdout);
 
-    int result = send_to_server_tlv("REGISTER", args, local_ip[0] ? 2 : 1, response, sizeof(response));
+    int result = send_to_server_tlv("REGISTER", args, arg_count, response, sizeof(response));
 
     printf("[DEBUG] ServerRegister: send_to_server done, result=%d\n", result);
     fflush(stdout);
@@ -1342,6 +1411,7 @@ int DaemonRun(const char* server_ip) {
     // Try to connect to server on startup
     if (LoadUserName(username, sizeof(username)) == 0 && username[0] != '\0') {
         LOGF("[Daemon] Found saved username: %s, connecting to server...", username);
+        fetch_token_if_needed(username);
         if (ServerConnect(username) == 0) {
             LOGF("[Daemon] Connected to server successfully");
             SetServerSessionActive(1);
@@ -1386,6 +1456,7 @@ int DaemonRun(const char* server_ip) {
         }
 
         // Try to subscribe to server events
+        fetch_token_if_needed(username);
         int sub_result = server_subscribe_loop(username, &consecutive_failures);
         if (sub_result == 1) {
             // Service stop requested

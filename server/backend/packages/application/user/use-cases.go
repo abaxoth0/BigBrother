@@ -14,6 +14,7 @@ type CommandHandler interface {
 	ChangeUsersWhitelist(newWhitelistName string, usernames ...string) error
 	DeleteUsers(usernames ...string) error
 	SetUserToken(username string, token string) error
+	SetUserSignPublic(username string, signPublic string) error
 }
 
 type UseCases interface {

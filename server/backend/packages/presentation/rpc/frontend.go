@@ -415,6 +415,16 @@ func (h *FrontendHandler) ApproveUser(name string) (string, error) {
 	if _, err := h.db.CreateUser(user.Name, user.Addr); err != nil {
 		return "", err
 	}
+	// Bind the client's Ed25519 public key only if one isn't stored yet — a
+	// re-approval must not let a different key take over an existing user.
+	if user.SignPublic != "" {
+		existing, err := h.db.GetUserByName(user.Name)
+		if err == nil && existing.SignPublic == "" {
+			if err := h.db.SetUserSignPublic(user.Name, user.SignPublic); err != nil {
+				return "", err
+			}
+		}
+	}
 	token := issueToken()
 	if err := h.db.SetUserToken(user.Name, token); err != nil {
 		return "", err

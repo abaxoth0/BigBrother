@@ -42,6 +42,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Client backend/firewall: whitelist relay no longer capped at 64KB — the server-sync buffer and firewall IPC reader use growing (heap) buffers with a 16MB soft bound, so large server whitelists aren't truncated
 - Build: new committed `publish.sh` — one-shot publish of all daemons + self-contained win-x64 frontends into `dist/{client,server}-frontend`, then NSIS installers (previously the frontends had no scripted build step)
 
+- Security: TLS over the client↔server TCP channel (self-signed cert + fingerprint pinning, TOFU) with a per-user token required for CONNECT/SUBSCRIBE/GET_WHITELIST/etc.
+- Security: token delivery is automatic — the client generates a persistent ECDSA-P256 identity key, shares its public key at REGISTER, and signs a single-use server challenge to receive its token over TLS; no manual configuration needed
+- Server: per-user `token`/`sign_public` columns (auto-migrated), `GET_TOKEN_CHALLENGE`/`GET_TOKEN` commands, key bound at approval (never overwritten by a re-approval)
+
 ## [1.2.0] - 10-09-2026
 
 ### Fixed
