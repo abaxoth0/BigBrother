@@ -806,8 +806,12 @@ static const char* sig_key_path(void) {
 // public point as hex (130 chars). Returns 0 on success.
 static int client_identity_pub_hex(char* out, size_t cap) {
     mbedtls_pk_context pk;
-    if (client_key_ensure(sig_key_path(), &pk) != 0) return -1;
+    if (client_key_ensure(sig_key_path(), &pk) != 0) {
+        LOGF("[Daemon] Failed to create/load client identity key");
+        return -1;
+    }
     int r = client_key_public_point_hex(&pk, out, cap);
+    if (r != 0) LOGF("[Daemon] Failed to export client identity public key");
     mbedtls_pk_free(&pk);
     return r;
 }
@@ -823,12 +827,16 @@ static void fetch_token_if_needed(const char* username) {
     if (tokbuf[0] != '\0') return; // already have a token
 
     mbedtls_pk_context pk;
-    if (client_key_ensure(sig_key_path(), &pk) != 0) return;
+    if (client_key_ensure(sig_key_path(), &pk) != 0) {
+        LOGF("[Daemon] Token fetch: cannot ensure identity key");
+        return;
+    }
 
     const char* chal_args[1] = {username};
     char nonce[256] = {0};
     if (send_to_server_tlv("GET_TOKEN_CHALLENGE", chal_args, 1, nonce, sizeof(nonce)) != 0 ||
         nonce[0] == '\0') {
+        LOGF("[Daemon] Token fetch: challenge failed (not registered/approved yet?)");
         mbedtls_pk_free(&pk);
         return;
     }
@@ -837,6 +845,7 @@ static void fetch_token_if_needed(const char* username) {
     snprintf(msg, sizeof(msg), "%s%s", username, nonce);
     char sighex[300];
     if (client_key_sign(&pk, (const unsigned char*)msg, strlen(msg), sighex, sizeof(sighex)) != 0) {
+        LOGF("[Daemon] Token fetch: signing failed");
         mbedtls_pk_free(&pk);
         return;
     }
@@ -845,11 +854,16 @@ static void fetch_token_if_needed(const char* username) {
     const char* tok_args[3] = {username, nonce, sighex};
     char resp[128] = {0};
     if (send_to_server_tlv("GET_TOKEN", tok_args, 3, resp, sizeof(resp)) != 0 ||
-        resp[0] == '\0' || strcmp(resp, "NOT_SET") == 0) {
-        return; // not approved yet — retried on the next loop
+        resp[0] == '\0') {
+        LOGF("[Daemon] Token fetch: server refused (approve the registration first)");
+        return;
+    }
+    if (strcmp(resp, "NOT_SET") == 0) {
+        LOGF("[Daemon] Token fetch: token not set yet");
+        return;
     }
     ini_set_string("client", "token", resp);
-    LOGF("[Daemon] Token received from server");
+    LOGF("[Daemon] Token received from server automatically");
 }
 
 int ServerRegister(const char* name) {

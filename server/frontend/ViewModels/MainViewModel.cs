@@ -857,16 +857,9 @@ public class MainViewModel : ViewModelBase
     {
         if (string.IsNullOrEmpty(name)) return;
         var ok = await _ipcService.ApproveUserAsync(name);
-        AddLog(ok ? "INFO" : "ERROR", ok ? $"Пользователь {name} одобрен" : $"Ошибка одобрения {name}");
-        if (ok)
-        {
-            var token = await _ipcService.GetUserTokenAsync(name);
-            if (!string.IsNullOrEmpty(token))
-            {
-                MessageBox.Show($"Токен для клиента «{name}»:\n\n{token}\n\nВведите его в настройках клиента (поле «Токен сервера»).",
-                    "Токен доступа", MessageBoxButton.OK, MessageBoxImage.Information);
-            }
-        }
+        AddLog(ok ? "INFO" : "ERROR", ok
+            ? $"Пользователь {name} одобрен — токен будет доставлен клиенту автоматически"
+            : $"Ошибка одобрения {name}");
         await RefreshPendingAsync();
         await RefreshClientsAsync();
     }
