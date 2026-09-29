@@ -517,50 +517,6 @@ public class IpcService : IDisposable
         }
     }
 
-    public async Task<bool> SetServerTokenAsync(string token)
-    {
-        await _connectionLock.WaitAsync();
-        try
-        {
-            if (!await ConnectAsync()) return false;
-            try
-            {
-                var (status, _) = await SendCommandWithTimeoutAsync("SET_TOKEN", ReadTimeoutMs, token);
-                return status == "OK";
-            }
-            finally
-            {
-                Disconnect();
-            }
-        }
-        finally
-        {
-            _connectionLock.Release();
-        }
-    }
-
-    public async Task<string> GetServerTokenAsync()
-    {
-        await _connectionLock.WaitAsync();
-        try
-        {
-            if (!await ConnectAsync()) return "";
-            try
-            {
-                var (status, data) = await SendCommandWithTimeoutAsync("GET_TOKEN", ReadTimeoutMs);
-                return status == "OK" && data.Count > 0 ? data[0] : "";
-            }
-            finally
-            {
-                Disconnect();
-            }
-        }
-        finally
-        {
-            _connectionLock.Release();
-        }
-    }
-
     public async Task<List<string>> DiscoverServersAsync(int timeoutMs = 2000)
     {
         await _connectionLock.WaitAsync();
