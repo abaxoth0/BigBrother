@@ -65,6 +65,11 @@ int log_init_async(uint32_t buffer_size);
 
 void log_shutdown(void);
 
+// Rotate an existing log file at startup: archives it into the sibling
+// "<dir>\archive" folder (keeping the last <max_files>) and truncates the
+// original to empty so each session starts with a fresh log.
+void log_rotate_file(const char* path);
+
 void log_write_async(uint16_t type, uint8_t level, const char* msg);
 
 // Synchronous write for emergency mode

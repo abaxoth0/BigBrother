@@ -16,6 +16,7 @@ static uint32_t align_up(uint32_t size, uint32_t align) {
 
 static DWORD WINAPI logger_thread_func(LPVOID param);
 static void flush_batch(LoggerContext* ctx);
+static void archive_current_log(LoggerContext* ctx);
 static void rotate_log(LoggerContext* ctx);
 
 int log_init_async(uint32_t buffer_size) {
@@ -88,6 +89,13 @@ static DWORD WINAPI logger_thread_func(LPVOID param) {
     LoggerContext* ctx = (LoggerContext*)param;
     RingBuffer* rb = ctx->rb;
 
+    // The caller assigns ctx->log_path right after log_init_async() returns, so
+    // this thread may start (and even perform slow startup rotation) before the
+    // path is available. Wait for it instead of fopen("") dying on an empty path.
+    while (ctx->log_path[0] == '\0' && ctx->running) {
+        Sleep(10);
+    }
+
     // Open log file for batch writing
     ctx->batch_file = fopen(ctx->log_path, "ab");
     if (!ctx->batch_file) {
@@ -98,6 +106,10 @@ static DWORD WINAPI logger_thread_func(LPVOID param) {
     // Get current file size for rotation tracking
     fseek(ctx->batch_file, 0, SEEK_END);
     ctx->current_file_size = (uint32_t)ftell(ctx->batch_file);
+
+    // Rotate any pre-existing log file so this session always starts with a
+    // fresh, empty log (prevents old entries being replayed to the frontend).
+    archive_current_log(ctx);
 
     DWORD flush_interval_ms = 200;  // Flush every 200ms for better responsiveness
     
@@ -166,29 +178,34 @@ static DWORD WINAPI logger_thread_func(LPVOID param) {
     return 0;
 }
 
-static void rotate_log(LoggerContext* ctx) {
-    if (ctx->max_file_size == 0) return;
-    if (ctx->current_file_size < ctx->max_file_size) return;
+// Moves an existing log file into <dir>\archive\<base>_1<ext> (shifting older
+// archives up, capped at max_files) and truncates the original to empty so a new
+// session starts fresh. No-op if the file is missing or already empty.
+static void archive_log_file(const char* log_path, uint32_t max_files) {
+    if (!log_path || log_path[0] == '\0') return;
 
-    fclose(ctx->batch_file);
-    ctx->batch_file = NULL;
-
-    if (LogFile) {
-        fclose(LogFile);
-        LogFile = NULL;
+    // Guard against an empty file (nothing worth archiving)
+    long size = 0;
+    {
+        FILE* probe = fopen(log_path, "rb");
+        if (!probe) return;
+        fseek(probe, 0, SEEK_END);
+        size = ftell(probe);
+        fclose(probe);
     }
+    if (size <= 0) return;
 
     // Extract directory and base name from log_path
     char dir[512] = {0};
     char base[256] = {0};
     char ext[64] = {0};
 
-    const char* last_sep = strrchr(ctx->log_path, '\\');
-    if (!last_sep) last_sep = strrchr(ctx->log_path, '/');
+    const char* last_sep = strrchr(log_path, '\\');
+    if (!last_sep) last_sep = strrchr(log_path, '/');
 
     if (last_sep) {
-        size_t dir_len = last_sep - ctx->log_path;
-        memcpy(dir, ctx->log_path, dir_len);
+        size_t dir_len = last_sep - log_path;
+        memcpy(dir, log_path, dir_len);
         dir[dir_len] = '\0';
 
         const char* dot = strrchr(last_sep + 1, '.');
@@ -201,14 +218,14 @@ static void rotate_log(LoggerContext* ctx) {
             strncpy(base, last_sep + 1, sizeof(base) - 1);
         }
     } else {
-        const char* dot = strrchr(ctx->log_path, '.');
+        const char* dot = strrchr(log_path, '.');
         if (dot) {
-            size_t base_len = dot - ctx->log_path;
-            memcpy(base, ctx->log_path, base_len);
+            size_t base_len = dot - log_path;
+            memcpy(base, log_path, base_len);
             base[base_len] = '\0';
             strncpy(ext, dot, sizeof(ext) - 1);
         } else {
-            strncpy(base, ctx->log_path, sizeof(base) - 1);
+            strncpy(base, log_path, sizeof(base) - 1);
         }
     }
 
@@ -227,21 +244,18 @@ static void rotate_log(LoggerContext* ctx) {
     snprintf(tmp_path, sizeof(tmp_path), "%s\\%s.rotating", dir, base);
 
     // Copy current log to temp (CopyFile works even when file is open by others)
-    if (!CopyFile(ctx->log_path, tmp_path, FALSE)) {
+    if (!CopyFile(log_path, tmp_path, FALSE)) {
         DWORD err = GetLastError();
         LOGF("[LogRotation] CopyFile failed: %lu", err);
-        ctx->batch_file = fopen(ctx->log_path, "ab");
-        if (!ctx->batch_file) { ctx->running = 0; return; }
-        LogFile = fopen(ctx->log_path, "ab");
         return;
     }
 
     // Delete oldest rotated file
-    snprintf(old_path, sizeof(old_path), "%s\\%s_%u%s", archive_dir, base, ctx->max_files, ext);
+    snprintf(old_path, sizeof(old_path), "%s\\%s_%u%s", archive_dir, base, max_files, ext);
     DeleteFile(old_path);
 
     // Shift archive_N -> archive_N+1
-    for (uint32_t i = ctx->max_files - 1; i >= 1; i--) {
+    for (uint32_t i = max_files - 1; i >= 1; i--) {
         snprintf(old_path, sizeof(old_path), "%s\\%s_%u%s", archive_dir, base, i, ext);
         snprintf(new_path, sizeof(new_path), "%s\\%s_%u%s", archive_dir, base, i + 1, ext);
         if (!MoveFile(old_path, new_path)) {
@@ -258,17 +272,43 @@ static void rotate_log(LoggerContext* ctx) {
     MoveFile(tmp_path, new_path);
 
     // Truncate original log file (works even if someone has it open)
-    ctx->batch_file = fopen(ctx->log_path, "wb");
+    FILE* t = fopen(log_path, "wb");
+    if (t) fclose(t);
+}
+
+static void archive_current_log(LoggerContext* ctx) {
+    if (!ctx->batch_file) return;
+    if (ctx->current_file_size == 0) return;
+
+    fclose(ctx->batch_file);
+    ctx->batch_file = NULL;
+
+    if (LogFile) {
+        fclose(LogFile);
+        LogFile = NULL;
+    }
+
+    archive_log_file(ctx->log_path, ctx->max_files);
+
+    // Re-open handles on the (fresh) file
+    ctx->batch_file = fopen(ctx->log_path, "ab");
     if (!ctx->batch_file) {
-        LOGF("[LogRotation] Failed to truncate log file: %s", ctx->log_path);
+        LOGF("[LogRotation] Failed to reopen log file: %s", ctx->log_path);
         ctx->running = 0;
         return;
     }
-
     LogFile = fopen(ctx->log_path, "ab");
-
-    LOGF("[LogRotation] Rotated %s (was %u bytes)", ctx->log_path, ctx->current_file_size);
     ctx->current_file_size = 0;
+}
+
+static void rotate_log(LoggerContext* ctx) {
+    if (ctx->max_file_size == 0) return;
+    if (ctx->current_file_size < ctx->max_file_size) return;
+    archive_current_log(ctx);
+}
+
+void log_rotate_file(const char* path) {
+    archive_log_file(path, LOG_MAX_FILES);
 }
 
 static void flush_batch(LoggerContext* ctx) {
