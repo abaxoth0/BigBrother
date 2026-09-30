@@ -82,7 +82,11 @@ static void init_logging(void) {
 
     char log_path[LOG_PATH_MAX];
     snprintf(log_path, sizeof(log_path), "%s\\firewall.binlog", logs_dir);
-    
+
+    // Rotate any pre-existing log before the logger starts, so this session
+    // always writes to a fresh file (avoids replaying old entries on the client).
+    log_rotate_file(log_path);
+
     // Set log path in global context
     extern LoggerContext* g_logger;
     if (g_logger) {

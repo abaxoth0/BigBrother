@@ -32,6 +32,10 @@ char log_path[LOG_PATH_MAX];
         }
     }
     
+    // Rotate any pre-existing log before the logger starts, so this session
+    // always writes to a fresh file (avoids replaying old entries on the frontend).
+    log_rotate_file(log_path);
+
     // Initialize async logger with path set FIRST
     log_init_async(LOG_BUFFER_SIZE);
     
