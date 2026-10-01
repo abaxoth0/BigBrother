@@ -6,11 +6,13 @@
 #include "../include/ipc_client.h"
 #include "../include/ipc_daemon.h"
 #include "../include/net_client.h"
+#include "../../../common/pipe_security.h"
 #include "../../../common/log/log.h"
 #include <windows.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <wchar.h>
 
 #define CLIENT_PIPE_NAME "\\\\.\\pipe\\BigBrother.Client.Backend"
 #define CLIENT_PIPE_BUFFER_SIZE 4096
@@ -264,9 +266,39 @@ error:
     return -1;
 }
 
+// The only clients allowed on the frontend pipe are instances of the client
+// GUI executable ("BigBrother Client.exe"). Compare by file name (case
+// insensitive) so the GUI can run from any directory during development.
+static int peer_is_client_gui(HANDLE pipe) {
+    ULONG pid = 0;
+    if (!GetNamedPipeClientProcessId(pipe, &pid) || pid == 0) return 0;
+
+    HANDLE proc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+    if (!proc) return 0;
+
+    wchar_t path[MAX_PATH];
+    DWORD sz = MAX_PATH;
+    BOOL ok = QueryFullProcessImageNameW(proc, 0, path, &sz);
+    CloseHandle(proc);
+    if (!ok) return 0;
+
+    // Extract the file name component.
+    size_t len = wcslen(path);
+    size_t cut = len;
+    while (cut > 0 && path[cut - 1] != L'\\' && path[cut - 1] != L'/') cut--;
+    const wchar_t* name = path + cut;
+    return _wcsicmp(name, L"BigBrother Client.exe") == 0;
+}
+
 DWORD WINAPI client_handler(LPVOID param) {
     HANDLE pipe = (HANDLE)param;
     char buffer[CLIENT_PIPE_BUFFER_SIZE];
+
+    // Reject unknown peer processes (defense-in-depth on top of the DACL).
+    if (!peer_is_client_gui(pipe)) {
+        CloseHandle(pipe);
+        return 1;
+    }
 
     // Read TLV request
     char** args = NULL;
@@ -780,6 +812,11 @@ DWORD WINAPI client_server_thread(LPVOID param) {
 
     g_shutdown_event = CreateEvent(NULL, TRUE, FALSE, NULL);
 
+    // Restrict the pipe to SYSTEM + Administrators + Owner so local processes
+    // can't drive the client daemon through its frontend pipe.
+    SECURITY_ATTRIBUTES sec_attrs;
+    int have_sec = (bb_restrict_pipe_security(&sec_attrs) == 0);
+
     while (1) {
         HANDLE pipe = CreateNamedPipe(
             CLIENT_PIPE_NAME,
@@ -789,7 +826,7 @@ DWORD WINAPI client_server_thread(LPVOID param) {
             CLIENT_PIPE_BUFFER_SIZE,
             CLIENT_PIPE_BUFFER_SIZE,
             0,
-            NULL
+            have_sec ? &sec_attrs : NULL
         );
 
         if (pipe == INVALID_HANDLE_VALUE) {
@@ -822,6 +859,9 @@ DWORD WINAPI client_server_thread(LPVOID param) {
         Sleep(100);
     }
 
+    if (have_sec) {
+        LocalFree(sec_attrs.lpSecurityDescriptor);
+    }
     return 0;
 }
 

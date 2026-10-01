@@ -20,7 +20,7 @@ MBED_CFLAGS = -O2 -I$(MBEDTLS_DIR)/include
 MBED_A = build/mbedtls/libmbedtls.a
 
 CB_NAME = BigBrother Client Daemon
-CLIENT_LIBS = $(MBED_A) -lws2_32 -liphlpapi -lbcrypt -lwinmm
+CLIENT_LIBS = $(MBED_A) -lws2_32 -liphlpapi -lbcrypt -lwinmm -ladvapi32
 all: debug
 
 debug: CFLAGS = $(COMMON_FLAGS) $(DEBUG_FLAGS)

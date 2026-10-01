@@ -28,7 +28,11 @@ const frontendPipePath = `\\.\pipe\BigBrother.Server.Frontend`
 const frontendPipeBufSize = 65536
 const defaultBackendPort = 1984
 const serviceName = "BigBrother Server"
-const pipeSecurityDescriptor = "D:(A;;GA;;;WD)"
+
+// Restrict the frontend pipe to SYSTEM, Builtin Administrators and the object
+// owner. Previously everyone (WD) could drive approve/reject/user/whitelist
+// administration from any local process.
+const pipeSecurityDescriptor = "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GA;;;OW)"
 
 func main() {
 	log.DefaultLoggerConfig.Trace = true
