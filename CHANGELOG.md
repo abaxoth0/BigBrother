@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Client frontend: no more delayed old logs on startup — the firewall/client daemons now rotate a pre-existing log file on start, so each session writes to a fresh log and the frontend never replays a previous session's entries in batches
 
+### Changed
+
+- Security: TLS over the client<=>server TCP channel — the server uses a self-signed EC certificate (generated on first run) and the listener requires TLS1.2+; the client uses vendored mbedTLS with server-certificate fingerprint pinning (trust-on-first-use)
+- Security: per-user token authentication — `CONNECT`/`SUBSCRIBE`/`DISCONNECT`/`REFRESH`/`GET_WHITELIST` require a per-user token (constant-time check); `REGISTER` stays open for onboarding
+- Security: automatic token delivery — the client generates a persistent ECDSA-P256 identity key, shares its public key at registration (bound at approval and refreshed on re-approval), then signs a single-use server challenge to receive its token over TLS; no manual configuration needed
+- Security: the client caches the fetched token in memory (with best-effort persistence to `config.ini`) so CONNECT/SUBSCRIBE use it immediately; the manual "Токен сервера" settings field was removed
+- Server: per-user `token` and `sign_public` columns (auto-migrated), `GET_TOKEN_CHALLENGE`/`GET_TOKEN` commands with ECDSA-P256 signature verification
+
 ## [1.3.0] - 27-09-2026
 
 ### Fixed
@@ -41,10 +49,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Client backend/firewall: whitelist relay no longer capped at 64KB — the server-sync buffer and firewall IPC reader use growing (heap) buffers with a 16MB soft bound, so large server whitelists aren't truncated
 - Build: new committed `publish.sh` — one-shot publish of all daemons + self-contained win-x64 frontends into `dist/{client,server}-frontend`, then NSIS installers (previously the frontends had no scripted build step)
-
-- Security: TLS over the client↔server TCP channel (self-signed cert + fingerprint pinning, TOFU) with a per-user token required for CONNECT/SUBSCRIBE/GET_WHITELIST/etc.
-- Security: token delivery is automatic — the client generates a persistent ECDSA-P256 identity key, shares its public key at REGISTER, and signs a single-use server challenge to receive its token over TLS; no manual configuration needed
-- Server: per-user `token`/`sign_public` columns (auto-migrated), `GET_TOKEN_CHALLENGE`/`GET_TOKEN` commands, key bound at approval (never overwritten by a re-approval)
 
 ## [1.2.0] - 10-09-2026
 
