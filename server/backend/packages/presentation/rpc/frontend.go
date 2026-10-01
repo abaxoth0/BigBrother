@@ -102,16 +102,41 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 				continue
 			}
 			log.Info("Approving user \""+args[0]+"\"...", nil)
-			if err := h.ApproveUser(args[0]); err != nil {
+			token, err := h.ApproveUser(args[0])
+			if err != nil {
 				log.Error("Approving user \""+args[0]+"\"", err.Error(), nil)
 				writeErrorTLV(conn, err.Error())
 			} else {
 				h.bus.Publish(notification.Event{
 					Type: notification.UserApproved,
-					Data: map[string]string{"name": args[0]},
+					Data: map[string]string{"name": args[0], "token": token},
 				})
 				log.Info("Approving user \""+args[0]+"\": OK", nil)
 				writeOK(conn)
+			}
+
+		case "GET_USER_TOKEN":
+			if len(args) < 1 {
+				writeErrorTLV(conn, "Missing name")
+				continue
+			}
+			token, err := h.GetUserToken(args[0])
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+			} else {
+				writeTLVResponse(conn, token)
+			}
+
+		case "REGENERATE_TOKEN":
+			if len(args) < 1 {
+				writeErrorTLV(conn, "Missing name")
+				continue
+			}
+			token, err := h.RegenerateUserToken(args[0])
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+			} else {
+				writeTLVResponse(conn, token)
 			}
 
 		case "REJECT":
@@ -382,19 +407,50 @@ func (h *FrontendHandler) SetWhitelistEntries(name string, entries []string) err
 	return h.db.ReplaceWhitelistEntries(entries, name)
 }
 
-func (h *FrontendHandler) ApproveUser(name string) error {
+func (h *FrontendHandler) ApproveUser(name string) (string, error) {
 	user, err := h.pendingUsers.Pop(name)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if _, err := h.db.CreateUser(user.Name, user.Addr); err != nil {
-		return err
+		return "", err
 	}
-	return nil
+	// Bind the client's public identity key from this registration. Approval is
+	// the trust decision, so the key from the approved registration is used
+	// (this also lets a re-registered existing user rebind a fresh key).
+	if user.SignPublic != "" {
+		if err := h.db.SetUserSignPublic(user.Name, user.SignPublic); err != nil {
+			return "", err
+		}
+	}
+	token := issueToken()
+	if err := h.db.SetUserToken(user.Name, token); err != nil {
+		return "", err
+	}
+	return token, nil
 }
 
 func (h *FrontendHandler) RejectUser(name string) {
 	h.pendingUsers.Pop(name) // ignore error, user just won't be approved
+}
+
+func (h *FrontendHandler) GetUserToken(name string) (string, error) {
+	u, err := h.db.GetUserByName(name)
+	if err != nil {
+		return "", err
+	}
+	return u.Token, nil
+}
+
+func (h *FrontendHandler) RegenerateUserToken(name string) (string, error) {
+	if _, err := h.db.GetUserByName(name); err != nil {
+		return "", err
+	}
+	token := issueToken()
+	if err := h.db.SetUserToken(name, token); err != nil {
+		return "", err
+	}
+	return token, nil
 }
 
 func (h *FrontendHandler) GetActiveWhitelist() string {

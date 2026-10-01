@@ -15,6 +15,38 @@ func newTestDatabase(t *testing.T) *Database {
 	return db
 }
 
+func TestUserToken(t *testing.T) {
+	db := newTestDatabase(t)
+
+	if _, err := db.CreateUser("alice", "10.0.0.1"); err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+
+	if err := db.SetUserToken("alice", "tok-abc123"); err != nil {
+		t.Fatalf("SetUserToken: %v", err)
+	}
+
+	u, err := db.GetUserByName("alice")
+	if err != nil {
+		t.Fatalf("GetUserByName: %v", err)
+	}
+	if u.Token != "tok-abc123" {
+		t.Fatalf("unexpected token: %q", u.Token)
+	}
+
+	// Clearing the token is allowed (revoke path).
+	if err := db.SetUserToken("alice", ""); err != nil {
+		t.Fatalf("SetUserToken(empty): %v", err)
+	}
+	u, err = db.GetUserByName("alice")
+	if err != nil {
+		t.Fatalf("GetUserByName: %v", err)
+	}
+	if u.Token != "" {
+		t.Fatalf("expected revoked token, got %q", u.Token)
+	}
+}
+
 func TestCreateAndGetUser(t *testing.T) {
 	db := newTestDatabase(t)
 

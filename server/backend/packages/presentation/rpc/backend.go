@@ -3,6 +3,7 @@
 package rpc
 
 import (
+	"crypto/subtle"
 	"errors"
 	"fmt"
 	"io"
@@ -66,12 +67,12 @@ func (h *BackendHandler) handle(conn net.Conn) {
 
 		switch cmd {
 		case "GET_WHITELIST":
-			if len(args) < 1 {
-				writeErrorTLV(conn, "Missing username")
+			if len(args) < 2 {
+				writeErrorTLV(conn, "Missing username or token")
 				continue
 			}
-			if _, err := h.db.GetUserByName(args[0]); err != nil {
-				writeErrorTLV(conn, "user not found")
+			if !h.authenticate(args[0], args[1]) {
+				writeErrorTLV(conn, "invalid token")
 				continue
 			}
 			wl := h.GetWhitelist(args[0])
@@ -90,7 +91,11 @@ func (h *BackendHandler) handle(conn net.Conn) {
 			if len(args) >= 2 && args[1] != "" {
 				addr = args[1]
 			}
-			if err := h.RegisterPendingUser(args[0], addr); err != nil {
+			signPublic := ""
+			if len(args) >= 3 {
+				signPublic = args[2]
+			}
+			if err := h.RegisterPendingUser(args[0], addr, signPublic); err != nil {
 				writeErrorTLV(conn, err.Error())
 			} else {
 				h.bus.Publish(notification.Event{
@@ -101,13 +106,17 @@ func (h *BackendHandler) handle(conn net.Conn) {
 			}
 
 		case "CONNECT":
-			if len(args) < 1 {
-				writeErrorTLV(conn, "Missing name")
+			if len(args) < 3 {
+				writeErrorTLV(conn, "Missing name, address or token")
 				continue
 			}
-			addr := conn.RemoteAddr().String()
-			if len(args) >= 2 && args[1] != "" {
-				addr = args[1]
+			if !h.authenticate(args[0], args[2]) {
+				writeErrorTLV(conn, "invalid token")
+				continue
+			}
+			addr := args[1]
+			if addr == "" {
+				addr = conn.RemoteAddr().String()
 			}
 			if err := h.ConnectUser(args[0], addr); err != nil {
 				writeErrorTLV(conn, err.Error())
@@ -120,8 +129,12 @@ func (h *BackendHandler) handle(conn net.Conn) {
 			}
 
 		case "DISCONNECT":
-			if len(args) < 1 {
-				writeErrorTLV(conn, "Missing name")
+			if len(args) < 2 {
+				writeErrorTLV(conn, "Missing name or token")
+				continue
+			}
+			if !h.authenticate(args[0], args[1]) {
+				writeErrorTLV(conn, "invalid token")
 				continue
 			}
 			if err := h.connManager.DeleteConnection(args[0]); err != nil {
@@ -135,8 +148,12 @@ func (h *BackendHandler) handle(conn net.Conn) {
 			}
 
 		case "REFRESH":
-			if len(args) < 1 {
-				writeErrorTLV(conn, "Missing name")
+			if len(args) < 2 {
+				writeErrorTLV(conn, "Missing name or token")
+				continue
+			}
+			if !h.authenticate(args[0], args[1]) {
+				writeErrorTLV(conn, "invalid token")
 				continue
 			}
 			if err := h.RefreshConnection(args[0]); err != nil {
@@ -184,10 +201,59 @@ func (h *BackendHandler) handle(conn net.Conn) {
 			})
 			writeOK(conn)
 
+		case "GET_TOKEN_CHALLENGE":
+			if len(args) < 1 {
+				writeErrorTLV(conn, "Missing name")
+				continue
+			}
+			if _, err := h.db.GetUserByName(args[0]); err != nil {
+				writeErrorTLV(conn, "user not found")
+				continue
+			}
+			nonce, err := newChallenge(args[0])
+			if err != nil {
+				writeErrorTLV(conn, "failed to issue challenge")
+				continue
+			}
+			writeTLVResponse(conn, nonce)
+
+		case "GET_TOKEN":
+			if len(args) < 3 {
+				writeErrorTLV(conn, "Missing name, challenge or signature")
+				continue
+			}
+			if !consumeChallenge(args[0], args[1]) {
+				writeErrorTLV(conn, "invalid or expired challenge")
+				continue
+			}
+			u, err := h.db.GetUserByName(args[0])
+			if err != nil {
+				writeErrorTLV(conn, "user not found")
+				continue
+			}
+			if u.SignPublic == "" {
+				writeErrorTLV(conn, "client key not registered")
+				continue
+			}
+			if !verifyClientSignature(u.SignPublic, args[0], args[1], args[2]) {
+				writeErrorTLV(conn, "signature verify failed")
+				continue
+			}
+			if u.Token == "" {
+				writeTLVResponse(conn, "NOT_SET")
+				continue
+			}
+			writeTLVResponse(conn, u.Token)
+
 		case "SUBSCRIBE":
-			name := ""
-			if len(args) >= 1 {
-				name = args[0]
+			if len(args) < 2 {
+				writeErrorTLV(conn, "Missing name or token")
+				continue
+			}
+			name := args[0]
+			if !h.authenticate(name, args[1]) {
+				writeErrorTLV(conn, "invalid token")
+				continue
 			}
 			sub := notification.NewSubscriber(conn, 4096)
 			writeOK(conn)
@@ -200,14 +266,10 @@ func (h *BackendHandler) handle(conn net.Conn) {
 					continue
 				}
 				// Keep connection alive until client disconnects
-				if name != "" {
-					h.RefreshConnection(name)
-				}
+				h.RefreshConnection(name)
 			}
 			h.bus.Remove(sub)
-			if name != "" {
-				h.connManager.DeleteConnection(name)
-			}
+			h.connManager.DeleteConnection(name)
 			return
 
 		default:
@@ -253,9 +315,19 @@ func (s *BackendHandler) RefreshConnection(name string) error {
 	return s.connManager.RefreshConnection(name)
 }
 
-func (s *BackendHandler) RegisterPendingUser(username, addr string) error {
+// authenticate verifies a client-supplied per-user token (constant-time). Users
+// that predate token issuance (empty token) are rejected until re-approved.
+func (s *BackendHandler) authenticate(username, token string) bool {
+	u, err := s.db.GetUserByName(username)
+	if err != nil || u.Token == "" {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(u.Token), []byte(token)) == 1
+}
+
+func (s *BackendHandler) RegisterPendingUser(username, addr, signPublic string) error {
 	log.Info("Registration request for user \""+username+"\"", nil)
-	return s.pendingUsers.Add(username, addr)
+	return s.pendingUsers.Add(username, addr, signPublic)
 }
 
 func (s *BackendHandler) GetStatus() *ServerStatus {

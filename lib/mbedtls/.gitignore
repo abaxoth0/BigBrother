@@ -1,0 +1,3 @@
+library/*.o
+library/*.a
+library/*.d

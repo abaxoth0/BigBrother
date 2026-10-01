@@ -103,7 +103,9 @@ func (db *Database) initTables() error {
 		id 				BLOB NOT NULL PRIMARY KEY,
 		name 			TEXT UNIQUE NOT NULL,
 		addr			TEXT UNIQUE NOT NULL,
-		whitelist_id	BLOB REFERENCES whitelist(id) ON DELETE SET NULL
+		whitelist_id	BLOB REFERENCES whitelist(id) ON DELETE SET NULL,
+		token			TEXT,
+		sign_public		TEXT
 	)`
 	createSettingsTableSQL :=
 		`CREATE TABLE IF NOT EXISTS settings (
@@ -124,7 +126,60 @@ func (db *Database) initTables() error {
 		}
 	}
 
+	if err := db.migrate(); err != nil {
+		return err
+	}
+
 	dbcommon.Log.Info("Initializing tables: OK", nil)
 
+	return nil
+}
+
+// migrate applies additive schema changes to databases created by older
+// versions (CREATE TABLE IF NOT EXISTS only covers new databases).
+func (db *Database) migrate() error {
+	type column struct {
+		cid     int
+		name    string
+		typ     string
+		notNull int
+		dflt    sql.NullString
+		pk      int
+	}
+
+	ensureColumn := func(table, col, ddl string) error {
+		rows, err := db.conn.Query("PRAGMA table_info(" + table + ")")
+		if err != nil {
+			return err
+		}
+		found := false
+		for rows.Next() {
+			var c column
+			if err := rows.Scan(&c.cid, &c.name, &c.typ, &c.notNull, &c.dflt, &c.pk); err != nil {
+				rows.Close()
+				return err
+			}
+			if c.name == col {
+				found = true
+				break
+			}
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		if found {
+			return nil
+		}
+		_, err = db.conn.Exec(ddl)
+		return err
+	}
+
+	if err := ensureColumn("user", "token", "ALTER TABLE user ADD COLUMN token TEXT"); err != nil {
+		return fmt.Errorf("Failed to migrate user table: %v", err)
+	}
+	if err := ensureColumn("user", "sign_public", "ALTER TABLE user ADD COLUMN sign_public TEXT"); err != nil {
+		return fmt.Errorf("Failed to migrate user table: %v", err)
+	}
 	return nil
 }
