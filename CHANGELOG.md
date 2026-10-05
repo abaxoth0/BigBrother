@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Security: the client caches the fetched token in memory (with best-effort persistence to `config.ini`) so CONNECT/SUBSCRIBE use it immediately; the manual "Токен сервера" settings field was removed
 - Server: per-user `token` and `sign_public` columns (auto-migrated), `GET_TOKEN_CHALLENGE`/`GET_TOKEN` commands with ECDSA-P256 signature verification
 - Security: restricted local IPC — the server frontend pipe, client backend pipe and firewall pipe now allow only SYSTEM/Administrators/Owner (were Everyone / default), and the client backend pipe only talks to the client GUI process (by executable name)
+- Security: added `check_ipc_access.py` (and a `.bat` launcher) to probe the named pipes and verify the restrictions
 
 ## [1.3.0] - 27-09-2026
 
