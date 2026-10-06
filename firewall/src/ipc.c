@@ -7,6 +7,7 @@
 #include "../include/allowlist.h"
 #include "../include/firewall.h"
 #include "../../common/encoding/encoding.h"
+#include "../../common/pipe_security.h"
 #include <windows.h>
 #include <stdio.h>
 #include <string.h>
@@ -206,7 +207,12 @@ static DWORD WINAPI ipc_server_thread(LPVOID param) {
     HANDLE stop_event = (HANDLE)(uintptr_t)param;
     HANDLE pipes[16];
     int num_pipes = 0;
-    
+
+    // Restrict the pipe to SYSTEM + Administrators + Owner so local processes
+    // can't flip filtration or replace the whitelist (e.g. block-all DoS).
+    SECURITY_ATTRIBUTES sec_attrs;
+    int have_sec = (bb_restrict_pipe_security(&sec_attrs) == 0);
+
     while (1) {
         if (num_pipes < 16) {
             HANDLE pipe = CreateNamedPipe(
@@ -217,7 +223,7 @@ static DWORD WINAPI ipc_server_thread(LPVOID param) {
                 IPC_MAX_MESSAGE_SIZE,
                 IPC_MAX_MESSAGE_SIZE,
                 0,
-                NULL
+                have_sec ? &sec_attrs : NULL
             );
 
             if (pipe != INVALID_HANDLE_VALUE) {
@@ -263,6 +269,9 @@ static DWORD WINAPI ipc_server_thread(LPVOID param) {
         }
     }
 
+    if (have_sec) {
+        LocalFree(sec_attrs.lpSecurityDescriptor);
+    }
     return 0;
 }
 

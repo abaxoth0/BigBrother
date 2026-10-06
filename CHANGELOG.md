@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Security: automatic token delivery — the client generates a persistent ECDSA-P256 identity key, shares its public key at registration (bound at approval and refreshed on re-approval), then signs a single-use server challenge to receive its token over TLS; no manual configuration needed
 - Security: the client caches the fetched token in memory (with best-effort persistence to `config.ini`) so CONNECT/SUBSCRIBE use it immediately; the manual "Токен сервера" settings field was removed
 - Server: per-user `token` and `sign_public` columns (auto-migrated), `GET_TOKEN_CHALLENGE`/`GET_TOKEN` commands with ECDSA-P256 signature verification
+- Security: restricted local IPC — the server frontend pipe, client backend pipe and firewall pipe now allow only SYSTEM/Administrators/Owner (were Everyone / default), and the client backend pipe only talks to the client GUI process (by executable name)
+- Security: added `check_ipc_access.py` (and a `.bat` launcher) to probe the named pipes and verify the restrictions
 
 ## [1.3.0] - 27-09-2026
 
