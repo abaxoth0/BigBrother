@@ -1,1 +1,6 @@
 - Server GUI: `IsConnected`/settings availability is driven by the **Windows service** state (via `ServiceManager`), not by pipe reachability. A server daemon started as a **console process** (not registered as a service) will not show as connected in the GUI. Planned: add a pipe-liveness fallback so console/dev runs reflect connectivity.
+
+- Security / runtime hygiene:
+  - The server TLS private key lives in `<data>/tls/server.key` written 0600; Windows ignores most POSIX modes. Ideally set an explicit ACL (SYSTEM/Administrators only) on that directory. Same for the client identity key `client_sigkey.key` next to the client daemon.
+  - Certificate/token rotation: regenerating the server cert requires clearing `[server] fingerprint` in the client `config.ini` (the client pins it). Tokens rotate with the server GUI's «Сбросить токен», and the client re-fetches automatically via the signed challenge when its token is cleared.
+  - The reverse proxy/router exposes only TCP 1984; discovery uses UDP 42069 and is rate-limited per source.

@@ -102,14 +102,15 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 				continue
 			}
 			log.Info("Approving user \""+args[0]+"\"...", nil)
-			token, err := h.ApproveUser(args[0])
-			if err != nil {
+			if _, err := h.ApproveUser(args[0]); err != nil {
 				log.Error("Approving user \""+args[0]+"\"", err.Error(), nil)
 				writeErrorTLV(conn, err.Error())
 			} else {
+				// The token is NOT broadcast in the event — the client fetches it
+				// itself via the signed GET_TOKEN challenge.
 				h.bus.Publish(notification.Event{
 					Type: notification.UserApproved,
-					Data: map[string]string{"name": args[0], "token": token},
+					Data: map[string]string{"name": args[0]},
 				})
 				log.Info("Approving user \""+args[0]+"\": OK", nil)
 				writeOK(conn)
@@ -349,8 +350,11 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 
 		case "SUBSCRIBE":
 			sub := notification.NewSubscriber(conn, 65536)
+			if err := h.bus.Add(sub); err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
 			writeOK(conn)
-			h.bus.Add(sub)
 			conn.SetReadDeadline(time.Time{}) // pushed events only, no request deadline
 			scanner := newScanner(conn)
 			for scanner.Scan() {
