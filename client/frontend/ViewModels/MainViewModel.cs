@@ -202,7 +202,7 @@ public class MainViewModel : ViewModelBase, IDisposable
         }
     }
 
-    private bool _filtrationAutoDisable;
+    private bool _filtrationAutoDisable = true;
 
     public bool FiltrationAutoDisable
     {

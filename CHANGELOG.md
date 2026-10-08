@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Client: filtration connection-sync (was "auto-disable on server disconnect") — filtration now stays off whenever the server connection is down for any reason and re-enables on reconnect, while a user's manual OFF is preserved until explicitly re-enabled; the option is enabled by default and the settings checkbox/help text were reworded to match
 - Security: TLS over the client<=>server TCP channel — the server uses a self-signed EC certificate (generated on first run) and the listener requires TLS1.2+; the client uses vendored mbedTLS with server-certificate fingerprint pinning (trust-on-first-use)
 - Security: per-user token authentication — `CONNECT`/`SUBSCRIBE`/`DISCONNECT`/`REFRESH`/`GET_WHITELIST` require a per-user token (constant-time check); `REGISTER` stays open for onboarding
 - Security: automatic token delivery — the client generates a persistent ECDSA-P256 identity key, shares its public key at registration (bound at approval and refreshed on re-approval), then signs a single-use server challenge to receive its token over TLS; no manual configuration needed
