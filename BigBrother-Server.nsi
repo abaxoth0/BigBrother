@@ -39,10 +39,9 @@ Section "Server Backend" SecServer
 SectionEnd
 
 Section "Server GUI" SecServerGUI
-    SetOutPath "$INSTDIR"
+    SetOutPath "$INSTDIR\GUI"
     File /nonfatal /r "dist\server-frontend\*.*"
-    CreateShortCut "$DESKTOP\BigBrother Server.lnk" "$INSTDIR\BigBrother Server.exe"
-    SetOutPath "$INSTDIR"
+    CreateShortCut "$DESKTOP\BigBrother Server.lnk" "$INSTDIR\GUI\BigBrother Server.exe"
 SectionEnd
 
 Section "Windows Firewall Rules" SecRules
