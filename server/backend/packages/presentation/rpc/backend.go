@@ -256,8 +256,11 @@ func (h *BackendHandler) handle(conn net.Conn) {
 				continue
 			}
 			sub := notification.NewSubscriber(conn, 4096)
+			if err := h.bus.Add(sub); err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
 			writeOK(conn)
-			h.bus.Add(sub)
 			conn.SetReadDeadline(time.Time{}) // pushed events/heartbeats, no request deadline
 			scanner := newScanner(conn)
 			for scanner.Scan() {

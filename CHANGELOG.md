@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Server: per-user `token` and `sign_public` columns (auto-migrated), `GET_TOKEN_CHALLENGE`/`GET_TOKEN` commands with ECDSA-P256 signature verification
 - Security: restricted local IPC — the server frontend pipe, client backend pipe and firewall pipe now allow only SYSTEM/Administrators/Owner (were Everyone / default), and the client backend pipe only talks to the client GUI process (by executable name)
 - Security: added `check_ipc_access.py` (and a `.bat` launcher) to probe the named pipes and verify the restrictions
+- Security: resilience limits — TCP listener caps concurrent connections (default 256) and rate-limits connections per source IP; the event bus caps push subscribers (128); discovery replies are rate-limited per source
+- Security: tokens are never broadcast — approval events no longer carry the token (the client obtains it via the signed `GET_TOKEN` challenge); documented TLS/rotation hygiene in `docs/BBMP.md`/`docs/TODO.md`
 
 ## [1.3.0] - 27-09-2026
 

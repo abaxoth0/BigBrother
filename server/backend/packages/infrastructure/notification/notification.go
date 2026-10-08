@@ -92,11 +92,19 @@ func NewManager() *Manager {
 	}
 }
 
-func (m *Manager) Add(sub *Subscriber) {
+// MaxSubscribers caps how many push subscribers the manager holds (a LAN peer
+// shouldn't be able to open unbounded subscriptions and exhaust memory/events).
+const MaxSubscribers = 128
+
+func (m *Manager) Add(sub *Subscriber) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if len(m.subscribers) >= MaxSubscribers {
+		return fmt.Errorf("too many subscribers (%d)", MaxSubscribers)
+	}
 	m.subscribers[sub] = struct{}{}
 	go m.writeLoop(sub)
+	return nil
 }
 
 func (m *Manager) Remove(sub *Subscriber) {

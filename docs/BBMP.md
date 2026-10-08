@@ -188,6 +188,43 @@ Common error messages:
 
 ---
 
+## Transport security (client <-> server)
+
+The client<->server TCP channel (:1984) is **TLS 1.2+**:
+
+- The server listener presents a self-signed EC certificate (generated on first run,
+  stored under the data directory in `tls/`).
+- The client pins the server certificate's SHA-256 fingerprint (trust-on-first-use,
+  persisted in `config.ini` under `[server] fingerprint`).
+- The client authenticates itself with a **per-user token** sent with every
+  authenticated command (`CONNECT`, `DISCONNECT`, `REFRESH`, `GET_WHITELIST`,
+  `SUBSCRIBE`). `REGISTER` stays open for onboarding.
+
+### Token bootstrap (no manual configuration)
+
+1. The client generates a persistent ECDSA-P256 identity key and sends its public
+   key with `REGISTER` (`name`, `ip`, `sign_public_hex`). The server binds it at
+   approval.
+2. To fetch its token the client runs:
+   - `GET_TOKEN_CHALLENGE <name>` → returns a single-use nonce (60s TTL).
+   - `GET_TOKEN <name> <nonce> <signature_hex>` — the signature is ECDSA-P256/SHA-256
+     over the raw bytes `name||nonce`, in DER ASN.1. Returns the token (or
+     `NOT_SET` before approval).
+3. `CONNECT`/`SUBSCRIBE` then proceed with the token.
+
+### Resilience limits
+
+- TCP listener caps concurrent connections (default 256) and rate-limits
+  connections per source IP (default 10/s, burst 20).
+- The event bus caps push subscribers (128); exceeding it returns an error.
+- Discovery (UDP 42069) rate-limits responses per source (2/s).
+
+Local pipes (`BigBrother.Client.Backend`, `BigBrother.Firewall`,
+`BigBrother.Server.Frontend`) are DACL-restricted to SYSTEM/Administrators/Owner,
+and the client backend additionally verifies the peer executable is the client GUI.
+
+---
+
 ## Version History
 
 | Version | Date | Changes |
