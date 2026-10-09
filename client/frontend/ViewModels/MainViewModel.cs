@@ -43,7 +43,7 @@ public class MainViewModel : ViewModelBase, IDisposable
     private string _lastFirewallLogPath = "";
 
     // Status
-    private bool _filtrationEnabled = true;
+    private bool _filtrationEnabled = false;
     private bool _hasSettingsChanges;
     private bool _isRegistering;
     private bool _autoScroll = true;
@@ -455,6 +455,7 @@ public class MainViewModel : ViewModelBase, IDisposable
                         if (_disposed) return;
                         FirewallRunning = false;
                         ServerConnected = false;
+                        FiltrationEnabled = false;
                         OverallHealth = HealthState.Critical;
                         StatusRefreshed?.Invoke(new ClientStatus { ClientPid = 0 });
                     });

@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Client frontend: no more delayed old logs on startup — the firewall/client daemons now rotate a pre-existing log file on start, so each session writes to a fresh log and the frontend never replays a previous session's entries in batches
+- Client: filtration status now reports "Выкл" while the firewall is not running (default no longer "Вкл"), and re-aligns the firewall state on the next status report when it comes back
 
 ### Changed
 

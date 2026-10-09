@@ -118,7 +118,7 @@ public class ClientStatus
     public bool IsServerRunning => ServerRunning == "RUNNING";
     public bool IsServerSessionActive => ServerSessionActive == "CONNECTED";
     public uint WhitelistRevision { get; set; }
-    public bool FiltrationEnabled { get; set; } = true;
+    public bool FiltrationEnabled { get; set; } = false;
 }
 
 public class LogFileSource

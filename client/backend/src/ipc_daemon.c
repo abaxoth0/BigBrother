@@ -508,6 +508,9 @@ int DaemonGetFiltration(void) {
     char buf[16] = {0};
     if (send_command_tlv("GET_FILTRATION", NULL, 0, buf, sizeof(buf)) == 0) {
         g_filtration_enabled = (buf[0] == '1');
+    } else {
+        // Firewall is not running — nothing is being filtered, report as off.
+        g_filtration_enabled = 0;
     }
     return g_filtration_enabled;
 }
@@ -569,11 +572,22 @@ static int apply_filtration_sync(void) {
 
 // Public wrapper used by the IPC layer when reporting status: recomputes the
 // connection-gated effective state (pushing it to the firewall if it changed),
-// then re-reads the firewall so the reported value also reflects any external
-// changes. Returns the effective filtration state.
+// re-reads the firewall, and re-aligns it if it drifted (e.g. the firewall
+// restarted with its default state). Returns the effective state to report —
+// always 0 when the firewall is not running.
 int RefreshFiltrationEffective(void) {
     apply_filtration_sync();
-    return DaemonGetFiltration();
+    int actual = DaemonGetFiltration();
+    int effective = (IsFiltrationAutoDisableEnabled() && !IsServerSessionActive())
+                        ? 0 : g_filtration_requested;
+    if (actual != effective) {
+        if (daemon_set_filtration_effective(effective) == 0) {
+            return effective;
+        }
+        g_filtration_enabled = 0; // push failed -> firewall unreachable
+        return 0;
+    }
+    return actual;
 }
 
 static int tls_connect_socket(SOCKET sock, bb_tls_t* tls);
