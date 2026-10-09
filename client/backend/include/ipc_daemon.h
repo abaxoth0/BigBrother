@@ -150,14 +150,28 @@ int DaemonSetFiltration(int enabled);
 int IsFiltrationEnabled(void);
 
 /**
- * @brief Check if filtration auto-disable on server disconnect is enabled.
+ * @brief Recompute and return the effective (connection-gated) filtration state.
+ *
+ * Called when status is reported so the value always reflects the current
+ * server connection state; pushes the updated state to the firewall if needed.
+ *
+ * @return 1 if filtration is effective, 0 if disabled.
+ */
+int RefreshFiltrationEffective(void);
+
+/**
+ * @brief Check if filtration is synced with the server connection (enabled by default).
+ *
+ * When enabled, filtration is only effective while connected to the server; it
+ * is automatically disabled whenever the connection is down (whatever the
+ * reason) and re-enabled on reconnect, unless the user turned it off manually.
  *
  * @return 1 if enabled, 0 if disabled.
  */
 int IsFiltrationAutoDisableEnabled(void);
 
 /**
- * @brief Enable or disable filtration auto-disable on server disconnect.
+ * @brief Enable or disable filtration connection-sync.
  *
  * @param enabled 1 to enable, 0 to disable.
  */

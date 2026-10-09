@@ -43,7 +43,14 @@ static char g_server_ip[64] = {0};
 static int g_server_session_active = 0;
 static int g_registration_tried = 0;
 static int g_fallback_whitelist_enabled = 1;
+// Desired filtration state (set explicitly by the user via the "Вкл/Выкл"
+// button, or by the server). The effective state applied to the firewall also
+// depends on the server connection when connection-sync is enabled.
+static int g_filtration_requested = 1;
+// Effective filtration state last pushed to the firewall.
 static int g_filtration_enabled = 1;
+
+static int apply_filtration_sync(void);
 
 // Last whitelist pushed to the firewall (heap-allocated, grows on demand so a
 // large server whitelist is not truncated at a fixed size).
@@ -81,6 +88,9 @@ void SetServerSessionActive(int active) {
     if (g_server_session_active != active) {
         g_server_session_active = active;
         NotifyStateChanged();
+        // Sync filtration with the connection state so both connected and
+        // disconnected transitions (manual or unexpected) take effect.
+        apply_filtration_sync();
     }
 }
 
@@ -498,19 +508,36 @@ int DaemonGetFiltration(void) {
     char buf[16] = {0};
     if (send_command_tlv("GET_FILTRATION", NULL, 0, buf, sizeof(buf)) == 0) {
         g_filtration_enabled = (buf[0] == '1');
+    } else {
+        // Firewall is not running — nothing is being filtered, report as off.
+        g_filtration_enabled = 0;
     }
     return g_filtration_enabled;
 }
 
-int DaemonSetFiltration(int enabled) {
-    const char* args[1] = {enabled ? "1" : "0"};
+// Push the already-gated effective state to the firewall and cache it.
+static int daemon_set_filtration_effective(int effective) {
+    const char* args[1] = {effective ? "1" : "0"};
     char buf[16] = {0};
     if (send_command_tlv("SET_FILTRATION", args, 1, buf, sizeof(buf)) == 0) {
-        g_filtration_enabled = enabled;
+        g_filtration_enabled = effective;
         NotifyStateChanged();
         return 0;
     }
     return -1;
+}
+
+int DaemonSetFiltration(int enabled) {
+    int desired = enabled ? 1 : 0;
+    int rc = 0;
+    if (desired != g_filtration_requested) {
+        g_filtration_requested = desired;
+        rc = apply_filtration_sync();
+    }
+    // Always refresh the GUI so it shows the true (possibly connection-gated)
+    // state even when the request itself cannot take effect yet.
+    NotifyStateChanged();
+    return rc;
 }
 
 int IsFiltrationEnabled(void) {
@@ -521,25 +548,46 @@ int IsFiltrationAutoDisableEnabled(void) {
     char buf[8] = {0};
     if (ini_get_string("filtration", "auto_disable", buf, sizeof(buf)) && buf[0])
         return buf[0] == '1';
-    return 0;
+    return 1; // enabled by default
 }
 
 void SetFiltrationAutoDisableEnabled(int enabled) {
     ini_set_string("filtration", "auto_disable", enabled ? "1" : "0");
+    apply_filtration_sync();
 }
 
-static void apply_auto_disable(void) {
-    if (IsFiltrationAutoDisableEnabled() && IsFiltrationEnabled()) {
-        LOGF("[Daemon] Auto-disable: disabling filtration (server disconnected)");
-        DaemonSetFiltration(0);
+// Recompute the effective filtration state. With connection-sync enabled,
+// filtration is only effective while connected to the server; the user's
+// explicit choice (g_filtration_requested) is never overridden.
+static int apply_filtration_sync(void) {
+    int effective = (IsFiltrationAutoDisableEnabled() && !IsServerSessionActive())
+                        ? 0 : g_filtration_requested;
+    if (effective != g_filtration_enabled) {
+        LOGF("[Daemon] Filtration sync: requested=%d connected=%d -> effective=%d",
+             g_filtration_requested, IsServerSessionActive(), effective);
+        return daemon_set_filtration_effective(effective);
     }
+    return 0;
 }
 
-static void apply_auto_enable(void) {
-    if (IsFiltrationAutoDisableEnabled() && !IsFiltrationEnabled()) {
-        LOGF("[Daemon] Auto-disable: enabling filtration (server connected)");
-        DaemonSetFiltration(1);
+// Public wrapper used by the IPC layer when reporting status: recomputes the
+// connection-gated effective state (pushing it to the firewall if it changed),
+// re-reads the firewall, and re-aligns it if it drifted (e.g. the firewall
+// restarted with its default state). Returns the effective state to report —
+// always 0 when the firewall is not running.
+int RefreshFiltrationEffective(void) {
+    apply_filtration_sync();
+    int actual = DaemonGetFiltration();
+    int effective = (IsFiltrationAutoDisableEnabled() && !IsServerSessionActive())
+                        ? 0 : g_filtration_requested;
+    if (actual != effective) {
+        if (daemon_set_filtration_effective(effective) == 0) {
+            return effective;
+        }
+        g_filtration_enabled = 0; // push failed -> firewall unreachable
+        return 0;
     }
+    return actual;
 }
 
 static int tls_connect_socket(SOCKET sock, bb_tls_t* tls);
@@ -1116,8 +1164,11 @@ static void sync_filtration_from_server(void) {
     char filt_buf[16] = {0};
     if (send_to_server_tlv("GET_FILTRATION", NULL, 0, filt_buf, sizeof(filt_buf)) != 0) return;
     int server_filt = (filt_buf[0] == '1');
-    if (server_filt != g_filtration_enabled) {
-        LOGF("[Daemon] Server filtration %s, updating local firewall", server_filt ? "enabled" : "disabled");
+    // With connection-sync enabled the user's explicit choice survives
+    // reconnects, so the server value may only pull filtration off.
+    if (IsFiltrationAutoDisableEnabled() && server_filt) return;
+    if (server_filt != g_filtration_requested) {
+        LOGF("[Daemon] Server filtration %s, updating local filtration", server_filt ? "enabled" : "disabled");
         DaemonSetFiltration(server_filt);
     }
 }
@@ -1210,7 +1261,7 @@ static int handle_server_event(const char* event_type, SrvLineReader* reader, co
             if (eq && strncmp(data[i], "enabled", (size_t)(eq - data[i])) == 0) {
                 int val = (*(eq + 1) == '1');
                 if (val != g_filtration_enabled) {
-                    LOGF("[Daemon] Server filtration toggled to %d, updating local firewall", val);
+                    LOGF("[Daemon] Server filtration toggled to %d, updating local filtration", val);
                     DaemonSetFiltration(val);
                 }
             }
@@ -1226,7 +1277,6 @@ static int handle_server_event(const char* event_type, SrvLineReader* reader, co
                     LOGF("[Daemon] User '%s' approved, connecting to server...", approved_name);
                     if (ServerConnect(username) == 0) {
                         SetServerSessionActive(1);
-                        apply_auto_enable();
                         sync_whitelist_from_server(username);
                         sync_filtration_from_server();
                     }
@@ -1319,9 +1369,8 @@ static int server_subscribe_loop(const char* username, int* consecutive_failures
     // On successful subscribe, ensure we are connected and synced
     if (ServerConnect(username) == 0) {
         SetServerSessionActive(1);
-        apply_auto_enable();
     } else {
-        apply_auto_disable();
+        apply_filtration_sync();
     }
     sync_whitelist_from_server(username);
     sync_filtration_from_server();
@@ -1444,10 +1493,9 @@ int DaemonRun(const char* server_ip) {
         if (ServerConnect(username) == 0) {
             LOGF("[Daemon] Connected to server successfully");
             SetServerSessionActive(1);
-            apply_auto_enable();
         } else {
             LOGF("[Daemon] Failed to connect to server (may not be registered/approved yet)");
-            apply_auto_disable();
+            apply_filtration_sync();
             if (!g_registration_tried) {
                 LOGF("[Daemon] Attempting to register...");
                 ServerRegister(username);
@@ -1456,7 +1504,7 @@ int DaemonRun(const char* server_ip) {
         }
     } else {
         LOGF("[Daemon] No saved username found, skipping server connection");
-        apply_auto_disable();
+        apply_filtration_sync();
     }
 
     // Event-driven subscription loop
@@ -1494,8 +1542,7 @@ int DaemonRun(const char* server_ip) {
 
         // Connection lost — clean up state
         LOGF("[Daemon] Lost connection to server %s, retrying...", g_server_ip);
-        SetServerSessionActive(0);
-        apply_auto_disable();
+        SetServerSessionActive(0); // syncs filtration off when connection-sync is enabled
         block_all_if_no_fallback();
 
         consecutive_failures++;
