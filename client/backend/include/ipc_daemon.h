@@ -150,6 +150,16 @@ int DaemonSetFiltration(int enabled);
 int IsFiltrationEnabled(void);
 
 /**
+ * @brief Recompute and return the effective (connection-gated) filtration state.
+ *
+ * Called when status is reported so the value always reflects the current
+ * server connection state; pushes the updated state to the firewall if needed.
+ *
+ * @return 1 if filtration is effective, 0 if disabled.
+ */
+int RefreshFiltrationEffective(void);
+
+/**
  * @brief Check if filtration is synced with the server connection (enabled by default).
  *
  * When enabled, filtration is only effective while connected to the server; it

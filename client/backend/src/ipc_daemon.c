@@ -567,6 +567,15 @@ static int apply_filtration_sync(void) {
     return 0;
 }
 
+// Public wrapper used by the IPC layer when reporting status: recomputes the
+// connection-gated effective state (pushing it to the firewall if it changed),
+// then re-reads the firewall so the reported value also reflects any external
+// changes. Returns the effective filtration state.
+int RefreshFiltrationEffective(void) {
+    apply_filtration_sync();
+    return DaemonGetFiltration();
+}
+
 static int tls_connect_socket(SOCKET sock, bb_tls_t* tls);
 static void get_client_token(char* buf, size_t size);
 
