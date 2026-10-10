@@ -2,17 +2,18 @@
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                     xmlns:prim="clr-namespace:System.Windows.Controls.Primitives;assembly=PresentationFramework">
 
-    <!-- Server-only accent ("rose-pine") theme. Merged AFTER ThemeDark.xaml in
+    <!-- Server-only dark burgundy accent theme. Merged AFTER ThemeDark.xaml in
          the server's App.xaml so it overrides the shared accent tokens, and
          carries the server-specific dark control styles (DataGrid, menus, nav).
          Backgrounds/surfaces come from ThemeDark.xaml unchanged. -->
 
-    <!-- Rose-pine accent overrides -->
-    <SolidColorBrush x:Key="Accent" Color="#EB6F92"/>
-    <SolidColorBrush x:Key="AccentHover" Color="#F48FA8"/>
-    <SolidColorBrush x:Key="AccentPressed" Color="#D15D7F"/>
-    <SolidColorBrush x:Key="OnAccent" Color="#FFFFFF"/>
-    <SolidColorBrush x:Key="SecondaryAccent" Color="#C4A7E7"/>
+    <!-- Dark burgundy controls with light text and muted warm highlights -->
+    <SolidColorBrush x:Key="Accent" Color="#713848"/>
+    <SolidColorBrush x:Key="AccentHover" Color="#8B465A"/>
+    <SolidColorBrush x:Key="AccentPressed" Color="#582B38"/>
+    <SolidColorBrush x:Key="OnAccent" Color="#F3ECE8"/>
+    <SolidColorBrush x:Key="AccentText" Color="#BDA69D"/>
+    <SolidColorBrush x:Key="SecondaryAccent" Color="#BDA69D"/>
 
     <!-- Right-side nav item (mirrors the client nav) -->
     <Style x:Key="NavItem" TargetType="RadioButton">
@@ -80,7 +81,7 @@
         </Setter>
     </Style>
 
-    <!-- MenuItem without the default icon column: header + rose hover -->
+    <!-- MenuItem without the default icon column: header + accent hover -->
     <Style TargetType="MenuItem">
         <Setter Property="Foreground" Value="{StaticResource TitleBarText}"/>
         <Setter Property="Background" Value="Transparent"/>
