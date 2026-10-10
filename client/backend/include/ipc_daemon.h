@@ -149,6 +149,10 @@ int DaemonSetFiltration(int enabled);
  */
 int IsFiltrationEnabled(void);
 
+/** IPv6 blocking preference, persisted in config.ini (enabled by default). */
+int IsIpv6BlockEnabled(void);
+int SetIpv6BlockEnabled(int enabled);
+
 /**
  * @brief Recompute and return the effective (connection-gated) filtration state.
  *

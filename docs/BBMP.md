@@ -103,6 +103,12 @@ Used by the daemon client frontend to communicate with the client backend.
 | `RESTART_CLIENT` | none | none | Restart the client |
 | `PING` | none | none | Ping the client |
 | `GET_LOG_PATH` | none | `LOG_PATH:<client_log>\|<firewall_log>` | Get log file paths |
+| `GET_IPV6_BLOCK` | none | `0` or `1` | Get the persisted IPv6 blocking preference (default `1`) |
+| `SET_IPV6_BLOCK` | `0` or `1` | none | Save the preference and apply it to the firewall; disabling it allows IPv6 without whitelist checks |
+
+The IPv6 preference is stored in `config.ini` under `[filtration] block_ipv6`.
+It applies only while filtration is enabled and survives client/firewall restarts.
+If the firewall is stopped when the preference is saved, it is applied on startup.
 
 ---
 

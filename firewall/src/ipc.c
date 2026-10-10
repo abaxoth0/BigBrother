@@ -141,6 +141,24 @@ static int parse_and_execute(HANDLE pipe, char* buffer, size_t size) {
             break;
         }
 
+        case MSG_GET_IPV6_BLOCK: {
+            char buf[8];
+            snprintf(buf, sizeof(buf), "%ld\n", InterlockedCompareExchange(&g_BlockIpv6, 0, 0));
+            write_str(pipe, buf);
+            break;
+        }
+
+        case MSG_SET_IPV6_BLOCK: {
+            char* data = newline ? newline + 1 : buffer + strlen(buffer);
+            if (strcmp(data, "0") != 0 && strcmp(data, "1") != 0) {
+                write_error(pipe, "expected value 0 or 1");
+                break;
+            }
+            InterlockedExchange(&g_BlockIpv6, data[0] == '1');
+            write_ok(pipe);
+            break;
+        }
+
         default:
             write_error(pipe, "unknown command");
             return -1;

@@ -32,9 +32,10 @@ clean:
 
 .PHONY: all debug release clean
 
-# Run build/allowlist_test.exe on Windows (or with Wine on Linux).
+# Run build/*_test.exe on Windows (or with Wine on Linux).
 test-build:
 	mkdir -p build
 	$(CC) $(COMMON_FLAGS) $(DEBUG_FLAGS) -o build/allowlist_test.exe tests/allowlist_test.c src/allowlist.c src/dns.c src/common.c -lws2_32 -static
+	$(CC) $(COMMON_FLAGS) $(DEBUG_FLAGS) -o build/ipv6_block_test.exe tests/ipv6_block_test.c src/allowlist.c src/dns.c src/common.c $(CURDIR)/../common/encoding/encoding.c -lws2_32 -ladvapi32 -static
 
 .PHONY: test-build

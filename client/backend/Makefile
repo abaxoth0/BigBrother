@@ -45,3 +45,10 @@ clean:
 	rm -rf build
 
 .PHONY: all debug release clean
+
+# Run build/ipv6-setting-test/test.exe --write, then --read in a new process.
+test-build: $(MBED_A)
+	mkdir -p build/ipv6-setting-test
+	$(CC) $(COMMON_FLAGS) $(DEBUG_FLAGS) -o build/ipv6-setting-test/test.exe tests/ipv6_setting_test.c $(filter-out src/main.c,$(t-units)) $(CLIENT_LIBS)
+
+.PHONY: test-build

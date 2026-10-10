@@ -38,6 +38,7 @@ IpAllowlist g_IpAllowlist = {0};
 IpAllowlist g_IpBlocklist = {0};
 SRWLOCK g_AllowlistLock = SRWLOCK_INIT;
 volatile int g_FiltrationEnabled = 1;
+volatile LONG g_BlockIpv6 = 1;
 
 StringView g_FilterExpr = {0};
 
@@ -155,7 +156,8 @@ static void load_config(const char* path) {
             char* close = strchr(p, ']');
             if (!close) continue;
             *close = '\0';
-            section_matched = (_stricmp(p + 1, "server") == 0 || _stricmp(p + 1, "daemon") == 0);
+            section_matched = (_stricmp(p + 1, "filtration") == 0) ? 2 :
+                (_stricmp(p + 1, "server") == 0 || _stricmp(p + 1, "daemon") == 0);
             continue;
         }
 
@@ -167,6 +169,13 @@ static void load_config(const char* path) {
         char* key = p;
         char* value = eq + 1;
         while (*value == ' ' || *value == '\t') value++;
+
+        if (section_matched == 2) {
+            if (strcmp(key, "block_ipv6") == 0) {
+                InterlockedExchange(&g_BlockIpv6, strcmp(value, "0") != 0);
+            }
+            continue;
+        }
 
         if (strcmp(key, "address") == 0 && section_matched) {
             // [server] address
@@ -640,9 +649,9 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
         );
 
         if (addr.IPv6) {
-            // IPv6 domain/IP rules are not supported yet. Block outbound IPv6
-            // while filtering, so it cannot bypass the IPv4 whitelist.
-            if (!g_FiltrationEnabled || !addr.Outbound) {
+            // IPv6 passes without whitelist checks when the client opts out.
+            if (!g_FiltrationEnabled || !addr.Outbound ||
+                !InterlockedCompareExchange(&g_BlockIpv6, 0, 0)) {
                 SendPacket(handle, packet, recv_len, &addr);
             }
             continue;
