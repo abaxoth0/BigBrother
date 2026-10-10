@@ -411,8 +411,8 @@ int LoadWhiteList(char* path) {
 
     WhitelistInit(&g_Whitelist);
     WhitelistInit(&g_Blacklist);
-    IpAllowlistInit(&g_IpAllowlist);
-    IpAllowlistInit(&g_IpBlocklist);
+    IpAllowlistClear(&g_IpAllowlist);
+    IpAllowlistClear(&g_IpBlocklist);
 
     FILE *f = fopen(path, "r");
     if (!f) {
@@ -444,6 +444,7 @@ int LoadWhiteList(char* path) {
 
         struct in_addr addr;
         if (inet_pton(AF_INET, p, &addr) == 1) {
+            WhitelistAdd(&g_Whitelist, p);
             IpAllowlistAdd(&g_IpAllowlist, ntohl(addr.s_addr), p, 0);
             LOGF("[INFO] Added IP to allowlist: %s", p);
 
@@ -528,7 +529,7 @@ static int should_log_block(uint32_t dest_ip) {
     return 1;
 }
 
-#define WINDIVERT_FILTER "ip"
+#define WINDIVERT_FILTER "ip or ipv6"
 #define PACKET_QUEUE_TIMEOUT 500 // ms
 
 /**
@@ -549,13 +550,24 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
 
     if (handle == INVALID_HANDLE_VALUE) {
         LOGE("Failed to open WinDivert handle. Error code: %lu", GetLastError());
+        free(packet);
         return STATUS_UNSPECIFIED_ERROR;
     }
 
     if (!WinDivertSetParam(handle, WINDIVERT_PARAM_QUEUE_TIME, PACKET_QUEUE_TIMEOUT)) {
         LOGE("Failed to set packet queue timeout. Error code: %lu", GetLastError());
+        WinDivertClose(handle);
+        free(packet);
         return STATUS_UNSPECIFIED_ERROR;
     }
+
+    HANDLE recv_event = CreateEvent(NULL, TRUE, FALSE, NULL);
+    if (!recv_event) {
+        WinDivertClose(handle);
+        free(packet);
+        return STATUS_UNSPECIFIED_ERROR;
+    }
+    HANDLE recv_waits[] = {g_ServiceStopEvent, recv_event};
 
     PWINDIVERT_IPHDR ip_hdr = NULL;
     PWINDIVERT_TCPHDR tcp_hdr = NULL;
@@ -578,7 +590,26 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
             Sleep(1000);
             continue;
         }
-        if (!WinDivertRecv(handle, packet, PACKET_SIZE, &recv_len, &addr)) {
+        OVERLAPPED recv_io = {0};
+        recv_io.hEvent = recv_event;
+        ResetEvent(recv_event);
+        UINT addr_len = sizeof(addr);
+        BOOL received = WinDivertRecvEx(handle, packet, PACKET_SIZE, &recv_len,
+                                       0, &addr, &addr_len, &recv_io);
+        if (!received && GetLastError() == ERROR_IO_PENDING) {
+            DWORD wait_result = WaitForMultipleObjects(2, recv_waits, FALSE, INFINITE);
+            if (wait_result != WAIT_OBJECT_0 + 1) {
+                // Drain cancellation before releasing the packet and OVERLAPPED.
+                CancelIoEx(handle, &recv_io);
+                DWORD transferred;
+                GetOverlappedResult(handle, &recv_io, &transferred, TRUE);
+                break;
+            }
+            DWORD transferred;
+            received = GetOverlappedResult(handle, &recv_io, &transferred, FALSE);
+            if (received) recv_len = transferred;
+        }
+        if (!received) {
             recv_failures++;
             if (recv_failures > 1 && recv_failures % 100 == 1) {
                 LOGE("WinDivertRecv failed %d consecutive times (last error: %lu)",
@@ -607,6 +638,15 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
             (void*)&payload_ptr, &payload_len,
             NULL, NULL
         );
+
+        if (addr.IPv6) {
+            // IPv6 domain/IP rules are not supported yet. Block outbound IPv6
+            // while filtering, so it cannot bypass the IPv4 whitelist.
+            if (!g_FiltrationEnabled || !addr.Outbound) {
+                SendPacket(handle, packet, recv_len, &addr);
+            }
+            continue;
+        }
 
         if (!ok || ip_hdr == NULL) {
             SendPacket(handle, packet, recv_len, &addr);
@@ -893,6 +933,7 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
         SendPacket(handle, packet, recv_len, &addr);
     }
 
+    CloseHandle(recv_event);
     free(packet);
     WinDivertClose(handle);
 

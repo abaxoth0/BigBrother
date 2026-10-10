@@ -303,7 +303,10 @@ int IpcSetWhitelist(const char* data, size_t size) {
     }
 
     AcquireSRWLockExclusive(&g_AllowlistLock);
-    WhitelistLoadFromData(&g_Whitelist, &g_Blacklist, data, size);
+    if (WhitelistLoadFromData(&g_Whitelist, &g_Blacklist, data, size) != 0) {
+        ReleaseSRWLockExclusive(&g_AllowlistLock);
+        return -1;
+    }
     // Purge allowlist entries for domains that are no longer whitelisted, so a
     // removed domain stops being reachable immediately instead of lingering for
     // the TTL. Existing still-whitelisted connections keep working.

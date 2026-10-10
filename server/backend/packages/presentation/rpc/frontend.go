@@ -337,11 +337,14 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 			writeTLVResponse(conn, filt)
 
 		case "SET_FILTRATION":
-			if len(args) < 1 {
-				writeErrorTLV(conn, "Missing value")
+			if len(args) != 1 || (args[0] != "0" && args[0] != "1") {
+				writeErrorTLV(conn, "Expected filtration value 0 or 1")
 				continue
 			}
-			h.db.SetSetting("filtration_enabled", args[0])
+			if err := h.db.SetSetting("filtration_enabled", args[0]); err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
 			h.bus.Publish(notification.Event{
 				Type: notification.FiltrationToggled,
 				Data: map[string]string{"enabled": args[0]},

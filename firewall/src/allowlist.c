@@ -68,8 +68,7 @@ void WhitelistFree(Whitelist* wl) {
 int WhitelistLoadFromData(Whitelist* wl, Whitelist* bl, const char* data, size_t size) {
     if (!wl || !bl || !data || size == 0) return -1;
 
-    WhitelistClear(wl);
-    WhitelistClear(bl);
+    Whitelist next_wl = {0}, next_bl = {0};
 
     char* copy = malloc(size + 1);
     if (!copy) return -1;
@@ -92,13 +91,22 @@ int WhitelistLoadFromData(Whitelist* wl, Whitelist* bl, const char* data, size_t
         if (len > 0 && line[0] != '#') {
             int is_exception = (line[0] == '!');
             const char* domain = is_exception ? line + 1 : line;
-            WhitelistAdd(is_exception ? bl : wl, domain);
+            if (WhitelistAdd(is_exception ? &next_bl : &next_wl, domain) != 0) {
+                WhitelistFree(&next_wl);
+                WhitelistFree(&next_bl);
+                free(copy);
+                return -1;
+            }
         }
 
         line = next ? next + 1 : NULL;
     }
 
     free(copy);
+    WhitelistFree(wl);
+    WhitelistFree(bl);
+    *wl = next_wl;
+    *bl = next_bl;
     return 0;
 }
 
@@ -213,19 +221,14 @@ int IpAllowlistRemove(IpAllowlist* al, uint32_t ip) {
 // Remove allowlist entries whose learned domain no longer matches any allow
 // rule in `wl` (e.g. after the server pushes a whitelist that drops a domain).
 // Domain learned from a DNS response is already lowercase; patterns are
-// pre-lowercased. Literal-IP entries (added from the whitelist file) are kept —
-// their "domain" is an IP string that never matches a domain pattern. Caller
-// must hold the exclusive allowlist lock.
+// pre-lowercased. Literal IPs must also have a rule in the new whitelist.
+// Caller must hold the exclusive allowlist lock.
 void IpAllowlistPurgeUnowned(IpAllowlist* al, const Whitelist* wl) {
     if (!al || !wl) return;
     AllowedIp* entry;
     AllowedIp* tmp;
     HASH_ITER(hh, al->head, entry, tmp) {
         if (entry->domain[0] == '\0') continue;
-
-        // Keep literal-IP allow rules (e.g. "8.8.8.8" from the whitelist file).
-        struct in_addr addr;
-        if (inet_pton(AF_INET, entry->domain, &addr) == 1) continue;
 
         int still_owned = 0;
         for (size_t w = 0; w < wl->count; w++) {
