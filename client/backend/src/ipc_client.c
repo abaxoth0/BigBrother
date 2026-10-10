@@ -546,6 +546,20 @@ DWORD WINAPI client_handler(LPVOID param) {
             }
         }
 
+    } else if (strcmp(buffer, "GET_IPV6_BLOCK") == 0) {
+        const char* data[] = {IsIpv6BlockEnabled() ? "1" : "0"};
+        write_response_tlv(pipe, "OK", data, 1);
+
+    } else if (strcmp(buffer, "SET_IPV6_BLOCK") == 0) {
+        if (arg_count != 1 || !args[0] ||
+            (strcmp(args[0], "0") != 0 && strcmp(args[0], "1") != 0)) {
+            write_error_tlv(pipe, "expected value 0 or 1");
+        } else if (SetIpv6BlockEnabled(args[0][0] == '1') != 0) {
+            write_error_tlv(pipe, "failed to save IPv6 blocking preference");
+        } else {
+            write_ok(pipe);
+        }
+
     } else if (strcmp(buffer, "GET_FILTRATION_AUTO_DISABLE") == 0) {
         char val[8];
         snprintf(val, sizeof(val), "%d", IsFiltrationAutoDisableEnabled());

@@ -189,18 +189,6 @@ func (h *BackendHandler) handle(conn net.Conn) {
 			}
 			writeTLVResponse(conn, filt)
 
-		case "SET_FILTRATION":
-			if len(args) < 1 {
-				writeErrorTLV(conn, "Missing value")
-				continue
-			}
-			h.db.SetSetting("filtration_enabled", args[0])
-			h.bus.Publish(notification.Event{
-				Type: notification.FiltrationToggled,
-				Data: map[string]string{"enabled": args[0]},
-			})
-			writeOK(conn)
-
 		case "GET_TOKEN_CHALLENGE":
 			if len(args) < 1 {
 				writeErrorTLV(conn, "Missing name")

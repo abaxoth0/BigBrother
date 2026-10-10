@@ -11,6 +11,7 @@ extern IpAllowlist g_IpBlocklist;
 extern HANDLE g_ServiceStopEvent;
 extern SRWLOCK g_AllowlistLock;
 extern int g_FiltrationEnabled;
+extern volatile LONG g_BlockIpv6;
 
 int LoadWhiteList(char* path);
 void PreResolveWhitelist(void);

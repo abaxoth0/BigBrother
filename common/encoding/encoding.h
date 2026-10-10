@@ -30,7 +30,9 @@ typedef enum {
     MSG_OK,
     MSG_ERROR,
     MSG_GET_FILTRATION,
-    MSG_SET_FILTRATION
+    MSG_SET_FILTRATION,
+    MSG_GET_IPV6_BLOCK,
+    MSG_SET_IPV6_BLOCK
 } IpcMessageType;
 
 /**

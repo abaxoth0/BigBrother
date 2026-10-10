@@ -544,6 +544,48 @@ int IsFiltrationEnabled(void) {
     return g_filtration_enabled;
 }
 
+int IsIpv6BlockEnabled(void) {
+    char buf[8] = {0};
+    if (ini_get_string("filtration", "block_ipv6", buf, sizeof(buf)) && buf[0])
+        return strcmp(buf, "0") != 0;
+    return 1;
+}
+
+static SRWLOCK g_ipv6_sync_lock = SRWLOCK_INIT;
+
+static int sync_ipv6_block_locked(void) {
+    int desired = IsIpv6BlockEnabled();
+    char buf[32] = {0};
+    if (send_command_tlv("GET_IPV6_BLOCK", NULL, 0, buf, sizeof(buf)) != 0)
+        return -1;
+    if (strcmp(buf, desired ? "1" : "0") == 0) return 0;
+    const char* args[] = {desired ? "1" : "0"};
+    if (send_command_tlv("SET_IPV6_BLOCK", args, 1, buf, sizeof(buf)) != 0)
+        return -1;
+    return strcmp(buf, "OK") == 0 ? 0 : -1;
+}
+
+static int sync_ipv6_block(void) {
+    AcquireSRWLockExclusive(&g_ipv6_sync_lock);
+    int result = sync_ipv6_block_locked();
+    ReleaseSRWLockExclusive(&g_ipv6_sync_lock);
+    return result;
+}
+
+int SetIpv6BlockEnabled(int enabled) {
+    AcquireSRWLockExclusive(&g_ipv6_sync_lock);
+    if (ini_set_string("filtration", "block_ipv6", enabled ? "1" : "0") != 0) {
+        ReleaseSRWLockExclusive(&g_ipv6_sync_lock);
+        return -1;
+    }
+    // Persist even while the firewall is stopped; startup/status restores it.
+    int synced = sync_ipv6_block_locked();
+    ReleaseSRWLockExclusive(&g_ipv6_sync_lock);
+    if (synced != 0)
+        LOGF("[Daemon] IPv6 blocking preference saved; firewall sync pending");
+    return 0;
+}
+
 int IsFiltrationAutoDisableEnabled(void) {
     char buf[8] = {0};
     if (ini_get_string("filtration", "auto_disable", buf, sizeof(buf)) && buf[0])
@@ -576,6 +618,7 @@ static int apply_filtration_sync(void) {
 // restarted with its default state). Returns the effective state to report —
 // always 0 when the firewall is not running.
 int RefreshFiltrationEffective(void) {
+    sync_ipv6_block();
     apply_filtration_sync();
     int actual = DaemonGetFiltration();
     int effective = (IsFiltrationAutoDisableEnabled() && !IsServerSessionActive())

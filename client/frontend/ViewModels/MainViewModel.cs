@@ -213,6 +213,16 @@ public class MainViewModel : ViewModelBase, IDisposable
         }
     }
 
+    private bool _ipv6BlockEnabled = true;
+    public bool Ipv6BlockEnabled
+    {
+        get => _ipv6BlockEnabled;
+        set
+        {
+            if (SetProperty(ref _ipv6BlockEnabled, value)) MarkSettingsChanged();
+        }
+    }
+
     public bool HasSettingsChanges
     {
         get => _hasSettingsChanges;
@@ -523,6 +533,7 @@ public class MainViewModel : ViewModelBase, IDisposable
         var netGw = await _ipcService.GetNetworkGatewayAsync();
         var netMask = await _ipcService.GetNetworkMaskAsync();
         var filtAuto = await _ipcService.GetFiltrationAutoDisableAsync();
+        var ipv6Block = await _ipcService.GetIpv6BlockAsync();
         var available = addr != "" || name != "" || enabled || srvName != "";
 
         System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
@@ -547,6 +558,11 @@ public class MainViewModel : ViewModelBase, IDisposable
             OnPropertyChanged(nameof(FallbackWhitelistEnabled));
             _filtrationAutoDisable = filtAuto;
             OnPropertyChanged(nameof(FiltrationAutoDisable));
+            if (ipv6Block.HasValue)
+            {
+                _ipv6BlockEnabled = ipv6Block.Value;
+                OnPropertyChanged(nameof(Ipv6BlockEnabled));
+            }
             SettingsAvailable = available;
         });
     }
@@ -562,6 +578,12 @@ public class MainViewModel : ViewModelBase, IDisposable
         await _ipcService.SetDiscoveryEnabledAsync(DiscoveryEnabled);
         await _ipcService.SetNetworkAutoAsync(NetworkAuto);
         await _ipcService.SetFiltrationAutoDisableAsync(FiltrationAutoDisable);
+        var ipv6Saved = await _ipcService.SetIpv6BlockAsync(Ipv6BlockEnabled);
+        if (!ipv6Saved)
+        {
+            AddLog("ERROR", "Ошибка сохранения: блокировка IPv6");
+            return;
+        }
         HasSettingsChanges = false;
     }
 

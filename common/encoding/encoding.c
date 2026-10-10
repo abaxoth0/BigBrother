@@ -22,6 +22,9 @@ IpcMessageType EncodingParseMessageType(const char* str) {
     if (strcmp(str, "GET_FILTRATION") == 0) return MSG_GET_FILTRATION;
     if (strcmp(str, "SET_FILTRATION") == 0) return MSG_SET_FILTRATION;
 
+    if (strcmp(str, "GET_IPV6_BLOCK") == 0) return MSG_GET_IPV6_BLOCK;
+    if (strcmp(str, "SET_IPV6_BLOCK") == 0) return MSG_SET_IPV6_BLOCK;
+
     return -1;
 }
 
@@ -35,6 +38,8 @@ const char* EncodingMessageTypeToString(IpcMessageType type) {
         case MSG_STATUS:         return "STATUS";
         case MSG_OK:             return "OK";
         case MSG_ERROR:          return "ERROR";
+        case MSG_GET_IPV6_BLOCK: return "GET_IPV6_BLOCK";
+        case MSG_SET_IPV6_BLOCK: return "SET_IPV6_BLOCK";
         default:                 return "UNKNOWN";
     }
 }
