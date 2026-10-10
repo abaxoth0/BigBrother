@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Security: remote TCP clients can no longer change filtration with `SET_FILTRATION`; the command is restricted to the administrator frontend pipe, accepts only `0` or `1`, and reports database write failures without publishing a change event
+- Firewall: outbound IPv6 traffic is blocked while filtration is enabled, closing the IPv6 whitelist bypass; IPv6 passes normally when filtration is disabled
+- Firewall: removing a literal-IP rule from a nonempty whitelist immediately revokes its cached permission; retained literal-IP rules remain allowed
+- Firewall: pending packet receives are cancelled on service stop, so shutdown no longer waits for network traffic
+- Firewall: whitelist reload frees existing IP allowlist/blocklist entries instead of leaking their allocations
+- Firewall: IPC whitelist replacement preserves the current rules on allocation failure and reports the failure instead of installing a partial list
 - Client frontend: no more delayed old logs on startup — the firewall/client daemons now rotate a pre-existing log file on start, so each session writes to a fresh log and the frontend never replays a previous session's entries in batches
 - Client: filtration status now reports "Выкл" while the firewall is not running (default no longer "Вкл"), and re-aligns the firewall state on the next status report when it comes back
 
