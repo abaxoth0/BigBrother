@@ -32,6 +32,7 @@ public class MainViewModel : ViewModelBase
     private System.Timers.Timer? _refreshTimer;
     private System.Timers.Timer? _serviceStatusTimer;
     private int _refreshInProgress;
+    private int _statusRefreshInProgress;
 
     private string _serverStatus = "Подключение...";
     private string _uptime = "";
@@ -398,45 +399,18 @@ public class MainViewModel : ViewModelBase
     private void StartServiceStatusPolling()
     {
         _serviceStatusTimer = new System.Timers.Timer(2000);
-        _serviceStatusTimer.Elapsed += (s, e) =>
+        _serviceStatusTimer.Elapsed += async (s, e) =>
         {
             if (_disposed) return;
             try
             {
                 var info = _serviceManager.GetServiceInfo();
                 var status = info?.Status.ToString() ?? "Not Found";
-                System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+                await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
                 {
-                    if (_disposed) return;
-                    if (ServiceStatus != status)
-                    {
-                        ServiceStatus = status;
-                        // Drive the main connection indicator off the service state
-                        // so it updates immediately instead of waiting on the IPC
-                        // refresh cycle.
-                        // NOTE: this keys connectivity off the Windows *service* —
-                        // a server daemon run as a console process (not registered
-                        // as a service) won't appear connected here. A pipe-liveness
-                        // fallback is planned; see docs/TODO.md.
-                        bool running = status == "Running";
-                        IsConnected = running;
-                        if (running)
-                        {
-                            _ = RefreshAllAsync();
-                        }
-                        else
-                        {
-                            // Service stopped — clear server-derived state right away.
-                            ServerStatus = "Не подключен";
-                            Uptime = "";
-                            ConnectedClientsCount = 0;
-                            PendingCount = 0;
-                            ConnectedClients.Clear();
-                            PendingRegistrations.Clear();
-                            FiltrationStatus = "N/A";
-                        }
-                    }
+                    if (!_disposed) ServiceStatus = status;
                 });
+                await RefreshServerStatusAsync();
             }
             catch { }
         };
@@ -669,11 +643,16 @@ public class MainViewModel : ViewModelBase
 
     private async Task RefreshServerStatusAsync()
     {
+        if (_disposed || Interlocked.CompareExchange(ref _statusRefreshInProgress, 1, 0) != 0)
+            return;
         try
         {
             var serverStatus = await _ipcService.GetServerStatusAsync();
+            bool reconnected = false;
             await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
             {
+                if (_disposed) return;
+                reconnected = !IsConnected && serverStatus.IsRunning;
                 IsConnected = serverStatus.IsRunning;
                 ServerStatus = serverStatus.IsRunning ? "Запущен" : "Не подключен";
                 Uptime = serverStatus.IsRunning && !string.IsNullOrEmpty(serverStatus.UptimeText)
@@ -683,8 +662,22 @@ public class MainViewModel : ViewModelBase
                 FiltrationStatus = serverStatus.IsRunning
                     ? (serverStatus.FiltrationEnabled ? "Вкл" : "Выкл")
                     : "N/A";
+                if (!serverStatus.IsRunning)
+                {
+                    ConnectedClients.Clear();
+                    PendingRegistrations.Clear();
+                    Whitelists.Clear();
+                    ActiveWhitelist = "";
+                }
                 LastUpdate = DateTime.Now;
             });
+            if (reconnected && !_disposed)
+            {
+                _ = RefreshAllAsync();
+                _ = LoadServerNameAsync();
+                _ = LoadServerPortAsync();
+                _ = LoadLogPathAsync();
+            }
         }
         catch (Exception ex)
         {
@@ -697,12 +690,21 @@ public class MainViewModel : ViewModelBase
                     IsConnected = false;
                     ServerStatus = "Не подключен";
                     Uptime = "";
+                    ConnectedClientsCount = 0;
+                    PendingCount = 0;
+                    FiltrationStatus = "N/A";
                     ConnectedClients.Clear();
                     PendingRegistrations.Clear();
+                    Whitelists.Clear();
+                    ActiveWhitelist = "";
                     AddLog("ERROR", $"Ошибка: {ex.Message}");
                 });
             }
             catch { }
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _statusRefreshInProgress, 0);
         }
     }
 

@@ -11,6 +11,14 @@ public class IpcService : IDisposable
 {
     private const string PipeName = "BigBrother.Server.Frontend";
     private const int MaxRetries = 3;
+    private readonly string _pipeName;
+
+    public IpcService() : this(PipeName) { }
+
+    internal IpcService(string pipeName)
+    {
+        _pipeName = pipeName;
+    }
     private NamedPipeClientStream? _pipe;
     private bool _isConnected;
     private string _lastError = "";
@@ -49,7 +57,7 @@ public class IpcService : IDisposable
         {
             try
             {
-                using var pipe = new NamedPipeClientStream(".", PipeName, PipeDirection.InOut);
+                using var pipe = new NamedPipeClientStream(".", _pipeName, PipeDirection.InOut);
                 // Non-blocking probe: fails instantly when the server is not running
                 // (a timed ConnectAsync busy-waits for the full timeout, burning CPU).
                 await pipe.ConnectAsync(0, ct);
@@ -147,7 +155,7 @@ public class IpcService : IDisposable
             {
                 try
                 {
-                    _pipe = new NamedPipeClientStream(".", PipeName, PipeDirection.InOut);
+                    _pipe = new NamedPipeClientStream(".", _pipeName, PipeDirection.InOut);
                     await _pipe.ConnectAsync(0);
                     _isConnected = true;
                     _lastError = "";
@@ -280,55 +288,46 @@ public class IpcService : IDisposable
 
     public async Task<ServerStatus> GetServerStatusAsync()
     {
+        // An independent, bounded request keeps health checks responsive even
+        // while another command holds the normal request connection.
         var status = new ServerStatus { IsRunning = false };
-
-        await _connectionLock.WaitAsync();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(1500));
+        var ct = timeout.Token;
         try
         {
-            if (!await ConnectAsync())
-            {
+            using var pipe = new NamedPipeClientStream(".", _pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+            await pipe.ConnectAsync(0, ct).ConfigureAwait(false);
+            using var writer = new StreamWriter(pipe, leaveOpen: true);
+            using var reader = new StreamReader(pipe, leaveOpen: true);
+            await writer.WriteAsync("GET_SERVER_STATUS\n\n".AsMemory(), ct).ConfigureAwait(false);
+            await writer.FlushAsync(ct).ConfigureAwait(false);
+            if (await reader.ReadLineAsync(ct).ConfigureAwait(false) != "OK") return status;
+
+            var lengthLine = await reader.ReadLineAsync(ct).ConfigureAwait(false);
+            if (!int.TryParse(lengthLine, out int length) || length <= 0 || length > 65536)
                 return status;
-            }
+            var value = await reader.ReadLineAsync(ct).ConfigureAwait(false);
+            if (value == null || Encoding.UTF8.GetByteCount(value) != length ||
+                await reader.ReadLineAsync(ct).ConfigureAwait(false) != "")
+                return status;
 
-            try
-            {
-                var (responseStatus, data) = SendCommand("GET_SERVER_STATUS");
-                status.IsRunning = responseStatus == "OK";
-                if (status.IsRunning && data.Count > 0)
-                {
-                    var parts = data[0].Split(':');
-                    for (int i = 0; i < parts.Length - 1; i += 2)
-                    {
-                        switch (parts[i])
-                        {
-                            case "uptime":
-                                status.UptimeText = parts[i + 1];
-                                break;
-                            case "clients":
-                                if (int.TryParse(parts[i + 1], out var clients))
-                                    status.ConnectedClients = clients;
-                                break;
-                            case "pending":
-                                if (int.TryParse(parts[i + 1], out var pending))
-                                    status.PendingCount = pending;
-                                break;
-                            case "filtration":
-                                status.FiltrationEnabled = parts[i + 1] == "1";
-                                break;
-                        }
-                    }
-                }
-            }
-            finally
-            {
-                Disconnect();
-            }
+            var parts = value.Split(':');
+            if (parts.Length != 8 || parts[0] != "uptime" || parts[2] != "clients" ||
+                parts[4] != "pending" || parts[6] != "filtration" ||
+                !int.TryParse(parts[3], out int clients) || clients < 0 ||
+                !int.TryParse(parts[5], out int pending) || pending < 0 ||
+                (parts[7] != "0" && parts[7] != "1"))
+                return status;
+            status.IsRunning = true;
+            status.UptimeText = parts[1];
+            status.ConnectedClients = clients;
+            status.PendingCount = pending;
+            status.FiltrationEnabled = parts[7] == "1";
         }
-        finally
+        catch (Exception ex) when (ex is IOException || ex is TimeoutException || ex is OperationCanceledException)
         {
-            _connectionLock.Release();
+            // An absent, stalled, or closed pipe means the backend is unavailable.
         }
-
         return status;
     }
 

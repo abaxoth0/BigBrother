@@ -1,6 +1,8 @@
 ## Existing issues
 
-- **Server GUI connectivity**: `RefreshServerStatusAsync` already derives connectivity from a successful pipe request, but `StartServiceStatusPolling` also assigns `IsConnected` from the Windows service state and clears server data when that state changes to stopped/missing. These competing updates can misreport a reachable console-mode backend or a running service whose pipe is unavailable. Use pipe reachability for backend connectivity/settings availability and keep service status separate. Verify console-mode startup and service startup/shutdown transitions.
+These issues are split into five independently testable phases. See [TODO implementation phases](todo-phases.md) for scope and VM checks. Phase 1 is implemented and VM verified; phases 2–5 remain open.
+
+- **Server GUI connectivity — Phase 1 implemented, VM verified**: backend connectivity/settings availability now follow a successful, bounded pipe status request. Windows service status is displayed separately; it no longer overwrites backend connectivity or clears data for a reachable console-mode backend. Verify console-mode startup, service startup/shutdown, and reconnection using the Phase 1 checklist.
 
 - **Private-key permissions**: still open. The server writes `<data>/tls/server.key` with Go mode `0600`, but does not explicitly restrict its Windows ACL; the client writes `client_sigkey.key` beside the daemon using `fopen`. Neither installer sets explicit key ACLs. Apply restrictive Windows ACLs for SYSTEM/Administrators, including existing key files, and verify that ordinary users cannot read or replace them. Review permissions on the token-bearing server database and client `config.ini` as well.
 
