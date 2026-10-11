@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Server frontend: backend connectivity and settings availability now follow pipe responses independently of Windows service state; bounded asynchronous health checks detect unavailable/stalled backends and refresh data on reconnect
 - Security: remote TCP clients can no longer change filtration with `SET_FILTRATION`; the command is restricted to the administrator frontend pipe, accepts only `0` or `1`, and reports database write failures without publishing a change event
 - Client settings: outbound IPv6 blocking is configurable and enabled by default while filtration is active; disabling it allows IPv6 without whitelist checks while IPv4 filtering continues; the preference persists across restarts
 - Firewall: removing a literal-IP rule from a nonempty whitelist immediately revokes its cached permission; retained literal-IP rules remain allowed
