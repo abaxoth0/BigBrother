@@ -126,7 +126,18 @@ int bb_tls_connect(bb_tls_t* t, SOCKET sock, const char* pinned_fp_hex,
 
     mbedtls_ssl_set_bio(&t->ssl, &t->sock, net_send_cb, net_recv_cb, NULL);
 
-    ret = mbedtls_ssl_handshake(&t->ssl);
+    ULONGLONG deadline = GetTickCount64() + 5000;
+    while ((ret = mbedtls_ssl_handshake(&t->ssl)) == MBEDTLS_ERR_SSL_WANT_READ ||
+           ret == MBEDTLS_ERR_SSL_WANT_WRITE) {
+        if (GetTickCount64() >= deadline) break;
+        fd_set ready;
+        FD_ZERO(&ready); FD_SET(sock, &ready);
+        struct timeval wait = {0, 100000};
+        int selected = ret == MBEDTLS_ERR_SSL_WANT_READ
+            ? select(0, &ready, NULL, NULL, &wait)
+            : select(0, NULL, &ready, NULL, &wait);
+        if (selected == SOCKET_ERROR) break;
+    }
     if (ret != 0) {
         tls_log_ret(ret, "handshake");
         return -1;

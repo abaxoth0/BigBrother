@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Security: verified certificate rotation — server settings expose the running certificate fingerprint; client settings inspect certificates without changing trust or sending credentials and accept a separately verified fingerprint only after rechecking the peer and saved endpoint/pin
 - Server frontend: replaced pink and lavender accents with dark burgundy controls and muted warm highlights, including selected controls, secondary text, and DEBUG/TRACE log colours
 - Client: filtration connection-sync (was "auto-disable on server disconnect") — filtration now stays off whenever the server connection is down for any reason (including a manual "Отключиться") and re-enables on reconnect, while a user's manual OFF is preserved until explicitly re-enabled; the effective state is re-applied on every status report; the option is enabled by default and the settings checkbox/help text were reworded to match
 - Security: TLS over the client<=>server TCP channel — the server uses a self-signed EC certificate (generated on first run) and the listener requires TLS1.2+; the client uses vendored mbedTLS with server-certificate fingerprint pinning (trust-on-first-use)

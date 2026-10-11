@@ -5,8 +5,8 @@ Each phase should be delivered on its own branch and tested in the Windows VM be
 | Phase | Scope | VM acceptance checks | Status |
 |---|---|---|---|
 | 1 | Server GUI connectivity: separate backend reachability from service state; bounded pipe health checks; clear disconnected data and refresh on reconnect | Service and console-mode startup, shutdown, reconnect, and stalled/malformed pipe responses | Implemented; VM verified |
-| 2 | Token rotation: invalidate persisted and in-memory stale tokens on explicit authentication rejection; bounded signed-challenge recovery; correct server GUI instructions | Rotate a connected client's token, reconnect without editing config, reject a client with the wrong identity key, and avoid retry loops | Implemented; awaiting VM verification |
-| 3 | Certificate rotation: administrator-controlled inspection and verification of the replacement fingerprint before changing the pin | Reject an unexpected replacement certificate; accept a verified replacement; persist the new pin across restart | Planned |
+| 2 | Token rotation: invalidate persisted and in-memory stale tokens on explicit authentication rejection; bounded signed-challenge recovery; correct server GUI instructions | Rotate a connected client's token, reconnect without editing config, reject a client with the wrong identity key, and avoid retry loops | Merged |
+| 3 | Certificate rotation: administrator-controlled inspection and verification of the replacement fingerprint before changing the pin | Reject an unexpected replacement certificate; accept a verified replacement; persist the new pin across restart | Implemented; awaiting VM verification |
 | 4 | Windows secret permissions: explicit ACLs for existing/new server and client keys; review database/config token storage and installer integration | Elevated services/frontends still work; an ordinary user cannot read, replace, or modify protected secrets; reinstall preserves access | Planned |
 | 5 | Discovery and deployment rules: throttle discovery by source IP; synchronize Windows Firewall rules with the configured TCP port; document router/proxy checks | Vary UDP source ports without bypassing the rate limit; configure a nondefault TCP port and reconnect; check firewall profiles and uninstall cleanup | Planned |
 
@@ -66,3 +66,33 @@ go test ./...
 Run the Windows C executable on Windows (or through Wine). The client test simulates authenticated transport responses while exercising real identity signing, cache invalidation, retry limits, and failed config persistence in an isolated build directory. Windows RPC tests verify that a registered identity can fetch the rotated token, a different identity cannot, and an existing subscription closes on the next heartbeat after rotation. Linux Go tests exclude Windows-only handlers.
 
 Record VM results before proceeding to certificate rotation.
+
+
+## Phase 3: verified certificate rotation
+
+Branch: `feature/certificate-rotation`.
+
+Update both daemons and both published GUIs together. Stop the client firewall service and server service before replacing binaries, and close the GUIs. Preserve the server database, server TLS files, client identity key, and client config. Restart services. No installer or key-ACL changes are included.
+
+1. **Baseline**: connect the client normally. In server settings, copy the SHA-256 fingerprint under **Сертификат сервера**. In client settings, click **Проверить сертификат**. Confirm the saved and observed fingerprints match the server value. Inspection must not change `[server] fingerprint` or `[client] token` in config.
+2. **Unexpected replacement**: take a VM snapshot and stop the server service. Locate its actual data directory using the backend's database-path log, back up `tls/server.crt` and `tls/server.key`, and move the originals out of those paths. Restart the service to generate a replacement certificate. Keep the database and client identity key intact. Confirm the client rejects the changed certificate and does not silently replace its pin or clear its token.
+3. **Verified rotation**: after restart, copy the new running fingerprint from server settings through a trusted channel. In client settings, inspect the certificate again. Paste the trusted server value into **Проверенный отпечаток из настроек сервера**, then click **Применить проверенный отпечаток**. The button must remain disabled for an empty, malformed, or different fingerprint. Confirm successful reconnect and resumed whitelist/events without editing config or re-approving the client identity.
+4. **Persistence**: restart the client firewall service and GUI. Inspect again and confirm the new saved pin matches. The connection should work immediately.
+5. **Stale inspection**: inspect, then change/save the server endpoint or replace/restart the certificate again before applying. Acceptance must fail; inspect the new state and supply its independently verified fingerprint. Changing a pin concurrently also invalidates the old inspection.
+6. **Running versus on-disk certificate**: replacing certificate files while the server is still running must not change the fingerprint reported by its GUI. The GUI reports the listener's startup certificate, not arbitrary file contents. After restarting, it must show the new running fingerprint, including when the restart is too fast for service polling to observe a disconnected state.
+7. **Offline/stalled server**: inspection should fail within roughly eight seconds on an idle VM and preserve trust. It sends a TLS handshake only, never a token or signed challenge to an unverified peer.
+8. **Rollback**: restore the original certificate/key pair with the server stopped, restart it, and repeat the explicit fingerprint-verification procedure if the client has already accepted the replacement.
+
+The client inspects its currently configured, saved endpoint. Save address/port edits before inspection. Existing first-use pinning remains available for normal onboarding; inspection itself never creates or clears trust.
+
+Automated checks:
+
+```shell
+make -C client/backend certificate-test-build
+client/backend/build/certificate-state-test/test.exe
+python3 client/backend/tests/certificate_probe_test.py
+```
+
+The Python test requires Python and OpenSSL; on Linux it additionally uses Wine. It generates two temporary test certificates and checks actual TLS fingerprint inspection, matching-pin acceptance, replacement rejection, no application-data transmission, and a bounded stalled handshake. The state test covers malformed fingerprints, endpoint/pin/peer changes, concurrent updates, failed persistence, and token preservation. Windows RPC tests cover reporting the active fingerprint through the restricted administrator pipe.
+
+Record VM results before proceeding to Windows secret permissions.

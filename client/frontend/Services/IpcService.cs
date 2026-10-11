@@ -1039,6 +1039,32 @@ public class IpcService : IDisposable
         }
     }
 
+    private async Task<(string status, List<string> data)> CertificateCommandAsync(string command, params string[] args)
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return ("", new List<string>());
+            try { return await SendCommandWithTimeoutAsync(command, ReadTimeoutMs, args); }
+            finally { Disconnect(); }
+        }
+        finally { _connectionLock.Release(); }
+    }
+
+    public async Task<CertificateInspection?> InspectServerCertificateAsync()
+    {
+        var (status, data) = await CertificateCommandAsync("INSPECT_SERVER_CERTIFICATE");
+        return status == "OK" && data.Count == 4
+            ? new CertificateInspection(data[0], data[1], data[2], data[3]) : null;
+    }
+
+    public async Task<bool> UpdateServerFingerprintAsync(CertificateInspection inspection, string verified)
+    {
+        var (status, _) = await CertificateCommandAsync("UPDATE_SERVER_FINGERPRINT",
+            inspection.Address, inspection.Port, inspection.Pinned, verified);
+        return status == "OK";
+    }
+
     public void Dispose()
     {
         StopEventSubscription();

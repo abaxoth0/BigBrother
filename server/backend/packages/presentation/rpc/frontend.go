@@ -24,11 +24,12 @@ type ServerStatus struct {
 }
 
 type FrontendHandler struct {
-	db           database.DBInstance
-	connManager  connection.Manager
-	pendingUsers *pending.UserStorage
-	startTime    time.Time
-	bus          *notification.Manager
+	db                     database.DBInstance
+	connManager            connection.Manager
+	pendingUsers           *pending.UserStorage
+	startTime              time.Time
+	bus                    *notification.Manager
+	certificateFingerprint string
 }
 
 func NewFrontendHandler(
@@ -36,13 +37,19 @@ func NewFrontendHandler(
 	connManager connection.Manager,
 	pendingUsers *pending.UserStorage,
 	bus *notification.Manager,
+	fingerprint ...string,
 ) *FrontendHandler {
+	activeFingerprint := ""
+	if len(fingerprint) > 0 {
+		activeFingerprint = fingerprint[0]
+	}
 	return &FrontendHandler{
-		db:           db,
-		connManager:  connManager,
-		pendingUsers: pendingUsers,
-		startTime:    time.Now(),
-		bus:          bus,
+		db:                     db,
+		connManager:            connManager,
+		pendingUsers:           pendingUsers,
+		startTime:              time.Now(),
+		bus:                    bus,
+		certificateFingerprint: activeFingerprint,
 	}
 }
 
@@ -78,6 +85,13 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 				Data: map[string]string{},
 			})
 			writeOK(conn)
+
+		case "GET_CERTIFICATE_FINGERPRINT":
+			if h.certificateFingerprint == "" {
+				writeErrorTLV(conn, "certificate fingerprint unavailable")
+			} else {
+				writeTLVResponse(conn, h.certificateFingerprint)
+			}
 
 		case "GET_SERVER_STATUS":
 			connections := h.connManager.GetAllConnections()

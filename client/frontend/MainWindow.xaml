@@ -630,6 +630,30 @@
                                 </StackPanel>
                             </GroupBox>
 
+                            <GroupBox Header="Сертификат сервера" Margin="0,0,0,10" Padding="10">
+                                <StackPanel>
+                                    <TextBlock Text="Сначала сохраните изменения адреса и порта сервера."
+                                               TextWrapping="Wrap" Foreground="Gray" Margin="0,0,0,8"/>
+                                    <Button Content="Проверить сертификат" Command="{Binding InspectCertificateCommand}"
+                                            HorizontalAlignment="Left"/>
+                                    <TextBlock Text="{Binding CertificateEndpoint}" Margin="0,8,0,0"/>
+                                    <TextBlock Text="Сохранённый отпечаток SHA-256" Margin="0,8,0,4"/>
+                                    <TextBox Text="{Binding PinnedCertificateFingerprint, Mode=OneWay}" IsReadOnly="True"
+                                             FontFamily="Consolas" TextWrapping="Wrap"/>
+                                    <TextBlock Text="Полученный отпечаток SHA-256" Margin="0,8,0,4"/>
+                                    <TextBox Text="{Binding ObservedCertificateFingerprint, Mode=OneWay}" IsReadOnly="True"
+                                             FontFamily="Consolas" TextWrapping="Wrap"/>
+                                    <TextBlock Text="Проверенный отпечаток из настроек сервера" Margin="0,8,0,4"/>
+                                    <TextBox Text="{Binding VerifiedCertificateFingerprint, UpdateSourceTrigger=PropertyChanged}"
+                                             FontFamily="Consolas" TextWrapping="Wrap"/>
+                                    <TextBlock Text="Получите отпечаток в настройках серверного приложения или по другому доверенному каналу. Вставьте его сюда и убедитесь, что он совпадает с полученным сертификатом. Проверка сертификата сама по себе не меняет доверие."
+                                               TextWrapping="Wrap" Foreground="Gray" Margin="0,8,0,8"/>
+                                    <Button Content="Применить проверенный отпечаток" Style="{StaticResource PrimaryButton}"
+                                            Command="{Binding ApplyCertificateFingerprintCommand}" HorizontalAlignment="Left"/>
+                                    <TextBlock Text="{Binding CertificateStatus}" TextWrapping="Wrap" Margin="0,8,0,0"/>
+                                </StackPanel>
+                            </GroupBox>
+
                             <GroupBox Header="Фильтрация" Margin="0,0,0,10" Padding="10">
                                 <StackPanel>
                                     <CheckBox IsChecked="{Binding FiltrationAutoDisable}"

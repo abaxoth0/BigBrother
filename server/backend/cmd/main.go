@@ -101,9 +101,14 @@ func main() {
 		},
 	)
 
+	fingerprint, err := tlsutil.Fingerprint(tlsCert)
+	if err != nil {
+		mainLogger.Fatal("TLS fingerprint error", err.Error(), nil)
+	}
+
 	frontendServer := rpc.NewServer(
 		"Frontend",
-		rpc.NewFrontendHandler(db, connManager, pendingUsersStorage, notifMgr),
+		rpc.NewFrontendHandler(db, connManager, pendingUsersStorage, notifMgr, fingerprint),
 		&rpc.ServerConfig{
 			Network:            rpc.NetworkPipe,
 			InputBufferSize:    frontendPipeBufSize,

@@ -103,6 +103,8 @@ Used by the daemon client frontend to communicate with the client backend.
 | `RESTART_CLIENT` | none | none | Restart the client |
 | `PING` | none | none | Ping the client |
 | `GET_LOG_PATH` | none | `LOG_PATH:<client_log>\|<firewall_log>` | Get log file paths |
+| `INSPECT_SERVER_CERTIFICATE` | none | address, port, saved pin, observed SHA-256 fingerprint | Inspect the configured server with TLS only; no credentials are sent and trust is unchanged |
+| `UPDATE_SERVER_FINGERPRINT` | address, port, original pin, verified fingerprint | none | Recheck the peer and saved endpoint/pin, then persist the verified replacement; reject stale inspections |
 | `GET_IPV6_BLOCK` | none | `0` or `1` | Get the persisted IPv6 blocking preference (default `1`) |
 | `SET_IPV6_BLOCK` | `0` or `1` | none | Save the preference and apply it to the firewall; disabling it allows IPv6 without whitelist checks |
 
@@ -236,3 +238,10 @@ and the client backend additionally verifies the peer executable is the client G
 | Version | Date | Changes |
 |--------|------|---------|
 | 1.0 | 2026-05-06 | Initial protocol specification with TLV format |
+
+
+### Verified certificate rotation
+
+The server administrator pipe supports `GET_CERTIFICATE_FINGERPRINT`, returning the SHA-256 fingerprint of the leaf certificate configured on the running TCP listener. Server settings display/copy this value. Replacing files on disk does not change the running value until restart.
+
+Obtain the replacement fingerprint from server settings through a trusted channel, inspect the saved endpoint in client settings, and explicitly apply the independently verified matching value. Inspection uses a TLS handshake without application commands and never writes a pin. Acceptance probes again, verifies the supplied fingerprint, rejects endpoint/pin changes, and writes the new pin atomically. Existing subscriptions reconnect after a successful pin update. Never clear a pin simply to accept an unexpected certificate.

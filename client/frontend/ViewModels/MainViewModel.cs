@@ -361,6 +361,8 @@ public class MainViewModel : ViewModelBase, IDisposable
     public ICommand DisconnectCommand { get; }
     public ICommand ChangeServerCommand { get; }
     public ICommand SaveSettingsCommand { get; }
+    public ICommand InspectCertificateCommand { get; }
+    public ICommand ApplyCertificateFingerprintCommand { get; }
     public ICommand ToggleFiltrationCommand { get; }
     public ICommand StartDaemonCommand { get; }
     public ICommand StopDaemonCommand { get; }
@@ -488,6 +490,8 @@ public class MainViewModel : ViewModelBase, IDisposable
         DisconnectCommand = new RelayCommand(async _ => await DisconnectAsync());
         ChangeServerCommand = new RelayCommand(async _ => await ChangeServerAsync(), _ => DiscoveryEnabled);
         SaveSettingsCommand = new RelayCommand(async _ => await SaveAllSettingsAsync());
+        InspectCertificateCommand = new RelayCommand(async _ => await InspectCertificateAsync(), _ => !CertificateBusy);
+        ApplyCertificateFingerprintCommand = new RelayCommand(async _ => await ApplyCertificateFingerprintAsync(), _ => CanApplyCertificateFingerprint);
         ToggleFiltrationCommand = new RelayCommand(async _ => await ToggleFiltrationAsync());
         StartDaemonCommand = new RelayCommand(async _ => await StartDaemonAsync());
         StopDaemonCommand = new RelayCommand(async _ => await StopDaemonAsync());
@@ -565,6 +569,101 @@ public class MainViewModel : ViewModelBase, IDisposable
             }
             SettingsAvailable = available;
         });
+    }
+
+    private CertificateInspection? _certificateInspection;
+    private string _certificateEndpoint = "";
+    private string _pinnedCertificateFingerprint = "";
+    private string _observedCertificateFingerprint = "";
+    private string _verifiedCertificateFingerprint = "";
+    private string _certificateStatus = "Проверьте сертификат сохранённого сервера.";
+    private bool _certificateBusy;
+
+    public string CertificateEndpoint { get => _certificateEndpoint; private set => SetProperty(ref _certificateEndpoint, value); }
+    public string PinnedCertificateFingerprint { get => _pinnedCertificateFingerprint; private set => SetProperty(ref _pinnedCertificateFingerprint, value); }
+    public string ObservedCertificateFingerprint { get => _observedCertificateFingerprint; private set => SetProperty(ref _observedCertificateFingerprint, value); }
+    public string CertificateStatus { get => _certificateStatus; private set => SetProperty(ref _certificateStatus, value); }
+    public bool CertificateBusy
+    {
+        get => _certificateBusy;
+        private set { if (SetProperty(ref _certificateBusy, value)) CommandManager.InvalidateRequerySuggested(); }
+    }
+    public string VerifiedCertificateFingerprint
+    {
+        get => _verifiedCertificateFingerprint;
+        set { if (SetProperty(ref _verifiedCertificateFingerprint, value)) CommandManager.InvalidateRequerySuggested(); }
+    }
+    private static string NormalizeFingerprint(string value)
+    {
+        var hex = string.Concat(value.Where(c => !char.IsWhiteSpace(c) && c != ':')).ToUpperInvariant();
+        return hex.Length == 64 && hex.All(char.IsAsciiHexDigit) ? hex : "";
+    }
+    public bool CanApplyCertificateFingerprint => !CertificateBusy && _certificateInspection != null &&
+        NormalizeFingerprint(VerifiedCertificateFingerprint).Length == 64 &&
+        NormalizeFingerprint(VerifiedCertificateFingerprint) == _certificateInspection.Observed;
+
+    private async Task InspectCertificateAsync()
+    {
+        CertificateBusy = true;
+        _certificateInspection = null;
+        CertificateEndpoint = "";
+        PinnedCertificateFingerprint = "";
+        ObservedCertificateFingerprint = "";
+        CertificateStatus = "Проверка сертификата…";
+        try
+        {
+            var inspection = await _ipcService.InspectServerCertificateAsync();
+            if (inspection == null)
+            {
+                CertificateStatus = "Не удалось получить сертификат. Сохранённое доверие не изменено.";
+                return;
+            }
+            _certificateInspection = inspection;
+            CertificateEndpoint = $"{inspection.Address}:{inspection.Port}";
+            PinnedCertificateFingerprint = inspection.Pinned;
+            ObservedCertificateFingerprint = inspection.Observed;
+            CertificateStatus = NormalizeFingerprint(inspection.Pinned) == inspection.Observed
+                ? "Сертификат соответствует сохранённому отпечатку."
+                : "Отпечаток отличается. Сверьте его с действующим отпечатком в настройках сервера.";
+        }
+        catch (Exception ex)
+        {
+            CertificateStatus = "Ошибка проверки. Сохранённое доверие не изменено.";
+            AddLog("ERROR", $"Проверка сертификата: {ex.Message}");
+        }
+        finally { CertificateBusy = false; }
+    }
+
+    private async Task ApplyCertificateFingerprintAsync()
+    {
+        if (!CanApplyCertificateFingerprint || _certificateInspection == null) return;
+        var inspection = _certificateInspection;
+        var verified = NormalizeFingerprint(VerifiedCertificateFingerprint);
+        CertificateBusy = true;
+        try
+        {
+            if (await _ipcService.UpdateServerFingerprintAsync(inspection, verified))
+            {
+                PinnedCertificateFingerprint = verified;
+                CertificateStatus = "Проверенный отпечаток сохранён. Клиент переподключится автоматически.";
+                VerifiedCertificateFingerprint = "";
+                AddLog("INFO", "Проверенный отпечаток сертификата сервера сохранён");
+            }
+            else
+            {
+                CertificateStatus = "Отпечаток не сохранён. Проверьте сервер и повторите проверку сертификата.";
+            }
+        }
+        catch (Exception ex)
+        {
+            CertificateStatus = "Не удалось подтвердить сохранение. Повторите проверку сертификата.";
+            AddLog("ERROR", $"Обновление отпечатка: {ex.Message}");
+        }
+        finally
+        {
+            _certificateInspection = null;
+            CertificateBusy = false;
+        }
     }
 
     private async Task SaveAllSettingsAsync()

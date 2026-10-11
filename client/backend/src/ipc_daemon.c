@@ -11,6 +11,7 @@
 #include "../include/ipc_client.h"
 #include "../include/tls_client.h"
 #include "../include/client_key.h"
+#include "../include/certificate_pin.h"
 #include "../../../common/log/log.h"
 #include <windows.h>
 #include <stdlib.h>
@@ -28,13 +29,17 @@
 // Serializes config.ini access since handlers run on multiple threads
 // and ini_set_string rewrites the file (non-atomic without the lock).
 static CRITICAL_SECTION g_config_lock;
-static int g_config_lock_initialized = 0;
+static INIT_ONCE g_config_once = INIT_ONCE_STATIC_INIT;
+static volatile LONG g_certificate_revision = 0;
+
+static BOOL CALLBACK initialize_config_lock(PINIT_ONCE once, PVOID param, PVOID* context) {
+    (void)once; (void)param; (void)context;
+    InitializeCriticalSection(&g_config_lock);
+    return TRUE;
+}
 
 static void config_lock_init(void) {
-    if (!g_config_lock_initialized) {
-        InitializeCriticalSection(&g_config_lock);
-        g_config_lock_initialized = 1;
-    }
+    InitOnceExecuteOnce(&g_config_once, initialize_config_lock, NULL, NULL);
 }
 
 static int ini_get_string_locked(const char* section, const char* key, char* out, size_t out_size);
@@ -359,8 +364,11 @@ int HasServerIp(void) {
 
 void SetServerIp(const char* ip) {
     if (ip) {
-        strncpy(g_server_ip, ip, sizeof(g_server_ip) - 1);
-        ini_set_string("server", "address", ip);
+        config_lock_init();
+        EnterCriticalSection(&g_config_lock);
+        snprintf(g_server_ip, sizeof(g_server_ip), "%s", ip);
+        ini_set_string_locked("server", "address", ip);
+        LeaveCriticalSection(&g_config_lock);
     }
 }
 
@@ -913,20 +921,77 @@ static int token_request(const char*, const char**, size_t, char*, size_t);
 #define token_request send_to_server_tlv
 #endif
 
-// Establish a TLS session over an already-connected socket, verifying the
-// server certificate fingerprint (TOFU when not yet pinned).
+static void certificate_state_locked(char address[64], int* port, char pinned[65]) {
+    snprintf(address, 64, "%s", g_server_ip);
+    char value[16] = {0};
+    ini_get_string_locked("server", "port", value, sizeof(value));
+    *port = value[0] ? atoi(value) : 1984;
+    if (*port < 1 || *port > 65535) *port = 1984;
+    pinned[0] = '\0';
+    ini_get_string_locked("server", "fingerprint", pinned, 65);
+}
+
+#ifdef BB_CERTIFICATE_TEST
+static int certificate_probe(const char*, int, const char*, char[65]);
+#else
+#define certificate_probe bb_probe_certificate
+#endif
+
+int InspectServerCertificate(char address[64], int* port, char pinned[65], char observed[65]) {
+    config_lock_init();
+    EnterCriticalSection(&g_config_lock);
+    certificate_state_locked(address, port, pinned);
+    LeaveCriticalSection(&g_config_lock);
+    return certificate_probe(address, *port, "", observed);
+}
+
+static int certificate_state_matches(const char* address, int port, const char* pin) {
+    char current_address[64], current_pin[65];
+    int current_port;
+    certificate_state_locked(current_address, &current_port, current_pin);
+    return strcmp(address, current_address) == 0 && port == current_port &&
+           _stricmp(pin, current_pin) == 0;
+}
+
+int UpdateServerFingerprint(const char* address, int port, const char* original_pin,
+                            const char* verified_fingerprint) {
+    char verified[65], observed[65];
+    if (!address || !original_pin ||
+        bb_normalize_fingerprint(verified_fingerprint, verified) != 0) return -1;
+    config_lock_init();
+    EnterCriticalSection(&g_config_lock);
+    int unchanged = certificate_state_matches(address, port, original_pin);
+    LeaveCriticalSection(&g_config_lock);
+    if (!unchanged || certificate_probe(address, port, verified, observed) != 0 ||
+        _stricmp(verified, observed) != 0) return -1;
+    EnterCriticalSection(&g_config_lock);
+    int result = -1;
+    if (certificate_state_matches(address, port, original_pin)) {
+        result = ini_set_string_locked("server", "fingerprint", verified);
+        if (result == 0) InterlockedIncrement(&g_certificate_revision);
+    }
+    LeaveCriticalSection(&g_config_lock);
+    return result;
+}
+
+// Inspection never calls this helper: only normal connections may establish
+// initial trust. Recheck the current pin before accepting concurrent changes.
 static int tls_connect_socket(SOCKET sock, bb_tls_t* tls) {
-    char pinned[65] = {0};
-    char got[65] = {0};
+    char pinned[65] = {0}, got[65] = {0};
     ini_get_string("server", "fingerprint", pinned, sizeof(pinned));
     if (bb_tls_init(tls) != 0) return -1;
     if (bb_tls_connect(tls, sock, pinned, got, sizeof(got)) != 0) {
         bb_tls_free(tls);
         return -1;
     }
-    if (pinned[0] == '\0' && got[0] != '\0') {
-        ini_set_string("server", "fingerprint", got); // trust-on-first-use
-    }
+    config_lock_init();
+    EnterCriticalSection(&g_config_lock);
+    char current[65] = {0};
+    ini_get_string_locked("server", "fingerprint", current, sizeof(current));
+    int accepted = current[0] ? _stricmp(current, got) == 0 :
+        ini_set_string_locked("server", "fingerprint", got) == 0;
+    LeaveCriticalSection(&g_config_lock);
+    if (!accepted) { bb_tls_free(tls); return -1; }
     return 0;
 }
 
@@ -1425,6 +1490,7 @@ static int server_subscribe_loop(const char* username, int* consecutive_failures
     }
 
     // Establish TLS over the connected socket (fingerprint pinned).
+    LONG certificate_revision = InterlockedCompareExchange(&g_certificate_revision, 0, 0);
     bb_tls_t subscription_tls;
     if (tls_connect_socket(sock, &subscription_tls) != 0) {
         LOGF("[Daemon] SUBSCRIBE TLS handshake failed");
@@ -1496,6 +1562,7 @@ static int server_subscribe_loop(const char* username, int* consecutive_failures
     int keep_going = 1;
 
     while (keep_going) {
+        if (certificate_revision != InterlockedCompareExchange(&g_certificate_revision, 0, 0)) break;
         // Check for service stop
         if (g_ServiceStopEvent != INVALID_HANDLE_VALUE &&
             WaitForSingleObject(g_ServiceStopEvent, 0) == WAIT_OBJECT_0) {
