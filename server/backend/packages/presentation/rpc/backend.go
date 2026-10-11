@@ -256,7 +256,10 @@ func (h *BackendHandler) handle(conn net.Conn) {
 				if line == "" {
 					continue
 				}
-				// Keep connection alive until client disconnects
+				// Revalidate on heartbeat so rotated tokens cannot retain a subscription.
+				if !h.authenticate(name, args[1]) {
+					break
+				}
 				h.RefreshConnection(name)
 			}
 			h.bus.Remove(sub)

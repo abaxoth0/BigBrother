@@ -4,13 +4,21 @@ package rpc
 
 import (
 	"bufio"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"fmt"
+	"io"
 	"net"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"bigbrother_server_backend/packages/infrastructure/connection"
 	"bigbrother_server_backend/packages/infrastructure/database"
 	"bigbrother_server_backend/packages/infrastructure/database/sqlite"
 	"bigbrother_server_backend/packages/infrastructure/notification"
@@ -148,4 +156,109 @@ type failedSettingDB struct{ database.DBInstance }
 
 func (failedSettingDB) SetSetting(key, value string) error {
 	return errors.New("simulated database write failure")
+}
+
+func TestRotatedTokenRecoveryRequiresRegisteredIdentity(t *testing.T) {
+	db := sqlite.New(filepath.Join(t.TempDir(), "rotation.db"))
+	if err := db.Connect(); err != nil {
+		t.Fatal(err)
+	}
+	defer db.Disconnect()
+	if _, err := db.CreateUser("alice", "127.0.0.1"); err != nil {
+		t.Fatal(err)
+	}
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pub := hex.EncodeToString(elliptic.Marshal(key.Curve, key.X, key.Y))
+	if err := db.SetUserSignPublic("alice", pub); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetUserToken("alice", "old"); err != nil {
+		t.Fatal(err)
+	}
+	h := NewBackendHandler(db, nil, nil, nil)
+	if err := db.SetUserToken("alice", "replacement"); err != nil {
+		t.Fatal(err)
+	}
+	response := handlerResponse(t, h, "GET_WHITELIST\n5\nalice\n3\nold\n\n")
+	if !strings.Contains(response, "invalid token") {
+		t.Fatalf("stale token accepted: %q", response)
+	}
+	for _, registered := range []bool{true, false} {
+		signer := key
+		if !registered {
+			signer, err = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+		nonce, err := newChallenge("alice")
+		if err != nil {
+			t.Fatal(err)
+		}
+		digest := sha256.Sum256([]byte("alice" + nonce))
+		signature, err := ecdsa.SignASN1(rand.Reader, signer, digest[:])
+		if err != nil {
+			t.Fatal(err)
+		}
+		sig := hex.EncodeToString(signature)
+		request := fmt.Sprintf("GET_TOKEN\n5\nalice\n%d\n%s\n%d\n%s\n\n", len(nonce), nonce, len(sig), sig)
+		response := handlerResponse(t, h, request)
+		if registered {
+			if response != "OK\n11\nreplacement\n\n" {
+				t.Fatalf("recovery failed: %q", response)
+			}
+		} else if !strings.HasPrefix(response, "ERROR\n") {
+			t.Fatalf("unregistered identity accepted: %q", response)
+		}
+	}
+}
+
+func TestSubscriptionClosesAfterTokenRotation(t *testing.T) {
+	db := sqlite.New(filepath.Join(t.TempDir(), "subscription.db"))
+	if err := db.Connect(); err != nil {
+		t.Fatal(err)
+	}
+	defer db.Disconnect()
+	if _, err := db.CreateUser("alice", "127.0.0.1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetUserToken("alice", "old"); err != nil {
+		t.Fatal(err)
+	}
+	manager := connection.NewMemoryResidentConnectionManager()
+	defer manager.Stop()
+	h := NewBackendHandler(db, manager, nil, notification.NewManager())
+	server, client := net.Pipe()
+	defer server.Close()
+	defer client.Close()
+	client.SetDeadline(time.Now().Add(5 * time.Second))
+	done := make(chan struct{})
+	go func() { defer close(done); h.handle(server) }()
+	if _, err := client.Write([]byte("SUBSCRIBE\n5\nalice\n3\nold\n\n")); err != nil {
+		t.Fatal(err)
+	}
+	reader := bufio.NewReader(client)
+	if line, err := reader.ReadString('\n'); err != nil || line != "OK\n" {
+		t.Fatalf("subscribe: %q, %v", line, err)
+	}
+	if line, err := reader.ReadString('\n'); err != nil || line != "\n" {
+		t.Fatalf("terminator: %q, %v", line, err)
+	}
+	if err := db.SetUserToken("alice", "replacement"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Write([]byte("K\n")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reader.ReadByte(); err != io.EOF {
+		t.Fatalf("old subscription not closed: %v", err)
+	}
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("handler did not exit")
+	}
 }

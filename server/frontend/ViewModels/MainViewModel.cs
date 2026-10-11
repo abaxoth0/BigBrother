@@ -887,7 +887,7 @@ public class MainViewModel : ViewModelBase
             string.IsNullOrEmpty(token) ? $"Ошибка сброса токена {name}" : $"Токен {name} обновлён");
         if (!string.IsNullOrEmpty(token))
         {
-            MessageBox.Show($"Новый токен для «{name}»:\n\n{token}\n\nВведите его в настройках клиента.",
+            MessageBox.Show($"Токен клиента «{name}» обновлён. Клиент получит новый токен автоматически после повторной проверки своей ключевой пары. Редактировать настройки клиента не требуется.",
                 "Токен доступа", MessageBoxButton.OK, MessageBoxImage.Information);
         }
     }
