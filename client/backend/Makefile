@@ -52,3 +52,9 @@ test-build: $(MBED_A)
 	$(CC) $(COMMON_FLAGS) $(DEBUG_FLAGS) -o build/ipv6-setting-test/test.exe tests/ipv6_setting_test.c $(filter-out src/main.c,$(t-units)) $(CLIENT_LIBS)
 
 .PHONY: test-build
+
+token-test-build: $(MBED_A)
+	mkdir -p build/token-recovery-test
+	$(CC) $(COMMON_FLAGS) $(DEBUG_FLAGS) -o build/token-recovery-test/test.exe tests/token_recovery_test.c $(filter-out src/main.c src/ipc_daemon.c,$(t-units)) $(CLIENT_LIBS)
+
+.PHONY: token-test-build

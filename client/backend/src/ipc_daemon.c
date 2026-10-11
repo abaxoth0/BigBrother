@@ -23,6 +23,7 @@
 
 #define SRV_HEARTBEAT_INTERVAL_MS 10000
 #define SRV_LOCAL_DAEMON_CHECK_MS 10000
+#define SERVER_INVALID_TOKEN (-2)
 
 // Serializes config.ini access since handlers run on multiple threads
 // and ini_set_string rewrites the file (non-atomic without the lock).
@@ -326,16 +327,16 @@ static int ini_set_string_locked(const char* section, const char* key, const cha
 
     fclose(out);
 
-    // Replace original atomically (no window where the file is missing).
+    // Preserve the original on a failed atomic replacement. Callers must know
+    // persistence failed so an in-memory replacement remains authoritative.
+    int result = 0;
     if (!MoveFileEx(tmp_path, ini_path, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
-        // Fallback: remove + rename (best effort)
-        remove(ini_path);
-        rename(tmp_path, ini_path);
+        DeleteFile(tmp_path);
+        result = -1;
     }
-
     for (int i = 0; i < line_count; i++) free(lines[i]);
     free(lines);
-    return 0;
+    return result;
 }
 
 void load_server_ip(void) {
@@ -643,6 +644,8 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
         return -1;
     }
 
+    out_buffer[0] = '\0';
+
     // Ensure Winsock is initialized
     WSADATA wsa;
     if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) {
@@ -829,28 +832,31 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
         result = 0;
     } else if (strcmp(status_buf, "ERROR") == 0) {
         char len_line[32] = {0};
-        char* lp = len_line;
-        while (1) {
+        size_t len_pos = 0;
+        int complete_length = 0;
+        while (len_pos < sizeof(len_line) - 1) {
             char c;
-            int n = bb_tls_read(&tls, &c, 1);
-            if (n <= 0) break;
-            if (c == '\n') break;
-            *lp++ = c;
+            if (bb_tls_read(&tls, &c, 1) != 1) break;
+            if (c == '\n') { complete_length = 1; break; }
+            len_line[len_pos++] = c;
         }
-
-        if (strlen(len_line) > 0) {
-            int expected_len = atoi(len_line);
-            if (expected_len > 0 && expected_len < (int)buffer_size) {
-                int bytes_read = 0;
-                while (bytes_read < expected_len) {
-                    int n = bb_tls_read(&tls, out_buffer + bytes_read, (size_t)(expected_len - bytes_read));
-                    if (n <= 0) break;
-                    bytes_read += n;
-                }
-                out_buffer[bytes_read] = '\0';
+        char* end;
+        long expected_len = strtol(len_line, &end, 10);
+        if (complete_length && end != len_line && *end == '\0' &&
+            expected_len > 0 && (size_t)expected_len < buffer_size) {
+            size_t got = 0;
+            while (got < (size_t)expected_len) {
+                int n = bb_tls_read(&tls, out_buffer + got, (size_t)expected_len - got);
+                if (n <= 0) break;
+                got += (size_t)n;
+            }
+            out_buffer[got] = '\0';
+            char nl = 0;
+            if (got == (size_t)expected_len && bb_tls_read(&tls, &nl, 1) == 1 &&
+                nl == '\n' && strcmp(out_buffer, "invalid token") == 0) {
+                result = SERVER_INVALID_TOKEN;
             }
         }
-        result = -1;
     }
 
     bb_tls_free(&tls);
@@ -859,25 +865,53 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
     return result;
 }
 
-// Read a client auth token from config.ini, falling back to an in-memory copy
-// set when the token is auto-fetched (some config storages may not persist).
+// Protect both caches; rejected persisted credentials stay ignored even if a
+// config write fails, so they cannot override a replacement held in memory.
 static char g_client_token[256] = {0};
+static int g_ignore_persisted_token = 0;
+static SRWLOCK g_token_lock = SRWLOCK_INIT;
+static SRWLOCK g_token_fetch_lock = SRWLOCK_INIT;
+static ULONGLONG g_next_token_fetch = 0;
 
-static void get_client_token(char* buf, size_t size) {
+static void get_client_token_locked(char* buf, size_t size) {
     buf[0] = '\0';
-    if (!ini_get_string("client", "token", buf, size) || buf[0] == '\0') {
-        if (g_client_token[0] != '\0') {
-            strncpy(buf, g_client_token, size - 1);
-            buf[size - 1] = '\0';
-        }
+    if (g_ignore_persisted_token ||
+        !ini_get_string("client", "token", buf, size) || buf[0] == '\0') {
+        snprintf(buf, size, "%s", g_client_token);
     }
 }
 
-static void set_client_token(const char* token) {
-    strncpy(g_client_token, token, sizeof(g_client_token) - 1);
-    g_client_token[sizeof(g_client_token) - 1] = '\0';
-    ini_set_string("client", "token", token); // best effort persistence
+static void get_client_token(char* buf, size_t size) {
+    AcquireSRWLockExclusive(&g_token_lock);
+    get_client_token_locked(buf, size);
+    ReleaseSRWLockExclusive(&g_token_lock);
 }
+
+static void set_client_token(const char* token) {
+    AcquireSRWLockExclusive(&g_token_lock);
+    snprintf(g_client_token, sizeof(g_client_token), "%s", token);
+    g_ignore_persisted_token = ini_set_string("client", "token", token) != 0;
+    ReleaseSRWLockExclusive(&g_token_lock);
+}
+
+static void invalidate_client_token(const char* rejected) {
+    AcquireSRWLockExclusive(&g_token_lock);
+    char current[256];
+    get_client_token_locked(current, sizeof(current));
+    // A late rejection of an older request must not discard a newer token.
+    if (strcmp(current, rejected) == 0) {
+        g_client_token[0] = '\0';
+        g_ignore_persisted_token = 1;
+        ini_set_string("client", "token", "");
+    }
+    ReleaseSRWLockExclusive(&g_token_lock);
+}
+
+#ifdef BB_TOKEN_TEST
+static int token_request(const char*, const char**, size_t, char*, size_t);
+#else
+#define token_request send_to_server_tlv
+#endif
 
 // Establish a TLS session over an already-connected socket, verifying the
 // server certificate fingerprint (TOFU when not yet pinned).
@@ -925,50 +959,74 @@ static int client_identity_pub_hex(char* out, size_t cap) {
 // Flow: GET_TOKEN_CHALLENGE -> sign(username||nonce) -> GET_TOKEN -> save.
 // Before approval the server refuses (user not found / key not registered),
 // which is fine — REGISTER already carried the public key; we retry each loop.
-static void fetch_token_if_needed(const char* username) {
-    if (!username || username[0] == '\0') return;
-    char tokbuf[64] = {0};
-    ini_get_string("client", "token", tokbuf, sizeof(tokbuf));
-    if (tokbuf[0] != '\0' || g_client_token[0] != '\0') return; // already have a token
-
+static int fetch_token_if_needed(const char* username) {
+    if (!username || username[0] == '\0') return -1;
+    AcquireSRWLockExclusive(&g_token_fetch_lock);
+    char token[256];
+    get_client_token(token, sizeof(token));
+    if (token[0]) {
+        ReleaseSRWLockExclusive(&g_token_fetch_lock);
+        return 0;
+    }
+    if (GetTickCount64() < g_next_token_fetch) {
+        ReleaseSRWLockExclusive(&g_token_fetch_lock);
+        return -1;
+    }
+    g_next_token_fetch = GetTickCount64() + 5000;
+    int result = -1;
     mbedtls_pk_context pk;
     if (client_key_ensure(sig_key_path(), &pk) != 0) {
         LOGF("[Daemon] Token fetch: cannot ensure identity key");
-        return;
+        ReleaseSRWLockExclusive(&g_token_fetch_lock);
+        return -1;
     }
-
-    const char* chal_args[1] = {username};
+    const char* chal_args[] = {username};
     char nonce[256] = {0};
-    if (send_to_server_tlv("GET_TOKEN_CHALLENGE", chal_args, 1, nonce, sizeof(nonce)) != 0 ||
-        nonce[0] == '\0') {
-        LOGF("[Daemon] Token fetch: challenge failed (not registered/approved yet?)");
-        mbedtls_pk_free(&pk);
-        return;
-    }
-
-    char msg[384];
-    snprintf(msg, sizeof(msg), "%s%s", username, nonce);
-    char sighex[300];
-    if (client_key_sign(&pk, (const unsigned char*)msg, strlen(msg), sighex, sizeof(sighex)) != 0) {
-        LOGF("[Daemon] Token fetch: signing failed");
-        mbedtls_pk_free(&pk);
-        return;
-    }
+    if (token_request("GET_TOKEN_CHALLENGE", chal_args, 1, nonce, sizeof(nonce)) != 0 || !nonce[0])
+        goto done;
+    char msg[384], sighex[300];
+    int len = snprintf(msg, sizeof(msg), "%s%s", username, nonce);
+    if (len < 0 || (size_t)len >= sizeof(msg) ||
+        client_key_sign(&pk, (const unsigned char*)msg, (size_t)len, sighex, sizeof(sighex)) != 0)
+        goto done;
+    const char* tok_args[] = {username, nonce, sighex};
+    char response[128] = {0};
+    if (token_request("GET_TOKEN", tok_args, 3, response, sizeof(response)) != 0 ||
+        !response[0] || strcmp(response, "NOT_SET") == 0)
+        goto done;
+    set_client_token(response);
+    g_next_token_fetch = 0;
+    result = 0;
+    LOGF("[Daemon] Token received from server automatically");
+done:
     mbedtls_pk_free(&pk);
+    ReleaseSRWLockExclusive(&g_token_fetch_lock);
+    return result;
+}
 
-    const char* tok_args[3] = {username, nonce, sighex};
-    char resp[128] = {0};
-    if (send_to_server_tlv("GET_TOKEN", tok_args, 3, resp, sizeof(resp)) != 0 ||
-        resp[0] == '\0') {
-        LOGF("[Daemon] Token fetch: server refused (approve the registration first)");
-        return;
+static int send_authenticated_request(const char* command, const char* username,
+                                      const char** args, size_t count, size_t token_index,
+                                      char* response, size_t capacity) {
+    char token[256];
+    const char* original_token = args[token_index];
+    get_client_token(token, sizeof(token));
+    args[token_index] = token;
+    int result = token_request(command, args, count, response, capacity);
+    args[token_index] = original_token;
+    if (result != SERVER_INVALID_TOKEN) return result;
+    invalidate_client_token(token);
+    if (fetch_token_if_needed(username) != 0) return -1;
+    get_client_token(token, sizeof(token));
+    args[token_index] = token;
+    result = token_request(command, args, count, response, capacity);
+    args[token_index] = original_token;
+    if (result == SERVER_INVALID_TOKEN) {
+        invalidate_client_token(token);
+        AcquireSRWLockExclusive(&g_token_fetch_lock);
+        g_next_token_fetch = GetTickCount64() + 5000;
+        ReleaseSRWLockExclusive(&g_token_fetch_lock);
     }
-    if (strcmp(resp, "NOT_SET") == 0) {
-        LOGF("[Daemon] Token fetch: token not set yet");
-        return;
-    }
-    set_client_token(resp);
-    LOGF("[Daemon] Token received from server automatically (len=%zu)", strlen(resp));
+    return result; // At most one signed fetch and one retry per request.
 }
 
 int ServerRegister(const char* name) {
@@ -1012,7 +1070,7 @@ int ServerConnect(const char* name) {
     const char* args[3] = {name, local_ip, token};
     char response[256] = {0};
     LOGF("[Daemon] CONNECT with token len=%zu (ip='%s')", strlen(token), local_ip);
-    int result = send_to_server_tlv("CONNECT", args, 3, response, sizeof(response));
+    int result = send_authenticated_request("CONNECT", name, args, 3, 2, response, sizeof(response));
     if (result == 0 || strstr(response, "already connected") != NULL) {
         SetServerSessionActive(1);
         return 0;
@@ -1031,7 +1089,7 @@ int ServerDisconnect(const char* name) {
     get_client_token(token, sizeof(token));
     const char* args[2] = {name, token};
     char response[256];
-    int result = send_to_server_tlv("DISCONNECT", args, 2, response, sizeof(response));
+    int result = send_authenticated_request("DISCONNECT", name, args, 2, 1, response, sizeof(response));
     if (result == 0) SetServerSessionActive(0);
     return result;
 }
@@ -1042,7 +1100,7 @@ int ServerRefresh(const char* name) {
     get_client_token(token, sizeof(token));
     const char* args[2] = {name, token};
     char response[256];
-    int result = send_to_server_tlv("REFRESH", args, 2, response, sizeof(response));
+    int result = send_authenticated_request("REFRESH", name, args, 2, 1, response, sizeof(response));
     if (result == 0) SetServerSessionActive(1);
     return result;
 }
@@ -1053,7 +1111,7 @@ int ServerChangeName(const char* oldName, const char* newName) {
     get_client_token(token, sizeof(token));
     const char* args[3] = {oldName, newName, token};
     char response[256];
-    return send_to_server_tlv("CHANGE_NAME", args, 3, response, sizeof(response));
+    return send_authenticated_request("CHANGE_NAME", oldName, args, 3, 2, response, sizeof(response));
 }
 
 int PingServer(void) {
@@ -1110,8 +1168,9 @@ static int srv_readline(SrvLineReader* r, char* out, size_t out_size) {
 static int srv_read_tlv(SrvLineReader* r, char* out, size_t out_size) {
     char len_str[32];
     if (srv_readline(r, len_str, sizeof(len_str)) != 1) return 0;
-    int expected = atoi(len_str);
-    if (expected < 0 || (size_t)expected >= out_size) return 0;
+    char* end;
+    long expected = strtol(len_str, &end, 10);
+    if (end == len_str || *end != '\0' || expected <= 0 || (size_t)expected >= out_size) return 0;
     // Read exactly expected bytes
     size_t got = 0;
     while (got < (size_t)expected) {
@@ -1137,7 +1196,8 @@ static int srv_read_tlv(SrvLineReader* r, char* out, size_t out_size) {
         r->len = (size_t)n;
     }
     if (r->buf[r->pos] == '\r') r->pos++;
-    if (r->pos < r->len && r->buf[r->pos] == '\n') r->pos++;
+    if (r->pos >= r->len || r->buf[r->pos] != '\n') return 0;
+    r->pos++;
     return 1;
 }
 
@@ -1155,7 +1215,7 @@ static void sync_whitelist_from_server(const char* username) {
         return;
     }
 
-    if (send_to_server_tlv("GET_WHITELIST", wl_args, 2, response, DAEMON_MAX_MESSAGE_SIZE) != 0) {
+    if (send_authenticated_request("GET_WHITELIST", username, wl_args, 2, 1, response, DAEMON_MAX_MESSAGE_SIZE) != 0) {
         LOGF("[Daemon] Failed to fetch whitelist from server");
         free(response);
         return;
@@ -1334,7 +1394,7 @@ static int handle_server_event(const char* event_type, SrvLineReader* reader, co
 
 // Runs the server subscription loop. Returns 0 on connection loss, 1 on service stop.
 // Blocks until the connection drops or the service should shut down.
-static int server_subscribe_loop(const char* username, int* consecutive_failures) {
+static int server_subscribe_loop(const char* username, int* consecutive_failures, int allow_auth_retry) {
     WSADATA wsa;
     if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) return 0;
 
@@ -1389,10 +1449,11 @@ static int server_subscribe_loop(const char* username, int* consecutive_failures
     // Read OK response
     SrvLineReader reader;
     srv_line_reader_init(&reader, &subscription_tls);
-    char status[32];
+    char status[32] = {0};
     if (!srv_readline(&reader, status, sizeof(status)) || strcmp(status, "OK") != 0) {
         char emsg[256] = {0};
-        srv_read_tlv(&reader, emsg, sizeof(emsg));
+        int rejected = strcmp(status, "ERROR") == 0 &&
+            srv_read_tlv(&reader, emsg, sizeof(emsg)) && strcmp(emsg, "invalid token") == 0;
         if (emsg[0] != '\0') {
             LOGF("[Daemon] SUBSCRIBE failed: '%s'", emsg);
         } else {
@@ -1401,6 +1462,16 @@ static int server_subscribe_loop(const char* username, int* consecutive_failures
         bb_tls_free(&subscription_tls);
         closesocket(sock);
         WSACleanup();
+        if (rejected) {
+            invalidate_client_token(token);
+            if (allow_auth_retry && fetch_token_if_needed(username) == 0)
+                return server_subscribe_loop(username, consecutive_failures, 0);
+            if (!allow_auth_retry) {
+                AcquireSRWLockExclusive(&g_token_fetch_lock);
+                g_next_token_fetch = GetTickCount64() + 5000;
+                ReleaseSRWLockExclusive(&g_token_fetch_lock);
+            }
+        }
         return 0;
     }
     // Consume empty line terminator
@@ -1577,7 +1648,7 @@ int DaemonRun(const char* server_ip) {
 
         // Try to subscribe to server events
         fetch_token_if_needed(username);
-        int sub_result = server_subscribe_loop(username, &consecutive_failures);
+        int sub_result = server_subscribe_loop(username, &consecutive_failures, 1);
         if (sub_result == 1) {
             // Service stop requested
             break;
