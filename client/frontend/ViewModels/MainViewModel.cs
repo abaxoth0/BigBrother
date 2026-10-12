@@ -101,7 +101,11 @@ public class MainViewModel : ViewModelBase, IDisposable
     public NavigationSection SelectedSection
     {
         get => _selectedSection;
-        set => SetProperty(ref _selectedSection, value);
+        set
+        {
+            if (SetProperty(ref _selectedSection, value) && value == NavigationSection.Settings)
+                _ = RefreshSavedFingerprintAsync();
+        }
     }
 
     public int WhitelistCount
@@ -538,7 +542,7 @@ public class MainViewModel : ViewModelBase, IDisposable
         var netMask = await _ipcService.GetNetworkMaskAsync();
         var filtAuto = await _ipcService.GetFiltrationAutoDisableAsync();
         var ipv6Block = await _ipcService.GetIpv6BlockAsync();
-        var savedFingerprint = await _ipcService.GetSavedServerFingerprintAsync();
+        await RefreshSavedFingerprintAsync();
         var available = addr != "" || name != "" || enabled || srvName != "";
 
         System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
@@ -568,9 +572,37 @@ public class MainViewModel : ViewModelBase, IDisposable
                 _ipv6BlockEnabled = ipv6Block.Value;
                 OnPropertyChanged(nameof(Ipv6BlockEnabled));
             }
-            if (savedFingerprint != null) PinnedCertificateFingerprint = savedFingerprint;
             SettingsAvailable = available;
         });
+    }
+
+    private int _savedFingerprintRefreshInProgress;
+    private async Task RefreshSavedFingerprintAsync()
+    {
+        if (Interlocked.CompareExchange(ref _savedFingerprintRefreshInProgress, 1, 0) != 0) return;
+        try
+        {
+            var pin = await _ipcService.GetSavedServerFingerprintAsync();
+            var error = _ipcService.SavedFingerprintError;
+            await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+            {
+                if (_disposed) return;
+                if (pin != null) PinnedCertificateFingerprint = pin;
+                if (_certificateInspection != null || CertificateBusy) return;
+                CertificateStatus = pin == null
+                    ? (error.Contains("unknown command", StringComparison.OrdinalIgnoreCase)
+                        ? "Клиентский демон не поддерживает чтение отпечатка. Обновите демон и перезапустите службу Firewall."
+                        : $"Не удалось прочитать сохранённый отпечаток: {error}")
+                    : pin.Length == 0
+                        ? "В настройках клиентского демона нет сохранённого отпечатка."
+                        : "Сохранённый отпечаток загружен. Проверка сервера ещё не выполнена.";
+            });
+        }
+        catch (Exception ex)
+        {
+            AddLog("ERROR", $"Чтение сохранённого отпечатка: {ex.Message}");
+        }
+        finally { Interlocked.Exchange(ref _savedFingerprintRefreshInProgress, 0); }
     }
 
     private CertificateInspection? _certificateInspection;
