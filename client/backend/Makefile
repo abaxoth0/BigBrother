@@ -71,3 +71,9 @@ ini-test-build: $(MBED_A)
 	$(CC) $(COMMON_FLAGS) $(DEBUG_FLAGS) -o build/ini-sections-test/test.exe tests/ini_sections_test.c $(filter-out src/main.c src/ipc_daemon.c,$(t-units)) $(CLIENT_LIBS)
 
 .PHONY: ini-test-build
+
+permissions-test-build:
+	mkdir -p build/secret-permissions-test
+	$(CC) $(COMMON_FLAGS) $(DEBUG_FLAGS) -o build/secret-permissions-test/test.exe tests/secret_permissions_test.c -ladvapi32
+
+.PHONY: permissions-test-build

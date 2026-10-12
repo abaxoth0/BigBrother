@@ -6,8 +6,8 @@ Each phase should be delivered on its own branch and tested in the Windows VM be
 |---|---|---|---|
 | 1 | Server GUI connectivity: separate backend reachability from service state; bounded pipe health checks; clear disconnected data and refresh on reconnect | Service and console-mode startup, shutdown, reconnect, and stalled/malformed pipe responses | Implemented; VM verified |
 | 2 | Token rotation: invalidate persisted and in-memory stale tokens on explicit authentication rejection; bounded signed-challenge recovery; correct server GUI instructions | Rotate a connected client's token, reconnect without editing config, reject a client with the wrong identity key, and avoid retry loops | Merged |
-| 3 | Certificate rotation: administrator-controlled inspection and verification of the replacement fingerprint before changing the pin | Reject an unexpected replacement certificate; accept a verified replacement; persist the new pin across restart | Implemented; awaiting VM verification |
-| 4 | Windows secret permissions: explicit ACLs for existing/new server and client keys; review database/config token storage and installer integration | Elevated services/frontends still work; an ordinary user cannot read, replace, or modify protected secrets; reinstall preserves access | Planned |
+| 3 | Certificate rotation: administrator-controlled inspection and verification of the replacement fingerprint before changing the pin | Reject an unexpected replacement certificate; accept a verified replacement; persist the new pin across restart | Merged |
+| 4 | Windows secret permissions: explicit ACLs for existing/new server and client keys; review database/config token storage and installer integration | Elevated services/frontends still work; an ordinary user cannot read, replace, or modify protected secrets; reinstall preserves access | Implemented; awaiting VM verification |
 | 5 | Discovery and deployment rules: throttle discovery by source IP; synchronize Windows Firewall rules with the configured TCP port; document router/proxy checks | Vary UDP source ports without bypassing the rate limit; configure a nondefault TCP port and reconnect; check firewall profiles and uninstall cleanup | Planned |
 
 Router/proxy exposure must be checked in the actual deployment; it cannot be verified from this repository alone. The phases cover the older TODOs, not the separate feature ideas.
@@ -96,3 +96,32 @@ python3 client/backend/tests/certificate_probe_test.py
 The Python test requires Python and OpenSSL; on Linux it additionally uses Wine. It generates two temporary test certificates and checks actual TLS fingerprint inspection, matching-pin acceptance, replacement rejection, no application-data transmission, and a bounded stalled handshake. The state test covers malformed fingerprints, endpoint/pin/peer changes, concurrent updates, failed persistence, and token preservation. Windows RPC tests cover reporting the active fingerprint through the restricted administrator pipe.
 
 Record VM results before proceeding to Windows secret permissions.
+
+
+## Phase 4: Windows secret permissions
+
+Branch: `feature/windows-secret-permissions`.
+
+Take a VM snapshot before this phase: the active server database location changes. Stop the server service, the client firewall service, and any console backend instances. Replace both daemon executables. GUIs and client config/key locations do not change. Run each updated daemon as administrator with `--secure-storage` before restarting services; a nonzero result means setup failed and must be resolved before continuing. The installers do this automatically and do not start services on setup failure.
+
+### Storage layout
+
+- Client: the existing `config` directory (including token-bearing `config.ini`/temporary files) and `client_sigkey.key` are restricted to SYSTEM/Administrators. Application-directory permissions allow ordinary users to read/execute but not replace private child directories or files. Existing key bytes are preserved. Existing unreadable/corrupt keys are rejected instead of regenerated.
+- Server: the existing database's parent is retained, with active storage under its private `data` child: `data/bb-server.db`, SQLite sidecars, and `data/tls/server.crt`/`server.key`. The actual location is printed by `--secure-storage` and logged on startup. Private directories and repaired files use protected DACLs for SYSTEM/Administrators and an Administrators owner. Newly created config/SQLite sidecars inherit the private parent ACL; their creator may be SYSTEM or the elevated administrator.
+- Migration takes a consistent SQLite snapshot, including committed WAL data, and publishes it only after completion. TLS certificate/key bytes are copied unchanged. Original database/TLS files remain restricted for recovery; the updated backend uses only the active `data` directory. Do not run older backend versions alongside the new one, or roll back just the executable: the original database becomes stale once the new server writes data. Use the VM snapshot for a complete rollback.
+- Future certificate rotation uses the active `data/tls` directory. Retired original TLS files are not the running identity.
+
+### VM checks
+
+1. **Migration**: note client names, whitelists, active whitelist, settings, and the server fingerprint before updating. After setup/restart, confirm all are preserved and clients reconnect without re-approval, token changes, or pin changes.
+2. **Ownership and ACLs**: from an elevated PowerShell, inspect the client config directory/file, identity key, server `data` directory/database, and server TLS key using `Get-Acl` or `icacls`. Repaired directories/keys/database should be owned by BUILTIN/Administrators with protected ACLs; new config/SQLite sidecars may be owned by SYSTEM or the elevated creator and inherit the private parent ACL. Secret access must be granted only to SYSTEM and Administrators.
+3. **Standard-user denial**: log in as a separate local standard-user account (not an administrator with a filtered token). Reading, appending, deleting, renaming, replacing, or changing the ACL/owner of private keys, config, database and sidecars must fail. Replacing/renaming the private `config` or server `data` directory must also fail. Public application files should remain readable.
+4. **Elevated operation**: services run as SYSTEM and elevated GUIs should still work. Test settings saves, token rotation, verified certificate rotation, and whitelist synchronization; restart services and repeat the ACL checks.
+5. **Existing permissions repair**: on a disposable snapshot, grant a standard-user read ACE to an existing config/key, then run elevated `--secure-storage` again. It must remove that access without changing the identity or credentials.
+6. **No silent key replacement**: on a disposable snapshot, corrupt an existing client identity-key file. The client must report failure rather than overwrite it with a new identity. Restore the original key and rerun setup.
+7. **Installer integration**: install/reinstall the newly built installers in the VM. Services must be stopped before file replacement and started only after successful permission setup. Existing data/identities must survive. Do not use a pre-change installer for this check.
+8. **ACL regression executable**: run `tests/secret-permissions-test.exe` from the package as administrator. It checks ownership/protected ACLs and uses a restricted token to verify that read/write/delete/owner/DACL operations on a private test key are denied. It touches only its own test directory. Wine explicitly skips these assertions because it does not reproduce Windows ownership/access enforcement.
+
+The package also contains `tests/secretfs.test.exe` for migration regression checks on Windows. Linux/Windows migration tests cover WAL contents, TLS identity preservation, repeat startup, retired originals, and rejection of incomplete identities. Credential regressions still pass; actual NTFS enforcement requires the VM checks above.
+
+Record VM results before proceeding to discovery and firewall rules.

@@ -23,19 +23,18 @@ UninstPage instfiles
 
 Section "Server Backend" SecServer
     SectionIn RO
+    DetailPrint "Removing previous server service..."
+    ExecWait '"$SYSDIR\net.exe" stop "BigBrother Server"'
+    ExecWait '"$SYSDIR\sc.exe" delete "BigBrother Server"'
+
     SetOutPath "$INSTDIR"
     File /nonfatal "dist\BigBrother Server Daemon.exe"
     CreateDirectory "${PRODUCT_DATA}"
     CreateDirectory "$INSTDIR\logs\server"
 
-    DetailPrint "Removing previous server service..."
-    ExecWait '"$SYSDIR\net.exe" stop "BigBrother Server"'
-    ExecWait '"$SYSDIR\sc.exe" delete "BigBrother Server"'
-
     DetailPrint "Creating server service (manual start)..."
     ExecWait '"$SYSDIR\sc.exe" create "BigBrother Server" binPath= "$INSTDIR\BigBrother Server Daemon.exe" start= demand DisplayName= "BigBrother Server"'
     ExecWait '"$SYSDIR\sc.exe" description "BigBrother Server" "Manages whitelists, clients, and serves discovery."'
-    ExecWait '"$SYSDIR\net.exe" start "BigBrother Server"'
 SectionEnd
 
 Section "Server GUI" SecServerGUI
@@ -51,6 +50,17 @@ Section "Windows Firewall Rules" SecRules
 SectionEnd
 
 Section -PostInstall
+    DetailPrint "Securing existing and new application secrets..."
+    ClearErrors
+    StrCpy $0 1
+    ExecWait '"$INSTDIR\BigBrother Server Daemon.exe" --secure-storage' $0
+    IfErrors secret_storage_failed
+    IntCmp $0 0 secret_storage_ready
+secret_storage_failed:
+    MessageBox MB_ICONSTOP "Secret permissions setup failed. The service was not started."
+    Abort
+secret_storage_ready:
+    ExecWait '"$SYSDIR\net.exe" start "BigBrother Server"'
     WriteUninstaller "$INSTDIR\uninstall.exe"
     WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_NAME}" \
         "DisplayName" "${PRODUCT_NAME}"

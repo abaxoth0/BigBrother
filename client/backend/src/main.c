@@ -107,6 +107,11 @@ static void print_response(const char* cmd, int result, const char* response) {
 }
 
 int main(int argc, char** argv) {
+    if (PrepareClientSecretPermissions() != 0) {
+        fprintf(stderr, "Cannot secure client secrets. Run elevated or as SYSTEM (error %lu).\n", GetLastError());
+        return 1;
+    }
+    if (argc == 2 && strcmp(argv[1], "--secure-storage") == 0) return 0;
     // Check if running as a service
     SERVICE_TABLE_ENTRY serviceTable[] = {
         {"BigBrother.Client", ServiceMain},

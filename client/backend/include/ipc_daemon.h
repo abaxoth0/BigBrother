@@ -71,6 +71,7 @@ int DaemonReloadWhitelist(char* out_buffer, size_t buffer_size);
  * @return 1 if configured, 0 otherwise.
  */
 int HasServerIp(void);
+int PrepareClientSecretPermissions(void);
 
 int InspectServerCertificate(char address[64], int* port, char pinned[65], char observed[65]);
 int UpdateServerFingerprint(const char* address, int port, const char* original_pin,

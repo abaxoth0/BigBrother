@@ -13,6 +13,7 @@
 #include "../include/client_key.h"
 #include "../include/certificate_pin.h"
 #include "../../../common/log/log.h"
+#include "../../../common/file_security.h"
 #include <windows.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -126,6 +127,31 @@ static void build_ini_path(char* buffer, size_t size) {
     get_exe_path(buffer, size);
     size_t len = strlen(buffer);
     snprintf(buffer + len, size - len, "\\" CONFIG_INI_PATH);
+}
+
+int PrepareClientSecretPermissions(void) {
+    char directory[MAX_PATH], config[MAX_PATH], key[MAX_PATH];
+    get_exe_path(directory, sizeof(directory));
+    size_t length = strlen(directory);
+    while (length && directory[length - 1] == '\\') directory[--length] = '\0';
+    if (length <= 3) return -1;
+    DWORD attributes = GetFileAttributesA(directory);
+    if (attributes == INVALID_FILE_ATTRIBUTES || !(attributes & FILE_ATTRIBUTE_DIRECTORY) ||
+        (attributes & FILE_ATTRIBUTE_REPARSE_POINT)) return -1;
+    for (const char** name = (const char*[]){"WINDIR", "PROGRAMFILES", "PROGRAMDATA", "USERPROFILE", NULL}; *name; name++) {
+        char root[MAX_PATH];
+        if (GetEnvironmentVariableA(*name, root, sizeof(root)) && _stricmp(root, directory) == 0) return -1;
+    }
+    snprintf(key, sizeof(key), "%s\\client_sigkey.key", directory);
+    DWORD key_attributes = GetFileAttributesA(key);
+    if (key_attributes == INVALID_FILE_ATTRIBUTES) {
+        DWORD error = GetLastError();
+        if (error != ERROR_FILE_NOT_FOUND && error != ERROR_PATH_NOT_FOUND) return -1;
+    } else if (bb_file_acl(key, 0, 0) != 0) return -1;
+    snprintf(config, sizeof(config), "%s\\config", directory);
+    if (!CreateDirectoryA(config, NULL) && GetLastError() != ERROR_ALREADY_EXISTS) return -1;
+    if (bb_private_tree(config) != 0) return -1;
+    return bb_file_acl(directory, 1, 1);
 }
 
 static char* trim_ws(char* s) {

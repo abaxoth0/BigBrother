@@ -9,6 +9,7 @@ import (
 	"bigbrother_server_backend/packages/infrastructure/database/sqlite"
 	"bigbrother_server_backend/packages/infrastructure/notification"
 	"bigbrother_server_backend/packages/infrastructure/pending"
+	"bigbrother_server_backend/packages/infrastructure/secretfs"
 	"bigbrother_server_backend/packages/infrastructure/tlsutil"
 	"bigbrother_server_backend/packages/presentation/discovery"
 	"bigbrother_server_backend/packages/presentation/rpc"
@@ -66,12 +67,26 @@ func main() {
 			dbPath = filepath.Join(exeDir, "bb-server.db")
 		}
 	}
+	securePath, securityErr := secretfs.Prepare(dbPath)
+	if securityErr != nil {
+		mainLogger.Fatal("Secret storage setup error", securityErr.Error(), nil)
+		return
+	}
+	dbPath = securePath
+	if len(os.Args) == 2 && os.Args[1] == "--secure-storage" {
+		fmt.Println("Secret storage secured: " + dbPath)
+		return
+	}
 	mainLogger.Info("Database path: "+dbPath, nil)
 	db := sqlite.New(dbPath)
 	if err := db.Connect(); err != nil {
 		mainLogger.Fatal("Database connection error", err.Error(), nil)
 	}
 	defer db.Disconnect()
+	if err := secretfs.PrivateTree(filepath.Dir(dbPath)); err != nil {
+		mainLogger.Fatal("Secret permissions error", err.Error(), nil)
+		return
+	}
 
 	pendingUsersStorage := pending.NewUserStorage()
 	notifMgr := notification.NewManager()
@@ -86,6 +101,10 @@ func main() {
 	)
 	if err != nil {
 		mainLogger.Fatal("TLS certificate setup error", err.Error(), nil)
+	}
+	if err := secretfs.PrivateTree(filepath.Dir(dbPath)); err != nil {
+		mainLogger.Fatal("TLS permissions error", err.Error(), nil)
+		return
 	}
 	tlsConfig, err := tlsutil.ServerConfig(tlsCert)
 	if err != nil {
