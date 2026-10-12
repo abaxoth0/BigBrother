@@ -17,6 +17,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <ctype.h>
 
 #define DAEMON_PIPE_PREFIX "\\\\.\\pipe\\"
 #define CONFIG_INI_PATH "config\\config.ini"
@@ -203,7 +204,45 @@ static int ini_get_string_locked(const char* section, const char* key, char* out
     }
 
     fclose(f);
-    return 0;
+    int credential = (_stricmp(section, "server") == 0 && _stricmp(key, "fingerprint") == 0) ||
+        (_stricmp(section, "client") == 0 && _stricmp(key, "token") == 0);
+    if (!credential) return 0;
+
+    // Old builds could append credentials to the final unrelated section.
+    // Recover one unambiguous, valid value before normal TLS can fall back to TOFU.
+    f = fopen(ini_path, "r");
+    if (!f) return 0;
+    char recovered[65] = {0};
+    size_t expected = _stricmp(key, "fingerprint") == 0 ? 64 : 48;
+    int conflict = 0, invalid = 0;
+    while (fgets(line, sizeof(line), f)) {
+        char* p = trim_ws(line);
+        if (*p == ';' || *p == '#' || *p == '[') continue;
+        char* eq = strchr(p, '=');
+        if (!eq) continue;
+        *eq = '\0';
+        if (_stricmp(trim_ws(p), key) != 0) continue;
+        char* value = trim_ws(eq + 1);
+        if (strlen(value) != expected) { invalid = 1; continue; }
+        int valid = 1;
+        for (size_t i = 0; i < expected; i++)
+            if (!isxdigit((unsigned char)value[i])) valid = 0;
+        if (!valid) { invalid = 1; continue; }
+        int same = _stricmp(key, "fingerprint") == 0
+            ? _stricmp(recovered, value) == 0 : strcmp(recovered, value) == 0;
+        if (recovered[0] && !same) conflict = 1;
+        else snprintf(recovered, sizeof(recovered), "%s", value);
+    }
+    fclose(f);
+    if (conflict || invalid) {
+        // Preserve rejection instead of silently trusting a new certificate.
+        snprintf(out, out_size, "%s", conflict ? "AMBIGUOUS_MISPLACED_CREDENTIAL" : "INVALID_MISPLACED_CREDENTIAL");
+        return 1;
+    }
+    if (!recovered[0]) return 0;
+    snprintf(out, out_size, "%s", recovered);
+    ini_set_string_locked(section, key, recovered);
+    return 1;
 }
 
 // Write or update a string value in config.ini.
@@ -254,6 +293,9 @@ static int ini_set_string_locked(const char* section, const char* key, const cha
     int section_idx = -1;
     int key_idx = -1;
     int last_in_section = -1;
+    int in_section = 0;
+    int repair_credential = (_stricmp(section, "server") == 0 && _stricmp(key, "fingerprint") == 0) ||
+        (_stricmp(section, "client") == 0 && _stricmp(key, "token") == 0);
 
     for (int i = 0; i < line_count; i++) {
         char tmp[INI_LINE_MAX];
@@ -266,25 +308,24 @@ static int ini_set_string_locked(const char* section, const char* key, const cha
             char* end = strchr(p, ']');
             if (!end) continue;
             *end = '\0';
-            if (_stricmp(p + 1, section) == 0) {
+            in_section = (_stricmp(p + 1, section) == 0);
+            if (in_section) {
                 section_idx = i;
-            } else if (section_idx >= 0 && last_in_section < 0) {
-                last_in_section = i - 1;
+                last_in_section = i;
             }
             continue;
         }
 
-        if (section_idx >= 0) {
-            char* eq = strchr(p, '=');
-            if (eq) {
-                *eq = '\0';
-                char* k = trim_ws(p);
-                if (_stricmp(k, key) == 0) {
-                    key_idx = i;
-                }
+        char* eq = strchr(p, '=');
+        if (eq) {
+            *eq = '\0';
+            char* k = trim_ws(p);
+            if (_stricmp(k, key) == 0) {
+                if (in_section) key_idx = i;
+                else if (repair_credential) lines[i][0] = '\0';
             }
-            last_in_section = i;
         }
+        if (in_section) last_in_section = i;
     }
 
     char new_line[INI_LINE_MAX];
@@ -319,6 +360,8 @@ static int ini_set_string_locked(const char* section, const char* key, const cha
         for (int i = 0; i < line_count; i++) {
             fputs(lines[i], out);
             if (i == last_in_section) {
+                size_t n = strlen(lines[i]);
+                if (n && lines[i][n - 1] != '\n') fputc('\n', out);
                 fputs(new_line, out);
             }
         }

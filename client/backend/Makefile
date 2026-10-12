@@ -65,3 +65,9 @@ certificate-test-build: $(MBED_A)
 	$(CC) $(COMMON_FLAGS) $(DEBUG_FLAGS) -o build/certificate-probe-test.exe tests/certificate_probe_test.c src/certificate_pin.c src/tls_client.c $(ROOT)/common/log/log.c $(CLIENT_LIBS)
 
 .PHONY: certificate-test-build
+
+ini-test-build: $(MBED_A)
+	mkdir -p build/ini-sections-test
+	$(CC) $(COMMON_FLAGS) $(DEBUG_FLAGS) -o build/ini-sections-test/test.exe tests/ini_sections_test.c $(filter-out src/main.c src/ipc_daemon.c,$(t-units)) $(CLIENT_LIBS)
+
+.PHONY: ini-test-build
