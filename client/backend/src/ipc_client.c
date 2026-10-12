@@ -711,6 +711,37 @@ DWORD WINAPI client_handler(LPVOID param) {
         const char* data[1] = {buf};
         write_response_tlv(pipe, "OK", data, 1);
 
+    } else if (strcmp(buffer, "GET_SAVED_SERVER_FINGERPRINT") == 0) {
+        char pinned[65] = {0};
+        ini_get_string("server", "fingerprint", pinned, sizeof(pinned));
+        const char* data[] = {pinned};
+        write_response_tlv(pipe, "OK", data, 1);
+
+    } else if (strcmp(buffer, "INSPECT_SERVER_CERTIFICATE") == 0) {
+        char address[64], pinned[65], observed[65], port_value[16];
+        int port;
+        if (InspectServerCertificate(address, &port, pinned, observed) != 0) {
+            write_error_tlv(pipe, "failed to inspect server certificate; saved trust is unchanged");
+        } else {
+            snprintf(port_value, sizeof(port_value), "%d", port);
+            const char* data[] = {address, port_value, pinned, observed};
+            write_response_tlv(pipe, "OK", data, 4);
+        }
+
+    } else if (strcmp(buffer, "UPDATE_SERVER_FINGERPRINT") == 0) {
+        if (arg_count != 4 || !args[0] || !args[1] || !args[2] || !args[3]) {
+            write_error_tlv(pipe, "missing endpoint, original pin or verified fingerprint");
+        } else {
+            char* end;
+            long port = strtol(args[1], &end, 10);
+            if (*end || end == args[1] || port < 1 || port > 65535 ||
+                UpdateServerFingerprint(args[0], (int)port, args[2], args[3]) != 0) {
+                write_error_tlv(pipe, "certificate or settings changed, verification failed, or pin could not be saved; inspect again");
+            } else {
+                write_ok(pipe);
+            }
+        }
+
     } else if (strcmp(buffer, "SET_SERVER_NAME") == 0) {
         if (arg_count < 1 || !args[0] || strlen(args[0]) == 0) {
             write_error_tlv(pipe, "missing server name");

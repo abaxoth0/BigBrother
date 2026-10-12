@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Client backend: fixed INI updates writing keys into later sections (e.g. `fingerprint` and `token` under `[network]`), which made saved credentials appear missing after restart; updates now stay within the requested section and preserve same-named keys in other sections
+- Client backend: automatically repairs valid, unambiguous misplaced credentials into `[server] fingerprint` and `[client] token` when read; existing values, including explicit empty values, remain authoritative, and malformed/conflicting misplaced values do not silently enable first-use certificate trust
+- Client frontend: reopening Settings retries saved fingerprint retrieval and reports an empty config value or daemon error explicitly instead of silently leaving the field blank
+- Client frontend: saved certificate fingerprint loads from local config when settings open, including after GUI restart or while the server is offline; failed inspection no longer clears the displayed saved pin
 - Client/server: token rotation now recovers automatically through the registered signing key after explicit authentication rejection, with bounded retries and stale-cache invalidation; active subscriptions revalidate on heartbeat and the server GUI no longer requests manual token entry
 - Client backend: failed atomic config replacement preserves the original file and reports failure, allowing replacement credentials to remain usable in memory
 - Server frontend: backend connectivity and settings availability now follow pipe responses independently of Windows service state; bounded asynchronous health checks detect unavailable/stalled backends and refresh data on reconnect
@@ -23,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Security: verified certificate rotation — server settings expose the running certificate fingerprint; client settings inspect certificates without changing trust or sending credentials and accept a separately verified fingerprint only after rechecking the peer and saved endpoint/pin
 - Server frontend: replaced pink and lavender accents with dark burgundy controls and muted warm highlights, including selected controls, secondary text, and DEBUG/TRACE log colours
 - Client: filtration connection-sync (was "auto-disable on server disconnect") — filtration now stays off whenever the server connection is down for any reason (including a manual "Отключиться") and re-enables on reconnect, while a user's manual OFF is preserved until explicitly re-enabled; the effective state is re-applied on every status report; the option is enabled by default and the settings checkbox/help text were reworded to match
 - Security: TLS over the client<=>server TCP channel — the server uses a self-signed EC certificate (generated on first run) and the listener requires TLS1.2+; the client uses vendored mbedTLS with server-certificate fingerprint pinning (trust-on-first-use)

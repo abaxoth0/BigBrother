@@ -72,6 +72,10 @@ int DaemonReloadWhitelist(char* out_buffer, size_t buffer_size);
  */
 int HasServerIp(void);
 
+int InspectServerCertificate(char address[64], int* port, char pinned[65], char observed[65]);
+int UpdateServerFingerprint(const char* address, int port, const char* original_pin,
+                            const char* verified_fingerprint);
+
 /**
  * @brief Set the active session state with the server.
  */

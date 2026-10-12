@@ -161,6 +161,7 @@ public class MainViewModel : ViewModelBase
         ExportWhitelistsCommand = new RelayCommand(async _ => await ExportWhitelistsAsync(), _ => Whitelists.Any(w => w.IsSelected));
         DeleteSelectedWhitelistsCommand = new RelayCommand(async _ => await DeleteSelectedWhitelistsAsync(), _ => Whitelists.Any(w => w.IsSelected));
         SaveServerSettingsCommand = new RelayCommand(async _ => await SaveAllServerSettingsAsync());
+        CopyCertificateFingerprintCommand = new RelayCommand(_ => Clipboard.SetText(CertificateFingerprint), _ => IsConnected && CertificateFingerprint.Length == 64);
         ToggleFiltrationCommand = new RelayCommand(async _ => await ToggleFiltrationAsync());
         StartServiceCommand = new RelayCommand(async _ => await StartServiceAsync());
         StopServiceCommand = new RelayCommand(async _ => await StopServiceAsync());
@@ -176,6 +177,7 @@ public class MainViewModel : ViewModelBase
         _ = RefreshAllAsync();
         _ = LoadServerNameAsync();
         _ = LoadServerPortAsync();
+        _ = LoadCertificateFingerprintAsync();
         _ = LoadLogPathAsync();
     }
 
@@ -211,6 +213,7 @@ public class MainViewModel : ViewModelBase
     {
         if (_disposed) return;
         _ = RefreshAllAsync();
+        _ = LoadCertificateFingerprintAsync();
     }
 
     public ObservableCollection<ConnectedClient> ConnectedClients { get; }
@@ -376,6 +379,7 @@ public class MainViewModel : ViewModelBase
     public ICommand ExportWhitelistsCommand { get; }
     public ICommand DeleteSelectedWhitelistsCommand { get; }
     public ICommand SaveServerSettingsCommand { get; }
+    public ICommand CopyCertificateFingerprintCommand { get; }
     public ICommand ToggleFiltrationCommand { get; }
     public ICommand StartServiceCommand { get; }
     public ICommand StopServiceCommand { get; }
@@ -596,6 +600,26 @@ public class MainViewModel : ViewModelBase
         });
     }
 
+    private string _certificateFingerprint = "";
+    public string CertificateFingerprint
+    {
+        get => _certificateFingerprint;
+        private set
+        {
+            if (SetProperty(ref _certificateFingerprint, value))
+                CommandManager.InvalidateRequerySuggested();
+        }
+    }
+
+    private async Task LoadCertificateFingerprintAsync()
+    {
+        var fingerprint = await _ipcService.GetCertificateFingerprintAsync();
+        await Application.Current.Dispatcher.InvokeAsync(() =>
+        {
+            if (!_disposed) CertificateFingerprint = fingerprint;
+        });
+    }
+
     private async Task LoadServerNameAsync()
     {
         var name = await _ipcService.GetServerNameAsync();
@@ -668,6 +692,7 @@ public class MainViewModel : ViewModelBase
                     PendingRegistrations.Clear();
                     Whitelists.Clear();
                     ActiveWhitelist = "";
+                    CertificateFingerprint = "";
                 }
                 LastUpdate = DateTime.Now;
             });
@@ -676,6 +701,7 @@ public class MainViewModel : ViewModelBase
                 _ = RefreshAllAsync();
                 _ = LoadServerNameAsync();
                 _ = LoadServerPortAsync();
+                _ = LoadCertificateFingerprintAsync();
                 _ = LoadLogPathAsync();
             }
         }
@@ -697,6 +723,7 @@ public class MainViewModel : ViewModelBase
                     PendingRegistrations.Clear();
                     Whitelists.Clear();
                     ActiveWhitelist = "";
+                    CertificateFingerprint = "";
                     AddLog("ERROR", $"Ошибка: {ex.Message}");
                 });
             }
@@ -849,6 +876,7 @@ public class MainViewModel : ViewModelBase
                 {
                     Whitelists.Clear();
                     ActiveWhitelist = "";
+                    CertificateFingerprint = "";
                 }
                 AddLog("ERROR", $"Ошибка загрузки списков: {ex.Message}");
             });

@@ -11,7 +11,7 @@ COMMON_FLAGS = -Wall -Wno-format-truncation -mconsole \
 DEBUG_FLAGS = -g3 -O0
 RELEASE_FLAGS = -O2
 
-t-units = src/main.c src/common.c src/ipc_daemon.c src/ipc_client.c src/net_client.c src/tls_client.c src/client_key.c $(ROOT)/common/encoding/encoding.c $(ROOT)/common/log/log.c
+t-units = src/main.c src/common.c src/ipc_daemon.c src/ipc_client.c src/net_client.c src/tls_client.c src/client_key.c src/certificate_pin.c $(ROOT)/common/encoding/encoding.c $(ROOT)/common/log/log.c
 
 # mbedTLS library sources (excluding the ARM-only AESCE accelerator).
 MB_UNITS := $(wildcard $(MBEDTLS_DIR)/library/*.c)
@@ -58,3 +58,16 @@ token-test-build: $(MBED_A)
 	$(CC) $(COMMON_FLAGS) $(DEBUG_FLAGS) -o build/token-recovery-test/test.exe tests/token_recovery_test.c $(filter-out src/main.c src/ipc_daemon.c,$(t-units)) $(CLIENT_LIBS)
 
 .PHONY: token-test-build
+
+certificate-test-build: $(MBED_A)
+	mkdir -p build/certificate-state-test
+	$(CC) $(COMMON_FLAGS) $(DEBUG_FLAGS) -o build/certificate-state-test/test.exe tests/certificate_state_test.c $(filter-out src/main.c src/ipc_daemon.c,$(t-units)) $(CLIENT_LIBS)
+	$(CC) $(COMMON_FLAGS) $(DEBUG_FLAGS) -o build/certificate-probe-test.exe tests/certificate_probe_test.c src/certificate_pin.c src/tls_client.c $(ROOT)/common/log/log.c $(CLIENT_LIBS)
+
+.PHONY: certificate-test-build
+
+ini-test-build: $(MBED_A)
+	mkdir -p build/ini-sections-test
+	$(CC) $(COMMON_FLAGS) $(DEBUG_FLAGS) -o build/ini-sections-test/test.exe tests/ini_sections_test.c $(filter-out src/main.c src/ipc_daemon.c,$(t-units)) $(CLIENT_LIBS)
+
+.PHONY: ini-test-build

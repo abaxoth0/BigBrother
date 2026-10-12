@@ -262,3 +262,16 @@ func TestSubscriptionClosesAfterTokenRotation(t *testing.T) {
 		t.Fatal("handler did not exit")
 	}
 }
+
+func TestFrontendReportsActiveCertificateFingerprint(t *testing.T) {
+	fingerprint := strings.Repeat("A", 64)
+	h := NewFrontendHandler(nil, nil, nil, nil, fingerprint)
+	response := handlerResponse(t, h, "GET_CERTIFICATE_FINGERPRINT\n\n")
+	if response != "OK\n64\n"+fingerprint+"\n\n" {
+		t.Fatalf("fingerprint response: %q", response)
+	}
+	response = handlerResponse(t, NewFrontendHandler(nil, nil, nil, nil), "GET_CERTIFICATE_FINGERPRINT\n\n")
+	if !strings.HasPrefix(response, "ERROR\n") {
+		t.Fatalf("missing fingerprint accepted: %q", response)
+	}
+}

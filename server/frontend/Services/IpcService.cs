@@ -900,6 +900,31 @@ public class IpcService : IDisposable
         }
     }
 
+    public async Task<string> GetCertificateFingerprintAsync()
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(1500));
+        var ct = timeout.Token;
+        try
+        {
+            using var pipe = new NamedPipeClientStream(".", _pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+            await pipe.ConnectAsync(0, ct).ConfigureAwait(false);
+            using var writer = new StreamWriter(pipe, leaveOpen: true);
+            using var reader = new StreamReader(pipe, leaveOpen: true);
+            await writer.WriteAsync("GET_CERTIFICATE_FINGERPRINT\n\n".AsMemory(), ct).ConfigureAwait(false);
+            await writer.FlushAsync(ct).ConfigureAwait(false);
+            if (await reader.ReadLineAsync(ct).ConfigureAwait(false) != "OK" ||
+                await reader.ReadLineAsync(ct).ConfigureAwait(false) != "64") return "";
+            var fingerprint = await reader.ReadLineAsync(ct).ConfigureAwait(false);
+            return fingerprint?.Length == 64 && fingerprint.All(char.IsAsciiHexDigit) &&
+                await reader.ReadLineAsync(ct).ConfigureAwait(false) == ""
+                ? fingerprint.ToUpperInvariant() : "";
+        }
+        catch (Exception ex) when (ex is IOException || ex is TimeoutException || ex is OperationCanceledException)
+        {
+            return "";
+        }
+    }
+
     public void Dispose()
     {
         StopEventSubscription();

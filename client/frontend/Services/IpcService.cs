@@ -9,6 +9,10 @@ public class IpcService : IDisposable
 {
     private const string PipeName = "BigBrother.Client.Backend";
     private const int MaxRetries = 3;
+    private readonly string _pipeName;
+
+    public IpcService() : this(PipeName) { }
+    internal IpcService(string pipeName) { _pipeName = pipeName; }
     private const int ReadTimeoutMs = 10000;
     private NamedPipeClientStream? _pipe;
     private bool _isConnected;
@@ -44,7 +48,7 @@ public class IpcService : IDisposable
         {
             try
             {
-                using var pipe = new NamedPipeClientStream(".", PipeName, PipeDirection.InOut);
+                using var pipe = new NamedPipeClientStream(".", _pipeName, PipeDirection.InOut);
                 // Non-blocking probe: fails instantly when the daemon is not running
                 // (a timed ConnectAsync busy-waits for the full timeout, burning CPU).
                 await pipe.ConnectAsync(0, ct);
@@ -117,7 +121,7 @@ public class IpcService : IDisposable
             {
                 try
                 {
-                    _pipe = new NamedPipeClientStream(".", PipeName, PipeDirection.InOut);
+                    _pipe = new NamedPipeClientStream(".", _pipeName, PipeDirection.InOut);
                     await _pipe.ConnectAsync(0);
                     _isConnected = true;
                     _lastError = "";
@@ -1037,6 +1041,50 @@ public class IpcService : IDisposable
         {
             _connectionLock.Release();
         }
+    }
+
+    private async Task<(string status, List<string> data, string error)> CertificateCommandAsync(string command, params string[] args)
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return ("", new List<string>(), _lastError);
+            try
+            {
+                var response = await SendCommandWithTimeoutAsync(command, ReadTimeoutMs, args);
+                return (response.status, response.data, _lastError);
+            }
+            finally { Disconnect(); }
+        }
+        finally { _connectionLock.Release(); }
+    }
+
+    public string SavedFingerprintError { get; private set; } = "";
+
+    public async Task<string?> GetSavedServerFingerprintAsync()
+    {
+        var (status, data, error) = await CertificateCommandAsync("GET_SAVED_SERVER_FINGERPRINT");
+        if (status == "OK" && data.Count == 1)
+        {
+            SavedFingerprintError = "";
+            return data[0];
+        }
+        SavedFingerprintError = error.Length > 0 ? error : "Клиентский демон не ответил";
+        return null;
+    }
+
+    public async Task<CertificateInspection?> InspectServerCertificateAsync()
+    {
+        var (status, data, _) = await CertificateCommandAsync("INSPECT_SERVER_CERTIFICATE");
+        return status == "OK" && data.Count == 4
+            ? new CertificateInspection(data[0], data[1], data[2], data[3]) : null;
+    }
+
+    public async Task<bool> UpdateServerFingerprintAsync(CertificateInspection inspection, string verified)
+    {
+        var (status, _, _) = await CertificateCommandAsync("UPDATE_SERVER_FINGERPRINT",
+            inspection.Address, inspection.Port, inspection.Pinned, verified);
+        return status == "OK";
     }
 
     public void Dispose()
