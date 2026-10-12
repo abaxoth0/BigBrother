@@ -9,7 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Client backend: INI writes now respect section boundaries instead of appending keys to later sections; valid misplaced server fingerprints and client tokens are recovered into their correct sections without overriding existing values
+- Client backend: fixed INI updates writing keys into later sections (e.g. `fingerprint` and `token` under `[network]`), which made saved credentials appear missing after restart; updates now stay within the requested section and preserve same-named keys in other sections
+- Client backend: automatically repairs valid, unambiguous misplaced credentials into `[server] fingerprint` and `[client] token` when read; existing values, including explicit empty values, remain authoritative, and malformed/conflicting misplaced values do not silently enable first-use certificate trust
 - Client frontend: reopening Settings retries saved fingerprint retrieval and reports an empty config value or daemon error explicitly instead of silently leaving the field blank
 - Client frontend: saved certificate fingerprint loads from local config when settings open, including after GUI restart or while the server is offline; failed inspection no longer clears the displayed saved pin
 - Client/server: token rotation now recovers automatically through the registered signing key after explicit authentication rejection, with bounded retries and stale-cache invalidation; active subscriptions revalidate on heartbeat and the server GUI no longer requests manual token entry
