@@ -538,6 +538,7 @@ public class MainViewModel : ViewModelBase, IDisposable
         var netMask = await _ipcService.GetNetworkMaskAsync();
         var filtAuto = await _ipcService.GetFiltrationAutoDisableAsync();
         var ipv6Block = await _ipcService.GetIpv6BlockAsync();
+        var savedFingerprint = await _ipcService.GetSavedServerFingerprintAsync();
         var available = addr != "" || name != "" || enabled || srvName != "";
 
         System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
@@ -567,6 +568,7 @@ public class MainViewModel : ViewModelBase, IDisposable
                 _ipv6BlockEnabled = ipv6Block.Value;
                 OnPropertyChanged(nameof(Ipv6BlockEnabled));
             }
+            if (savedFingerprint != null) PinnedCertificateFingerprint = savedFingerprint;
             SettingsAvailable = available;
         });
     }
@@ -607,7 +609,6 @@ public class MainViewModel : ViewModelBase, IDisposable
         CertificateBusy = true;
         _certificateInspection = null;
         CertificateEndpoint = "";
-        PinnedCertificateFingerprint = "";
         ObservedCertificateFingerprint = "";
         CertificateStatus = "Проверка сертификата…";
         try

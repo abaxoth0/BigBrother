@@ -103,6 +103,7 @@ Used by the daemon client frontend to communicate with the client backend.
 | `RESTART_CLIENT` | none | none | Restart the client |
 | `PING` | none | none | Ping the client |
 | `GET_LOG_PATH` | none | `LOG_PATH:<client_log>\|<firewall_log>` | Get log file paths |
+| `GET_SAVED_SERVER_FINGERPRINT` | none | saved SHA-256 fingerprint, or empty if unset | Read the persisted pin locally without connecting to the server or changing trust |
 | `INSPECT_SERVER_CERTIFICATE` | none | address, port, saved pin, observed SHA-256 fingerprint | Inspect the configured server with TLS only; no credentials are sent and trust is unchanged |
 | `UPDATE_SERVER_FINGERPRINT` | address, port, original pin, verified fingerprint | none | Recheck the peer and saved endpoint/pin, then persist the verified replacement; reject stale inspections |
 | `GET_IPV6_BLOCK` | none | `0` or `1` | Get the persisted IPv6 blocking preference (default `1`) |

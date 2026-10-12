@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Client frontend: saved certificate fingerprint loads from local config when settings open, including after GUI restart or while the server is offline; failed inspection no longer clears the displayed saved pin
 - Client/server: token rotation now recovers automatically through the registered signing key after explicit authentication rejection, with bounded retries and stale-cache invalidation; active subscriptions revalidate on heartbeat and the server GUI no longer requests manual token entry
 - Client backend: failed atomic config replacement preserves the original file and reports failure, allowing replacement credentials to remain usable in memory
 - Server frontend: backend connectivity and settings availability now follow pipe responses independently of Windows service state; bounded asynchronous health checks detect unavailable/stalled backends and refresh data on reconnect

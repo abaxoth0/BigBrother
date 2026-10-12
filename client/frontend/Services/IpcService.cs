@@ -1051,6 +1051,12 @@ public class IpcService : IDisposable
         finally { _connectionLock.Release(); }
     }
 
+    public async Task<string?> GetSavedServerFingerprintAsync()
+    {
+        var (status, data) = await CertificateCommandAsync("GET_SAVED_SERVER_FINGERPRINT");
+        return status == "OK" && data.Count == 1 ? data[0] : null;
+    }
+
     public async Task<CertificateInspection?> InspectServerCertificateAsync()
     {
         var (status, data) = await CertificateCommandAsync("INSPECT_SERVER_CERTIFICATE");

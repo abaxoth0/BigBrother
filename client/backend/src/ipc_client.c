@@ -711,6 +711,12 @@ DWORD WINAPI client_handler(LPVOID param) {
         const char* data[1] = {buf};
         write_response_tlv(pipe, "OK", data, 1);
 
+    } else if (strcmp(buffer, "GET_SAVED_SERVER_FINGERPRINT") == 0) {
+        char pinned[65] = {0};
+        ini_get_string("server", "fingerprint", pinned, sizeof(pinned));
+        const char* data[] = {pinned};
+        write_response_tlv(pipe, "OK", data, 1);
+
     } else if (strcmp(buffer, "INSPECT_SERVER_CERTIFICATE") == 0) {
         char address[64], pinned[65], observed[65], port_value[16];
         int port;
