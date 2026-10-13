@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../lib/cs/BigBrother.Frontend.Shared/Lib/WhitelistRules.cs" Link="WhitelistRules.cs" />
+    <Compile Include="../../lib/cs/BigBrother.Frontend.Shared/ViewModels/WhitelistEditViewModel.cs" Link="WhitelistEditViewModel.cs" />
+    <Compile Include="../../lib/cs/BigBrother.Frontend.Shared/ViewModels/ViewModelBase.cs" Link="ViewModelBase.cs" />
+    <Compile Include="../../lib/cs/BigBrother.Frontend.Shared/ViewModels/RelayCommand.cs" Link="RelayCommand.cs" />
+  </ItemGroup>
+</Project>

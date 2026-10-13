@@ -6,6 +6,7 @@ using System.Windows;
 using System.Windows.Input;
 using frontend.Models;
 using frontend.Services;
+using frontend.Validation;
 
 namespace frontend.ViewModels;
 
@@ -1113,6 +1114,13 @@ public class MainViewModel : ViewModelBase
     {
         try
         {
+            var analysis = WhitelistRules.Analyze(string.Join("\n", entries));
+            if (analysis.HasErrors)
+            {
+                errors.Add($"{name}: {string.Join("\n", analysis.Issues)}");
+                return;
+            }
+            entries = analysis.Rules.Select(r => r.Text).ToList();
             if (existingNames.Contains(name))
             {
                 errors.Add($"{name}: список с таким именем уже существует");

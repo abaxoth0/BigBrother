@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+
+- Server whitelist editor: live validation rejects malformed entries, duplicate rules and directly conflicting exceptions before saving; overlapping exceptions show warnings, and imports use the same validation
+- Server whitelist editor: domain/IPv4 rule tester shows matching rules and exception priority for the current draft, including wildcard base-domain and quoted-substring matching
+
 ### Fixed
 
 - Server discovery: rate limits now share a budget across UDP source ports from the same IP, with bounded source tracking; replies advertise the running TCP port instead of a pending saved value
