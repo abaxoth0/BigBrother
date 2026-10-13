@@ -46,9 +46,9 @@ Section "Client Daemon" SecClientDaemon
 SectionEnd
 
 Section "Client GUI" SecClientGUI
-    SetOutPath "$INSTDIR"
+    SetOutPath "$INSTDIR\GUI"
     File /nonfatal /r "dist\client-frontend\*.*"
-    CreateShortCut "$DESKTOP\BigBrother Client.lnk" "$INSTDIR\BigBrother Client.exe"
+    CreateShortCut "$DESKTOP\BigBrother Client.lnk" "$INSTDIR\GUI\BigBrother Client.exe"
     SetOutPath "$INSTDIR"
 SectionEnd
 
