@@ -469,6 +469,11 @@
                               VerticalGridLinesBrush="{StaticResource BorderBrush}"
                               GridLinesVisibility="Horizontal" HeadersVisibility="Column"
                               VerticalContentAlignment="Center" MinRowHeight="26">
+                        <DataGrid.RowStyle>
+                            <Style TargetType="DataGridRow">
+                                <EventSetter Event="MouseDoubleClick" Handler="WhitelistRow_MouseDoubleClick"/>
+                            </Style>
+                        </DataGrid.RowStyle>
                         <DataGrid.Columns>
                             <DataGridTemplateColumn Header=" " Width="34">
                                 <DataGridTemplateColumn.HeaderTemplate>

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Server whitelist table: double-clicking a row opens its editor
 - Server whitelist editor: full-line backgrounds mark errors in red and warnings in amber, with errors taking priority; highlights update with validation and follow scrolling without changing text colours
 - Server whitelist editor: line numbers stay aligned with entries while editing, resizing and scrolling; long rules scroll horizontally
 - Server whitelist editor: live validation rejects malformed entries, duplicate rules and directly conflicting exceptions before saving; overlapping exceptions show warnings, and imports use the same validation
