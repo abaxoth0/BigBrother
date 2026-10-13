@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Server whitelist editor: line numbers stay aligned with entries while editing, resizing and scrolling; long rules scroll horizontally
 - Server whitelist editor: live validation rejects malformed entries, duplicate rules and directly conflicting exceptions before saving; overlapping exceptions show warnings, and imports use the same validation
 - Server whitelist editor: domain/IPv4 rule tester shows matching rules and exception priority for the current draft, including wildcard base-domain and quoted-substring matching
 

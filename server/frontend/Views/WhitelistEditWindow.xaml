@@ -72,13 +72,30 @@
                 </Grid.RowDefinitions>
 
                 <TextBlock Grid.Row="0" Text="Записи (по одной на строку):" FontWeight="Bold" Margin="0,0,0,5"/>
-                <TextBox Grid.Row="1" Text="{Binding EntriesText, UpdateSourceTrigger=PropertyChanged}"
-                         AcceptsReturn="True" VerticalScrollBarVisibility="Auto"
-                         VerticalContentAlignment="Top"
-                         FontFamily="Consolas" Padding="6"
-                         Background="{StaticResource InputBackground}"
-                         Foreground="{StaticResource TitleBarText}"
-                         BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"/>
+                <Border Grid.Row="1" Background="{StaticResource InputBackground}"
+                        BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,1,0">
+                            <Canvas x:Name="LineNumberGutter" Width="32" ClipToBounds="True"
+                                    IsHitTestVisible="False"/>
+                        </Border>
+                        <TextBox x:Name="EntriesEditor" Grid.Column="1" Text="{Binding EntriesText, UpdateSourceTrigger=PropertyChanged}"
+                                 AcceptsReturn="True" VerticalScrollBarVisibility="Auto"
+                                 HorizontalScrollBarVisibility="Auto" TextWrapping="NoWrap"
+                                 VerticalContentAlignment="Top"
+                                 FontFamily="Consolas" FontSize="13" Padding="6"
+                                 Loaded="EntriesEditor_LayoutChanged" SizeChanged="EntriesEditor_LayoutChanged"
+                                 TextChanged="EntriesEditor_TextChanged"
+                                 ScrollViewer.ScrollChanged="EntriesEditor_ScrollChanged"
+                                 Background="{StaticResource InputBackground}"
+                                 Foreground="{StaticResource TitleBarText}"
+                                 BorderThickness="0"/>
+                    </Grid>
+                </Border>
             </Grid>
 
             <StackPanel Grid.Row="2" Margin="0,8,0,0">
