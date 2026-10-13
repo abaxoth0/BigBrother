@@ -37,6 +37,7 @@ public class WhitelistEditViewModel : ViewModelBase
     }
 
     private bool CanSave => !string.IsNullOrWhiteSpace(WhitelistName) && !_analysis.HasErrors;
+    public IReadOnlyList<WhitelistIssue> ValidationIssues => _analysis.Issues;
     public string ValidationSummary => _analysis.Issues.Count == 0
         ? $"Ошибок нет. Правил: {_analysis.Rules.Count}."
         : string.Join("\n", _analysis.Issues);
@@ -55,6 +56,7 @@ public class WhitelistEditViewModel : ViewModelBase
     private void RefreshAnalysis()
     {
         _analysis = WhitelistRules.Analyze(_entriesText);
+        OnPropertyChanged(nameof(ValidationIssues));
         OnPropertyChanged(nameof(ValidationSummary));
         OnPropertyChanged(nameof(TestResult));
         (SaveCommand as RelayCommand)?.RaiseCanExecuteChanged();

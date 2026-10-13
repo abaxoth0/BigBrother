@@ -79,6 +79,8 @@
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
+                        <Canvas x:Name="LineHighlightCanvas" Grid.ColumnSpan="2"
+                                ClipToBounds="True" IsHitTestVisible="False"/>
                         <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,1,0">
                             <Canvas x:Name="LineNumberGutter" Width="32" ClipToBounds="True"
                                     IsHitTestVisible="False"/>
@@ -91,7 +93,7 @@
                                  Loaded="EntriesEditor_LayoutChanged" SizeChanged="EntriesEditor_LayoutChanged"
                                  TextChanged="EntriesEditor_TextChanged"
                                  ScrollViewer.ScrollChanged="EntriesEditor_ScrollChanged"
-                                 Background="{StaticResource InputBackground}"
+                                 Background="Transparent"
                                  Foreground="{StaticResource TitleBarText}"
                                  BorderThickness="0"/>
                     </Grid>
@@ -101,6 +103,8 @@
             <StackPanel Grid.Row="2" Margin="0,8,0,0">
                 <TextBlock Text="Домен, IPv4, *.домен, &quot;подстрока&quot;; ! — исключение. # и ; — комментарии."
                            TextWrapping="Wrap"/>
+                <TextBlock Text="Ошибки — красный фон строки; предупреждения — янтарный."
+                           TextWrapping="Wrap" Margin="0,4,0,0"/>
                 <ScrollViewer MaxHeight="120" VerticalScrollBarVisibility="Auto" Margin="0,6,0,0">
                     <TextBlock Text="{Binding ValidationSummary}" TextWrapping="Wrap"/>
                 </ScrollViewer>
