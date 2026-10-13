@@ -253,7 +253,7 @@ public class MainViewModel : ViewModelBase
         }
     }
 
-    public string UsersCounterText => $"Пользователи (ожидают / подключено): {PendingCount} / {ConnectedClientsCount}";
+    public string UsersCounterText => $"Пользователи (подключено / ожидают): {ConnectedClientsCount} / {PendingCount}";
 
     public bool IsConnected
     {

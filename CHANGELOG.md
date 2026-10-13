@@ -40,6 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Server status bar: connected users now appear before pending registrations in the labels and counters
 - Server tables: centered cell content and column headers horizontally and vertically, including whitelist selection checkboxes
 - Server tables: removed the default blue focus outline around individual cells
 - Server whitelist editor: removed the highlighting legend label to reduce clutter
