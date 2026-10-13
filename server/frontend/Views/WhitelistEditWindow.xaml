@@ -6,11 +6,12 @@
         xmlns:local="clr-namespace:frontend;assembly=BigBrother.Frontend.Shared"
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         mc:Ignorable="d"
-        Title="{Binding WindowTitle}" Height="450" Width="520"
+        Title="{Binding WindowTitle}" Height="720" Width="680"
+        MinHeight="600" MinWidth="600"
         WindowStartupLocation="CenterOwner"
         Background="{StaticResource WindowBackground}"
         Foreground="{StaticResource TitleBarText}"
-        ResizeMode="NoResize"
+        ResizeMode="CanResize"
         WindowStyle="None">
     <shell:WindowChrome.WindowChrome>
         <shell:WindowChrome CaptionHeight="42" ResizeBorderThickness="6"
@@ -53,6 +54,8 @@
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
                 <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
             <!-- Name Input -->
@@ -69,17 +72,51 @@
                 </Grid.RowDefinitions>
 
                 <TextBlock Grid.Row="0" Text="Записи (по одной на строку):" FontWeight="Bold" Margin="0,0,0,5"/>
-                <TextBox Grid.Row="1" Text="{Binding EntriesText, UpdateSourceTrigger=PropertyChanged}"
-                         AcceptsReturn="True" VerticalScrollBarVisibility="Auto"
-                         VerticalContentAlignment="Top"
-                         FontFamily="Consolas" Padding="6"
-                         Background="{StaticResource InputBackground}"
-                         Foreground="{StaticResource TitleBarText}"
-                         BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"/>
+                <Border Grid.Row="1" Background="{StaticResource InputBackground}"
+                        BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Canvas x:Name="LineHighlightCanvas" Grid.ColumnSpan="2"
+                                ClipToBounds="True" IsHitTestVisible="False"/>
+                        <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,1,0">
+                            <Canvas x:Name="LineNumberGutter" Width="32" ClipToBounds="True"
+                                    IsHitTestVisible="False"/>
+                        </Border>
+                        <TextBox x:Name="EntriesEditor" Grid.Column="1" Text="{Binding EntriesText, UpdateSourceTrigger=PropertyChanged}"
+                                 AcceptsReturn="True" VerticalScrollBarVisibility="Auto"
+                                 HorizontalScrollBarVisibility="Auto" TextWrapping="NoWrap"
+                                 VerticalContentAlignment="Top"
+                                 FontFamily="Consolas" FontSize="13" Padding="6"
+                                 Loaded="EntriesEditor_LayoutChanged" SizeChanged="EntriesEditor_LayoutChanged"
+                                 TextChanged="EntriesEditor_TextChanged"
+                                 ScrollViewer.ScrollChanged="EntriesEditor_ScrollChanged"
+                                 Background="Transparent"
+                                 Foreground="{StaticResource TitleBarText}"
+                                 BorderThickness="0"/>
+                    </Grid>
+                </Border>
             </Grid>
 
+            <StackPanel Grid.Row="2" Margin="0,8,0,0">
+                <TextBlock Text="Домен, IPv4, *.домен, &quot;подстрока&quot;; ! — исключение. # и ; — комментарии."
+                           TextWrapping="Wrap"/>
+                <ScrollViewer MaxHeight="120" VerticalScrollBarVisibility="Auto" Margin="0,6,0,0">
+                    <TextBlock Text="{Binding ValidationSummary}" TextWrapping="Wrap"/>
+                </ScrollViewer>
+            </StackPanel>
+            <StackPanel Grid.Row="3" Margin="0,12,0,0">
+                <TextBlock Text="Проверка домена или IPv4:" FontWeight="Bold" Margin="0,0,0,5"/>
+                <TextBox Text="{Binding TestInput, UpdateSourceTrigger=PropertyChanged}"/>
+                <ScrollViewer MaxHeight="130" VerticalScrollBarVisibility="Auto" Margin="0,6,0,0">
+                    <TextBlock Text="{Binding TestResult}" TextWrapping="Wrap"/>
+                </ScrollViewer>
+            </StackPanel>
+
             <!-- Buttons -->
-            <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+            <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
                 <Button Content="Сохранить" Style="{StaticResource PrimaryButton}" Width="90" Height="28" Margin="0,0,5,0"
                         Command="{Binding SaveCommand}" IsDefault="True"/>
                 <Button Content="Отмена" Width="90" Height="28" IsCancel="True"/>

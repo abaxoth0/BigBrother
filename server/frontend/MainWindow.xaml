@@ -469,11 +469,17 @@
                               VerticalGridLinesBrush="{StaticResource BorderBrush}"
                               GridLinesVisibility="Horizontal" HeadersVisibility="Column"
                               VerticalContentAlignment="Center" MinRowHeight="26">
+                        <DataGrid.RowStyle>
+                            <Style TargetType="DataGridRow">
+                                <EventSetter Event="MouseDoubleClick" Handler="WhitelistRow_MouseDoubleClick"/>
+                            </Style>
+                        </DataGrid.RowStyle>
                         <DataGrid.Columns>
                             <DataGridTemplateColumn Header=" " Width="34">
                                 <DataGridTemplateColumn.HeaderTemplate>
                                     <DataTemplate>
                                         <CheckBox IsChecked="{Binding DataContext.IsAllSelected, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                  Width="18" ClipToBounds="True"
                                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                     </DataTemplate>
                                 </DataGridTemplateColumn.HeaderTemplate>
@@ -481,6 +487,7 @@
                                     <DataTemplate>
                                         <Grid>
                                             <CheckBox IsChecked="{Binding IsSelected, UpdateSourceTrigger=PropertyChanged}"
+                                                      Width="18" ClipToBounds="True"
                                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                         </Grid>
                                     </DataTemplate>
