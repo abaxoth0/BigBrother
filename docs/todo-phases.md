@@ -7,8 +7,8 @@ Each phase should be delivered on its own branch and tested in the Windows VM be
 | 1 | Server GUI connectivity: separate backend reachability from service state; bounded pipe health checks; clear disconnected data and refresh on reconnect | Service and console-mode startup, shutdown, reconnect, and stalled/malformed pipe responses | Implemented; VM verified |
 | 2 | Token rotation: invalidate persisted and in-memory stale tokens on explicit authentication rejection; bounded signed-challenge recovery; correct server GUI instructions | Rotate a connected client's token, reconnect without editing config, reject a client with the wrong identity key, and avoid retry loops | Merged |
 | 3 | Certificate rotation: administrator-controlled inspection and verification of the replacement fingerprint before changing the pin | Reject an unexpected replacement certificate; accept a verified replacement; persist the new pin across restart | Merged |
-| 4 | Windows secret permissions: explicit ACLs for existing/new server and client keys; review database/config token storage and installer integration | Elevated services/frontends still work; an ordinary user cannot read, replace, or modify protected secrets; reinstall preserves access | Implemented; awaiting VM verification |
-| 5 | Discovery and deployment rules: throttle discovery by source IP; synchronize Windows Firewall rules with the configured TCP port; document router/proxy checks | Vary UDP source ports without bypassing the rate limit; configure a nondefault TCP port and reconnect; check firewall profiles and uninstall cleanup | Planned |
+| 4 | Windows secret permissions: explicit ACLs for existing/new server and client keys; review database/config token storage and installer integration | Elevated services/frontends still work; an ordinary user cannot read, replace, or modify protected secrets; reinstall preserves access | Merged; VM verified |
+| 5 | Discovery and deployment rules: throttle discovery by source IP; synchronize Windows Firewall rules with the configured TCP port; document router/proxy checks | Vary UDP source ports without bypassing the rate limit; configure a nondefault TCP port and reconnect; check firewall profiles and uninstall cleanup | Implemented; awaiting VM verification |
 
 Router/proxy exposure must be checked in the actual deployment; it cannot be verified from this repository alone. The phases cover the older TODOs, not the separate feature ideas.
 
@@ -125,3 +125,49 @@ Take a VM snapshot before this phase: the active server database location change
 The package also contains `tests/secretfs.test.exe` for migration regression checks on Windows. Linux/Windows migration tests cover WAL contents, TLS identity preservation, repeat startup, retired originals, and rejection of incomplete identities. Credential regressions still pass; actual NTFS enforcement requires the VM checks above.
 
 Record VM results before proceeding to discovery and firewall rules.
+
+
+## Phase 5: discovery and firewall rules
+
+Branch: `bugfix/discovery-firewall-handling`.
+
+Update the server daemon and server GUI, then use the updated server installer for the upgrade/uninstall checks. The client binaries are unchanged. Preserve credentials, database and TLS files. Take a VM snapshot before the uninstall check: the existing uninstaller removes the installation directory, including its private data.
+
+### Behavior
+
+- Each source IP may receive one discovery response every 500 ms, regardless of its UDP source port. IPv4 and its IPv4-mapped IPv6 representation share a budget. At most 4096 sources are tracked; a full table rejects new sources until a budget expires.
+- Discovery reports the port of the running TCP listener. Saving a new port does not advertise it prematurely. Restart the server service to apply it. The validated `--port` argument still overrides the saved setting in console/service executable arguments.
+- Before starting listeners, the daemon replaces rules named `BigBrother Server (TCP)`, `BigBrother Server (TCP 1984)` and `BigBrother Discovery (UDP 42069)`. The replacement rules are restricted to the running executable and Private/Domain profiles. TCP uses the effective port; UDP uses 42069 and accepts only LocalSubnet sources. Other rules are untouched.
+- Firewall setup uses the built-in Windows PowerShell NetSecurity module with a 30-second deadline. Service startup stays pending until setup succeeds; a failure stops startup and is logged. Elevated console mode performs the same setup. `--secure-storage` only prepares storage and does not change firewall rules.
+- The installer no longer creates a hardcoded TCP rule. Service startup installs the rules; setup reports service-start failure. Uninstall removes the current names and legacy TCP name.
+
+### VM checks
+
+1. **Default startup and upgrade**: install the updated server, start it, and connect the client. Inspect the rules from elevated PowerShell:
+
+   ```powershell
+   $names = 'BigBrother Server (TCP)', 'BigBrother Server (TCP 1984)', 'BigBrother Discovery (UDP 42069)'
+   $rules = Get-NetFirewallRule | Where-Object { $_.DisplayName -in $names }
+   $rules | Format-Table DisplayName, Enabled, Profile, Direction, Action
+   $rules | Get-NetFirewallPortFilter | Format-Table Protocol, LocalPort
+   $rules | Get-NetFirewallApplicationFilter | Format-Table Program
+   $rules | Get-NetFirewallAddressFilter | Format-Table RemoteAddress
+   ```
+
+   Expect one TCP and one UDP managed rule, no legacy TCP rule, Private/Domain profiles, the installed daemon path, TCP 1984 (or the existing configured port), UDP 42069, and LocalSubnet for UDP. Restart twice; rules must not accumulate.
+2. **Port change**: save 4443 in server settings. Before restart, discovery must still advertise the old active port and the client must still connect there. Restart the service. Confirm TCP rule is now 4443, discovery returns 4443, and a client on another VM connects using that port. Check there is no remaining managed TCP 1984 rule. Return to the original port and restart. Test a client across VMs, since same-machine connections do not validate inbound firewall handling.
+3. **Override**: stop the service and run the daemon elevated with `--port 4444`. Confirm the log, discovery and TCP rule all use 4444 while the saved port remains unchanged. Stop console mode and restart the service; rules/discovery must return to the saved port. Invalid values such as 0, 65536 or `1984junk` must be rejected rather than opening a different port.
+4. **Rate limit**: run `discovery-test.exe -test.v` from the package. It sends requests from two sockets with different UDP source ports, checks that the second is throttled, and checks the advertised active port. It uses an isolated loopback socket and does not change installed settings. Source-table capacity, expired-budget recovery and IPv4-mapped address normalization also have automated checks.
+5. **Profiles and deployment**: verify cross-VM discovery/connectivity with the network marked Private or Domain. The managed rules must not allow inbound traffic on Public. Review other local/GPO rules that could independently grant access. In the real deployment, check router forwarding, reverse-proxy listeners and upstream ACLs separately: TCP exposure should match the intended clients, and UDP discovery should remain on the LAN. These external settings cannot be verified from the repository. See [Microsoft's Windows Firewall command guidance](https://learn.microsoft.com/en-us/troubleshoot/windows-server/networking/netsh-advfirewall-firewall-control-firewall-behavior) for program, profile and subnet rule scoping.
+6. **Setup failure**: on a disposable snapshot, make the NetSecurity module/firewall service unavailable. Startup must fail with a firewall error, and the installer must report failure. Restore the environment before retesting; do not alter production policy for this check.
+7. **Uninstall**: on the disposable snapshot, uninstall. Verify all three managed rule names are absent, including after a nondefault port was used. Restore the snapshot afterward to retain data.
+
+Automated checks:
+
+```shell
+cd server/backend
+go test ./...
+go test -race ./packages/presentation/discovery ./packages/application/settings ./packages/infrastructure/firewall
+```
+
+The UDP regression passes on Linux and is compiled for Windows. Wine cannot run the socket integration check in this environment (`wsaioctl`, error 10045); the limiter unit tests pass there, while actual Windows UDP behavior remains a VM check. Windows RPC tests pass under Wine and cover port validation, persistence and database-write failure. Windows Firewall application/enforcement and installer lifecycle require the VM checks.

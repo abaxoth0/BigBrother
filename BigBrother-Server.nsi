@@ -43,12 +43,6 @@ Section "Server GUI" SecServerGUI
     CreateShortCut "$DESKTOP\BigBrother Server.lnk" "$INSTDIR\GUI\BigBrother Server.exe"
 SectionEnd
 
-Section "Windows Firewall Rules" SecRules
-    DetailPrint "Adding firewall rules..."
-    ExecWait '"$SYSDIR\netsh.exe" advfirewall firewall add rule name= "BigBrother Server (TCP 1984)" dir=in action=allow protocol=tcp localport=1984 profile=private,domain'
-    ExecWait '"$SYSDIR\netsh.exe" advfirewall firewall add rule name= "BigBrother Discovery (UDP 42069)" dir=in action=allow protocol=udp localport=42069 profile=private,domain'
-SectionEnd
-
 Section -PostInstall
     DetailPrint "Securing existing and new application secrets..."
     ClearErrors
@@ -60,7 +54,15 @@ secret_storage_failed:
     MessageBox MB_ICONSTOP "Secret permissions setup failed. The service was not started."
     Abort
 secret_storage_ready:
-    ExecWait '"$SYSDIR\net.exe" start "BigBrother Server"'
+    ClearErrors
+    StrCpy $0 1
+    ExecWait '"$SYSDIR\net.exe" start "BigBrother Server"' $0
+    IfErrors server_start_failed
+    IntCmp $0 0 server_started
+server_start_failed:
+    MessageBox MB_ICONSTOP "Server startup failed. Check the server log, configured port and Windows Firewall permissions."
+    Abort
+server_started:
     WriteUninstaller "$INSTDIR\uninstall.exe"
     WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_NAME}" \
         "DisplayName" "${PRODUCT_NAME}"
@@ -74,6 +76,7 @@ SectionEnd
 Section "Uninstall"
     ExecWait '"$SYSDIR\net.exe" stop "BigBrother Server"'
     ExecWait '"$SYSDIR\sc.exe" delete "BigBrother Server"'
+    ExecWait '"$SYSDIR\netsh.exe" advfirewall firewall delete rule name= "BigBrother Server (TCP)"'
     ExecWait '"$SYSDIR\netsh.exe" advfirewall firewall delete rule name= "BigBrother Server (TCP 1984)"'
     ExecWait '"$SYSDIR\netsh.exe" advfirewall firewall delete rule name= "BigBrother Discovery (UDP 42069)"'
     Delete "$DESKTOP\BigBrother Server.lnk"

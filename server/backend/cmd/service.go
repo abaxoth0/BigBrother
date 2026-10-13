@@ -43,7 +43,11 @@ type serviceHandler struct {
 }
 
 func (h *serviceHandler) Execute(args []string, r <-chan svc.ChangeRequest, changes chan<- svc.Status) (svcSpecificEC bool, exitCode uint32) {
-	changes <- svc.Status{State: svc.StartPending}
+	changes <- svc.Status{State: svc.StartPending, WaitHint: 45000}
+	if err := configureFirewall(h.backendAddr); err != nil {
+		mainLogger.Error("Firewall setup failed", err.Error(), nil)
+		return true, 1
+	}
 
 	stopCh := make(chan struct{})
 	go startAndWait(h.backendAddr, h.frontendPipePath, h.discoveryListener, h.backendServer, h.frontendServer, h.connManager, stopCh)

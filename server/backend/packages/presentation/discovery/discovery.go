@@ -1,5 +1,3 @@
-//go:build windows
-
 package discovery
 
 import (
@@ -25,10 +23,6 @@ const (
 	ReadTimeout    = time.Second * 2
 )
 
-// minResponseInterval throttles replies to the same source so an attacker
-// can't amplify/spam reflects off the discovery listener.
-const minResponseInterval = time.Second / 2
-
 type Listener struct {
 	db       database.DBInstance
 	conn     *net.UDPConn
@@ -37,39 +31,18 @@ type Listener struct {
 	stopOnce sync.Once
 	logger   discLogger
 
-	lastRespMu sync.Mutex
-	lastResp   map[string]time.Time
+	limiter    responseLimiter
+	serverPort int
 }
 
-func New(db database.DBInstance) *Listener {
+func New(db database.DBInstance, serverPort int) *Listener {
 	return &Listener{
-		db:       db,
-		stopCh:   make(chan struct{}),
-		doneCh:   make(chan struct{}),
-		logger:   logger.NewSource("DISCOVERY", log.DefaultLogger),
-		lastResp: make(map[string]time.Time),
+		db:         db,
+		stopCh:     make(chan struct{}),
+		doneCh:     make(chan struct{}),
+		logger:     logger.NewSource("DISCOVERY", log.DefaultLogger),
+		serverPort: serverPort,
 	}
-}
-
-// allowResponse returns true if a reply to src is within the rate budget.
-func (l *Listener) allowResponse(src string) bool {
-	now := time.Now()
-	l.lastRespMu.Lock()
-	defer l.lastRespMu.Unlock()
-	last, ok := l.lastResp[src]
-	// Prune stale entries to keep the map bounded.
-	if len(l.lastResp) > 4096 {
-		for k, t := range l.lastResp {
-			if now.Sub(t) > time.Minute {
-				delete(l.lastResp, k)
-			}
-		}
-	}
-	if ok && now.Sub(last) < minResponseInterval {
-		return false
-	}
-	l.lastResp[src] = now
-	return true
 }
 
 func (l *Listener) Start() error {
@@ -153,21 +126,17 @@ func (l *Listener) serve() {
 
 			msg := strings.TrimSpace(string(buf[:n]))
 			if msg == DiscoveryMagic || strings.HasPrefix(msg, DiscoveryMagic+"\n") {
-				if !l.allowResponse(rAddr.String()) {
+				if !l.limiter.allow(rAddr, time.Now()) {
 					continue // rate-limited reply to this source
 				}
 				serverName, _ := l.db.GetSetting("server_name")
 				if serverName == "" {
 					serverName = settingsapplication.DefaultServerName
 				}
-				serverPort, _ := l.db.GetSetting("server_port")
-				if serverPort == "" {
-					serverPort = "1984"
-				}
 				localIP := l.getLocalIP()
-				response := fmt.Sprintf("%s\n%s\n%s\n%s\n", ResponseMagic, serverName, localIP, serverPort)
+				response := fmt.Sprintf("%s\n%s\n%s\n%d\n", ResponseMagic, serverName, localIP, l.serverPort)
 				l.conn.WriteToUDP([]byte(response), rAddr)
-				l.logger.Debug(fmt.Sprintf("Discovery response sent to %s: name=%s ip=%s port=%s", rAddr.String(), serverName, localIP, serverPort), nil)
+				l.logger.Debug(fmt.Sprintf("Discovery response sent to %s: name=%s ip=%s port=%d", rAddr.String(), serverName, localIP, l.serverPort), nil)
 			}
 		}
 	}

@@ -653,7 +653,7 @@ public class MainViewModel : ViewModelBase
         var port = ServerPort?.Trim() ?? "";
         if (string.IsNullOrEmpty(port)) return;
         if (await _ipcService.SetServerPortAsync(port))
-            AddLog("INFO", $"Порт сервера сохранён: {port}");
+            AddLog("INFO", $"Порт сервера сохранён: {port}. Перезапустите службу для применения порта и правил Windows Firewall");
         else
             AddLog("ERROR", "Ошибка сохранения порта сервера");
     }
