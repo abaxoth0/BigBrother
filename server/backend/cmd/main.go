@@ -4,9 +4,11 @@ package main
 
 import (
 	"bigbrother_server_backend/cmd/app"
+	settingsapplication "bigbrother_server_backend/packages/application/settings"
 	"bigbrother_server_backend/packages/common/log"
 	"bigbrother_server_backend/packages/infrastructure/connection"
 	"bigbrother_server_backend/packages/infrastructure/database/sqlite"
+	"bigbrother_server_backend/packages/infrastructure/firewall"
 	"bigbrother_server_backend/packages/infrastructure/notification"
 	"bigbrother_server_backend/packages/infrastructure/pending"
 	"bigbrother_server_backend/packages/infrastructure/secretfs"
@@ -17,6 +19,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -91,8 +94,6 @@ func main() {
 	pendingUsersStorage := pending.NewUserStorage()
 	notifMgr := notification.NewManager()
 
-	discoveryListener := discovery.New(db)
-
 	// TLS for the client↔server TCP channel. Self-signed cert is generated once
 	// and stored next to the database; clients pin its fingerprint.
 	tlsCert, err := tlsutil.LoadOrCreateCert(
@@ -136,25 +137,34 @@ func main() {
 		},
 	)
 
-	// Determine backend port: CLI --port flag overrides DB, DB overrides default
 	backendPort := defaultBackendPort
 	cliPortSet := false
-	for i, arg := range os.Args {
-		if arg == "--port" && i+1 < len(os.Args) {
-			if _, err := fmt.Sscanf(os.Args[i+1], "%d", &backendPort); err == nil && backendPort > 0 && backendPort < 65536 {
-				cliPortSet = true
-				break
+	for i := 1; i < len(os.Args); i++ {
+		if os.Args[i] == "--port" {
+			if i+1 >= len(os.Args) {
+				mainLogger.Error("Missing --port value", "", nil)
+				return
 			}
+			backendPort, err = settingsapplication.ParseServerPort(os.Args[i+1])
+			if err != nil {
+				mainLogger.Error("Invalid --port value", err.Error(), nil)
+				return
+			}
+			cliPortSet = true
+			i++
 		}
 	}
 	if !cliPortSet {
 		if dbPort, err := db.GetSetting("server_port"); err == nil && dbPort != "" {
-			if p, e := fmt.Sscanf(dbPort, "%d", &backendPort); e == nil && p == 1 && backendPort > 0 && backendPort < 65536 {
-				// use db port
+			backendPort, err = settingsapplication.ParseServerPort(dbPort)
+			if err != nil {
+				mainLogger.Error("Invalid saved server port", err.Error(), nil)
+				return
 			}
 		}
 	}
 	backendAddr := fmt.Sprintf(":%d", backendPort)
+	discoveryListener := discovery.New(db, backendPort)
 
 	// TODO make this thread a hypervisor which will track status of those servers and restart them if anything
 
@@ -194,6 +204,10 @@ func startAndWait(backendAddr, frontendPipePath string, discoveryListener *disco
 }
 
 func runConsole(backendAddr, frontendPipePath string, discoveryListener *discovery.Listener, backendServer, frontendServer *rpc.Server, connManager *connection.MemoryResidentConnectionManager) {
+	if err := configureFirewall(backendAddr); err != nil {
+		mainLogger.Error("Firewall setup failed", err.Error(), nil)
+		return
+	}
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 	stopCh := make(chan struct{}, 1)
@@ -202,4 +216,16 @@ func runConsole(backendAddr, frontendPipePath string, discoveryListener *discove
 		close(stopCh)
 	}()
 	startAndWait(backendAddr, frontendPipePath, discoveryListener, backendServer, frontendServer, connManager, stopCh)
+}
+
+func configureFirewall(backendAddr string) error {
+	port, err := strconv.Atoi(backendAddr[1:])
+	if err != nil {
+		return err
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	return firewall.Sync(exe, port, discovery.Port)
 }

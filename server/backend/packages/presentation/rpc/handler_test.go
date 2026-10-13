@@ -275,3 +275,38 @@ func TestFrontendReportsActiveCertificateFingerprint(t *testing.T) {
 		t.Fatalf("missing fingerprint accepted: %q", response)
 	}
 }
+
+type failingPortDB struct{ database.DBInstance }
+
+func (failingPortDB) SetSetting(string, string) error { return errors.New("write failed") }
+
+func TestFrontendValidatesAndPersistsServerPort(t *testing.T) {
+	db := sqlite.New(filepath.Join(t.TempDir(), "port.db"))
+	if err := db.Connect(); err != nil {
+		t.Fatal(err)
+	}
+	defer db.Disconnect()
+	if err := db.SetSetting("server_port", "1984"); err != nil {
+		t.Fatal(err)
+	}
+	h := NewFrontendHandler(db, nil, nil, nil)
+	for _, value := range []string{"0", "65536", "1984junk", "-1", ""} {
+		response := handlerResponse(t, h, fmt.Sprintf("SET_SERVER_PORT\n%d\n%s\n\n", len(value), value))
+		if !strings.HasPrefix(response, "ERROR\n") {
+			t.Fatalf("accepted %q: %q", value, response)
+		}
+		if saved, _ := db.GetSetting("server_port"); saved != "1984" {
+			t.Fatalf("invalid value persisted: %q", saved)
+		}
+	}
+	if response := handlerResponse(t, h, "SET_SERVER_PORT\n4\n4443\n\n"); response != "OK\n\n" {
+		t.Fatalf("valid port: %q", response)
+	}
+	if saved, _ := db.GetSetting("server_port"); saved != "4443" {
+		t.Fatalf("port not saved: %q", saved)
+	}
+	h = NewFrontendHandler(failingPortDB{}, nil, nil, nil)
+	if response := handlerResponse(t, h, "SET_SERVER_PORT\n4\n4443\n\n"); !strings.HasPrefix(response, "ERROR\n") {
+		t.Fatalf("write failure hidden: %q", response)
+	}
+}

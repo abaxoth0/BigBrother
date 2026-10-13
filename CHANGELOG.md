@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Server discovery: rate limits now share a budget across UDP source ports from the same IP, with bounded source tracking; replies advertise the running TCP port instead of a pending saved value
+- Server deployment: startup synchronizes program-scoped Windows Firewall rules with the effective TCP port, removes the legacy default-port rule, and limits UDP discovery to local subnets on Private/Domain profiles; firewall setup failures prevent startup and uninstall removes both current and legacy rules
+- Server settings: invalid TCP ports and failed database writes are rejected; saving a valid port explains that a service restart is required
+
 - Client backend: new identity keys are private from creation, and unreadable/corrupt existing keys are no longer silently regenerated
 - Client backend: fixed INI updates writing keys into later sections (e.g. `fingerprint` and `token` under `[network]`), which made saved credentials appear missing after restart; updates now stay within the requested section and preserve same-named keys in other sections
 - Client backend: automatically repairs valid, unambiguous misplaced credentials into `[server] fingerprint` and `[client] token` when read; existing values, including explicit empty values, remain authoritative, and malformed/conflicting misplaced values do not silently enable first-use certificate trust

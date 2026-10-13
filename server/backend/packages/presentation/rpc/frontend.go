@@ -337,7 +337,15 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 				writeErrorTLV(conn, "Missing port number")
 				continue
 			}
-			h.db.SetSetting("server_port", args[0])
+			port, err := settingsapplication.ParseServerPort(args[0])
+			if len(args) != 1 || err != nil {
+				writeErrorTLV(conn, "Expected TCP port 1 through 65535")
+				continue
+			}
+			if err := h.db.SetSetting("server_port", fmt.Sprint(port)); err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
 			writeOK(conn)
 
 		case "GET_LOG_PATH":
