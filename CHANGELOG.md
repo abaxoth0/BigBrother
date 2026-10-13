@@ -39,6 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Server tables: removed the default blue focus outline around individual cells
 - Server whitelist editor: removed the highlighting legend label to reduce clutter
 - Security: explicit Windows ACLs restrict client identity/config and server database/TLS storage to SYSTEM/Administrators, with protected inheritance and Administrators ownership; existing permissions are repaired and installers secure storage before service startup
 - Server: active database and TLS identity migrate into a private `data` directory, preserving committed WAL data and certificate identity; restricted originals are retained for recovery
