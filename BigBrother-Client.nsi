@@ -22,6 +22,10 @@ UninstPage instfiles
 
 Section "Firewall Daemon" SecFirewall
     SectionIn RO
+    DetailPrint "Removing previous firewall service..."
+    ExecWait '"$SYSDIR\net.exe" stop "BigBrother Firewall"'
+    ExecWait '"$SYSDIR\sc.exe" delete "BigBrother Firewall"'
+
     SetOutPath "$INSTDIR"
     File /nonfatal "dist\BigBrother Firewall.exe"
     File /nonfatal "dist\WinDivert.dll"
@@ -31,14 +35,9 @@ Section "Firewall Daemon" SecFirewall
     CreateDirectory "${PRODUCT_DATA}"
     CreateDirectory "${PRODUCT_DATA}\logs"
 
-    DetailPrint "Removing previous firewall service..."
-    ExecWait '"$SYSDIR\net.exe" stop "BigBrother Firewall"'
-    ExecWait '"$SYSDIR\sc.exe" delete "BigBrother Firewall"'
-
     DetailPrint "Creating firewall service (manual start)..."
     ExecWait '"$SYSDIR\sc.exe" create "BigBrother Firewall" binPath= "$INSTDIR\BigBrother Firewall.exe" start= demand DisplayName= "BigBrother Firewall"'
     ExecWait '"$SYSDIR\sc.exe" description "BigBrother Firewall" "Distributed firewall. Filters traffic based on whitelisted domains."'
-    ExecWait '"$SYSDIR\net.exe" start "BigBrother Firewall"'
 SectionEnd
 
 Section "Client Daemon" SecClientDaemon
@@ -60,6 +59,17 @@ Section "Windows Firewall Rules" SecRules
 SectionEnd
 
 Section -PostInstall
+    DetailPrint "Securing existing and new application secrets..."
+    ClearErrors
+    StrCpy $0 1
+    ExecWait '"$INSTDIR\BigBrother Client Daemon.exe" --secure-storage' $0
+    IfErrors secret_storage_failed
+    IntCmp $0 0 secret_storage_ready
+secret_storage_failed:
+    MessageBox MB_ICONSTOP "Secret permissions setup failed. The service was not started."
+    Abort
+secret_storage_ready:
+    ExecWait '"$SYSDIR\net.exe" start "BigBrother Firewall"'
     WriteUninstaller "$INSTDIR\uninstall.exe"
     WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_NAME} Client" \
         "DisplayName" "${PRODUCT_NAME} Client"

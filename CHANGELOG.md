@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Client backend: new identity keys are private from creation, and unreadable/corrupt existing keys are no longer silently regenerated
 - Client backend: fixed INI updates writing keys into later sections (e.g. `fingerprint` and `token` under `[network]`), which made saved credentials appear missing after restart; updates now stay within the requested section and preserve same-named keys in other sections
 - Client backend: automatically repairs valid, unambiguous misplaced credentials into `[server] fingerprint` and `[client] token` when read; existing values, including explicit empty values, remain authoritative, and malformed/conflicting misplaced values do not silently enable first-use certificate trust
 - Client frontend: reopening Settings retries saved fingerprint retrieval and reports an empty config value or daemon error explicitly instead of silently leaving the field blank
@@ -27,6 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Security: explicit Windows ACLs restrict client identity/config and server database/TLS storage to SYSTEM/Administrators, with protected inheritance and Administrators ownership; existing permissions are repaired and installers secure storage before service startup
+- Server: active database and TLS identity migrate into a private `data` directory, preserving committed WAL data and certificate identity; restricted originals are retained for recovery
 - Security: verified certificate rotation — server settings expose the running certificate fingerprint; client settings inspect certificates without changing trust or sending credentials and accept a separately verified fingerprint only after rechecking the peer and saved endpoint/pin
 - Server frontend: replaced pink and lavender accents with dark burgundy controls and muted warm highlights, including selected controls, secondary text, and DEBUG/TRACE log colours
 - Client: filtration connection-sync (was "auto-disable on server disconnect") — filtration now stays off whenever the server connection is down for any reason (including a manual "Отключиться") and re-enables on reconnect, while a user's manual OFF is preserved until explicitly re-enabled; the effective state is re-applied on every status report; the option is enabled by default and the settings checkbox/help text were reworded to match

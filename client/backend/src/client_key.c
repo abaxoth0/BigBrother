@@ -11,6 +11,7 @@
 #include <psa/crypto.h>
 
 #include "../../../common/log/log.h"
+#include "../../../common/file_security.h"
 
 #define KEY_FILE_PRIVATE_LEN 32
 #define KEY_FILE_POINT_LEN 65
@@ -79,11 +80,16 @@ static int write_key_file(const char* path, const unsigned char* d, const unsign
     unsigned char data[KEY_FILE_TOTAL];
     memcpy(data, d, 32);
     memcpy(data + 32, point, 65);
-    FILE* f = fopen(path, "wb");
-    if (!f) return -1;
-    size_t w = fwrite(data, 1, sizeof(data), f);
-    fclose(f);
-    return w == sizeof(data) ? 0 : -1;
+    SECURITY_ATTRIBUTES attributes;
+    if (bb_secret_attributes(&attributes) != 0) return -1;
+    HANDLE file = CreateFileA(path, GENERIC_WRITE, 0, &attributes, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL);
+    LocalFree(attributes.lpSecurityDescriptor);
+    if (file == INVALID_HANDLE_VALUE) return -1;
+    DWORD written = 0;
+    int ok = WriteFile(file, data, sizeof(data), &written, NULL) && written == sizeof(data) && FlushFileBuffers(file);
+    CloseHandle(file);
+    if (!ok) { DeleteFileA(path); return -1; }
+    return 0;
 }
 
 static int generate_and_persist(const char* path, mbedtls_pk_context* pk) {
@@ -154,7 +160,12 @@ static int load_key(const char* path, mbedtls_pk_context* pk) {
 }
 
 int client_key_ensure(const char* path, mbedtls_pk_context* pk) {
-    if (load_key(path, pk) == 0) return 0;
+    DWORD attributes = GetFileAttributesA(path);
+    if (attributes != INVALID_FILE_ATTRIBUTES) {
+        if (bb_file_acl(path, 0, 0) != 0) return -1;
+        return load_key(path, pk); // Never replace an unreadable/corrupt existing identity.
+    }
+    if (GetLastError() != ERROR_FILE_NOT_FOUND && GetLastError() != ERROR_PATH_NOT_FOUND) return -1;
     return generate_and_persist(path, pk);
 }
 
