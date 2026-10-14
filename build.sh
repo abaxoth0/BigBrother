@@ -2,15 +2,16 @@
 # Build script for BigBrother firewall system
 # Usage: ./build.sh [output-dir]
 
-set -e
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-OUTPUT_DIR="${1:-./dist}"
+OUTPUT_DIR="${1:-$SCRIPT_DIR/dist}"
 
 echo "Building BigBrother..."
 echo "Output directory: $OUTPUT_DIR"
 
 mkdir -p "$OUTPUT_DIR"
+OUTPUT_DIR="$(realpath -e "$OUTPUT_DIR")"
 
 echo "Building firewall daemon..."
 cd "$SCRIPT_DIR/firewall" && make clean && make

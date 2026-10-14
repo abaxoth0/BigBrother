@@ -1,5 +1,5 @@
 #!/bin/bash
-# One-shot publish: builds all daemons + frontends, then builds the NSIS installers.
+# One-shot publish: builds all daemons + frontends, then builds the Inno Setup installers.
 # Usage: ./publish.sh [output-dir]
 #   output-dir defaults to ./dist
 #
@@ -18,6 +18,7 @@ echo "Repo:      $SCRIPT_DIR"
 echo "Output:    $OUTPUT_DIR"
 
 mkdir -p "$OUTPUT_DIR"
+OUTPUT_DIR="$(realpath -e "$OUTPUT_DIR")"
 
 # 1) Daemons + firewall (C/go) — build.sh puts them straight into $OUTPUT_DIR
 echo "--- Building daemons ---"
@@ -36,17 +37,8 @@ dotnet publish "$SCRIPT_DIR/server/frontend/BigBrother Server.csproj" \
     -p:EnableWindowsTargeting=true \
     -o "$OUTPUT_DIR/server-frontend"
 
-# 3) Installers (relative to the repo root, where the .nsi live)
-if command -v makensis >/dev/null 2>&1; then
-    echo "--- Building installers ---"
-    (
-        cd "$SCRIPT_DIR"
-        makensis "$SCRIPT_DIR/BigBrother-Client.nsi"
-        makensis "$SCRIPT_DIR/BigBrother-Server.nsi"
-    )
-else
-    echo "WARNING: makensis not found — skipping installer build."
-fi
+echo "--- Building installers ---"
+"$SCRIPT_DIR/build-installers.sh" "$OUTPUT_DIR" "$OUTPUT_DIR/installers"
 
 echo "=== Publish complete ==="
 ls -la "$OUTPUT_DIR"

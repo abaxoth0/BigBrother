@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../BigBrother.Frontend.Shared/Services/Log*.cs" Link="Services/%(Filename)%(Extension)" />
+    <Compile Include="../BigBrother.Frontend.Shared/Services/ServerLogTailer.cs" Link="Services/ServerLogTailer.cs" />
+    <Compile Include="../BigBrother.Frontend.Shared/Lib/LogParser.cs" Link="LogParser.cs" />
+    <Compile Include="../BigBrother.Frontend.Shared/Models/SharedModels.cs" Link="SharedModels.cs" />
+  </ItemGroup>
+</Project>

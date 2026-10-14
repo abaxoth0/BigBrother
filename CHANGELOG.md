@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Client/server frontends: live logs follow file notifications without idle polling or growing display backlogs; pending display updates retain the newest entries within the history limit, and split binary records/JSON lines survive subsequent writes
+
 - Server discovery: rate limits now share a budget across UDP source ports from the same IP, with bounded source tracking; replies advertise the running TCP port instead of a pending saved value
 - Server deployment: startup synchronizes program-scoped Windows Firewall rules with the effective TCP port, removes the legacy default-port rule, and limits UDP discovery to local subnets on Private/Domain profiles; firewall setup failures prevent startup and uninstall removes both current and legacy rules
 - Server settings: invalid TCP ports and failed database writes are rejected; saving a valid port explains that a service restart is required
@@ -40,6 +42,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Client: filtration status now reports "Выкл" while the firewall is not running (default no longer "Вкл"), and re-aligns the firewall state on the next status report when it comes back
 
 ### Changed
+
+- Installer: replaced NSIS with separate Inno Setup client/server installers; Wine compiler installation and installer-only build scripts support custom payload/output directories, publishing now builds installers through Wine, and uninstall retains application-created data
 
 - Client installer: installs the frontend in the `GUI` subdirectory and points the desktop shortcut there, matching the server layout
 - Server status bar: connected users now appear before pending registrations in the labels and counters
