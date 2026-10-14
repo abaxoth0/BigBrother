@@ -1,5 +1,7 @@
 //go:build windows
 
+//go:generate x86_64-w64-mingw32-windres -i app.rc -o app_windows_amd64.syso
+
 package main
 
 import (

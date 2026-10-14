@@ -9,6 +9,7 @@
     <UseWindowsForms>true</UseWindowsForms>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>../../assets/icons/BigBrother_Client_Frontend.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>

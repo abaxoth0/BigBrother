@@ -2,7 +2,6 @@
 
 ## Feature ideas
 
-- **Add icons for five all apps** (small)
 - **Fix logs view on client and server frontends** (medium)
 - **Change installer** (small-medium): Inno Setup instead of NSIS
 - **Add Windows notifications for some events like client connecting or disconnecting** (medium)
