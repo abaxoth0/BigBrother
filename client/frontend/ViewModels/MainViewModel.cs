@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Timers;
@@ -487,6 +486,10 @@ public class MainViewModel : ViewModelBase, IDisposable
 
     public MainViewModel()
     {
+        _logUpdates = new LogUpdateQueue<LogEntry>(MaxLogs,
+            action => System.Windows.Application.Current.Dispatcher.BeginInvoke(
+                System.Windows.Threading.DispatcherPriority.Background, action), FlushPendingLogs);
+
         ClearLogsCommand = new RelayCommand(_ => ClearLogs());
         ExportLogsCommand = new RelayCommand(_ => ExportLogs());
         RegisterCommand = new RelayCommand(async _ => await RegisterAsync());
@@ -514,14 +517,6 @@ public class MainViewModel : ViewModelBase, IDisposable
         // Event-driven updates from the daemon pipe
         _ipcService.StateChanged += OnStateChanged;
         _ipcService.StartEventSubscription();
-
-        // Log UI flush timer (batches log lines onto the UI thread)
-        var logFlushTimer = new System.Windows.Threading.DispatcherTimer
-        {
-            Interval = TimeSpan.FromMilliseconds(500)
-        };
-        logFlushTimer.Tick += (s, e) => FlushPendingLogs();
-        logFlushTimer.Start();
 
         AddLog("INFO", "Клиент запущен");
 
@@ -839,79 +834,39 @@ public class MainViewModel : ViewModelBase, IDisposable
         AddLog("INFO", $"Выбран сервер: {selected.Name} ({selected.Ip}:{selected.Port})");
     }
 
-    private readonly ConcurrentQueue<string> _pendingLogs = new();
-    
+    private readonly LogUpdateQueue<LogEntry> _logUpdates;
+
     public void AddLog(string level, string message)
     {
-        _pendingLogs.Enqueue(message);
-    }
-    
-    public void FlushPendingLogs()
-    {
-        var toAdd = new List<string>();
-        while (_pendingLogs.TryDequeue(out var msg))
+        if (_disposed) return;
+        _logUpdates.Add(new LogEntry
         {
-            toAdd.Add(msg);
-            if (toAdd.Count >= 50) break;
-        }
-        
-        if (toAdd.Count == 0) return;
-        
-        System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
-        {
-            int logsToRemove = Logs.Count + toAdd.Count - MaxLogs;
-
-            if (logsToRemove > 0)
-            {
-                int removeCount = Math.Min(logsToRemove, Logs.Count);
-                for (int i = 0; i < removeCount; i++)
-                {
-                    Logs.RemoveAt(0);
-                }
-                // Keep the filtered mirror in sync when the source is trimmed.
-                while (FilteredLogs.Count > Logs.Count)
-                    FilteredLogs.RemoveAt(0);
-            }
-
-            var newEntries = new List<LogEntry>(toAdd.Count);
-            foreach (var msg in toAdd)
-            {
-                string level = "INFO";
-                if (msg.Contains("[ERROR]")) level = "ERROR";
-                else if (msg.Contains("[WARNING]") || msg.Contains("[WARN]")) level = "WARNING";
-                else if (msg.Contains("[DNS]")) level = "DNS";
-                else if (msg.Contains("[BLOCKED]")) level = "BLOCKED";
-
-                var entry = new LogEntry
-                {
-                    Timestamp = DateTime.Now.ToString("HH:mm:ss"),
-                    Level = level,
-                    Message = msg
-                };
-
-                Logs.Add(entry);
-                newEntries.Add(entry);
-            }
-
-            if (!string.IsNullOrEmpty(LogSearchText))
-            {
-                UpdateFilteredLogs();
-            }
-            else
-            {
-                // Incremental: mirror only the new entries (avoid full rebuild).
-                foreach (var entry in newEntries)
-                {
-                    if (IsLevelVisible(entry.Level))
-                        FilteredLogs.Add(entry);
-                }
-            }
-
-            if (AutoScroll)
-            {
-                ScrollToBottomRequested?.Invoke();
-            }
+            Timestamp = DateTime.Now.ToString("HH:mm:ss"),
+            Level = level,
+            Message = message
         });
+    }
+
+    private void FlushPendingLogs(List<LogEntry> entries)
+    {
+        if (_disposed) return;
+        int removeCount = Math.Max(0, Logs.Count + entries.Count - MaxLogs);
+        for (int i = 0; i < removeCount; i++)
+        {
+            var removed = Logs[0];
+            Logs.RemoveAt(0);
+            FilteredLogs.Remove(removed);
+        }
+        foreach (var entry in entries)
+        {
+            Logs.Add(entry);
+            if (IsLevelVisible(entry.Level) &&
+                (string.IsNullOrEmpty(LogSearchText) ||
+                 entry.Message.Contains(LogSearchText, StringComparison.OrdinalIgnoreCase) ||
+                 entry.Level.Contains(LogSearchText, StringComparison.OrdinalIgnoreCase)))
+                FilteredLogs.Add(entry);
+        }
+        if (AutoScroll) ScrollToBottomRequested?.Invoke();
     }
 
     private void UpdateFilteredLogs()
@@ -1140,7 +1095,6 @@ public class MainViewModel : ViewModelBase, IDisposable
 
     private void OnLogLineReceived(string line)
     {
-        // LogReader already dispatches to the UI thread before calling this.
         string level = "INFO";
         if (line.Contains("[ERROR]") || line.Contains("ERROR"))
             level = "ERROR";
