@@ -33,7 +33,12 @@ RestartApplications=no
 
 [Files]
 Source: "{#PayloadDir}\{#DaemonName}"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#PayloadDir}\server-frontend\*"; DestDir: "{app}\GUI"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "*.pdb"
+Source: "{#PayloadDir}\server-frontend\BigBrother Server.exe"; DestDir: "{app}\GUI"; Flags: ignoreversion
+Source: "{#PayloadDir}\server-frontend\D3DCompiler_47_cor3.dll"; DestDir: "{app}\GUI"; Flags: ignoreversion
+Source: "{#PayloadDir}\server-frontend\PenImc_cor3.dll"; DestDir: "{app}\GUI"; Flags: ignoreversion
+Source: "{#PayloadDir}\server-frontend\PresentationNative_cor3.dll"; DestDir: "{app}\GUI"; Flags: ignoreversion
+Source: "{#PayloadDir}\server-frontend\vcruntime140_cor3.dll"; DestDir: "{app}\GUI"; Flags: ignoreversion
+Source: "{#PayloadDir}\server-frontend\wpfgfx_cor3.dll"; DestDir: "{app}\GUI"; Flags: ignoreversion
 
 [Dirs]
 Name: "{userappdata}\BigBrother\logs"
@@ -45,6 +50,12 @@ Name: "{group}\{#ProductName}"; Filename: "{app}\GUI\BigBrother {#Product}.exe";
 
 [InstallDelete]
 Type: files; Name: "{app}\uninstall.exe"
+Type: filesandordirs; Name: "{app}\GUI"
+
+[UninstallDelete]
+Type: filesandordirs; Name: "{app}\data"
+Type: filesandordirs; Name: "{app}\logs"
+Type: filesandordirs; Name: "{commonappdata}\BigBrother\data"
 
 [Registry]
 Root: HKLM32; Subkey: "Software\Microsoft\Windows\CurrentVersion\Uninstall\{#ProductName}"; Flags: deletekey

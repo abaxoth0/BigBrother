@@ -36,7 +36,12 @@ Source: "{#PayloadDir}\{#DaemonName}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#PayloadDir}\BigBrother Firewall.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#PayloadDir}\WinDivert.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#PayloadDir}\WinDivert64.sys"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#PayloadDir}\client-frontend\*"; DestDir: "{app}\GUI"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "*.pdb"
+Source: "{#PayloadDir}\client-frontend\BigBrother Client.exe"; DestDir: "{app}\GUI"; Flags: ignoreversion
+Source: "{#PayloadDir}\client-frontend\D3DCompiler_47_cor3.dll"; DestDir: "{app}\GUI"; Flags: ignoreversion
+Source: "{#PayloadDir}\client-frontend\PenImc_cor3.dll"; DestDir: "{app}\GUI"; Flags: ignoreversion
+Source: "{#PayloadDir}\client-frontend\PresentationNative_cor3.dll"; DestDir: "{app}\GUI"; Flags: ignoreversion
+Source: "{#PayloadDir}\client-frontend\vcruntime140_cor3.dll"; DestDir: "{app}\GUI"; Flags: ignoreversion
+Source: "{#PayloadDir}\client-frontend\wpfgfx_cor3.dll"; DestDir: "{app}\GUI"; Flags: ignoreversion
 
 [Dirs]
 Name: "{userappdata}\BigBrother\logs"
@@ -47,6 +52,13 @@ Name: "{group}\{#ProductName}"; Filename: "{app}\GUI\BigBrother {#Product}.exe";
 
 [InstallDelete]
 Type: files; Name: "{app}\uninstall.exe"
+Type: filesandordirs; Name: "{app}\GUI"
+
+[UninstallDelete]
+Type: filesandordirs; Name: "{app}\config"
+Type: filesandordirs; Name: "{app}\logs"
+Type: files; Name: "{app}\client_sigkey.key"
+Type: files; Name: "{app}\whitelist.txt"
 
 [Registry]
 Root: HKLM32; Subkey: "Software\Microsoft\Windows\CurrentVersion\Uninstall\{#ProductName}"; Flags: deletekey

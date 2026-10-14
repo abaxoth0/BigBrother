@@ -12,6 +12,7 @@ if [[ $# -gt 3 ]]; then
     exit 2
 fi
 source "$SCRIPT_DIR/scripts/inno-env.sh"
+source "$SCRIPT_DIR/scripts/frontend-files.sh"
 PAYLOAD_DIR="$(realpath -e "${1:-$SCRIPT_DIR/dist}")"
 INSTALLER_OUTPUT_DIR="${2:-$SCRIPT_DIR/dist/installers}"
 VERSION="${3:-1.0.0}"
@@ -31,6 +32,14 @@ for file in 'BigBrother Firewall.exe' 'BigBrother Client Daemon.exe' \
         echo "Missing installer payload: $PAYLOAD_DIR/$file" >&2
         exit 1
     fi
+done
+for frontend in client-frontend server-frontend; do
+    for file in "${FRONTEND_NATIVE_DLLS[@]}"; do
+        if [[ ! -f "$PAYLOAD_DIR/$frontend/$file" ]]; then
+            echo "Missing installer payload: $PAYLOAD_DIR/$frontend/$file" >&2
+            exit 1
+        fi
+    done
 done
 mkdir -p "$INSTALLER_OUTPUT_DIR"
 INSTALLER_OUTPUT_DIR="$(realpath -e "$INSTALLER_OUTPUT_DIR")"
