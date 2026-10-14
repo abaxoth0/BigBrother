@@ -7,3 +7,4 @@ dist
 **/Properties/PublishProfiles
 **/bin/
 **/obj/
+/server/backend/cmd/app_windows_amd64.syso

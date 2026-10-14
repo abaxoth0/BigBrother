@@ -1,5 +1,7 @@
 CC = x86_64-w64-mingw32-gcc
 AR = x86_64-w64-mingw32-ar
+WINDRES = x86_64-w64-mingw32-windres
+ICON_OBJ = build/app-icon.o
 
 ROOT = $(CURDIR)/../..
 MBEDTLS_DIR = $(ROOT)/lib/mbedtls
@@ -37,9 +39,13 @@ $(MBED_A): $(MB_UNITS)
 	done
 	$(AR) rcs build/mbedtls/libmbedtls.a build/mbedtls/obj/*.o
 
-$(CB_NAME): $(t-units) $(MBED_A)
+$(ICON_OBJ): app.rc $(ROOT)/assets/icons/BigBrother_Client_Backend.ico
 	mkdir -p build
-	$(CC) $(CFLAGS) -o "build/$(CB_NAME).exe" $(t-units) $(CLIENT_LIBS)
+	$(WINDRES) -i app.rc -o $(ICON_OBJ)
+
+$(CB_NAME): $(t-units) $(MBED_A) $(ICON_OBJ)
+	mkdir -p build
+	$(CC) $(CFLAGS) -o "build/$(CB_NAME).exe" $(t-units) $(ICON_OBJ) $(CLIENT_LIBS)
 
 clean:
 	rm -rf build

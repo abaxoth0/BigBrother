@@ -22,6 +22,7 @@ cp build/*.exe "$OUTPUT_DIR/"
 
 echo "Building server backend..."
 cd "$SCRIPT_DIR/server/backend"
+GOOS=windows GOARCH=amd64 go generate ./cmd
 CGO_ENABLED=1 CC=clang GOOS=windows GOARCH=amd64 go build -o "$OUTPUT_DIR/BigBrother Server Daemon.exe" ./cmd
 
 WD_DIR="$SCRIPT_DIR/firewall/include/third-party/WinDivert-2.2.2-A"
