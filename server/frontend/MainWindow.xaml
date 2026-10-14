@@ -50,11 +50,11 @@
 
         <!-- Server log level colors + chips -->
         <SolidColorBrush x:Key="LogFatal" Color="#FF5555"/>
-        <SolidColorBrush x:Key="LogDebug" Color="#BA947F"/>
-        <SolidColorBrush x:Key="LogTrace" Color="#ABA296"/>
+        <SolidColorBrush x:Key="LogDebug" Color="#04D9FF"/>
+        <SolidColorBrush x:Key="LogTrace" Color="#4096A6"/>
         <SolidColorBrush x:Key="LogLevelFatalBg" Color="#99FF5555"/>
-        <SolidColorBrush x:Key="LogLevelDebugBg" Color="#99BA947F"/>
-        <SolidColorBrush x:Key="LogLevelTraceBg" Color="#99ABA296"/>
+        <SolidColorBrush x:Key="LogLevelDebugBg" Color="#9904D9FF"/>
+        <SolidColorBrush x:Key="LogLevelTraceBg" Color="#994096A6"/>
 
         <Style x:Key="FilterToggle" TargetType="ToggleButton">
             <Setter Property="Margin" Value="2"/>
