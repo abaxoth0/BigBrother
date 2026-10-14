@@ -2,7 +2,6 @@
 
 ## Feature ideas
 
-- **Fix logs view on client and server frontends** (medium)
 - **Change installer** (small-medium): Inno Setup instead of NSIS
 - **Add Windows notifications for some events like client connecting or disconnecting** (medium)
 - **Client policy status** (medium): show whether each client has applied the latest whitelist, its effective filtration state, and its IPv6 blocking preference.

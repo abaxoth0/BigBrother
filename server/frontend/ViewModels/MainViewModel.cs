@@ -29,6 +29,7 @@ public class MainViewModel : ViewModelBase
     private readonly IpcService _ipcService;
     private readonly ServiceManager _serviceManager;
     private readonly ServerLogTailer _logTailer;
+    private readonly LogUpdateQueue<ServerLogEntry> _logUpdates;
     private readonly IWhitelistDialogService _whitelistDialog;
     private System.Timers.Timer? _refreshTimer;
     private System.Timers.Timer? _serviceStatusTimer;
@@ -139,6 +140,9 @@ public class MainViewModel : ViewModelBase
     {
         _ipcService = new IpcService();
         _serviceManager = new ServiceManager("BigBrother Server");
+        _logUpdates = new LogUpdateQueue<ServerLogEntry>(2000,
+            action => System.Windows.Application.Current.Dispatcher.BeginInvoke(
+                System.Windows.Threading.DispatcherPriority.Background, action), AppendLogEntries);
         _logTailer = new ServerLogTailer();
         _logTailer.EntriesRead += OnLogEntriesRead;
         _whitelistDialog = new WhitelistDialogService();
@@ -475,36 +479,33 @@ public class MainViewModel : ViewModelBase
         }
     }
 
-    private void OnLogEntriesRead(List<ServerLogEntry> newEntries)
+    private void OnLogEntriesRead(List<ServerLogEntry> entries)
     {
         if (_disposed) return;
-        System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
-        {
-            if (_disposed) return;
-            foreach (var entry in newEntries)
-            {
-                _serverLogs.Add(entry);
-            }
-            while (_serverLogs.Count > 2000)
-                _serverLogs.RemoveAt(0);
+        foreach (var entry in entries) _logUpdates.Add(entry);
+    }
 
-            if (string.IsNullOrEmpty(_logSearchText))
-            {
-                // Incremental: mirror only the visible new entries (avoid full rebuild).
-                foreach (var entry in newEntries)
-                {
-                    if (IsLevelVisible(entry.Level))
-                        _filteredServerLogs.Add(entry);
-                }
-                while (_filteredServerLogs.Count > _serverLogs.Count)
-                    _filteredServerLogs.RemoveAt(0);
-            }
-            else
-            {
-                FilterServerLogs();
-            }
-            if (_autoScroll) AutoScrollRequested?.Invoke();
-        });
+    private void AppendLogEntries(List<ServerLogEntry> entries)
+    {
+        if (_disposed) return;
+        int removeCount = Math.Max(0, _serverLogs.Count + entries.Count - 2000);
+        for (int i = 0; i < removeCount; i++)
+        {
+            var removed = _serverLogs[0];
+            _serverLogs.RemoveAt(0);
+            _filteredServerLogs.Remove(removed);
+        }
+        foreach (var entry in entries)
+        {
+            _serverLogs.Add(entry);
+            if (IsLevelVisible(entry.Level) &&
+                (string.IsNullOrEmpty(_logSearchText) ||
+                 entry.Message.Contains(_logSearchText, StringComparison.OrdinalIgnoreCase) ||
+                 entry.Level.Contains(_logSearchText, StringComparison.OrdinalIgnoreCase) ||
+                 entry.Source.Contains(_logSearchText, StringComparison.OrdinalIgnoreCase)))
+                _filteredServerLogs.Add(entry);
+        }
+        if (_autoScroll) AutoScrollRequested?.Invoke();
     }
 
     private void FilterServerLogs()
@@ -1196,31 +1197,13 @@ public class MainViewModel : ViewModelBase
 
     private void AddLog(string level, string message)
     {
-        System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
+        if (_disposed) return;
+        _logUpdates.Add(new ServerLogEntry
         {
-            _serverLogs.Add(new ServerLogEntry
-            {
-                Timestamp = DateTime.Now.ToString("HH:mm:ss"),
-                Level = level,
-                Source = "UI",
-                Message = message
-            });
-            while (_serverLogs.Count > 2000)
-                _serverLogs.RemoveAt(0);
-            if (string.IsNullOrEmpty(_logSearchText))
-            {
-                if (IsLevelVisible(level))
-                {
-                    _filteredServerLogs.Add(_serverLogs[^1]);
-                    while (_filteredServerLogs.Count > _serverLogs.Count)
-                        _filteredServerLogs.RemoveAt(0);
-                }
-            }
-            else
-            {
-                FilterServerLogs();
-            }
-            if (_autoScroll) AutoScrollRequested?.Invoke();
+            Timestamp = DateTime.Now.ToString("HH:mm:ss"),
+            Level = level,
+            Source = "UI",
+            Message = message
         });
     }
 

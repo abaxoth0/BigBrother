@@ -90,6 +90,36 @@ public static class LogParser
         };
     }
 
+    public static List<LogEntry> ParseAvailable(byte[] data, out int consumed)
+    {
+        var entries = new List<LogEntry>();
+        int offset = 0;
+        while (offset + HeaderSize <= data.Length)
+        {
+            int type = data[offset] | (data[offset + 1] << 8);
+            int length = data[offset + 2] | (data[offset + 3] << 8);
+            if ((type != (int)LogType.Log && type != (int)LogType.Dlog) || length < 9)
+            {
+                offset++;
+                continue;
+            }
+            if (offset + HeaderSize + 9 > data.Length) break;
+            ulong timestamp = System.Buffers.Binary.BinaryPrimitives.ReadUInt64LittleEndian(
+                data.AsSpan(offset + HeaderSize, 8));
+            if (timestamp < 631152000 || timestamp > 4102444800)
+            {
+                offset++;
+                continue;
+            }
+            if (offset + HeaderSize + length > data.Length) break;
+            var entry = ParseEntry(data, offset);
+            if (entry != null) entries.Add(entry);
+            offset += HeaderSize + length;
+        }
+        consumed = offset;
+        return entries;
+    }
+
     public static List<LogEntry> ParseAll(byte[] data)
     {
         var entries = new List<LogEntry>();
