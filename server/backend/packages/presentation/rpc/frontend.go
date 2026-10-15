@@ -174,10 +174,6 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 			if err := h.connManager.DeleteConnection(args[0]); err != nil {
 				writeErrorTLV(conn, err.Error())
 			} else {
-				h.bus.Publish(notification.Event{
-					Type: notification.UserDisconnected,
-					Data: map[string]string{"name": args[0]},
-				})
 				writeOK(conn)
 			}
 

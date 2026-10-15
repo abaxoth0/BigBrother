@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Notification helper: launching without arguments sends a Client test toast and shows a diagnostic dialog if delivery fails; validation test output explicitly states that it does not send a notification
+
+- Backend-owned Windows notifications without running frontends: server client connections/disconnections and registration requests; client server connections/disconnections, filtration changes and whitelist updates; a C++ helper uses WinRT toasts in active Windows user sessions, with persistent Notification Center entries, registered application identities, standalone registration and delivery-error diagnostics
+
 - Client/server frontends, client/server backends and firewall: embedded their dedicated application icons from `assets/icons` into Windows executables
 - Server whitelist table: double-clicking a row opens its editor
 - Server whitelist editor: full-line backgrounds mark errors in red and warnings in amber, with errors taking priority; highlights update with validation and follow scrolling without changing text colours
@@ -17,6 +21,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Server whitelist editor: domain/IPv4 rule tester shows matching rules and exception priority for the current draft, including wildcard base-domain and quoted-substring matching
 
 ### Fixed
+
+- Notification helper: bare `--show` and `--show Client|Server` now send test toasts instead of silently rejecting the command; console results, build identification and timestamped delivery traces expose failed dispatch and Windows delivery stages; manual tests observe asynchronous errors for five seconds and report absent user sessions; registration tests use a separate identity
+
+- Windows notifications: removed the settings preflight that blocked delivery with `0x80070490` before submitting a toast; explicitly register each desktop notification identity's display name and activator, including when reusing existing shortcuts
 
 - Client/server frontends: live logs follow file notifications without idle polling or growing display backlogs; pending display updates retain the newest entries within the history limit, and split binary records/JSON lines survive subsequent writes
 
