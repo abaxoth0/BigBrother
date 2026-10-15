@@ -9,9 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Notification helper: launching without arguments sends a Client test toast and shows a diagnostic dialog if delivery fails; validation test output explicitly states that it does not send a notification
-
-- Backend-owned Windows notifications without running frontends: server client connections/disconnections and registration requests; client server connections/disconnections, filtration changes and whitelist updates; a C++ helper uses WinRT toasts in active Windows user sessions, with persistent Notification Center entries, registered application identities, standalone registration and delivery-error diagnostics
+- Server: Windows notifications for client connections, disconnections and registration requests, sent by the backend without requiring a running frontend
+- Client: Windows notifications for server connections, disconnections, filtration changes and whitelist updates, sent by the backend without requiring a running frontend
+- Notifications: shared C++ helper uses WinRT toasts in active console and Remote Desktop user sessions; notifications persist in Notification Center and open the corresponding frontend when clicked; installers register separate Client/Server identities, with automatic per-user registration for standalone builds
+- Notification testing: launching the helper without arguments sends a Client test toast; `--show [Client|Server]` and `--test [Client|Server]` select the identity; console traces and a rotating `notifications.log` report delivery stages and errors, with an error dialog for failed tests launched without a console
 
 - Client/server frontends, client/server backends and firewall: embedded their dedicated application icons from `assets/icons` into Windows executables
 - Server whitelist table: double-clicking a row opens its editor
@@ -21,10 +22,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Server whitelist editor: domain/IPv4 rule tester shows matching rules and exception priority for the current draft, including wildcard base-domain and quoted-substring matching
 
 ### Fixed
-
-- Notification helper: bare `--show` and `--show Client|Server` now send test toasts instead of silently rejecting the command; console results, build identification and timestamped delivery traces expose failed dispatch and Windows delivery stages; manual tests observe asynchronous errors for five seconds and report absent user sessions; registration tests use a separate identity
-
-- Windows notifications: removed the settings preflight that blocked delivery with `0x80070490` before submitting a toast; explicitly register each desktop notification identity's display name and activator, including when reusing existing shortcuts
 
 - Client/server frontends: live logs follow file notifications without idle polling or growing display backlogs; pending display updates retain the newest entries within the history limit, and split binary records/JSON lines survive subsequent writes
 
