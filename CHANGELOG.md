@@ -51,6 +51,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Notification helper: moved the app to the top-level `notifications` directory with `include`, `src`, `resources` and `tests` subdirectories, keeping its shared C interface in `common/notify.h`; updated build and client integration paths
+
 - Installer: replaced NSIS with separate Inno Setup client/server installers; Wine compiler installation and installer-only build scripts support custom payload/output directories, publishing now builds installers through Wine
 
 - Client installer: installs the frontend in the `GUI` subdirectory and points the desktop shortcut there, matching the server layout

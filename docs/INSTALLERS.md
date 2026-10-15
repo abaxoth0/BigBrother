@@ -32,7 +32,7 @@ The payload must contain:
 
 - `BigBrother Firewall.exe`, `WinDivert.dll`, and `WinDivert64.sys`
 - `BigBrother Client Daemon.exe` and `BigBrother Server Daemon.exe`
-- `BigBrother Notifications.exe` (built by `make -C common/notifications`)
+- `BigBrother Notifications.exe` (built by `make -C notifications`)
 - `client-frontend/BigBrother Client.exe` (prebuilt self-contained single file)
 - `server-frontend/BigBrother Server.exe` (prebuilt self-contained single file)
 
@@ -92,7 +92,10 @@ shortcut and protocol when machine-wide registration is absent. Run
 to remove these standalone registrations before deleting or moving the build.
 The helper and C API are built with MinGW C++17; the runtime is linked statically,
 so no additional C++ runtime DLLs need to be shipped. The C backend links
-`common/notifications/build/libbbnotify.a` through the public `notify.h` interface.
+`notifications/build/libbbnotify.a` through the shared `common/notify.h` interface.
+The notification app lives in the top-level `notifications/` directory, with its
+internal headers in `include/`, implementation files in `src/`, Windows resources
+in `resources/`, tests in `tests/`, and generated files in `build/`.
 
 Launching `BigBrother Notifications.exe` without arguments or with `--show`
 sends a test toast using the Client identity. `--show Client`, `--show Server`
@@ -135,7 +138,7 @@ A manual service-context test with no active signed-in session reports an error
 instead of reporting success without submitting anything.
 Wine can verify transport, C integration, shortcut creation and protocol
 registration, but cannot verify Windows toast display or read shortcut AUMID
-properties. Run `common/notifications/build/tests.exe --registration` on Windows
+properties. Run `notifications/build/tests.exe --registration` on Windows
 for the complete registration checks. The registration fixture uses its own test
 identity, protocol and shortcut; it does not replace the Client or Server registration.
 

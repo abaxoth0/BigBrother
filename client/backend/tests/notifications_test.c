@@ -1,5 +1,5 @@
 #include "../include/ipc_daemon.h"
-#include "../../../common/notifications/notify.h"
+#include "notify.h"
 #include <assert.h>
 #include <stdio.h>
 

@@ -14,7 +14,7 @@
 #include "../include/certificate_pin.h"
 #include "../../../common/log/log.h"
 #include "../../../common/file_security.h"
-#include "../../../common/notifications/notify.h"
+#include "notify.h"
 #include <windows.h>
 #include <stdlib.h>
 #include <stdio.h>

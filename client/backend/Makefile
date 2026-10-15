@@ -22,7 +22,8 @@ MBED_CFLAGS = -O2 -I$(MBEDTLS_DIR)/include
 MBED_A = build/mbedtls/libmbedtls.a
 
 CB_NAME = BigBrother Client Daemon
-NOTIFY_A = $(ROOT)/common/notifications/build/libbbnotify.a
+NOTIFY_DIR = $(ROOT)/notifications
+NOTIFY_A = $(NOTIFY_DIR)/build/libbbnotify.a
 CLIENT_LIBS = $(NOTIFY_A) -Wl,-Bstatic -lstdc++ -lwinpthread -Wl,-Bdynamic $(MBED_A) -lws2_32 -liphlpapi -lbcrypt -lwinmm -ladvapi32
 all: debug
 
@@ -32,8 +33,8 @@ debug: $(CB_NAME)
 release: CFLAGS = $(COMMON_FLAGS) $(RELEASE_FLAGS)
 release: $(CB_NAME)
 
-$(NOTIFY_A): $(ROOT)/common/notifications/notify.cpp $(ROOT)/common/notifications/notify.h $(ROOT)/common/notifications/transport.h
-	$(MAKE) -C $(ROOT)/common/notifications build/libbbnotify.a
+$(NOTIFY_A): $(NOTIFY_DIR)/src/notify.cpp $(ROOT)/common/notify.h $(NOTIFY_DIR)/include/transport.h
+	$(MAKE) -C $(NOTIFY_DIR) build/libbbnotify.a
 
 $(MBED_A): $(MB_UNITS)
 	mkdir -p build/mbedtls/obj

@@ -18,8 +18,8 @@ cd "$SCRIPT_DIR/firewall" && make clean && make
 cp build/*.exe "$OUTPUT_DIR/"
 
 echo "Building notification helper..."
-make -C "$SCRIPT_DIR/common/notifications"
-cp "$SCRIPT_DIR/common/notifications/build/BigBrother Notifications.exe" "$OUTPUT_DIR/"
+make -C "$SCRIPT_DIR/notifications"
+cp "$SCRIPT_DIR/notifications/build/BigBrother Notifications.exe" "$OUTPUT_DIR/"
 
 echo "Building client backend..."
 cd "$SCRIPT_DIR/client/backend" && make clean && make
