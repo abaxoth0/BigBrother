@@ -16,6 +16,28 @@ func newTestManager() *MemoryResidentConnectionManager {
 	return NewMemoryResidentConnectionManager()
 }
 
+func TestDisconnectHandler(t *testing.T) {
+	var names []string
+	var m *MemoryResidentConnectionManager
+	m = NewMemoryResidentConnectionManagerWithDisconnectHandler(func(user entity.User) {
+		m.GetAllConnections()
+		names = append(names, user.Name)
+	})
+	defer m.Stop()
+	m.NewConnection(testUser("alice"))
+	m.DeleteConnection("alice")
+	m.DeleteConnection("alice")
+	m.NewConnection(testUser("bob"))
+	m.mu.Lock()
+	m.connections["bob"].expires_at = time.Now().Add(-time.Second)
+	m.mu.Unlock()
+	m.CleanupExpired()
+	m.CleanupExpired()
+	if len(names) != 2 || names[0] != "alice" || names[1] != "bob" {
+		t.Fatalf("expected one callback per removed connection, got %v", names)
+	}
+}
+
 func TestManagerLifecycle(t *testing.T) {
 	m := newTestManager()
 	defer m.Stop()

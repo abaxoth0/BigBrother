@@ -14,6 +14,7 @@
 #include "../include/certificate_pin.h"
 #include "../../../common/log/log.h"
 #include "../../../common/file_security.h"
+#include "notify.h"
 #include <windows.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -48,7 +49,7 @@ static int ini_get_string_locked(const char* section, const char* key, char* out
 static int ini_set_string_locked(const char* section, const char* key, const char* value);
 
 static char g_server_ip[64] = {0};
-static int g_server_session_active = 0;
+static volatile LONG g_server_session_active = 0;
 static int g_registration_tried = 0;
 static int g_fallback_whitelist_enabled = 1;
 // Desired filtration state (set explicitly by the user via the "Вкл/Выкл"
@@ -93,8 +94,10 @@ static int wl_last_equals(const char* s) {
 }
 
 void SetServerSessionActive(int active) {
-    if (g_server_session_active != active) {
-        g_server_session_active = active;
+    active = active ? 1 : 0;
+    if (InterlockedExchange(&g_server_session_active, active) != active) {
+        if (bb_notify("Соединение с сервером", active ? "Подключено к серверу" : "Соединение с сервером потеряно") != 0)
+            LOGF("[Notifications] Could not launch connection notification");
         NotifyStateChanged();
         // Sync filtration with the connection state so both connected and
         // disconnected transitions (manual or unexpected) take effect.
@@ -566,11 +569,21 @@ int DaemonGetWhitelist(char* out_buffer, size_t buffer_size) {
 
 int DaemonSetWhitelist(const char* data, size_t size, char* out_buffer, size_t buffer_size) {
     const char* args[1] = {data};
-    return send_command_tlv("SET_WHITELIST", args, 1, out_buffer, buffer_size);
+    int result = send_command_tlv("SET_WHITELIST", args, 1, out_buffer, buffer_size);
+    if (result == 0 && strcmp(out_buffer, "OK") == 0 &&
+        bb_notify("Белый список", "Белый список обновлён") != 0)
+        LOGF("[Notifications] Could not launch whitelist notification");
+    if (result == 0 && strcmp(out_buffer, "OK") != 0) return -1;
+    return result;
 }
 
 int DaemonReloadWhitelist(char* out_buffer, size_t buffer_size) {
-    return send_command_tlv("RELOAD", NULL, 0, out_buffer, buffer_size);
+    int result = send_command_tlv("RELOAD", NULL, 0, out_buffer, buffer_size);
+    if (result == 0 && strcmp(out_buffer, "OK") == 0 &&
+        bb_notify("Белый список", "Белый список перезагружен") != 0)
+        LOGF("[Notifications] Could not launch whitelist notification");
+    if (result == 0 && strcmp(out_buffer, "OK") != 0) return -1;
+    return result;
 }
 
 int PingDaemon(void) {
@@ -582,6 +595,15 @@ int DaemonGetLogPath(char* out_buffer, size_t buffer_size) {
     return send_command_tlv("GET_LOG_PATH", NULL, 0, out_buffer, buffer_size);
 }
 
+static volatile LONG g_notification_filtration = -1;
+
+static void notify_filtration(int enabled) {
+    LONG previous = InterlockedExchange(&g_notification_filtration, enabled);
+    if (previous != -1 && previous != enabled &&
+        bb_notify("Фильтрация", enabled ? "Фильтрация включена" : "Фильтрация выключена") != 0)
+        LOGF("[Notifications] Could not launch filtration notification");
+}
+
 int DaemonGetFiltration(void) {
     char buf[16] = {0};
     if (send_command_tlv("GET_FILTRATION", NULL, 0, buf, sizeof(buf)) == 0) {
@@ -590,6 +612,7 @@ int DaemonGetFiltration(void) {
         // Firewall is not running — nothing is being filtered, report as off.
         g_filtration_enabled = 0;
     }
+    notify_filtration(g_filtration_enabled);
     return g_filtration_enabled;
 }
 
@@ -597,8 +620,9 @@ int DaemonGetFiltration(void) {
 static int daemon_set_filtration_effective(int effective) {
     const char* args[1] = {effective ? "1" : "0"};
     char buf[16] = {0};
-    if (send_command_tlv("SET_FILTRATION", args, 1, buf, sizeof(buf)) == 0) {
+    if (send_command_tlv("SET_FILTRATION", args, 1, buf, sizeof(buf)) == 0 && strcmp(buf, "OK") == 0) {
         g_filtration_enabled = effective;
+        notify_filtration(effective);
         NotifyStateChanged();
         return 0;
     }
@@ -1715,7 +1739,27 @@ static int sleep_with_stop_check(int total_ms) {
     return 0;
 }
 
+static DWORD WINAPI notification_monitor(LPVOID context) {
+    (void)context;
+    for (;;) {
+        DaemonGetFiltration();
+        if (g_ServiceStopEvent != INVALID_HANDLE_VALUE) {
+            if (WaitForSingleObject(g_ServiceStopEvent, 1000) != WAIT_TIMEOUT) return 0;
+        } else {
+            Sleep(1000);
+        }
+    }
+}
+
+static void notification_failed(DWORD error) {
+    LOGF("[Notifications] Windows toast delivery failed: 0x%08lX", error);
+}
+
 int DaemonRun(const char* server_ip) {
+    bb_notifications_set_error_handler(notification_failed);
+    HANDLE notification_thread = CreateThread(NULL, 0, notification_monitor, NULL, 0, NULL);
+    if (notification_thread) CloseHandle(notification_thread);
+    else LOGF("[Notifications] Could not start firewall state monitor");
     char username[128] = {0};
     int consecutive_failures = 0;
     int startup_retries = 30;

@@ -8,6 +8,7 @@ import (
 	"bigbrother_server_backend/cmd/app"
 	settingsapplication "bigbrother_server_backend/packages/application/settings"
 	"bigbrother_server_backend/packages/common/log"
+	"bigbrother_server_backend/packages/domain/entity"
 	"bigbrother_server_backend/packages/infrastructure/connection"
 	"bigbrother_server_backend/packages/infrastructure/database/sqlite"
 	"bigbrother_server_backend/packages/infrastructure/firewall"
@@ -61,7 +62,14 @@ func main() {
 
 	time.Sleep(time.Millisecond * 50)
 
-	connManager := connection.NewMemoryResidentConnectionManager()
+	desktop := notification.NewDesktopNotifier(notification.DeliverWindowsNotification, func(err error) {
+		mainLogger.Error("Windows notification failed", err.Error(), nil)
+	})
+	defer desktop.Close()
+	notifMgr := notification.NewManagerWithNotifier(desktop.Notify)
+	connManager := connection.NewMemoryResidentConnectionManagerWithDisconnectHandler(func(user entity.User) {
+		notifMgr.Publish(notification.Event{Type: notification.UserDisconnected, Data: map[string]string{"name": user.Name, "addr": user.Addr}})
+	})
 	dbPath := "bb-server.db"
 	if exe, err := os.Executable(); err == nil {
 		exeDir := filepath.Dir(exe)
@@ -94,7 +102,6 @@ func main() {
 	}
 
 	pendingUsersStorage := pending.NewUserStorage()
-	notifMgr := notification.NewManager()
 
 	// TLS for the client↔server TCP channel. Self-signed cert is generated once
 	// and stored next to the database; clients pin its fingerprint.

@@ -82,12 +82,18 @@ func NewSubscriber(conn net.Conn, bufSize int) *Subscriber {
 }
 
 type Manager struct {
+	notify      func(Event)
 	mu          sync.RWMutex
 	subscribers map[*Subscriber]struct{}
 }
 
 func NewManager() *Manager {
+	return NewManagerWithNotifier(nil)
+}
+
+func NewManagerWithNotifier(notify func(Event)) *Manager {
 	return &Manager{
+		notify:      notify,
 		subscribers: make(map[*Subscriber]struct{}),
 	}
 }
@@ -117,6 +123,9 @@ func (m *Manager) Remove(sub *Subscriber) {
 }
 
 func (m *Manager) Publish(event Event) {
+	if m.notify != nil {
+		m.notify(event)
+	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	for sub := range m.subscribers {

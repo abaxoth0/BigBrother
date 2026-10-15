@@ -2,7 +2,6 @@
 
 ## Feature ideas
 
-- **Add Windows notifications for some events like client connecting or disconnecting** (medium)
 - **Client policy status** (medium): show whether each client has applied the latest whitelist, its effective filtration state, and its IPv6 blocking preference.
 - **Add rules for ports** (medium)
 - **Temporary access** (medium): allow a domain for a limited time, then revoke access automatically.

@@ -32,6 +32,7 @@ The payload must contain:
 
 - `BigBrother Firewall.exe`, `WinDivert.dll`, and `WinDivert64.sys`
 - `BigBrother Client Daemon.exe` and `BigBrother Server Daemon.exe`
+- `BigBrother Notifications.exe` (built by `make -C notifications`)
 - `client-frontend/BigBrother Client.exe` (prebuilt self-contained single file)
 - `server-frontend/BigBrother Server.exe` (prebuilt self-contained single file)
 
@@ -70,6 +71,76 @@ Both installers require administrator privileges and x64-compatible Windows.
 They keep the existing default locations (`Program Files\BigBrother` for the
 client, `Program Files\BigBrother Server` for the server), with frontends in `GUI`.
 Desktop and Start menu shortcuts launch the corresponding frontend.
+
+Both backends launch `BigBrother Notifications.exe` from their installation
+directory to deliver Windows notifications independently of the frontends.
+When running as a LocalSystem service, the helper starts a display process with
+the signed-in user's token in each active console or Remote Desktop session.
+The helper uses C++ and the Windows Runtime toast APIs, with separate
+`BigBrother.Client` and `BigBrother.Server` identities. The installer puts the
+AUMID and a stub toast activator CLSID on each Start menu shortcut and registers
+its activation protocol and desktop notification identity. The helper also
+registers the identity's display name and activator for the signed-in user,
+including when an existing shortcut is reused. Toasts persist in Notification Center; clicking one
+opens the corresponding GUI. Neither GUI needs to be running to send a toast.
+It never displays UI as SYSTEM. Events without an active user session are not
+replayed at logon. Windows notification settings and Do Not Disturb still apply.
+
+For standalone builds, the helper automatically registers a per-user Start menu
+shortcut and protocol when machine-wide registration is absent. Run
+`"BigBrother Notifications.exe" --unregister Client` (or `Server`) as that user
+to remove these standalone registrations before deleting or moving the build.
+The helper and C API are built with MinGW C++17; the runtime is linked statically,
+so no additional C++ runtime DLLs need to be shipped. The C backend links
+`notifications/build/libbbnotify.a` through the shared `common/notify.h` interface.
+The notification app lives in the top-level `notifications/` directory, with its
+internal headers in `include/`, implementation files in `src/`, Windows resources
+in `resources/`, tests in `tests/`, and generated files in `build/`.
+
+Launching `BigBrother Notifications.exe` without arguments or with `--show`
+sends a test toast using the Client identity. `--show Client`, `--show Server`
+and `--test Client|Server` select the identity explicitly. These commands also
+work when launched directly from Command Prompt. The helper attaches to the
+parent console and prints its build time, executable path, selected identity,
+Windows session, registration steps, submission result and asynchronous errors.
+Tests in the interactive process wait up to five seconds for asynchronous errors. Notification
+settings are read only as an optional diagnostic after submission.
+When launched by double-click, a failed test shows an error dialog instead.
+`--help` lists commands and `--version` prints build information.
+The separate `tests.exe` validates payloads; it does not send notifications.
+
+To select the identity explicitly on Windows, run this from the installation directory in PowerShell,
+first as the signed-in user, then as SYSTEM to exercise service delivery.
+To wait for completion in Command Prompt and inspect the exit status:
+
+```bat
+start "" /wait "BigBrother Notifications.exe" --show
+echo %ERRORLEVEL%
+```
+
+In PowerShell:
+
+```powershell
+$test = Start-Process '.\BigBrother Notifications.exe' -ArgumentList '--test', 'Client' -Wait -PassThru
+$test.ExitCode
+```
+
+Use `Server` for the server installation. Zero means that Windows accepted the
+toast request, not that the user saw a banner. The helper reports nonzero exit
+codes for failed session launches and WinRT delivery errors. Windows enforces
+notification preferences when the toast is submitted; the helper does not
+require an existing notification-settings record before submitting the first toast.
+Client delivery errors go to the backend log; the server records the helper's
+exit status and diagnostic output. Manual-test traces and all errors are also
+written to `%LOCALAPPDATA%\BigBrother\notifications.log` with timestamps and
+process IDs. The file rotates at approximately 64 KiB to `notifications.log.old`.
+A manual service-context test with no active signed-in session reports an error
+instead of reporting success without submitting anything.
+Wine can verify transport, C integration, shortcut creation and protocol
+registration, but cannot verify Windows toast display or read shortcut AUMID
+properties. Run `notifications/build/tests.exe --registration` on Windows
+for the complete registration checks. The registration fixture uses its own test
+identity, protocol and shortcut; it does not replace the Client or Server registration.
 
 Upgrades reuse the previous Inno installation directory, or the directory recorded
 by the legacy NSIS uninstall entry. They stop and remove the existing service

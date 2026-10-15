@@ -50,16 +50,22 @@ type Manager interface {
 
 // Stores connections in application memory
 type MemoryResidentConnectionManager struct {
-	mu          sync.RWMutex
-	connections map[string]*Connection
-	stopCleanup chan struct{}
-	cleanupOnce sync.Once
+	mu             sync.RWMutex
+	connections    map[string]*Connection
+	stopCleanup    chan struct{}
+	cleanupOnce    sync.Once
+	onDisconnected func(entity.User)
 }
 
 func NewMemoryResidentConnectionManager() *MemoryResidentConnectionManager {
+	return NewMemoryResidentConnectionManagerWithDisconnectHandler(nil)
+}
+
+func NewMemoryResidentConnectionManagerWithDisconnectHandler(handler func(entity.User)) *MemoryResidentConnectionManager {
 	m := &MemoryResidentConnectionManager{
-		connections: make(map[string]*Connection),
-		stopCleanup: make(chan struct{}),
+		connections:    make(map[string]*Connection),
+		stopCleanup:    make(chan struct{}),
+		onDisconnected: handler,
 	}
 	go m.cleanupLoop()
 	return m
@@ -84,11 +90,18 @@ func (m *MemoryResidentConnectionManager) Stop() {
 
 func (m *MemoryResidentConnectionManager) CleanupExpired() {
 	now := time.Now()
+	var expired []entity.User
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	for name, conn := range m.connections {
 		if now.After(conn.expires_at) {
+			expired = append(expired, conn.GetUser())
 			delete(m.connections, name)
+		}
+	}
+	m.mu.Unlock()
+	if m.onDisconnected != nil {
+		for _, user := range expired {
+			m.onDisconnected(user)
 		}
 	}
 }
@@ -131,9 +144,12 @@ func (m *MemoryResidentConnectionManager) GetAllConnections() []*Connection {
 
 func (m *MemoryResidentConnectionManager) DeleteConnection(username string) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
+	conn, exists := m.connections[username]
 	delete(m.connections, username)
+	m.mu.Unlock()
+	if exists && m.onDisconnected != nil {
+		m.onDisconnected(conn.GetUser())
+	}
 	return nil
 }
 

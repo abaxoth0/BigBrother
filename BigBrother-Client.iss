@@ -1,4 +1,6 @@
 #define Product "Client"
+#define NotificationCLSID "2172F3A2-9073-4665-9BA2-B503F7083176"
+#define NotificationProtocol "bigbrother-client"
 #define ProductName "BigBrother Client"
 #define InstallFolder "BigBrother"
 #define DaemonName "BigBrother Client Daemon.exe"
@@ -32,6 +34,7 @@ CloseApplications=yes
 RestartApplications=no
 
 [Files]
+Source: "{#PayloadDir}\BigBrother Notifications.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#PayloadDir}\{#DaemonName}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#PayloadDir}\BigBrother Firewall.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#PayloadDir}\WinDivert.dll"; DestDir: "{app}"; Flags: ignoreversion
@@ -48,7 +51,7 @@ Name: "{userappdata}\BigBrother\logs"
 
 [Icons]
 Name: "{autodesktop}\{#ProductName}"; Filename: "{app}\GUI\BigBrother {#Product}.exe"; WorkingDir: "{app}\GUI"
-Name: "{group}\{#ProductName}"; Filename: "{app}\GUI\BigBrother {#Product}.exe"; WorkingDir: "{app}\GUI"
+Name: "{group}\{#ProductName}"; Filename: "{app}\GUI\BigBrother {#Product}.exe"; WorkingDir: "{app}\GUI"; AppUserModelID: "BigBrother.{#Product}"; AppUserModelToastActivatorCLSID: "{#NotificationCLSID}"
 
 [InstallDelete]
 Type: files; Name: "{app}\uninstall.exe"
@@ -61,6 +64,11 @@ Type: files; Name: "{app}\client_sigkey.key"
 Type: files; Name: "{app}\whitelist.txt"
 
 [Registry]
+Root: HKLM; Subkey: "Software\Classes\AppUserModelId\BigBrother.{#Product}"; ValueType: string; ValueName: "DisplayName"; ValueData: "{#ProductName}"; Flags: uninsdeletekey
+Root: HKLM; Subkey: "Software\Classes\AppUserModelId\BigBrother.{#Product}"; ValueType: string; ValueName: "CustomActivator"; ValueData: "{{{#NotificationCLSID}}"
+Root: HKLM; Subkey: "Software\Classes\{#NotificationProtocol}"; ValueType: string; ValueData: "URL:{#ProductName}"; Flags: uninsdeletekey
+Root: HKLM; Subkey: "Software\Classes\{#NotificationProtocol}"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""
+Root: HKLM; Subkey: "Software\Classes\{#NotificationProtocol}\shell\open\command"; ValueType: string; ValueData: """{app}\BigBrother Notifications.exe"" --open {#Product} ""%1"""
 Root: HKLM32; Subkey: "Software\Microsoft\Windows\CurrentVersion\Uninstall\{#ProductName}"; Flags: deletekey
 
 #include "installer\service-code.iss"

@@ -26,7 +26,7 @@ if [[ ! -f "$INNO_ISCC" ]]; then
     exit 1
 fi
 for file in 'BigBrother Firewall.exe' 'BigBrother Client Daemon.exe' \
-    'BigBrother Server Daemon.exe' WinDivert.dll WinDivert64.sys \
+    'BigBrother Server Daemon.exe' 'BigBrother Notifications.exe' WinDivert.dll WinDivert64.sys \
     'client-frontend/BigBrother Client.exe' 'server-frontend/BigBrother Server.exe'; do
     if [[ ! -f "$PAYLOAD_DIR/$file" ]]; then
         echo "Missing installer payload: $PAYLOAD_DIR/$file" >&2
