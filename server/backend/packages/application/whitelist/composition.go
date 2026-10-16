@@ -61,6 +61,7 @@ func Compose(db QueryHandler) (*entity.WhitelistComposition, error) {
 			})
 			continue
 		}
+		r.entry.Sources = r.sources
 		result.Entries = append(result.Entries, r.entry)
 	}
 	return result, nil

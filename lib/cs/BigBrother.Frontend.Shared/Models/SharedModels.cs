@@ -109,6 +109,12 @@ public class WhitelistInfo : INotifyPropertyChanged
     }
 }
 
+public class ComposedWhitelistEntry
+{
+    public string Value { get; set; } = "";
+    public List<string> Sources { get; set; } = new();
+}
+
 public class WhitelistConflict
 {
     public string Pattern { get; set; } = "";

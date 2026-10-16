@@ -26,6 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Server domain checker: use readable theme colors for the domain/IPv4 label and show all source whitelist names for each matching rule, including deduplicated rules
+
 - Client/server frontends: live logs follow file notifications without idle polling or growing display backlogs; pending display updates retain the newest entries within the history limit, and split binary records/JSON lines survive subsequent writes
 
 - Server discovery: rate limits now share a budget across UDP source ports from the same IP, with bounded source tracking; replies advertise the running TCP port instead of a pending saved value

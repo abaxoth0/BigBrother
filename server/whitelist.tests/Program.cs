@@ -1,3 +1,4 @@
+using frontend.Models;
 using frontend.Validation;
 using frontend.ViewModels;
 
@@ -76,15 +77,24 @@ Check(!vm.SaveCommand.CanExecute(null), "Existing invalid rules not validated");
 vm.SetCreateMode();
 vm.WhitelistName = "new";
 Check(vm.SaveCommand.CanExecute(null) && vm.GetEntries().Count == 0, "Create reset left stale analysis");
-var checker = new DomainCheckViewModel(new[] { "*.example.com", "!blocked.example.com", "8.8.8.8" });
+var checker = new DomainCheckViewModel(new[]
+{
+    new ComposedWhitelistEntry { Value = "*.example.com", Sources = new() { "Работа", "Учёба" } },
+    new ComposedWhitelistEntry { Value = "!blocked.example.com", Sources = new() { "Исключения" } },
+    new ComposedWhitelistEntry { Value = "8.8.8.8", Sources = new() { "DNS" } }
+});
 checker.TestInput = "blocked.example.com";
 Check(checker.TestResult.StartsWith("Исключён"), "Domain checker lost exception priority");
+Check(checker.TestResult.Contains("*.example.com — списки: «Работа», «Учёба»") &&
+    checker.TestResult.Contains("!blocked.example.com — списки: «Исключения»") &&
+    !checker.TestResult.Contains("Строка"), "Matching rules lack source whitelist names");
 checker.TestInput = "example.com";
 Check(checker.TestResult.StartsWith("Разрешён"), "Domain checker result stale after input change");
+Check(!checker.TestResult.Contains("Исключения"), "Unmatched rule source shown");
 checker.TestInput = "8.8.8.8";
 Check(checker.TestResult.StartsWith("Разрешён"), "Domain checker lost IPv4 support");
 checker.TestInput = "https://example.com";
 Check(checker.TestResult.StartsWith("Введите"), "Domain checker accepted a URL");
-var emptyChecker = new DomainCheckViewModel(Array.Empty<string>()) { TestInput = "example.com" };
+var emptyChecker = new DomainCheckViewModel(Array.Empty<ComposedWhitelistEntry>()) { TestInput = "example.com" };
 Check(emptyChecker.TestResult.StartsWith("Не разрешён"), "Empty composition allows a domain");
 Console.WriteLine("Whitelist validation, matching, editor and domain checker checks passed.");

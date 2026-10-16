@@ -1,8 +1,9 @@
 package entity
 
 type WhitelistEntry struct {
-	ID    string
-	Value string
+	ID      string
+	Value   string
+	Sources []string `json:"sources,omitempty"`
 }
 
 type Whitelist struct {

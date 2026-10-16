@@ -9,6 +9,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -18,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"bigbrother_server_backend/packages/domain/entity"
 	"bigbrother_server_backend/packages/infrastructure/connection"
 	"bigbrother_server_backend/packages/infrastructure/database"
 	"bigbrother_server_backend/packages/infrastructure/database/sqlite"
@@ -76,6 +78,22 @@ func TestBackendHandlerGetWhitelistServing(t *testing.T) {
 	if response := handlerResponse(t, frontend, "GET_COMPOSED_WHITELIST\n\n"); response != "OK\n10\nsecond.org\n\n" {
 		t.Fatalf("domain checker composition differs from client whitelist: %q", response)
 	}
+	if err := db.AddWhitelistEntry("SECOND.ORG", "default"); err != nil {
+		t.Fatal(err)
+	}
+	response = handlerResponse(t, frontend, "GET_COMPOSED_WHITELIST_DETAILS\n\n")
+	lines := strings.Split(response, "\n")
+	if len(lines) != 5 || lines[0] != "OK" {
+		t.Fatalf("unexpected details response: %q", response)
+	}
+	var details []entity.WhitelistEntry
+	if err := json.Unmarshal([]byte(lines[2]), &details); err != nil {
+		t.Fatal(err)
+	}
+	if len(details) != 1 || details[0].Value != "second.org" ||
+		strings.Join(details[0].Sources, ",") != "default,second" {
+		t.Fatalf("deduplicated rule sources missing: %+v", details)
+	}
 	if err := db.SetWhitelistActive("default", false); err != nil {
 		t.Fatal(err)
 	}
@@ -84,6 +102,9 @@ func TestBackendHandlerGetWhitelistServing(t *testing.T) {
 	}
 	if response := handlerResponse(t, frontend, "GET_COMPOSED_WHITELIST\n\n"); response != "OK\n\n" {
 		t.Fatalf("unexpected empty composition: %q", response)
+	}
+	if response := handlerResponse(t, frontend, "GET_COMPOSED_WHITELIST_DETAILS\n\n"); response != "OK\n2\n[]\n\n" {
+		t.Fatalf("unexpected empty details: %q", response)
 	}
 
 	if entries := handler.GetWhitelist("ghost"); entries != nil {

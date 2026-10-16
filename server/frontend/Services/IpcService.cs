@@ -615,7 +615,7 @@ public class IpcService : IDisposable
         return entries;
     }
 
-    public async Task<List<string>> GetComposedWhitelistAsync()
+    public async Task<List<ComposedWhitelistEntry>> GetComposedWhitelistAsync()
     {
         await _connectionLock.WaitAsync();
         try
@@ -623,9 +623,10 @@ public class IpcService : IDisposable
             if (!await ConnectAsync()) throw new IOException(_lastError);
             try
             {
-                var (status, data) = SendCommand("GET_COMPOSED_WHITELIST");
-                if (status != "OK") throw new IOException("Не удалось загрузить общий белый список");
-                return data;
+                var (status, data) = SendCommand("GET_COMPOSED_WHITELIST_DETAILS");
+                if (status != "OK" || data.Count != 1) throw new IOException("Не удалось загрузить общий белый список");
+                return JsonSerializer.Deserialize<List<ComposedWhitelistEntry>>(data[0],
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new();
             }
             finally
             {

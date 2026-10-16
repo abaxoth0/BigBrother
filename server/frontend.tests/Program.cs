@@ -117,14 +117,17 @@ Check(!await WhitelistReply(name, service => service.SetWhitelistActiveAsync("Р
     ["SET_WHITELIST_ACTIVE", "12", "Работа", "1", "1"], ["save failed"], "ERROR"),
     "Activation failure ignored");
 var composed = await WhitelistReply(name, service => service.GetComposedWhitelistAsync(),
-    ["GET_COMPOSED_WHITELIST"], ["*.example.com", "!blocked.example.com"]);
-Check(composed.SequenceEqual(new[] { "*.example.com", "!blocked.example.com" }), "Composed rules lost");
+    ["GET_COMPOSED_WHITELIST_DETAILS"],
+    ["[{\"ID\":\"a\",\"Value\":\"*.example.com\",\"sources\":[\"Работа\",\"Учёба\"]},{\"ID\":\"b\",\"Value\":\"!blocked.example.com\",\"sources\":[\"Исключения\"]}]"]);
+Check(composed.Select(r => r.Value).SequenceEqual(new[] { "*.example.com", "!blocked.example.com" }), "Composed rules lost");
+Check(composed[0].Sources.SequenceEqual(new[] { "Работа", "Учёба" }) &&
+    composed[1].Sources.SequenceEqual(new[] { "Исключения" }), "Composed rule sources lost");
 Check((await WhitelistReply(name, service => service.GetComposedWhitelistAsync(),
-    ["GET_COMPOSED_WHITELIST"], [])).Count == 0, "Empty composition rejected");
+    ["GET_COMPOSED_WHITELIST_DETAILS"], ["[]"])).Count == 0, "Empty composition rejected");
 try
 {
     await WhitelistReply(name, service => service.GetComposedWhitelistAsync(),
-        ["GET_COMPOSED_WHITELIST"], ["load failed"], "ERROR");
+        ["GET_COMPOSED_WHITELIST_DETAILS"], ["load failed"], "ERROR");
     throw new Exception("Composition load failure ignored");
 }
 catch (IOException) { }
