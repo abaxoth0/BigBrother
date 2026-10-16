@@ -8,6 +8,7 @@
   <ItemGroup>
     <Compile Include="../../lib/cs/BigBrother.Frontend.Shared/Lib/WhitelistRules.cs" Link="WhitelistRules.cs" />
     <Compile Include="../../lib/cs/BigBrother.Frontend.Shared/ViewModels/WhitelistEditViewModel.cs" Link="WhitelistEditViewModel.cs" />
+    <Compile Include="../frontend/ViewModels/DomainCheckViewModel.cs" Link="DomainCheckViewModel.cs" />
     <Compile Include="../../lib/cs/BigBrother.Frontend.Shared/ViewModels/ViewModelBase.cs" Link="ViewModelBase.cs" />
     <Compile Include="../../lib/cs/BigBrother.Frontend.Shared/ViewModels/RelayCommand.cs" Link="RelayCommand.cs" />
   </ItemGroup>

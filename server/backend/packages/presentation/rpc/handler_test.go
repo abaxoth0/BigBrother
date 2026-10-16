@@ -72,6 +72,20 @@ func TestBackendHandlerGetWhitelistServing(t *testing.T) {
 		t.Fatalf("unexpected whitelist response: %q", response)
 	}
 
+	frontend := NewFrontendHandler(db, nil, nil, nil)
+	if response := handlerResponse(t, frontend, "GET_COMPOSED_WHITELIST\n\n"); response != "OK\n10\nsecond.org\n\n" {
+		t.Fatalf("domain checker composition differs from client whitelist: %q", response)
+	}
+	if err := db.SetWhitelistActive("default", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetWhitelistActive("second", false); err != nil {
+		t.Fatal(err)
+	}
+	if response := handlerResponse(t, frontend, "GET_COMPOSED_WHITELIST\n\n"); response != "OK\n\n" {
+		t.Fatalf("unexpected empty composition: %q", response)
+	}
+
 	if entries := handler.GetWhitelist("ghost"); entries != nil {
 		t.Fatalf("expected nil for unknown user, got %+v", entries)
 	}

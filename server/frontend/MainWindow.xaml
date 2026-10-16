@@ -442,9 +442,12 @@
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="0" Text="{Binding ActiveWhitelistsText}" Margin="10,6"
                                        VerticalAlignment="Center" FontWeight="Bold"/>
+                            <Button Grid.Column="6" Content="Проверка домена" Style="{StaticResource ControlButton}"
+                                    Command="{Binding OpenDomainCheckCommand}"/>
                             <Button Grid.Column="2" Content="Импорт" Style="{StaticResource ControlButton}" Command="{Binding ImportWhitelistsCommand}"/>
                             <Button Grid.Column="3" Content="Экспорт" Style="{StaticResource ControlButton}" Command="{Binding ExportWhitelistsCommand}"/>
                             <Button Grid.Column="4" Content="Удалить" Style="{StaticResource ControlButton}" Command="{Binding DeleteSelectedWhitelistsCommand}"/>
@@ -488,6 +491,8 @@
                                     </DataTemplate>
                                 </DataGridTemplateColumn.CellTemplate>
                             </DataGridTemplateColumn>
+                            <DataGridTextColumn Header="Название" Binding="{Binding Name}" Width="200" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="Записей" Binding="{Binding EntryCount}" Width="100" IsReadOnly="True"/>
                             <DataGridTemplateColumn Header="Активный" Width="90" SortMemberPath="IsActive">
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate>
@@ -499,8 +504,6 @@
                                     </DataTemplate>
                                 </DataGridTemplateColumn.CellTemplate>
                             </DataGridTemplateColumn>
-                            <DataGridTextColumn Header="Название" Binding="{Binding Name}" Width="200" IsReadOnly="True"/>
-                            <DataGridTextColumn Header="Записей" Binding="{Binding EntryCount}" Width="100" IsReadOnly="True"/>
                         </DataGrid.Columns>
                         <DataGrid.ContextMenu>
                             <ContextMenu>

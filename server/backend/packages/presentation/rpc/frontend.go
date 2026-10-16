@@ -73,6 +73,18 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 		log.Debug("Frontend received: "+cmd, nil)
 
 		switch cmd {
+		case "GET_COMPOSED_WHITELIST":
+			composition, err := whitelistapplication.Compose(h.db)
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			var data []string
+			for _, entry := range composition.Entries {
+				data = append(data, entry.Value)
+			}
+			writeTLVResponse(conn, data...)
+
 		case "GET_WHITELIST_CONFLICTS":
 			composition, err := whitelistapplication.Compose(h.db)
 			if err != nil {

@@ -7,6 +7,7 @@ using System.Windows.Input;
 using frontend.Models;
 using frontend.Services;
 using frontend.Validation;
+using frontend.Views;
 
 namespace frontend.ViewModels;
 
@@ -35,6 +36,7 @@ public class MainViewModel : ViewModelBase
     private System.Timers.Timer? _serviceStatusTimer;
     private int _refreshInProgress;
     private int _statusRefreshInProgress;
+    private bool _openingDomainCheck;
 
     private string _serverStatus = "Подключение...";
     private string _uptime = "";
@@ -161,6 +163,8 @@ public class MainViewModel : ViewModelBase
         DeleteWhitelistCommand = new RelayCommand(async o => await DeleteWhitelistAsync(o?.ToString()!), o => o != null);
         ToggleWhitelistActiveCommand = new RelayCommand(async o => await ToggleWhitelistActiveAsync(o as WhitelistInfo),
             o => o is WhitelistInfo wl && !_updatingWhitelists.Contains(wl.Name));
+        OpenDomainCheckCommand = new RelayCommand(async _ => await OpenDomainCheckAsync(),
+            _ => IsConnected && !_openingDomainCheck);
         OpenCreateWhitelistCommand = new RelayCommand(async _ => await OpenCreateWhitelistAsync());
         OpenEditWhitelistCommand = new RelayCommand(async o => await OpenEditWhitelistAsync(o as WhitelistInfo), o => o is WhitelistInfo);
         ImportWhitelistsCommand = new RelayCommand(async _ => await ImportWhitelistsAsync());
@@ -387,6 +391,7 @@ public class MainViewModel : ViewModelBase
     public ICommand RefreshCommand { get; }
     public ICommand DeleteWhitelistCommand { get; }
     public ICommand ToggleWhitelistActiveCommand { get; }
+    public ICommand OpenDomainCheckCommand { get; }
     public ICommand OpenCreateWhitelistCommand { get; }
     public ICommand OpenEditWhitelistCommand { get; }
     public ICommand ImportWhitelistsCommand { get; }
@@ -993,6 +998,30 @@ public class MainViewModel : ViewModelBase
         finally
         {
             _updatingWhitelists.Remove(whitelist.Name);
+            CommandManager.InvalidateRequerySuggested();
+        }
+    }
+
+    private async Task OpenDomainCheckAsync()
+    {
+        if (_openingDomainCheck) return;
+        _openingDomainCheck = true;
+        CommandManager.InvalidateRequerySuggested();
+        try
+        {
+            var entries = await Task.Run(() => _ipcService.GetComposedWhitelistAsync());
+            var window = new DomainCheckWindow(entries) { Owner = Application.Current.MainWindow };
+            window.ShowDialog();
+        }
+        catch (Exception ex)
+        {
+            AddLog("ERROR", $"Ошибка проверки домена: {ex.Message}");
+            MessageBox.Show($"Не удалось загрузить общий белый список.\n{ex.Message}",
+                "Проверка домена", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            _openingDomainCheck = false;
             CommandManager.InvalidateRequerySuggested();
         }
     }

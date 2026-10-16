@@ -615,6 +615,29 @@ public class IpcService : IDisposable
         return entries;
     }
 
+    public async Task<List<string>> GetComposedWhitelistAsync()
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) throw new IOException(_lastError);
+            try
+            {
+                var (status, data) = SendCommand("GET_COMPOSED_WHITELIST");
+                if (status != "OK") throw new IOException("Не удалось загрузить общий белый список");
+                return data;
+            }
+            finally
+            {
+                Disconnect();
+            }
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
     public async Task<bool> CreateWhitelistAsync(string name)
     {
         await _connectionLock.WaitAsync();

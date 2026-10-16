@@ -116,4 +116,16 @@ foreach (var active in new[] { true, false })
 Check(!await WhitelistReply(name, service => service.SetWhitelistActiveAsync("Работа", true),
     ["SET_WHITELIST_ACTIVE", "12", "Работа", "1", "1"], ["save failed"], "ERROR"),
     "Activation failure ignored");
+var composed = await WhitelistReply(name, service => service.GetComposedWhitelistAsync(),
+    ["GET_COMPOSED_WHITELIST"], ["*.example.com", "!blocked.example.com"]);
+Check(composed.SequenceEqual(new[] { "*.example.com", "!blocked.example.com" }), "Composed rules lost");
+Check((await WhitelistReply(name, service => service.GetComposedWhitelistAsync(),
+    ["GET_COMPOSED_WHITELIST"], [])).Count == 0, "Empty composition rejected");
+try
+{
+    await WhitelistReply(name, service => service.GetComposedWhitelistAsync(),
+        ["GET_COMPOSED_WHITELIST"], ["load failed"], "ERROR");
+    throw new Exception("Composition load failure ignored");
+}
+catch (IOException) { }
 Console.WriteLine("Connectivity, certificate fingerprint and whitelist pipe tests passed.");

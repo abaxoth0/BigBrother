@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Server whitelist tab: domain/IPv4 checker opens in a separate window and tests the composed active whitelist; removed the checker from the whitelist editor and ordered table columns as «Название», «Записей», «Активный»
+
 - Server: compose all enabled whitelists into one client whitelist, remove case-insensitive duplicates and both sides of exact allow/exception conflicts; add an «Активный» checkbox column and a resizable conflict view showing source lists; migrate the previously active whitelist automatically
 
 - Server: Windows notifications for client connections, disconnections and registration requests, sent by the backend without requiring a running frontend
@@ -21,7 +23,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Server whitelist editor: full-line backgrounds mark errors in red and warnings in amber, with errors taking priority; highlights update with validation and follow scrolling without changing text colours
 - Server whitelist editor: line numbers stay aligned with entries while editing, resizing and scrolling; long rules scroll horizontally
 - Server whitelist editor: live validation rejects malformed entries, duplicate rules and directly conflicting exceptions before saving; overlapping exceptions show warnings, and imports use the same validation
-- Server whitelist editor: domain/IPv4 rule tester shows matching rules and exception priority for the current draft, including wildcard base-domain and quoted-substring matching
 
 ### Fixed
 
