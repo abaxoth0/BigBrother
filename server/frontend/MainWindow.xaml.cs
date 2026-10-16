@@ -28,6 +28,13 @@ public partial class MainWindow : ChromeWindow
         };
     }
 
+    private void WhitelistActive_Click(object sender, RoutedEventArgs e)
+    {
+        // Display the saved state until the activation command refreshes it.
+        if (sender is CheckBox checkbox)
+            checkbox.GetBindingExpression(ToggleButton.IsCheckedProperty)?.UpdateTarget();
+    }
+
     private void WhitelistRow_MouseDoubleClick(object sender, MouseButtonEventArgs e)
     {
         if (e.ChangedButton != MouseButton.Left || sender is not DataGridRow row ||

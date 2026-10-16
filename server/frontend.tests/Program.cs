@@ -73,4 +73,47 @@ foreach (var (reply, expected) in new[]
     await pipe.FlushAsync(timeout.Token);
     Check(await request == expected, "Invalid fingerprint reply accepted");
 }
-Console.WriteLine("Connectivity and certificate fingerprint pipe tests passed.");
+static async Task<T> WhitelistReply<T>(string name, Func<IpcService, Task<T>> action,
+    string[] expectedRequest, string[] data, string status = "OK")
+{
+    using var pipe = new NamedPipeServerStream(name, PipeDirection.InOut, 1,
+        PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+    using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    using var service = new IpcService(name);
+    var request = Task.Run(() => action(service));
+    await pipe.WaitForConnectionAsync(timeout.Token);
+    using var reader = new StreamReader(pipe, leaveOpen: true);
+    foreach (var line in expectedRequest)
+        Check(await reader.ReadLineAsync(timeout.Token) == line, "Unexpected whitelist request");
+    Check(await reader.ReadLineAsync(timeout.Token) == "", "Missing whitelist request terminator");
+    var response = status + "\n" + string.Concat(data.Select(v => $"{Encoding.UTF8.GetByteCount(v)}\n{v}\n")) + "\n";
+    await pipe.WriteAsync(Encoding.UTF8.GetBytes(response), timeout.Token);
+    await pipe.FlushAsync(timeout.Token);
+    return await request.WaitAsync(timeout.Token);
+}
+
+var whitelists = await WhitelistReply(name, service => service.GetWhitelistsAsync(),
+    ["GET_WHITELISTS"], ["Работа:основной:3:true", "Второй:2:false"]);
+Check(whitelists.Count == 2 && whitelists[0].Name == "Работа:основной" &&
+    whitelists[0].EntryCount == 3 && whitelists[0].IsActive && !whitelists[1].IsActive,
+    "Whitelist names, counts or active flags lost");
+
+var conflicts = await WhitelistReply(name, service => service.GetWhitelistConflictsAsync(),
+    ["GET_WHITELIST_CONFLICTS"],
+    ["[{\"pattern\":\"google.com\",\"allowedBy\":[\"Работа\",\"Учёба\"],\"excludedBy\":[\"Исключения\"]}]"]);
+Check(conflicts.Count == 1 && conflicts[0].AllowedRule == "google.com" &&
+    conflicts[0].ExcludedRule == "!google.com" && conflicts[0].AllowedSources == "Работа, Учёба" &&
+    conflicts[0].ExcludedSources == "Исключения", "Conflict details lost");
+Check((await WhitelistReply(name, service => service.GetWhitelistConflictsAsync(),
+    ["GET_WHITELIST_CONFLICTS"], ["[]"])).Count == 0, "Resolved conflicts retained");
+
+foreach (var active in new[] { true, false })
+{
+    Check(await WhitelistReply(name, service => service.SetWhitelistActiveAsync("Работа", active),
+        ["SET_WHITELIST_ACTIVE", "12", "Работа", "1", active ? "1" : "0"], []),
+        "Activation request failed");
+}
+Check(!await WhitelistReply(name, service => service.SetWhitelistActiveAsync("Работа", true),
+    ["SET_WHITELIST_ACTIVE", "12", "Работа", "1", "1"], ["save failed"], "ERROR"),
+    "Activation failure ignored");
+Console.WriteLine("Connectivity, certificate fingerprint and whitelist pipe tests passed.");

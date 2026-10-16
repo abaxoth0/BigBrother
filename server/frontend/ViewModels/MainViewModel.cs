@@ -45,7 +45,8 @@ public class MainViewModel : ViewModelBase
 
     private string _serviceStatus = "Проверка...";
     private string _filtrationStatus = "N/A";
-    private string _activeWhitelist = "";
+    private readonly HashSet<string> _updatingWhitelists = new();
+    private List<WhitelistConflict> _whitelistConflicts = new();
     private string _serverName = "";
     private string _serverPort = "1984";
     private bool _isAllSelected;
@@ -158,8 +159,8 @@ public class MainViewModel : ViewModelBase
         DisconnectCommand = new RelayCommand(async o => await DisconnectUserAsync(o?.ToString()!), o => o != null);
         RefreshCommand = new RelayCommand(async _ => await RefreshAllAsync());
         DeleteWhitelistCommand = new RelayCommand(async o => await DeleteWhitelistAsync(o?.ToString()!), o => o != null);
-        SetActiveWhitelistCommand = new RelayCommand(async o => await SetActiveWhitelistAsync(o?.ToString()!), o => o != null);
-        SetActiveSelectedWhitelistCommand = new RelayCommand(async _ => await SetActiveWhitelistAsync(SelectedWhitelist?.Name), _ => HasSelectedWhitelist);
+        ToggleWhitelistActiveCommand = new RelayCommand(async o => await ToggleWhitelistActiveAsync(o as WhitelistInfo),
+            o => o is WhitelistInfo wl && !_updatingWhitelists.Contains(wl.Name));
         OpenCreateWhitelistCommand = new RelayCommand(async _ => await OpenCreateWhitelistAsync());
         OpenEditWhitelistCommand = new RelayCommand(async o => await OpenEditWhitelistAsync(o as WhitelistInfo), o => o is WhitelistInfo);
         ImportWhitelistsCommand = new RelayCommand(async _ => await ImportWhitelistsAsync());
@@ -206,7 +207,6 @@ public class MainViewModel : ViewModelBase
                 break;
             case "WHITELIST_CHANGED":
                 _ = RefreshWhitelistsAsync();
-                _ = LoadActiveWhitelistAsync();
                 break;
             case "FILTRATION_TOGGLED":
                 _ = RefreshServerStatusAsync();
@@ -287,11 +287,21 @@ public class MainViewModel : ViewModelBase
         set => SetProperty(ref _serviceStatus, value);
     }
 
-    public string ActiveWhitelist
+    public string ActiveWhitelistsText => $"Активных списков: {Whitelists.Count(w => w.IsActive)}";
+
+    public List<WhitelistConflict> WhitelistConflicts
     {
-        get => _activeWhitelist;
-        set => SetProperty(ref _activeWhitelist, value);
+        get => _whitelistConflicts;
+        private set
+        {
+            if (SetProperty(ref _whitelistConflicts, value))
+                OnPropertyChanged(nameof(WhitelistConflictsText));
+        }
     }
+
+    public string WhitelistConflictsText => WhitelistConflicts.Count == 0
+        ? "Конфликтов нет"
+        : $"Конфликты: {WhitelistConflicts.Count}. Обе записи каждой пары исключены из общего списка.";
 
     public string ServerName
     {
@@ -376,8 +386,7 @@ public class MainViewModel : ViewModelBase
     public ICommand DisconnectCommand { get; }
     public ICommand RefreshCommand { get; }
     public ICommand DeleteWhitelistCommand { get; }
-    public ICommand SetActiveWhitelistCommand { get; }
-    public ICommand SetActiveSelectedWhitelistCommand { get; }
+    public ICommand ToggleWhitelistActiveCommand { get; }
     public ICommand OpenCreateWhitelistCommand { get; }
     public ICommand OpenEditWhitelistCommand { get; }
     public ICommand ImportWhitelistsCommand { get; }
@@ -584,22 +593,12 @@ public class MainViewModel : ViewModelBase
                 await RefreshClientsAsync();
                 await RefreshPendingAsync();
                 await RefreshWhitelistsAsync();
-                await LoadActiveWhitelistAsync();
             });
         }
         finally
         {
             Interlocked.Exchange(ref _refreshInProgress, 0);
         }
-    }
-
-    private async Task LoadActiveWhitelistAsync()
-    {
-        var wl = await _ipcService.GetActiveWhitelistAsync();
-        await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
-        {
-            ActiveWhitelist = wl;
-        });
     }
 
     private string _certificateFingerprint = "";
@@ -693,7 +692,8 @@ public class MainViewModel : ViewModelBase
                     ConnectedClients.Clear();
                     PendingRegistrations.Clear();
                     Whitelists.Clear();
-                    ActiveWhitelist = "";
+                    WhitelistConflicts = new();
+                    OnPropertyChanged(nameof(ActiveWhitelistsText));
                     CertificateFingerprint = "";
                 }
                 LastUpdate = DateTime.Now;
@@ -724,7 +724,8 @@ public class MainViewModel : ViewModelBase
                     ConnectedClients.Clear();
                     PendingRegistrations.Clear();
                     Whitelists.Clear();
-                    ActiveWhitelist = "";
+                    WhitelistConflicts = new();
+                    OnPropertyChanged(nameof(ActiveWhitelistsText));
                     CertificateFingerprint = "";
                     AddLog("ERROR", $"Ошибка: {ex.Message}");
                 });
@@ -847,6 +848,7 @@ public class MainViewModel : ViewModelBase
         try
         {
             var whitelists = await _ipcService.GetWhitelistsAsync();
+            var conflicts = await _ipcService.GetWhitelistConflictsAsync();
             await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
             {
                 // Update collection in-place to preserve DataGrid stability (context menus, selection, etc.)
@@ -860,6 +862,7 @@ public class MainViewModel : ViewModelBase
                     if (existing != null)
                     {
                         existing.EntryCount = nw.EntryCount;
+                        existing.IsActive = nw.IsActive;
                     }
                     else
                     {
@@ -867,6 +870,8 @@ public class MainViewModel : ViewModelBase
                         Whitelists.Add(nw);
                     }
                 }
+                WhitelistConflicts = conflicts;
+                OnPropertyChanged(nameof(ActiveWhitelistsText));
                 UpdateAllSelectedState();
             });
         }
@@ -877,7 +882,8 @@ public class MainViewModel : ViewModelBase
                 if (!IsConnected)
                 {
                     Whitelists.Clear();
-                    ActiveWhitelist = "";
+                    WhitelistConflicts = new();
+                    OnPropertyChanged(nameof(ActiveWhitelistsText));
                     CertificateFingerprint = "";
                 }
                 AddLog("ERROR", $"Ошибка загрузки списков: {ex.Message}");
@@ -971,12 +977,24 @@ public class MainViewModel : ViewModelBase
         await RefreshWhitelistsAsync();
     }
 
-    private async Task SetActiveWhitelistAsync(string? name)
+    private async Task ToggleWhitelistActiveAsync(WhitelistInfo? whitelist)
     {
-        if (string.IsNullOrEmpty(name)) return;
-        ActiveWhitelist = name;
-        var ok = await _ipcService.SetActiveWhitelistAsync(name);
-        AddLog(ok ? "INFO" : "ERROR", ok ? $"Активный список: {name}" : $"Ошибка установки активного списка");
+        if (whitelist == null || !_updatingWhitelists.Add(whitelist.Name)) return;
+        CommandManager.InvalidateRequerySuggested();
+        try
+        {
+            var active = !whitelist.IsActive;
+            var ok = await _ipcService.SetWhitelistActiveAsync(whitelist.Name, active);
+            AddLog(ok ? "INFO" : "ERROR", ok
+                ? $"Список {whitelist.Name}: {(active ? "включён" : "выключен")}"
+                : $"Ошибка изменения активности списка {whitelist.Name}");
+            await RefreshWhitelistsAsync();
+        }
+        finally
+        {
+            _updatingWhitelists.Remove(whitelist.Name);
+            CommandManager.InvalidateRequerySuggested();
+        }
     }
 
     private async Task OpenCreateWhitelistAsync()
@@ -1075,7 +1093,6 @@ public class MainViewModel : ViewModelBase
         }
 
         await RefreshWhitelistsAsync();
-        await LoadActiveWhitelistAsync();
 
         var msg = imported.Count > 0
             ? $"Импортировано списков: {imported.Count} ({string.Join(", ", imported)})"

@@ -31,16 +31,17 @@ func (db *Database) CreateWhitelist(name string, parentID string) error {
 func (db *Database) GetWhitelists() ([]*entity.Whitelist, error) {
 	dbcommon.Log.Trace("Getting whitelists...", nil)
 
-	rows, err := db.conn.Query(`SELECT id, name, parent_id FROM whitelist`)
+	rows, err := db.conn.Query(`SELECT id, name, parent_id, is_active FROM whitelist`)
 	if err != nil {
 		return nil, err
 	}
 
+	defer rows.Close()
 	wls := []*entity.Whitelist{}
 	for rows.Next() {
 		wl := new(entity.Whitelist)
 		var parentID sql.NullString
-		if err := rows.Scan(&wl.ID, &wl.Name, &parentID); err != nil {
+		if err := rows.Scan(&wl.ID, &wl.Name, &parentID, &wl.IsActive); err != nil {
 			return nil, err
 		}
 		if parentID.Valid {
@@ -66,7 +67,7 @@ func (db *Database) getWhitelistBy(property string, value string) (*entity.White
 		return nil, errors.New("invalid whitelist property: " + property)
 	}
 
-	row := db.conn.QueryRow("SELECT id, name, parent_id FROM whitelist WHERE "+property+" = ?", value)
+	row := db.conn.QueryRow("SELECT id, name, parent_id, is_active FROM whitelist WHERE "+property+" = ?", value)
 	if err := row.Err(); err != nil {
 		return nil, err
 	}
@@ -74,7 +75,7 @@ func (db *Database) getWhitelistBy(property string, value string) (*entity.White
 	wl := new(entity.Whitelist)
 	var parentID sql.NullString
 
-	if err := row.Scan(&wl.ID, &wl.Name, &parentID); err != nil {
+	if err := row.Scan(&wl.ID, &wl.Name, &parentID, &wl.IsActive); err != nil {
 		return nil, err
 	}
 	if parentID.Valid {
@@ -194,6 +195,7 @@ func (db *Database) GetWhitelistEntries(name string) ([]*entity.WhitelistEntry, 
 		return nil, err
 	}
 
+	defer rows.Close()
 	entries := []*entity.WhitelistEntry{}
 	for rows.Next() {
 		entry := new(entity.WhitelistEntry)
@@ -330,5 +332,20 @@ func (db *Database) ReplaceWhitelistEntries(entries []string, wlName string) err
 
 	dbcommon.Log.Trace("Replacing entries of whitelist \""+wlName+"\": OK", nil)
 
+	return nil
+}
+
+func (db *Database) SetWhitelistActive(name string, active bool) error {
+	result, err := db.conn.Exec("UPDATE whitelist SET is_active = ? WHERE name = ?", active, name)
+	if err != nil {
+		return err
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		return sql.ErrNoRows
+	}
 	return nil
 }

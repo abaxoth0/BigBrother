@@ -2,6 +2,7 @@ using System.IO;
 using System.IO.Pipes;
 using System.Linq;
 using System.Text;
+using System.Text.Json;
 using System.Threading;
 using frontend.Models;
 
@@ -554,13 +555,15 @@ public class IpcService : IDisposable
                 {
                     foreach (var line in data)
                     {
-                        var parts = line.Split(':');
-                        if (parts.Length >= 1)
+                        var activeSeparator = line.LastIndexOf(':');
+                        var countSeparator = activeSeparator > 0 ? line.LastIndexOf(':', activeSeparator - 1) : -1;
+                        if (countSeparator >= 0 &&
+                            int.TryParse(line[(countSeparator + 1)..activeSeparator], out var count) &&
+                            bool.TryParse(line[(activeSeparator + 1)..], out var active))
                         {
                             whitelists.Add(new WhitelistInfo
                             {
-                                Name = parts[0],
-                                EntryCount = parts.Length > 1 && int.TryParse(parts[1], out var count) ? count : 0
+                                Name = line[..countSeparator], EntryCount = count, IsActive = active
                             });
                         }
                     }
@@ -656,7 +659,7 @@ public class IpcService : IDisposable
         }
     }
 
-    public async Task<bool> SetActiveWhitelistAsync(string name)
+    public async Task<bool> SetWhitelistActiveAsync(string name, bool active)
     {
         await _connectionLock.WaitAsync();
         try
@@ -664,7 +667,7 @@ public class IpcService : IDisposable
             if (!await ConnectAsync()) return false;
             try
             {
-                var (status, _) = SendCommand("SET_ACTIVE_WHITELIST", name);
+                var (status, _) = SendCommand("SET_WHITELIST_ACTIVE", name, active ? "1" : "0");
                 return status == "OK";
             }
             finally
@@ -768,16 +771,18 @@ public class IpcService : IDisposable
         }
     }
 
-    public async Task<string> GetActiveWhitelistAsync()
+    public async Task<List<WhitelistConflict>> GetWhitelistConflictsAsync()
     {
         await _connectionLock.WaitAsync();
         try
         {
-            if (!await ConnectAsync()) return "";
+            if (!await ConnectAsync()) throw new IOException(_lastError);
             try
             {
-                var (status, data) = SendCommand("GET_ACTIVE_WHITELIST");
-                return status == "OK" && data.Count > 0 ? data[0] : "";
+                var (status, data) = SendCommand("GET_WHITELIST_CONFLICTS");
+                if (status != "OK" || data.Count != 1) throw new IOException("Не удалось загрузить конфликты списков");
+                return JsonSerializer.Deserialize<List<WhitelistConflict>>(data[0],
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new();
             }
             finally
             {

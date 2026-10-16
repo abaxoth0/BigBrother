@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Server: compose all enabled whitelists into one client whitelist, remove case-insensitive duplicates and both sides of exact allow/exception conflicts; add an «Активный» checkbox column and a resizable conflict view showing source lists; migrate the previously active whitelist automatically
+
 - Server: Windows notifications for client connections, disconnections and registration requests, sent by the backend without requiring a running frontend
 - Client: Windows notifications for server connections, disconnections, filtration changes and whitelist updates, sent by the backend without requiring a running frontend
 - Notifications: shared C++ helper uses WinRT toasts in active console and Remote Desktop user sessions; notifications persist in Notification Center and open the corresponding frontend when clicked; installers register separate Client/Server identities, with automatic per-user registration for standalone builds

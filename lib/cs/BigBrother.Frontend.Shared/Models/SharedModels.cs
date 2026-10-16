@@ -67,6 +67,7 @@ public class WhitelistInfo : INotifyPropertyChanged
 {
     public event PropertyChangedEventHandler? PropertyChanged;
 
+    private bool _isActive;
     private int _entryCount;
     private bool _isSelected;
     public string Name { get; set; } = "";
@@ -82,6 +83,18 @@ public class WhitelistInfo : INotifyPropertyChanged
             }
         }
     }
+    public bool IsActive
+    {
+        get => _isActive;
+        set
+        {
+            if (_isActive != value)
+            {
+                _isActive = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsActive)));
+            }
+        }
+    }
     public bool IsSelected
     {
         get => _isSelected;
@@ -94,6 +107,17 @@ public class WhitelistInfo : INotifyPropertyChanged
             }
         }
     }
+}
+
+public class WhitelistConflict
+{
+    public string Pattern { get; set; } = "";
+    public List<string> AllowedBy { get; set; } = new();
+    public List<string> ExcludedBy { get; set; } = new();
+    public string AllowedRule => Pattern;
+    public string ExcludedRule => "!" + Pattern;
+    public string AllowedSources => string.Join(", ", AllowedBy);
+    public string ExcludedSources => string.Join(", ", ExcludedBy);
 }
 
 public class ServerStatus
