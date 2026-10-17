@@ -18,8 +18,9 @@ the common version for both frontends and their shared library; Python, Make and
 Linux build scripts are not required for this step. The version file is also an
 input to Visual Studio's up-to-date check, so editing it triggers a new build.
 
-Both window titles show the version. The client Updates tab uses the running
-frontend's embedded version. Assembly and Windows file versions use four
+Both frontends show the version at the bottom of their navigation sidebars.
+The client Updates tab uses the running frontend's embedded version.
+Assembly and Windows file versions use four
 components (`2.0.0.0`), while the informational/product version remains `2.0.0`.
 Remove any separate version overrides from project or publish settings.
 

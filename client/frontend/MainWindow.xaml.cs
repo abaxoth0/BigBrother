@@ -12,7 +12,6 @@ namespace frontend
         public MainWindow()
         {
             InitializeComponent();
-            Title = $"BigBrother {BuildVersion.Current}";
 
             if (DataContext is MainViewModel vm)
             {

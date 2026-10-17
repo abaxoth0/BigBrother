@@ -649,23 +649,32 @@
             <!-- Side Navigation -->
             <Border Grid.Column="1" Background="{StaticResource SurfaceAlt}"
                     BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="4">
-                <StackPanel Margin="8,10">
-                    <TextBlock Text="Меню" FontWeight="Bold" Foreground="{StaticResource TextDim}"
-                               FontSize="11" Margin="6,0,0,8"/>
+                <Grid Margin="8,10">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <StackPanel VerticalAlignment="Top">
+                        <TextBlock Text="Меню" FontWeight="Bold" Foreground="{StaticResource TextDim}"
+                                   FontSize="11" Margin="6,0,0,8"/>
 
-                    <RadioButton Content="Главная" GroupName="Nav"
-                                 Style="{StaticResource NavItem}"
-                                 IsChecked="{Binding SelectedSection, Converter={StaticResource EnumToBool}, ConverterParameter=Main}"/>
-                    <RadioButton Content="Пользователи" GroupName="Nav"
-                                 Style="{StaticResource NavItem}"
-                                 IsChecked="{Binding SelectedSection, Converter={StaticResource EnumToBool}, ConverterParameter=Users}"/>
-                    <RadioButton Content="Списки" GroupName="Nav"
-                                 Style="{StaticResource NavItem}"
-                                 IsChecked="{Binding SelectedSection, Converter={StaticResource EnumToBool}, ConverterParameter=Lists}"/>
-                    <RadioButton Content="Настройки" GroupName="Nav"
-                                 Style="{StaticResource NavItem}"
-                                 IsChecked="{Binding SelectedSection, Converter={StaticResource EnumToBool}, ConverterParameter=Settings}"/>
-                </StackPanel>
+                        <RadioButton Content="Главная" GroupName="Nav"
+                                     Style="{StaticResource NavItem}"
+                                     IsChecked="{Binding SelectedSection, Converter={StaticResource EnumToBool}, ConverterParameter=Main}"/>
+                        <RadioButton Content="Пользователи" GroupName="Nav"
+                                     Style="{StaticResource NavItem}"
+                                     IsChecked="{Binding SelectedSection, Converter={StaticResource EnumToBool}, ConverterParameter=Users}"/>
+                        <RadioButton Content="Списки" GroupName="Nav"
+                                     Style="{StaticResource NavItem}"
+                                     IsChecked="{Binding SelectedSection, Converter={StaticResource EnumToBool}, ConverterParameter=Lists}"/>
+                        <RadioButton Content="Настройки" GroupName="Nav"
+                                     Style="{StaticResource NavItem}"
+                                     IsChecked="{Binding SelectedSection, Converter={StaticResource EnumToBool}, ConverterParameter=Settings}"/>
+                    </StackPanel>
+                    <TextBlock Grid.Row="1" Foreground="{StaticResource TextDim}" FontSize="11" Margin="6,12,6,0">
+                        <Run Text="Версия "/><Run Text="{x:Static local:BuildVersion.Current}"/>
+                    </TextBlock>
+                </Grid>
             </Border>
         </Grid>
 
