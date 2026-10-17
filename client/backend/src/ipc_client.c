@@ -311,7 +311,17 @@ DWORD WINAPI client_handler(LPVOID param) {
     }
 
     // Parse command
-    if (strcmp(buffer, "GET_STATUS") == 0) {
+    if (strcmp(buffer, "GET_CLIENT_UPDATE") == 0) {
+        char response[8192] = {0};
+        if (arg_count != 0 || ServerGetUpdate(response, sizeof(response)) != 0) {
+            write_error_tlv(pipe, "could not fetch client update");
+        } else if (!response[0]) {
+            write_ok(pipe);
+        } else {
+            const char* data[] = {response};
+            write_response_tlv(pipe, "OK", data, 1);
+        }
+    } else if (strcmp(buffer, "GET_STATUS") == 0) {
         int daemon_ok = (PingDaemon() == 0);
         int server_ok = IsServerSessionActive();
 

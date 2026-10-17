@@ -2,6 +2,8 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Security.Cryptography;
+using System.Text.Json.Nodes;
 using System.Windows;
 using System.Windows.Input;
 using frontend.Models;
@@ -176,6 +178,8 @@ public class MainViewModel : ViewModelBase
         ImportWhitelistsCommand = new RelayCommand(async _ => await ImportWhitelistsAsync());
         ExportWhitelistsCommand = new RelayCommand(async _ => await ExportWhitelistsAsync(), _ => Whitelists.Any(w => w.IsSelected));
         DeleteSelectedWhitelistsCommand = new RelayCommand(async _ => await DeleteSelectedWhitelistsAsync(), _ => Whitelists.Any(w => w.IsSelected));
+        PublishClientUpdateCommand = new RelayCommand(async _ => await PublishClientUpdateAsync(), _ => IsConnected);
+        ClearClientUpdateCommand = new RelayCommand(async _ => await ClearClientUpdateAsync(), _ => IsConnected);
         SaveServerSettingsCommand = new RelayCommand(async _ => await SaveAllServerSettingsAsync());
         CopyCertificateFingerprintCommand = new RelayCommand(_ => Clipboard.SetText(CertificateFingerprint), _ => IsConnected && CertificateFingerprint.Length == 64);
         ToggleFiltrationCommand = new RelayCommand(async _ => await ToggleFiltrationAsync());
@@ -194,6 +198,7 @@ public class MainViewModel : ViewModelBase
         _ = LoadServerNameAsync();
         _ = LoadServerPortAsync();
         _ = LoadCertificateFingerprintAsync();
+        _ = LoadClientUpdateAsync();
         _ = LoadLogPathAsync();
     }
 
@@ -218,6 +223,9 @@ public class MainViewModel : ViewModelBase
             case "WHITELIST_CHANGED":
                 _ = RefreshWhitelistsAsync();
                 break;
+            case "CLIENT_UPDATE_CHANGED":
+                _ = LoadClientUpdateAsync();
+                break;
             case "FILTRATION_TOGGLED":
                 _ = RefreshServerStatusAsync();
                 break;
@@ -229,6 +237,7 @@ public class MainViewModel : ViewModelBase
         if (_disposed) return;
         _ = RefreshAllAsync();
         _ = LoadCertificateFingerprintAsync();
+        _ = LoadClientUpdateAsync();
     }
 
     public ObservableCollection<ConnectedClient> ConnectedClients { get; }
@@ -408,6 +417,55 @@ public class MainViewModel : ViewModelBase
     public ICommand ImportWhitelistsCommand { get; }
     public ICommand ExportWhitelistsCommand { get; }
     public ICommand DeleteSelectedWhitelistsCommand { get; }
+    private string _clientUpdateLocation = "";
+    private string _clientUpdateStatus = "Обновление не опубликовано";
+    public string ClientUpdateLocation { get => _clientUpdateLocation; set => SetProperty(ref _clientUpdateLocation, value); }
+    public string ClientUpdateStatus { get => _clientUpdateStatus; set => SetProperty(ref _clientUpdateStatus, value); }
+    public ICommand PublishClientUpdateCommand { get; }
+    public ICommand ClearClientUpdateCommand { get; }
+
+    private async Task LoadClientUpdateAsync()
+    {
+        try
+        {
+            var data = await _ipcService.ClientUpdateAsync();
+            var manifest = string.IsNullOrEmpty(data) ? null : JsonNode.Parse(data);
+            ClientUpdateLocation = manifest?["location"]?.GetValue<string>() ?? "";
+            ClientUpdateStatus = manifest == null ? "Обновление не опубликовано" : "Опубликована версия " + manifest["version"]?.GetValue<string>();
+        }
+        catch (Exception ex) { ClientUpdateStatus = ex.Message; }
+    }
+
+    private async Task PublishClientUpdateAsync()
+    {
+        var location = ClientUpdateLocation.Trim();
+        try
+        {
+            ClientUpdateStatus = "Проверка пакета…";
+            var metadata = await Task.Run(() => {
+                if (!Path.IsPathFullyQualified(location) || !location.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                    throw new IOException("Укажите полный путь к EXE обновления.");
+                var manifest = JsonNode.Parse(File.ReadAllText(Path.ChangeExtension(location, ".json")))
+                    ?? throw new IOException("Отсутствует манифест обновления.");
+                using var package = File.OpenRead(location);
+                if (package.Length != manifest["size"]?.GetValue<long>() ||
+                    Convert.ToHexStringLower(SHA256.HashData(package)) != manifest["sha256"]?.GetValue<string>())
+                    throw new IOException("Размер или SHA-256 пакета не совпадает с манифестом.");
+                manifest["location"] = location;
+                return manifest.ToJsonString(new JsonSerializerOptions { WriteIndented = false });
+            });
+            await _ipcService.ClientUpdateAsync(metadata);
+            await LoadClientUpdateAsync();
+        }
+        catch (Exception ex) { ClientUpdateStatus = "Ошибка публикации: " + ex.Message; }
+    }
+
+    private async Task ClearClientUpdateAsync()
+    {
+        try { await _ipcService.ClientUpdateAsync(""); await LoadClientUpdateAsync(); }
+        catch (Exception ex) { ClientUpdateStatus = ex.Message; }
+    }
+
     public ICommand SaveServerSettingsCommand { get; }
     public ICommand CopyCertificateFingerprintCommand { get; }
     public ICommand ToggleFiltrationCommand { get; }
@@ -721,6 +779,7 @@ public class MainViewModel : ViewModelBase
                 _ = LoadServerNameAsync();
                 _ = LoadServerPortAsync();
                 _ = LoadCertificateFingerprintAsync();
+                _ = LoadClientUpdateAsync();
                 _ = LoadLogPathAsync();
             }
         }

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"bigbrother_server_backend/packages/application/settings"
+	"bigbrother_server_backend/packages/application/updates"
 	whitelistapplication "bigbrother_server_backend/packages/application/whitelist"
 	"bigbrother_server_backend/packages/domain/entity"
 	"bigbrother_server_backend/packages/infrastructure/connection"
@@ -73,6 +74,40 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 		log.Debug("Frontend received: "+cmd, nil)
 
 		switch cmd {
+		case "SET_CLIENT_UPDATE":
+			if len(args) != 1 {
+				writeErrorTLV(conn, "Expected update metadata")
+				continue
+			}
+			data := args[0]
+			if data != "" {
+				manifest, err := updates.Parse(data)
+				if err != nil {
+					writeErrorTLV(conn, err.Error())
+					continue
+				}
+				canonical, _ := json.Marshal(manifest)
+				data = string(canonical)
+			}
+			if err := h.db.SetSetting("client_update", data); err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			h.bus.Publish(notification.Event{Type: notification.ClientUpdateChanged, Data: map[string]string{}})
+			writeOK(conn)
+
+		case "GET_CLIENT_UPDATE":
+			data, err := h.db.GetSetting("client_update")
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			if data == "" {
+				writeOK(conn)
+				continue
+			}
+			writeTLVResponse(conn, data)
+
 		case "GET_COMPOSED_WHITELIST_DETAILS":
 			composition, err := whitelistapplication.Compose(h.db)
 			if err != nil {

@@ -288,4 +288,6 @@ int ServerRefresh(const char* name);
  */
 int ServerChangeName(const char* oldName, const char* newName);
 
+int ServerGetUpdate(char* output, size_t size);
+
 #endif // IPC_H

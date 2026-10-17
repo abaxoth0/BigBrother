@@ -1187,6 +1187,14 @@ static int send_authenticated_request(const char* command, const char* username,
     return result; // At most one signed fetch and one retry per request.
 }
 
+int ServerGetUpdate(char* output, size_t size) {
+    char username[128] = {0}, token[256] = {0};
+    if (LoadUserName(username, sizeof(username)) != 0 || !username[0]) return -1;
+    get_client_token(token, sizeof(token));
+    const char* args[] = { username, token };
+    return send_authenticated_request("GET_CLIENT_UPDATE", username, args, 2, 1, output, size);
+}
+
 int ServerRegister(const char* name) {
     if (!name) return -1;
 
@@ -1497,6 +1505,36 @@ static int try_discover_server(void) {
     return 0;
 }
 
+static void check_client_update(void) {
+    static char announced[8192] = {0};
+    char response[8192] = {0};
+    if (ServerGetUpdate(response, sizeof(response)) != 0 || !response[0] || !strcmp(response, announced)) return;
+    const char* version = strstr(response, "\"version\":\"");
+    if (!version) return;
+    version += strlen("\"version\":\"");
+    unsigned available[4] = {0}, installed[4] = {0};
+    if (sscanf(version, "%5u.%5u.%5u.%5u", &available[0], &available[1], &available[2], &available[3]) < 3) return;
+    char path[MAX_PATH];
+    get_exe_path(path, sizeof(path));
+    strncat(path, "client-version.txt", sizeof(path) - strlen(path) - 1);
+    FILE* file = fopen(path, "r");
+    if (file) {
+        char current[64] = {0};
+        if (fgets(current, sizeof(current), file))
+            sscanf(current, "%5u.%5u.%5u.%5u", &installed[0], &installed[1], &installed[2], &installed[3]);
+        fclose(file);
+    }
+    int newer = 0;
+    for (int i = 0; i < 4; i++) {
+        if (available[i] != installed[i]) { newer = available[i] > installed[i]; break; }
+    }
+    if (newer) {
+        if (bb_notify("Обновление BigBrother", "Доступно обновление клиента. Откройте BigBrother для установки с правами администратора.") == 0)
+            snprintf(announced, sizeof(announced), "%s", response);
+        NotifyStateChanged();
+    }
+}
+
 // Handle a server-pushed event. Reads the event's data TLV lines (terminated
 // by an empty line) and applies the change. Returns 0 to continue, 1 to resubscribe.
 static int handle_server_event(const char* event_type, SrvLineReader* reader, const char* username) {
@@ -1512,6 +1550,10 @@ static int handle_server_event(const char* event_type, SrvLineReader* reader, co
         data_count++;
     }
 
+    if (strcmp(event_type, "CLIENT_UPDATE_CHANGED") == 0) {
+        check_client_update();
+        return 0;
+    }
     if (strcmp(event_type, "WHITELIST_CHANGED") == 0) {
         sync_whitelist_from_server(username);
         return 0;
@@ -1647,6 +1689,7 @@ static int server_subscribe_loop(const char* username, int* consecutive_failures
     }
     sync_whitelist_from_server(username);
     sync_filtration_from_server();
+    check_client_update();
     if (consecutive_failures) *consecutive_failures = 0;
 
     // Event loop

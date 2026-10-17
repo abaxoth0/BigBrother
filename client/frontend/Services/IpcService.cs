@@ -268,6 +268,24 @@ public class IpcService : IDisposable
         }
     }
 
+    public async Task<string> GetClientUpdateAsync()
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return "";
+            try
+            {
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+                var (status, data) = await SendCommandAsync("GET_CLIENT_UPDATE", Array.Empty<string>(), timeout.Token);
+                if (status != "OK") return "";
+                return data.Count > 0 ? data[0] : "";
+            }
+            finally { Disconnect(); }
+        }
+        finally { _connectionLock.Release(); }
+    }
+
     public async Task<ClientStatus> GetStatusAsync()
     {
         var status = new ClientStatus();

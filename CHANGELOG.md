@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Client updates: publish a shared EXE path from server settings with verified release metadata; clients copy newer releases into local staging, require administrator rights, and show update progress; SYSTEM/Administrators DACLs protect packages, runners, backups and recovery journals
+- Client updates: self-contained Inno update packages, complete pre-replacement installation snapshots with configuration and file security, rollback on replacement/startup failure, and retained journals for interrupted-update recovery; backend notifications announce published updates even when the client GUI is closed
+
 - Server whitelist tab: stage activation changes locally with «Сохранить» and «Отмена»; save all changed flags in one transaction and send clients a single refresh event; retain drafts across refreshes and failed saves
 
 - Server whitelist tab: domain/IPv4 checker opens in a separate window and tests the composed active whitelist; removed the checker from the whitelist editor and ordered table columns as «Название», «Записей», «Активный»

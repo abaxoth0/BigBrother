@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"bigbrother_server_backend/packages/application/settings"
+	"bigbrother_server_backend/packages/application/updates"
 	whitelistapplication "bigbrother_server_backend/packages/application/whitelist"
 	"bigbrother_server_backend/packages/domain/entity"
 	"bigbrother_server_backend/packages/infrastructure/connection"
@@ -67,6 +68,26 @@ func (h *BackendHandler) handle(conn net.Conn) {
 		log.Debug("Received: "+cmd, nil)
 
 		switch cmd {
+		case "GET_CLIENT_UPDATE":
+			if len(args) != 2 || !h.authenticate(args[0], args[1]) {
+				writeErrorTLV(conn, "invalid token")
+				continue
+			}
+			data, err := h.db.GetSetting("client_update")
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			if data == "" {
+				writeOK(conn)
+				continue
+			}
+			if _, err := updates.Parse(data); err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			writeTLVResponse(conn, data)
+
 		case "GET_WHITELIST":
 			if len(args) < 2 {
 				writeErrorTLV(conn, "Missing username or token")

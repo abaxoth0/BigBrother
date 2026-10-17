@@ -34,6 +34,7 @@ CloseApplications=yes
 RestartApplications=no
 
 [Files]
+Source: "{#PayloadDir}\client-version.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#PayloadDir}\BigBrother Notifications.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#PayloadDir}\{#DaemonName}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#PayloadDir}\BigBrother Firewall.exe"; DestDir: "{app}"; Flags: ignoreversion

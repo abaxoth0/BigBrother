@@ -751,6 +751,24 @@ public class IpcService : IDisposable
         }
     }
 
+    public async Task<string> ClientUpdateAsync(string? metadata = null)
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) throw new IOException("Нет соединения с сервером.");
+            try
+            {
+                var (status, data) = await Task.Run(() => metadata == null
+                    ? SendCommand("GET_CLIENT_UPDATE") : SendCommand("SET_CLIENT_UPDATE", metadata));
+                if (status != "OK") throw new IOException(data.FirstOrDefault() ?? "Не удалось изменить обновление клиентов.");
+                return data.FirstOrDefault() ?? "";
+            }
+            finally { Disconnect(); }
+        }
+        finally { _connectionLock.Release(); }
+    }
+
     public async Task<string> GetServerPortAsync()
     {
         await _connectionLock.WaitAsync();

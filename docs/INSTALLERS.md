@@ -1,6 +1,6 @@
 # Building Windows installers on Linux
 
-Install Wine with 64-bit Windows support, curl, and coreutils. For a headless
+Install Wine with 64-bit Windows support, Python 3, curl, and coreutils. For a headless
 machine, also install Xvfb (`xvfb-run`). Then install the pinned Inno Setup 7.1.0
 compiler:
 
@@ -64,6 +64,10 @@ compiler is unavailable or either installer cannot compile. The outputs are:
 
 - `BigBrother-<version>-Client-Setup.exe`
 - `BigBrother-<version>-Server-Setup.exe`
+- `BigBrother-<version>-Client-Update.exe` and its JSON manifest
+
+Client update publication, local staging, elevation and rollback are described
+in [CLIENT-UPDATES.md](CLIENT-UPDATES.md).
 
 # Installation and upgrades
 

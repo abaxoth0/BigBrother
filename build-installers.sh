@@ -45,10 +45,23 @@ mkdir -p "$INSTALLER_OUTPUT_DIR"
 INSTALLER_OUTPUT_DIR="$(realpath -e "$INSTALLER_OUTPUT_DIR")"
 PAYLOAD_WINDOWS="$(winepath -w "$PAYLOAD_DIR")"
 OUTPUT_WINDOWS="$(winepath -w "$INSTALLER_OUTPUT_DIR")"
-for product in Client Server; do
+printf '%s\n' "$VERSION" > "$PAYLOAD_DIR/client-version.txt"
+for product in Client Server Client-Update; do
     SCRIPT_WINDOWS="$(winepath -w "$SCRIPT_DIR/BigBrother-$product.iss")"
     "${INNO_WINE_RUNNER[@]}" "$INNO_ISCC" --quiet-progress \
         "--define=PayloadDir=$PAYLOAD_WINDOWS" "--define=ProductVersion=$VERSION" \
         "--output-dir=$OUTPUT_WINDOWS" "$SCRIPT_WINDOWS"
 done
-echo "Installers built in $INSTALLER_OUTPUT_DIR"
+python3 - "$INSTALLER_OUTPUT_DIR" "$VERSION" <<'PYUPDATE'
+import hashlib, json, pathlib, sys
+root, version = pathlib.Path(sys.argv[1]), sys.argv[2]
+package = root / f"BigBrother-{version}-Client-Update.exe"
+digest = hashlib.sha256()
+with package.open("rb") as source:
+    for block in iter(lambda: source.read(1024 * 1024), b""):
+        digest.update(block)
+manifest = {"version": version, "file": package.name, "size": package.stat().st_size,
+            "sha256": digest.hexdigest()}
+package.with_suffix(".json").write_text(json.dumps(manifest) + "\n")
+PYUPDATE
+echo "Installers and client update built in $INSTALLER_OUTPUT_DIR"
