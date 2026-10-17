@@ -18,7 +18,6 @@ public partial class App : System.Windows.Application
             return;
         }
 
-        StartupUri = null;
         base.OnStartup(e);
         if (e.Args.Length == 2 && e.Args[0] == "--apply-update")
         {
