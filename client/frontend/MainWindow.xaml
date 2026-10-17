@@ -133,7 +133,7 @@
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
-                <TextBlock Grid.Column="0" Text="BigBrother" Foreground="{StaticResource TitleBarText}"
+                <TextBlock Grid.Column="0" Text="{Binding Title, RelativeSource={RelativeSource AncestorType=Window}}" Foreground="{StaticResource TitleBarText}"
                            FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" Margin="14,0,0,0"/>
 
                 <StackPanel Grid.Column="2" Orientation="Horizontal">

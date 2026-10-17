@@ -14,16 +14,21 @@ prebuilt self-contained frontends in `dist`, as described in `INSTALLERS.md`.
 Then run:
 
 ```sh
-./build-installers.sh /path/to/payload /path/to/output 1.4.0 Unreleased
+./build-installers.sh /path/to/payload /path/to/output
 ```
 
-The fourth argument selects the CHANGELOG.md section for release notes; it
-otherwise defaults to the package version. Use `1.3.0` to read `## [1.3.0]`, or
-`Unreleased` for development packages. A missing version fails the build. An
-optional fifth argument selects another changelog file. For example:
+The package version comes from repository `VERSION` (currently `2.0.0`); every
+application must be rebuilt with that version. Visual Studio Build and Publish
+read it automatically, including when building the frontends in a Windows VM.
+See [VERSIONING.md](VERSIONING.md).
+
+Release notes default to the matching CHANGELOG.md release, or `Unreleased` when
+that release is absent. The optional fourth argument selects a section explicitly;
+a missing explicit section fails the build. The third argument, when supplied,
+must match `VERSION`. An optional fifth argument selects another changelog file:
 
 ```sh
-./build-installers.sh /path/to/payload /path/to/output 1.3.0 1.3.0 /path/to/CHANGELOG.md
+./build-installers.sh /path/to/payload /path/to/output 2.0.0 Unreleased /path/to/CHANGELOG.md
 ```
 
 Added, Removed, Changed, Fixed, Deprecated and Security bullets become structured
@@ -34,8 +39,8 @@ Older manifests without notes still work and show that no description was suppli
 
 Alongside the two normal installers this produces:
 
-- `BigBrother-1.4.0-Client-Update.exe`
-- `BigBrother-1.4.0-Client-Update.json`
+- `BigBrother-2.0.0-Client-Update.exe`
+- `BigBrother-2.0.0-Client-Update.json`
 
 The update EXE includes all client executables, native WPF DLLs, WinDivert files,
 and `client-version.txt`. Its Inno instructions extract this fixed payload into

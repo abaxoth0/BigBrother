@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [[ "${1:-}" == --help ]]; then
     echo "Usage: $0 [payload-dir [installer-output-dir [version [notes-version [changelog-file]]]]]"
-    echo "Defaults: $SCRIPT_DIR/dist, $SCRIPT_DIR/dist/installers, 1.0.0"
+    echo "Defaults: $SCRIPT_DIR/dist, $SCRIPT_DIR/dist/installers, repository VERSION; matching release notes or Unreleased"
     exit 0
 fi
 if [[ $# -gt 5 ]]; then
@@ -15,13 +15,13 @@ source "$SCRIPT_DIR/scripts/inno-env.sh"
 source "$SCRIPT_DIR/scripts/frontend-files.sh"
 PAYLOAD_DIR="$(realpath -e "${1:-$SCRIPT_DIR/dist}")"
 INSTALLER_OUTPUT_DIR="${2:-$SCRIPT_DIR/dist/installers}"
-VERSION="${3:-1.0.0}"
-NOTES_VERSION="${4:-$VERSION}"
-CHANGELOG_FILE="${5:-$SCRIPT_DIR/CHANGELOG.md}"
-if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
-    echo "Version must contain three or four numeric components." >&2
+VERSION="$(python3 "$SCRIPT_DIR/scripts/version.py")"
+if [[ -n "${3:-}" && "$3" != "$VERSION" ]]; then
+    echo "Installer version must match VERSION ($VERSION). Change VERSION and rebuild all applications." >&2
     exit 1
 fi
+NOTES_VERSION="${4:-auto}"
+CHANGELOG_FILE="${5:-$SCRIPT_DIR/CHANGELOG.md}"
 python3 "$SCRIPT_DIR/scripts/update-manifest.py" --version "$VERSION" --notes-version "$NOTES_VERSION" --changelog "$CHANGELOG_FILE" --validate-only
 if [[ ! -f "$INNO_ISCC" ]]; then
     echo "Inno Setup compiler not found: $INNO_ISCC" >&2

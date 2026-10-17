@@ -1,9 +1,9 @@
-#ifndef ProductVersion
-  #define ProductVersion "1.0.0"
-#endif
+#define Product "Client"
+#include "installer\version.iss"
 #ifndef PayloadDir
   #define PayloadDir SourcePath + "dist"
 #endif
+#include "installer\payload-version.iss"
 
 [Setup]
 AppId=BigBrother.Client.Update.Payload

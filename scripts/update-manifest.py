@@ -57,6 +57,13 @@ def parse_changelog(text, version):
     return {"version": version, "sections": [s for s in sections if s["items"]]}
 
 
+def select_notes(text, version, selector=None):
+    if selector and selector != "auto":
+        return parse_changelog(text, selector)
+    headings = {match[1] or match[2] for match in re.finditer(r"^##\s+(?:\[([^\]]+)\]|(\S+))", text, re.MULTILINE)}
+    return parse_changelog(text, version if version in headings else "Unreleased")
+
+
 def create_manifest(package, version, notes):
     digest = hashlib.sha256()
     with package.open("rb") as source:
@@ -73,18 +80,22 @@ def create_manifest(package, version, notes):
 def main():
     parser = argparse.ArgumentParser(description="Build client update metadata with a selected CHANGELOG.md release.")
     parser.add_argument("--package", type=Path)
-    parser.add_argument("--version", required=True)
+    parser.add_argument("--version")
     parser.add_argument("--changelog", type=Path, required=True)
     parser.add_argument("--notes-version")
     parser.add_argument("--validate-only", action="store_true")
     args = parser.parse_args()
     try:
-        notes = parse_changelog(args.changelog.read_text(encoding="utf-8-sig"), args.notes_version or args.version)
+        from version import read_version
+        version = read_version()
+        if args.version and args.version != version:
+            raise ValueError(f"Package version must match VERSION ({version}).")
+        notes = select_notes(args.changelog.read_text(encoding="utf-8-sig"), version, args.notes_version)
         if args.validate_only:
             return
         if args.package is None:
             parser.error("--package is required unless --validate-only is used")
-        manifest = create_manifest(args.package, args.version, notes)
+        manifest = create_manifest(args.package, version, notes)
         args.package.with_suffix(".json").write_text(manifest + "\n", encoding="utf-8")
     except (OSError, ValueError) as error:
         parser.exit(1, f"{error}\n")

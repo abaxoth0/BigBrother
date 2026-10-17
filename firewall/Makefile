@@ -1,8 +1,10 @@
+include ../common/version.mk
+
 CC = x86_64-w64-mingw32-gcc
 WINDRES = x86_64-w64-mingw32-windres
 ICON_OBJ = build/app-icon.o
 
-COMMON_FLAGS = -Wall -Wno-format-truncation -mconsole \
+COMMON_FLAGS = $(BB_VERSION_FLAGS) -Wall -Wno-format-truncation -mconsole \
 	-I$(CURDIR)/include/third-party/WinDivert-2.2.2-A/include \
 	-I$(CURDIR)/../common \
 	-I$(CURDIR)/../lib/c
@@ -25,11 +27,11 @@ debug: $(FW_NAME)
 release: CFLAGS = $(COMMON_FLAGS) $(RELEASE_FLAGS)
 release: $(FW_NAME)
 
-$(ICON_OBJ): app.rc ../assets/icons/BigBrother_Firewall.ico
+$(ICON_OBJ): $(BB_VERSION_DEPS) app.rc ../assets/icons/BigBrother_Firewall.ico
 	mkdir -p build
-	$(WINDRES) -i app.rc -o $(ICON_OBJ)
+	$(WINDRES) $(BB_RESOURCE_VERSION_FLAGS) -i app.rc -o $(ICON_OBJ)
 
-$(FW_NAME): $(t-units) $(ICON_OBJ)
+$(FW_NAME): $(BB_VERSION_DEPS) $(t-units) $(ICON_OBJ)
 	mkdir -p build
 	$(CC) $(CFLAGS) -o "build/$(FW_NAME).exe" $(t-units) $(ICON_OBJ) $(LDFLAGS)
 

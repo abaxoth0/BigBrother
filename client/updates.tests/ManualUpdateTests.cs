@@ -11,6 +11,11 @@ public static class ManualUpdateTests
 
     public static async Task RunAsync()
     {
+        var expected = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "expected-version.txt")).Trim();
+        Assert(frontend.BuildVersion.Current == expected, "The frontend informational version does not match VERSION.");
+        var assembly = System.Reflection.Assembly.GetExecutingAssembly();
+        Assert(assembly.GetName().Version!.ToString() == expected + ".0", "The assembly version does not match VERSION.");
+        Assert(System.Reflection.CustomAttributeExtensions.GetCustomAttribute<System.Reflection.AssemblyFileVersionAttribute>(assembly)!.Version == expected + ".0", "The Windows file version does not match VERSION.");
         var update = new ClientUpdate("1.4.0", "update.exe", @"Z:\shared\update.exe", 4096, new string('a', 64),
             new ReleaseNotes("1.4.0", [new ReleaseNoteSection("fixed", [new string('я', 10000)])]));
         update.Validate();

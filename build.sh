@@ -6,6 +6,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 OUTPUT_DIR="${1:-$SCRIPT_DIR/dist}"
+python3 "$SCRIPT_DIR/scripts/version.py"
 
 echo "Building BigBrother..."
 echo "Output directory: $OUTPUT_DIR"
@@ -26,9 +27,8 @@ cd "$SCRIPT_DIR/client/backend" && make clean && make
 cp build/*.exe "$OUTPUT_DIR/"
 
 echo "Building server backend..."
-cd "$SCRIPT_DIR/server/backend"
-GOOS=windows GOARCH=amd64 go generate ./cmd
-CGO_ENABLED=1 CC=clang GOOS=windows GOARCH=amd64 go build -o "$OUTPUT_DIR/BigBrother Server Daemon.exe" ./cmd
+make -C "$SCRIPT_DIR/server/backend"
+cp "$SCRIPT_DIR/server/backend/build/BigBrother Server Daemon.exe" "$OUTPUT_DIR/"
 
 WD_DIR="$SCRIPT_DIR/firewall/include/third-party/WinDivert-2.2.2-A"
 if [ -d "$WD_DIR/x64" ]; then

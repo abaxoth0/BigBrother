@@ -13,6 +13,7 @@ public partial class MainWindow : ChromeWindow
     public MainWindow()
     {
         InitializeComponent();
+        Title = $"BigBrother Сервер {BuildVersion.Current}";
         Loaded += (s, e) =>
         {
             if (DataContext is MainViewModel vm)

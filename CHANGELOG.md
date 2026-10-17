@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Common release version in root `VERSION` (2.0.0): embed it in all application binaries, show it in frontend titles and client update checks, and expose `--version` in daemons and the notification helper
+- Build version integration for native Makefiles, the Go linker and normal Visual Studio Build/Publish in the Windows VM; installers and update manifests use the same version and reject stale application payloads
+
 - Server update settings: select the client update EXE with «Обзор…» instead of entering its shared path manually
 - Client: «Обновления» tab with explicit checking, installed/available versions, release notes and a separate installation button; checks no longer download or install packages automatically
 - Update builds: parse a selected version from CHANGELOG.md into structured release notes in the JSON manifest; support Added, Removed, Changed, Fixed, Deprecated and Security sections, with an explicit Unreleased selector for development packages

@@ -44,6 +44,14 @@ class UpdateManifestTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "not found"):
             module.parse_changelog("## [1.20.0]\n### Fixed\n- Other release", "1.2.0")
 
+    def test_automatic_notes_selection_and_explicit_override(self):
+        changelog = "## Unreleased\n### Added\n- New work\n## [1.3.0]\n### Fixed\n- Released work"
+        self.assertEqual(module.select_notes(changelog, "1.3.0")["version"], "1.3.0")
+        self.assertEqual(module.select_notes(changelog, "2.0.0")["version"], "Unreleased")
+        self.assertEqual(module.select_notes(changelog, "2.0.0", "1.3.0")["version"], "1.3.0")
+        with self.assertRaises(ValueError):
+            module.select_notes(changelog, "2.0.0", "2.0.0")
+
     def test_manifest_contains_notes_and_correct_package_identity(self):
         with tempfile.TemporaryDirectory() as directory:
             package = Path(directory) / "BigBrother Update.exe"

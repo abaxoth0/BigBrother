@@ -1,3 +1,5 @@
+include ../../common/version.mk
+
 CC = x86_64-w64-mingw32-gcc
 AR = x86_64-w64-mingw32-ar
 WINDRES = x86_64-w64-mingw32-windres
@@ -5,7 +7,7 @@ ICON_OBJ = build/app-icon.o
 
 ROOT = $(CURDIR)/../..
 MBEDTLS_DIR = $(ROOT)/lib/mbedtls
-COMMON_FLAGS = -Wall -Wno-format-truncation -mconsole \
+COMMON_FLAGS = $(BB_VERSION_FLAGS) -Wall -Wno-format-truncation -mconsole \
 	-I$(CURDIR)/include \
 	-I$(ROOT)/common \
 	-I$(MBEDTLS_DIR)/include
@@ -44,11 +46,11 @@ $(MBED_A): $(MB_UNITS)
 	done
 	$(AR) rcs build/mbedtls/libmbedtls.a build/mbedtls/obj/*.o
 
-$(ICON_OBJ): app.rc $(ROOT)/assets/icons/BigBrother_Client_Backend.ico
+$(ICON_OBJ): $(BB_VERSION_DEPS) app.rc $(ROOT)/assets/icons/BigBrother_Client_Backend.ico
 	mkdir -p build
-	$(WINDRES) -i app.rc -o $(ICON_OBJ)
+	$(WINDRES) $(BB_RESOURCE_VERSION_FLAGS) -i app.rc -o $(ICON_OBJ)
 
-$(CB_NAME): $(t-units) $(MBED_A) $(ICON_OBJ) $(NOTIFY_A)
+$(CB_NAME): $(BB_VERSION_DEPS) $(t-units) $(MBED_A) $(ICON_OBJ) $(NOTIFY_A)
 	mkdir -p build
 	$(CC) $(CFLAGS) -o "build/$(CB_NAME).exe" $(t-units) $(ICON_OBJ) $(CLIENT_LIBS)
 

@@ -1,6 +1,7 @@
 #include "app.h"
 #include "transport.h"
 #include "command_line.h"
+#include "version.h"
 #include <wtsapi32.h>
 #include <userenv.h>
 #include <shellapi.h>
@@ -137,6 +138,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
         if (!args) throw notifications::failure{HRESULT_FROM_WIN32(command_error ? command_error : ERROR_GEN_FAILURE), L"Read notification command"};
         auto request = notifications::parse_command(argc, args);
         notifications::set_diagnostics(manual || request.kind == notifications::command_kind::help || request.kind == notifications::command_kind::version);
+        notifications::trace(L"BigBrother Notifications " BB_WIDEN(BB_VERSION));
         notifications::trace(L"BigBrother Notifications build " BB_WIDEN(__DATE__) L" " BB_WIDEN(__TIME__));
         notifications::trace(L"Executable: " + notifications::executable_path());
         if (manual) notifications::trace(L"Manual test command accepted for " + request.app.display_name());

@@ -134,14 +134,7 @@ public static class ClientUpdates
     }
 
     private static string InstallDirectory => Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, ".."));
-    public static string InstalledVersion
-    {
-        get
-        {
-            var path = Path.Combine(InstallDirectory, "client-version.txt");
-            return System.IO.File.Exists(path) ? System.IO.File.ReadAllText(path).Trim() : "0.0.0";
-        }
-    }
+    public static string InstalledVersion => BuildVersion.Current;
 
     public static async Task<ClientUpdate?> CheckAsync(IpcService ipc)
     {
