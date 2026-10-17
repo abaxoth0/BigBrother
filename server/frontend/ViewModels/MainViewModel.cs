@@ -178,6 +178,7 @@ public class MainViewModel : ViewModelBase
         ImportWhitelistsCommand = new RelayCommand(async _ => await ImportWhitelistsAsync());
         ExportWhitelistsCommand = new RelayCommand(async _ => await ExportWhitelistsAsync(), _ => Whitelists.Any(w => w.IsSelected));
         DeleteSelectedWhitelistsCommand = new RelayCommand(async _ => await DeleteSelectedWhitelistsAsync(), _ => Whitelists.Any(w => w.IsSelected));
+        BrowseClientUpdateCommand = new RelayCommand(_ => BrowseClientUpdate());
         PublishClientUpdateCommand = new RelayCommand(async _ => await PublishClientUpdateAsync(), _ => IsConnected);
         ClearClientUpdateCommand = new RelayCommand(async _ => await ClearClientUpdateAsync(), _ => IsConnected);
         SaveServerSettingsCommand = new RelayCommand(async _ => await SaveAllServerSettingsAsync());
@@ -421,7 +422,19 @@ public class MainViewModel : ViewModelBase
     private string _clientUpdateStatus = "Обновление не опубликовано";
     public string ClientUpdateLocation { get => _clientUpdateLocation; set => SetProperty(ref _clientUpdateLocation, value); }
     public string ClientUpdateStatus { get => _clientUpdateStatus; set => SetProperty(ref _clientUpdateStatus, value); }
+    public ICommand BrowseClientUpdateCommand { get; }
     public ICommand PublishClientUpdateCommand { get; }
+
+    private void BrowseClientUpdate()
+    {
+        var dialog = new Microsoft.Win32.OpenFileDialog {
+            Title = "Выберите пакет обновления клиента",
+            Filter = "Пакет обновления (*.exe)|*.exe",
+            CheckFileExists = true,
+            Multiselect = false
+        };
+        if (dialog.ShowDialog() == true) ClientUpdateLocation = dialog.FileName;
+    }
     public ICommand ClearClientUpdateCommand { get; }
 
     private async Task LoadClientUpdateAsync()
@@ -452,7 +465,7 @@ public class MainViewModel : ViewModelBase
                     Convert.ToHexStringLower(SHA256.HashData(package)) != manifest["sha256"]?.GetValue<string>())
                     throw new IOException("Размер или SHA-256 пакета не совпадает с манифестом.");
                 manifest["location"] = location;
-                return manifest.ToJsonString(new JsonSerializerOptions { WriteIndented = false });
+                return manifest.ToJsonString(new JsonSerializerOptions { WriteIndented = false, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
             });
             await _ipcService.ClientUpdateAsync(metadata);
             await LoadClientUpdateAsync();

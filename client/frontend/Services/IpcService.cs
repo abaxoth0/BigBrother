@@ -273,12 +273,12 @@ public class IpcService : IDisposable
         await _connectionLock.WaitAsync();
         try
         {
-            if (!await ConnectAsync()) return "";
+            if (!await ConnectAsync()) throw new IOException("Нет соединения с клиентом.");
             try
             {
                 using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
                 var (status, data) = await SendCommandAsync("GET_CLIENT_UPDATE", Array.Empty<string>(), timeout.Token);
-                if (status != "OK") return "";
+                if (status != "OK") throw new IOException(string.IsNullOrEmpty(_lastError) ? "Не удалось получить обновление с сервера." : _lastError);
                 return data.Count > 0 ? data[0] : "";
             }
             finally { Disconnect(); }

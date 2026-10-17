@@ -5,9 +5,7 @@ namespace frontend;
 
 public partial class App : System.Windows.Application
 {
-    private readonly System.Windows.Threading.DispatcherTimer _updateTimer = new() { Interval = TimeSpan.FromMinutes(5) };
-    private bool _checkingUpdates;
-    private string _lastUpdateError = "";
+    private bool _installingUpdate;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -29,9 +27,7 @@ public partial class App : System.Windows.Application
         }
         MainWindow = new MainWindow();
         MainWindow.Show();
-        _updateTimer.Tick += async (_, _) => await CheckForUpdatesAsync();
-        _updateTimer.Start();
-        _ = CheckForUpdatesAsync();
+        _ = RecoverInterruptedUpdateAsync();
     }
 
     private static async Task ApplyUpdateAsync(string work, UpdateProgressWindow progress)
@@ -47,36 +43,42 @@ public partial class App : System.Windows.Application
         }
     }
 
-    public async Task CheckForUpdatesAsync()
+    private async Task RecoverInterruptedUpdateAsync()
     {
-        if (_checkingUpdates) return;
-        _checkingUpdates = true;
-        UpdateProgressWindow? progress = null;
         try
         {
             var work = await Task.Run(ClientUpdates.PendingRecovery);
-            if (work == null)
-            {
-                using var ipc = new IpcService();
-                work = await Task.Run(() => ClientUpdates.PrepareAsync(ipc, text => Dispatcher.Invoke(() => {
-                    if (progress == null) { progress = new UpdateProgressWindow(); progress.Show(); }
-                    progress.Report(text);
-                })));
-            }
-            if (work == null) { _lastUpdateError = ""; return; }
+            if (work == null) return;
             ClientUpdates.Launch(work);
-            progress?.Dismiss();
             Shutdown();
         }
         catch (Exception ex)
         {
-            if (progress != null || _lastUpdateError != ex.Message)
-            {
-                if (progress == null) { progress = new UpdateProgressWindow(); progress.Show(); }
-                progress.Finish("Не удалось подготовить обновление.\n" + ex.Message);
-            }
-            _lastUpdateError = ex.Message;
+            var progress = new UpdateProgressWindow();
+            progress.Show();
+            progress.Finish("Не удалось восстановить прерванное обновление.\n" + ex.Message);
         }
-        finally { _checkingUpdates = false; }
+    }
+
+    public async Task InstallUpdateAsync(ClientUpdate update)
+    {
+        if (_installingUpdate) return;
+        _installingUpdate = true;
+        var progress = new UpdateProgressWindow();
+        progress.Show();
+        try
+        {
+            using var ipc = new IpcService();
+            var work = await Task.Run(() => ClientUpdates.PrepareAsync(ipc, update, progress.Report));
+            ClientUpdates.Launch(work);
+            progress.Dismiss();
+            Shutdown();
+        }
+        catch
+        {
+            progress.Dismiss();
+            throw;
+        }
+        finally { _installingUpdate = false; }
     }
 }

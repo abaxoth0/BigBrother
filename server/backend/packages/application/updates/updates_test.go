@@ -26,7 +26,13 @@ func TestPublicationMetadata(t *testing.T) {
 		func(m *Manifest) { m.Version = "1.4.0-beta" },
 		func(m *Manifest) { m.SHA256 = "bad" },
 		func(m *Manifest) { m.Size = MaxSize + 1 },
-		func(m *Manifest) { m.File = strings.Repeat("<", 1500) },
+		func(m *Manifest) { m.File = strings.Repeat("<", 30000) },
+		func(m *Manifest) {
+			m.ReleaseNotes = &ReleaseNotes{Version: "1.4.0", Sections: []ReleaseSection{{Kind: "unknown", Items: []string{"entry"}}}}
+		},
+		func(m *Manifest) {
+			m.ReleaseNotes = &ReleaseNotes{Version: "1.4.0", Sections: []ReleaseSection{{Kind: "fixed", Items: []string{""}}}}
+		},
 	} {
 		m := valid
 		change(&m)
@@ -34,5 +40,22 @@ func TestPublicationMetadata(t *testing.T) {
 		if _, err := Parse(string(data)); err == nil {
 			t.Fatalf("invalid publication accepted: %s", data)
 		}
+	}
+}
+
+func TestReleaseNotesRoundTrip(t *testing.T) {
+	expected := Manifest{Version: "1.4.0", Location: `Z:\update.exe`, Size: 4096, SHA256: strings.Repeat("a", 64),
+		ReleaseNotes: &ReleaseNotes{Version: "Unreleased", Sections: []ReleaseSection{{Kind: "changed", Items: []string{strings.Repeat("Описание изменений. ", 1000)}}}}}
+	data, _ := json.Marshal(expected)
+	got, err := Parse(string(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ReleaseNotes.Sections[0].Items[0] != expected.ReleaseNotes.Sections[0].Items[0] {
+		t.Fatal("release notes lost during parsing")
+	}
+	got.ReleaseNotes.Sections[0].Items[0] = strings.Repeat("a", MaxMetadataSize)
+	if err := got.Validate(); err == nil {
+		t.Fatal("oversized notes accepted")
 	}
 }

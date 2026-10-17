@@ -20,12 +20,15 @@ To build both installers from already published binaries:
 
 ```sh
 ./build-installers.sh
-./build-installers.sh /path/to/payload /path/to/installers 1.2.3
+./build-installers.sh /path/to/payload /path/to/installers 1.4.0 Unreleased
 ```
 
 The arguments are the payload directory (default: repository `dist`), installer
 output directory (default: repository `dist/installers`), and version (default:
-`1.0.0`). Three or four numeric version components are accepted. Paths containing
+`1.0.0`), optional changelog version (default: package version), and optional
+changelog path (default: repository `CHANGELOG.md`). The selected changelog
+version must exist; `Unreleased` can be selected explicitly for development
+packages. Three or four numeric package version components are accepted. Paths containing
 spaces work, and scripts can be invoked from outside the repository.
 
 The payload must contain:

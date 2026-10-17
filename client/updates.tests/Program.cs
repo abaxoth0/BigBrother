@@ -1,6 +1,8 @@
 using frontend.Services;
 using System.Text.Json;
 
+await ManualUpdateTests.RunAsync();
+
 static void Assert(bool condition, string message)
 {
     if (!condition) throw new Exception(message);

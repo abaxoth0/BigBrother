@@ -3,11 +3,11 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [[ "${1:-}" == --help ]]; then
-    echo "Usage: $0 [payload-dir [installer-output-dir [version]]]"
+    echo "Usage: $0 [payload-dir [installer-output-dir [version [notes-version [changelog-file]]]]]"
     echo "Defaults: $SCRIPT_DIR/dist, $SCRIPT_DIR/dist/installers, 1.0.0"
     exit 0
 fi
-if [[ $# -gt 3 ]]; then
+if [[ $# -gt 5 ]]; then
     echo "Too many arguments; use --help for usage." >&2
     exit 2
 fi
@@ -16,10 +16,13 @@ source "$SCRIPT_DIR/scripts/frontend-files.sh"
 PAYLOAD_DIR="$(realpath -e "${1:-$SCRIPT_DIR/dist}")"
 INSTALLER_OUTPUT_DIR="${2:-$SCRIPT_DIR/dist/installers}"
 VERSION="${3:-1.0.0}"
+NOTES_VERSION="${4:-$VERSION}"
+CHANGELOG_FILE="${5:-$SCRIPT_DIR/CHANGELOG.md}"
 if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
     echo "Version must contain three or four numeric components." >&2
     exit 1
 fi
+python3 "$SCRIPT_DIR/scripts/update-manifest.py" --version "$VERSION" --notes-version "$NOTES_VERSION" --changelog "$CHANGELOG_FILE" --validate-only
 if [[ ! -f "$INNO_ISCC" ]]; then
     echo "Inno Setup compiler not found: $INNO_ISCC" >&2
     echo "Run $SCRIPT_DIR/install-inno-setup.sh first." >&2
@@ -52,16 +55,6 @@ for product in Client Server Client-Update; do
         "--define=PayloadDir=$PAYLOAD_WINDOWS" "--define=ProductVersion=$VERSION" \
         "--output-dir=$OUTPUT_WINDOWS" "$SCRIPT_WINDOWS"
 done
-python3 - "$INSTALLER_OUTPUT_DIR" "$VERSION" <<'PYUPDATE'
-import hashlib, json, pathlib, sys
-root, version = pathlib.Path(sys.argv[1]), sys.argv[2]
-package = root / f"BigBrother-{version}-Client-Update.exe"
-digest = hashlib.sha256()
-with package.open("rb") as source:
-    for block in iter(lambda: source.read(1024 * 1024), b""):
-        digest.update(block)
-manifest = {"version": version, "file": package.name, "size": package.stat().st_size,
-            "sha256": digest.hexdigest()}
-package.with_suffix(".json").write_text(json.dumps(manifest) + "\n")
-PYUPDATE
+python3 "$SCRIPT_DIR/scripts/update-manifest.py" --version "$VERSION" --notes-version "$NOTES_VERSION" \
+    --changelog "$CHANGELOG_FILE" --package "$INSTALLER_OUTPUT_DIR/BigBrother-$VERSION-Client-Update.exe"
 echo "Installers and client update built in $INSTALLER_OUTPUT_DIR"

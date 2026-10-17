@@ -620,7 +620,10 @@
                                 <GroupBox Header="Обновления клиентов" Margin="0,0,0,12">
                                     <StackPanel Margin="12">
                                         <TextBlock Text="Путь к EXE обновления, доступный на каждом клиенте"/>
-                                        <TextBox Text="{Binding ClientUpdateLocation, UpdateSourceTrigger=PropertyChanged}" Margin="0,6,0,8"/>
+                                        <DockPanel Margin="0,6,0,8">
+                                            <Button DockPanel.Dock="Right" Content="Обзор…" Command="{Binding BrowseClientUpdateCommand}" Margin="8,0,0,0"/>
+                                            <TextBox Text="{Binding ClientUpdateLocation, UpdateSourceTrigger=PropertyChanged}" VerticalContentAlignment="Center"/>
+                                        </DockPanel>
                                         <TextBlock Text="Рядом с EXE должен находиться JSON манифест из сборки. Клиенты копируют пакет локально перед установкой."
                                                    TextWrapping="Wrap" Foreground="{StaticResource TextDim}"/>
                                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">

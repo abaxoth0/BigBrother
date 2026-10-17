@@ -14,8 +14,23 @@ prebuilt self-contained frontends in `dist`, as described in `INSTALLERS.md`.
 Then run:
 
 ```sh
-./build-installers.sh /path/to/payload /path/to/output 1.4.0
+./build-installers.sh /path/to/payload /path/to/output 1.4.0 Unreleased
 ```
+
+The fourth argument selects the CHANGELOG.md section for release notes; it
+otherwise defaults to the package version. Use `1.3.0` to read `## [1.3.0]`, or
+`Unreleased` for development packages. A missing version fails the build. An
+optional fifth argument selects another changelog file. For example:
+
+```sh
+./build-installers.sh /path/to/payload /path/to/output 1.3.0 1.3.0 /path/to/CHANGELOG.md
+```
+
+Added, Removed, Changed, Fixed, Deprecated and Security bullets become structured
+`release_notes` in the JSON manifest. Wrapped lines and nested bullets are
+preserved; common inline Markdown is converted to plain text. The server retains
+these notes when publishing, and the client displays translated section headings.
+Older manifests without notes still work and show that no description was supplied.
 
 Alongside the two normal installers this produces:
 
@@ -31,7 +46,8 @@ that initial manual upgrade.
 
 Copy the EXE and JSON to the already configured shared directory. They must
 share the same basename; renaming them both is supported. In server settings,
-enter the EXE path under **Обновления клиентов**, then click **Опубликовать**.
+click **Обзор…** under **Обновления клиентов**, select the EXE, then click
+**Опубликовать**. The path can still be edited when needed.
 The server frontend reads the adjacent JSON and checks the executable's size
 and SHA-256 before publishing the location, version, size and hash. The server
 service never needs access to the mapped drive. Metadata is saved through the
@@ -46,9 +62,15 @@ dependency. Normal share permissions and network access still apply.
 
 ## Installation and recovery
 
-The client checks on GUI startup and every five minutes while its GUI is open.
-Its backend announces newer updates on server subscription and publication,
-including when the GUI is closed; clicking the notification opens the GUI.
+Open the client's **Обновления** tab and click **Проверить обновления**. This
+loads metadata and release notes without copying or executing the shared package.
+The tab shows installed/available versions and the selected changelog sections.
+Click **Установить обновление** to copy and install the reviewed package. The
+client rechecks its version, hash, size and location before copying; if the server
+changed the package, check again to review the current release. Background update
+polling, automatic installation and backend update announcements are disabled.
+Recovery of an already interrupted installation still runs at startup.
+
 The update runs with required administrator rights and an explicit `runas`
 launch. Windows may reuse elevation when the launching GUI is already elevated.
 No SYSTEM service launches an installer to bypass user elevation.
@@ -74,9 +96,9 @@ preserved.
 
 On failure, the updater verifies the full backup, restores the old files and
 configuration, removes files created by the failed version, restores security,
-and returns the service to its previous state. Failed package hashes are not
-automatically retried. Publish a corrected package with a newer version, or
-remove that completed failure's staging directory to permit an explicit retry.
+and returns the service to its previous state. Retrying requires another
+explicit check and installation action; failed packages are never retried in
+the background.
 
 Journals survive termination/reboot. The next GUI launch starts the retained
 runner to finish recovery. If the installed GUI cannot start, run the retained
@@ -97,13 +119,16 @@ disk or permission failures cannot guarantee automatic recovery.
 ## Validation
 
 ```sh
+python3 -m unittest discover -s scripts/tests -p '*_test.py'
 dotnet run --project client/updates.tests/BigBrother.Client.Updates.Tests.csproj
 cd server/backend
 go test ./...
 ```
 
-The portable recovery tests exercise partial replacement, configuration changes,
-repeated recovery, damaged backup rejection, metadata and unsafe paths. Windows
+The parser and portable tests exercise release selection, structured Unicode
+notes, explicit checks without installation, stale-state rejection, partial
+replacement, configuration changes, repeated recovery, damaged backup rejection,
+metadata and unsafe paths. Windows
 RPC tests also cover publication permissions, authentication, invalid metadata,
 write failure and withdrawal. The installer can be compiled and extraction tested
 under Wine. Real Windows validation is still needed for UAC, DACL enforcement,

@@ -4,6 +4,7 @@ package rpc
 
 import (
 	"crypto/subtle"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -68,7 +69,7 @@ func (h *BackendHandler) handle(conn net.Conn) {
 		log.Debug("Received: "+cmd, nil)
 
 		switch cmd {
-		case "GET_CLIENT_UPDATE":
+		case "GET_CLIENT_UPDATE", "GET_CLIENT_UPDATE_DETAILS":
 			if len(args) != 2 || !h.authenticate(args[0], args[1]) {
 				writeErrorTLV(conn, "invalid token")
 				continue
@@ -82,9 +83,15 @@ func (h *BackendHandler) handle(conn net.Conn) {
 				writeOK(conn)
 				continue
 			}
-			if _, err := updates.Parse(data); err != nil {
+			manifest, err := updates.Parse(data)
+			if err != nil {
 				writeErrorTLV(conn, err.Error())
 				continue
+			}
+			if cmd == "GET_CLIENT_UPDATE" {
+				manifest.ReleaseNotes = nil
+				metadata, _ := json.Marshal(manifest)
+				data = string(metadata)
 			}
 			writeTLVResponse(conn, data)
 

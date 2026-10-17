@@ -5,26 +5,8 @@ using System.Security.AccessControl;
 using System.Security.Principal;
 using System.ServiceProcess;
 using System.Text.Json;
-using System.Text.Json.Serialization;
-using System.Text.RegularExpressions;
 
 namespace frontend.Services;
-
-public sealed record ClientUpdate(
-    [property: JsonPropertyName("version")] string Version,
-    [property: JsonPropertyName("file")] string File,
-    [property: JsonPropertyName("location")] string Location,
-    [property: JsonPropertyName("size")] long Size,
-    [property: JsonPropertyName("sha256")] string Sha256)
-{
-    public void Validate()
-    {
-        if (!Regex.IsMatch(Version, @"^\d{1,5}\.\d{1,5}\.\d{1,5}(\.\d{1,5})?$") ||
-            !System.Version.TryParse(Version, out _) || Size < 2 || Size > 1024L * 1024 * 1024 ||
-            !Regex.IsMatch(Sha256, "^[a-f0-9]{64}$") || !Path.IsPathFullyQualified(Location) ||
-            !Location.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) throw new IOException("Invalid update metadata.");
-    }
-}
 
 public sealed class UpdateTransaction
 {
@@ -152,6 +134,24 @@ public static class ClientUpdates
     }
 
     private static string InstallDirectory => Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, ".."));
+    public static string InstalledVersion
+    {
+        get
+        {
+            var path = Path.Combine(InstallDirectory, "client-version.txt");
+            return System.IO.File.Exists(path) ? System.IO.File.ReadAllText(path).Trim() : "0.0.0";
+        }
+    }
+
+    public static async Task<ClientUpdate?> CheckAsync(IpcService ipc)
+    {
+        var json = await ipc.GetClientUpdateAsync();
+        if (string.IsNullOrEmpty(json)) return null;
+        var update = JsonSerializer.Deserialize<ClientUpdate>(json) ?? throw new IOException("Отсутствуют сведения об обновлении.");
+        update.Validate();
+        return update;
+    }
+
     private static string Journal(string work) => Path.Combine(work, "transaction.json");
 
     public static string? PendingRecovery()
@@ -172,29 +172,17 @@ public static class ClientUpdates
         return null;
     }
 
-    public static async Task<string?> PrepareAsync(IpcService ipc, Action<string> progress)
+    public static async Task<string> PrepareAsync(IpcService ipc, ClientUpdate approved, Action<string> progress)
     {
         RequireAdmin();
         RequireLocal(InstallDirectory);
-        var json = await ipc.GetClientUpdateAsync();
-        if (string.IsNullOrEmpty(json)) return null;
-        var update = JsonSerializer.Deserialize<ClientUpdate>(json) ?? throw new IOException("Missing update metadata.");
-        update.Validate();
-        var versionFile = Path.Combine(InstallDirectory, "client-version.txt");
-        var current = System.IO.File.Exists(versionFile) ? System.IO.File.ReadAllText(versionFile).Trim() : "0.0.0";
-        static System.Version ReleaseVersion(System.Version value) => new(value.Major, value.Minor, Math.Max(0, value.Build), Math.Max(0, value.Revision));
-        if (System.Version.TryParse(current, out var installed) && ReleaseVersion(System.Version.Parse(update.Version)) <= ReleaseVersion(installed)) return null;
+        approved.Validate();
+        var update = await CheckAsync(ipc);
+        if (update == null || !approved.SamePackage(update))
+            throw new IOException("Обновление на сервере изменилось. Проверьте обновления ещё раз.");
+        if (!update.IsNewerThan(InstalledVersion)) throw new IOException("Установлена актуальная версия.");
+        if (PendingRecovery() != null) throw new IOException("Сначала необходимо восстановить прерванное обновление. Перезапустите клиент.");
         PrivateDirectory(Root);
-        foreach (var directory in Directory.EnumerateDirectories(Root))
-        {
-            RequireLocal(directory);
-            var journal = Journal(directory);
-            if (!System.IO.File.Exists(journal)) continue;
-            AssertPrivate(journal, false);
-            var previous = JsonSerializer.Deserialize<UpdateTransaction>(System.IO.File.ReadAllText(journal));
-            if (previous?.Phase is "failed" or "restored" && previous.Update.Sha256 == update.Sha256 &&
-                previous.Install.Equals(InstallDirectory, StringComparison.OrdinalIgnoreCase)) return null;
-        }
         var work = Path.Combine(Root, Guid.NewGuid().ToString("N"));
         PrivateDirectory(work);
         try
