@@ -90,6 +90,7 @@ func (db *Database) initTables() error {
 		`CREATE TABLE IF NOT EXISTS whitelist (
 		id 				BLOB NOT NULL PRIMARY KEY,
 		name 			TEXT UNIQUE NOT NULL,
+		is_active       INTEGER NOT NULL DEFAULT 0,
 		parent_id		BLOB REFERENCES whitelist(id) ON DELETE SET NULL
 	)`
 	createWhitelistDomainTableSQL :=
@@ -181,5 +182,20 @@ func (db *Database) migrate() error {
 	if err := ensureColumn("user", "sign_public", "ALTER TABLE user ADD COLUMN sign_public TEXT"); err != nil {
 		return fmt.Errorf("Failed to migrate user table: %v", err)
 	}
-	return nil
+	if err := ensureColumn("whitelist", "is_active", "ALTER TABLE whitelist ADD COLUMN is_active INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return fmt.Errorf("Failed to migrate whitelist table: %v", err)
+	}
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`UPDATE whitelist SET is_active = 1
+		WHERE name = (SELECT value FROM settings WHERE key = 'active_whitelist')`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec("DELETE FROM settings WHERE key = 'active_whitelist'"); err != nil {
+		return err
+	}
+	return tx.Commit()
 }

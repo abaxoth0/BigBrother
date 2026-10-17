@@ -13,6 +13,8 @@ type QueryHandler interface {
 
 type CommandHandler interface {
 	CreateWhitelist(name string, parentID string) error
+	SetWhitelistActive(name string, active bool) error
+	SetWhitelistsActive(states map[string]bool) (bool, error)
 	ChangeWhitelistName(name string, newName string) error
 	DeleteWhitelist(name string) error
 

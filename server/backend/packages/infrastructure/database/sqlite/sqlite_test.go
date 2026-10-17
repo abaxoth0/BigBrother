@@ -15,6 +15,42 @@ func newTestDatabase(t *testing.T) *Database {
 	return db
 }
 
+func TestSetWhitelistsActiveTransaction(t *testing.T) {
+	db := newTestDatabase(t)
+	for _, name := range []string{"first", "second", "untouched"} {
+		if err := db.CreateWhitelist(name, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	changed, err := db.SetWhitelistsActive(map[string]bool{"first": true, "second": true})
+	if err != nil || !changed {
+		t.Fatalf("batch save: %v, %v", changed, err)
+	}
+	changed, err = db.SetWhitelistsActive(map[string]bool{"first": true, "second": true})
+	if err != nil || changed {
+		t.Fatalf("unchanged save: %v, %v", changed, err)
+	}
+	if _, err := db.SetWhitelistsActive(map[string]bool{"first": false, "zz-missing": true}); err == nil {
+		t.Fatal("batch with missing list succeeded")
+	}
+	for name, active := range map[string]bool{"first": true, "second": true, "untouched": false} {
+		wl, err := db.GetWhitelistByName(name)
+		if err != nil || wl.IsActive != active {
+			t.Fatalf("partial batch or unrelated change: %+v, %v", wl, err)
+		}
+	}
+	changed, err = db.SetWhitelistsActive(map[string]bool{"first": false, "second": false})
+	if err != nil || !changed {
+		t.Fatalf("disable batch: %v, %v", changed, err)
+	}
+	for _, name := range []string{"first", "second"} {
+		wl, err := db.GetWhitelistByName(name)
+		if err != nil || wl.IsActive {
+			t.Fatalf("batch disable not persisted: %+v, %v", wl, err)
+		}
+	}
+}
+
 func TestUserToken(t *testing.T) {
 	db := newTestDatabase(t)
 
@@ -128,9 +164,6 @@ func TestChangeUsersWhitelistAndDeleteUsers(t *testing.T) {
 	if err := db.CreateWhitelist("main", ""); err != nil {
 		t.Fatalf("create whitelist: %v", err)
 	}
-	if err := db.SetSetting("active_whitelist", "main"); err != nil {
-		t.Fatalf("set active: %v", err)
-	}
 
 	if err := db.ChangeUsersWhitelist("main", "dave"); err != nil {
 		t.Fatalf("ChangeUsersWhitelist: %v", err)
@@ -178,38 +211,5 @@ func TestWhitelistEntries(t *testing.T) {
 	}
 	if len(entries) != 0 {
 		t.Fatalf("expected 0 entries, got %d", len(entries))
-	}
-}
-
-// TestActiveWhitelistSetting exercises the DB primitives backing the
-// client-facing GET_WHITELIST path: a known user + active whitelist setting
-// yields the active whitelist's entries.
-func TestActiveWhitelistSetting(t *testing.T) {
-	db := newTestDatabase(t)
-
-	if _, err := db.CreateUser("eve", "10.0.0.4"); err != nil {
-		t.Fatalf("create user: %v", err)
-	}
-	if err := db.CreateWhitelist("default", ""); err != nil {
-		t.Fatalf("create whitelist: %v", err)
-	}
-	if err := db.SetSetting("active_whitelist", "default"); err != nil {
-		t.Fatalf("set active: %v", err)
-	}
-	if err := db.AddWhitelistEntry("example.com", "default"); err != nil {
-		t.Fatalf("add entry: %v", err)
-	}
-
-	// Mirrors BackendHandler.GetWhitelist (see windows-tagged handler test).
-	if _, err := db.GetUserByName("eve"); err != nil {
-		t.Fatalf("user lookup: %v", err)
-	}
-	active, err := db.GetSetting("active_whitelist")
-	if err != nil || active != "default" {
-		t.Fatalf("active whitelist: %q, %v", active, err)
-	}
-	entries, err := db.GetWhitelistEntries(active)
-	if err != nil || len(entries) != 1 || entries[0].Value != "example.com" {
-		t.Fatalf("unexpected served whitelist: %v, %v", entries, err)
 	}
 }

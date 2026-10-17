@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"bigbrother_server_backend/packages/application/settings"
+	whitelistapplication "bigbrother_server_backend/packages/application/whitelist"
 	"bigbrother_server_backend/packages/domain/entity"
 	"bigbrother_server_backend/packages/infrastructure/connection"
 	"bigbrother_server_backend/packages/infrastructure/database"
@@ -272,15 +273,11 @@ func (s *BackendHandler) GetWhitelist(username string) []*entity.WhitelistEntry 
 	if _, err := s.db.GetUserByName(username); err != nil {
 		return nil
 	}
-	activeWl, err := s.db.GetSetting("active_whitelist")
-	if err != nil || activeWl == "" {
-		return nil
-	}
-	entries, err := s.db.GetWhitelistEntries(activeWl)
+	composition, err := whitelistapplication.Compose(s.db)
 	if err != nil {
 		return nil
 	}
-	return entries
+	return composition.Entries
 }
 
 func (s *BackendHandler) ConnectUser(name string, addr string) error {

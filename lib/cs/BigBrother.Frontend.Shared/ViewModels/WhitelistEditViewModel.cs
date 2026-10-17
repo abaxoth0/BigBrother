@@ -10,7 +10,6 @@ public class WhitelistEditViewModel : ViewModelBase
     private string _originalName = "";
     private bool _isEditMode;
     private WhitelistAnalysis _analysis = WhitelistRules.Analyze("");
-    private string _testInput = "";
 
     public WhitelistEditViewModel()
     {
@@ -41,24 +40,12 @@ public class WhitelistEditViewModel : ViewModelBase
     public string ValidationSummary => _analysis.Issues.Count == 0
         ? $"Ошибок нет. Правил: {_analysis.Rules.Count}."
         : string.Join("\n", _analysis.Issues);
-    public string TestInput
-    {
-        get => _testInput;
-        set
-        {
-            if (SetProperty(ref _testInput, value)) OnPropertyChanged(nameof(TestResult));
-        }
-    }
-    public string TestResult => string.IsNullOrWhiteSpace(TestInput)
-        ? "Введите адрес для проверки текущих правил."
-        : WhitelistRules.Test(_analysis, TestInput);
 
     private void RefreshAnalysis()
     {
         _analysis = WhitelistRules.Analyze(_entriesText);
         OnPropertyChanged(nameof(ValidationIssues));
         OnPropertyChanged(nameof(ValidationSummary));
-        OnPropertyChanged(nameof(TestResult));
         (SaveCommand as RelayCommand)?.RaiseCanExecuteChanged();
     }
 

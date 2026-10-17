@@ -9,6 +9,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -18,15 +19,14 @@ import (
 	"testing"
 	"time"
 
+	"bigbrother_server_backend/packages/domain/entity"
 	"bigbrother_server_backend/packages/infrastructure/connection"
 	"bigbrother_server_backend/packages/infrastructure/database"
 	"bigbrother_server_backend/packages/infrastructure/database/sqlite"
 	"bigbrother_server_backend/packages/infrastructure/notification"
 )
 
-// TestBackendHandlerGetWhitelistServing is a Windows-only guard for the
-// client-facing GET_WHITELIST path: the backend handler must return the global
-// active whitelist for a known user and nothing for an unknown one.
+// TestBackendHandlerGetWhitelistServing checks that known users receive the active composition.
 func TestBackendHandlerGetWhitelistServing(t *testing.T) {
 	db := sqlite.New(filepath.Join(t.TempDir(), "bb-handler-test.db"))
 	if err := db.Connect(); err != nil {
@@ -40,7 +40,7 @@ func TestBackendHandlerGetWhitelistServing(t *testing.T) {
 	if err := db.CreateWhitelist("default", ""); err != nil {
 		t.Fatalf("create whitelist: %v", err)
 	}
-	if err := db.SetSetting("active_whitelist", "default"); err != nil {
+	if err := db.SetWhitelistActive("default", true); err != nil {
 		t.Fatalf("set active: %v", err)
 	}
 	if err := db.AddWhitelistEntry("example.com", "default"); err != nil {
@@ -51,6 +51,60 @@ func TestBackendHandlerGetWhitelistServing(t *testing.T) {
 	entries := handler.GetWhitelist("eve")
 	if len(entries) != 1 || entries[0].Value != "example.com" {
 		t.Fatalf("unexpected served whitelist: %+v", entries)
+	}
+
+	if err := db.CreateWhitelist("second", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.ReplaceWhitelistEntries([]string{"EXAMPLE.com", "!example.com", "second.org"}, "second"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetWhitelistActive("second", true); err != nil {
+		t.Fatal(err)
+	}
+	entries = handler.GetWhitelist("eve")
+	if len(entries) != 1 || entries[0].Value != "second.org" {
+		t.Fatalf("unexpected composed whitelist: %+v", entries)
+	}
+	if err := db.SetUserToken("eve", "token"); err != nil {
+		t.Fatal(err)
+	}
+	response := handlerResponse(t, handler, "GET_WHITELIST\n3\neve\n5\ntoken\n\n")
+	if response != "OK\n10\nsecond.org\n\n" {
+		t.Fatalf("unexpected whitelist response: %q", response)
+	}
+
+	frontend := NewFrontendHandler(db, nil, nil, nil)
+	if response := handlerResponse(t, frontend, "GET_COMPOSED_WHITELIST\n\n"); response != "OK\n10\nsecond.org\n\n" {
+		t.Fatalf("domain checker composition differs from client whitelist: %q", response)
+	}
+	if err := db.AddWhitelistEntry("SECOND.ORG", "default"); err != nil {
+		t.Fatal(err)
+	}
+	response = handlerResponse(t, frontend, "GET_COMPOSED_WHITELIST_DETAILS\n\n")
+	lines := strings.Split(response, "\n")
+	if len(lines) != 5 || lines[0] != "OK" {
+		t.Fatalf("unexpected details response: %q", response)
+	}
+	var details []entity.WhitelistEntry
+	if err := json.Unmarshal([]byte(lines[2]), &details); err != nil {
+		t.Fatal(err)
+	}
+	if len(details) != 1 || details[0].Value != "second.org" ||
+		strings.Join(details[0].Sources, ",") != "default,second" {
+		t.Fatalf("deduplicated rule sources missing: %+v", details)
+	}
+	if err := db.SetWhitelistActive("default", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetWhitelistActive("second", false); err != nil {
+		t.Fatal(err)
+	}
+	if response := handlerResponse(t, frontend, "GET_COMPOSED_WHITELIST\n\n"); response != "OK\n\n" {
+		t.Fatalf("unexpected empty composition: %q", response)
+	}
+	if response := handlerResponse(t, frontend, "GET_COMPOSED_WHITELIST_DETAILS\n\n"); response != "OK\n2\n[]\n\n" {
+		t.Fatalf("unexpected empty details: %q", response)
 	}
 
 	if entries := handler.GetWhitelist("ghost"); entries != nil {
@@ -309,4 +363,144 @@ func TestFrontendValidatesAndPersistsServerPort(t *testing.T) {
 	if response := handlerResponse(t, h, "SET_SERVER_PORT\n4\n4443\n\n"); !strings.HasPrefix(response, "ERROR\n") {
 		t.Fatalf("write failure hidden: %q", response)
 	}
+}
+
+func TestFrontendWhitelistActivation(t *testing.T) {
+	db := sqlite.New(filepath.Join(t.TempDir(), "activation.db"))
+	if err := db.Connect(); err != nil {
+		t.Fatal(err)
+	}
+	defer db.Disconnect()
+	for _, name := range []string{"first", "second"} {
+		if err := db.CreateWhitelist(name, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.ReplaceWhitelistEntries([]string{"example.org"}, "first"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.ReplaceWhitelistEntries([]string{"!example.org"}, "second"); err != nil {
+		t.Fatal(err)
+	}
+	events := 0
+	bus := notification.NewManagerWithNotifier(func(event notification.Event) {
+		if event.Type == notification.WhitelistChanged {
+			events++
+		}
+	})
+	h := NewFrontendHandler(db, nil, nil, bus)
+	for _, name := range []string{"first", "second"} {
+		request := fmt.Sprintf("SET_WHITELIST_ACTIVE\n%d\n%s\n1\n1\n\n", len(name), name)
+		if response := handlerResponse(t, h, request); response != "OK\n\n" {
+			t.Fatalf("response: %q", response)
+		}
+	}
+	if events != 2 {
+		t.Fatalf("expected two client refresh events, got %d", events)
+	}
+	response := handlerResponse(t, h, "GET_WHITELISTS\n\n")
+	for _, value := range []string{"first:1:true", "second:1:true"} {
+		if !strings.Contains(response, value) {
+			t.Fatalf("missing active flag in response: %q", response)
+		}
+	}
+	response = handlerResponse(t, h, "GET_WHITELIST_CONFLICTS\n\n")
+	if !strings.Contains(response, `[{"pattern":"example.org","allowedBy":["first"],"excludedBy":["second"]}]`) {
+		t.Fatalf("conflict sources missing: %q", response)
+	}
+	for _, request := range []string{
+		"SET_WHITELIST_ACTIVE\n\n", "SET_WHITELIST_ACTIVE\n5\nfirst\n\n",
+		"SET_WHITELIST_ACTIVE\n5\nfirst\n3\nyes\n\n", "SET_WHITELIST_ACTIVE\n7\nmissing\n1\n1\n\n",
+	} {
+		if response := handlerResponse(t, h, request); !strings.HasPrefix(response, "ERROR\n") {
+			t.Fatalf("invalid request accepted: %q", response)
+		}
+	}
+	h = NewFrontendHandler(failedWhitelistDB{DBInstance: db}, nil, nil, nil)
+	if response := handlerResponse(t, h, "SET_WHITELIST_ACTIVE\n5\nfirst\n1\n0\n\n"); !strings.HasPrefix(response, "ERROR\n") {
+		t.Fatalf("failed write accepted: %q", response)
+	}
+	wl, err := db.GetWhitelistByName("first")
+	if err != nil || !wl.IsActive || events != 2 {
+		t.Fatalf("failed request changed state: %+v, %v, events=%d", wl, err, events)
+	}
+}
+
+type failedWhitelistDB struct{ database.DBInstance }
+
+func (failedWhitelistDB) SetWhitelistActive(name string, active bool) error {
+	return errors.New("simulated database write failure")
+}
+
+func TestFrontendBatchWhitelistActivation(t *testing.T) {
+	db := sqlite.New(filepath.Join(t.TempDir(), "batch-activation.db"))
+	if err := db.Connect(); err != nil {
+		t.Fatal(err)
+	}
+	defer db.Disconnect()
+	for _, name := range []string{"first", "second", "third"} {
+		if err := db.CreateWhitelist(name, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	events := 0
+	bus := notification.NewManagerWithNotifier(func(event notification.Event) {
+		if event.Type == notification.WhitelistChanged {
+			first, err := db.GetWhitelistByName("first")
+			if err != nil {
+				t.Errorf("read committed whitelist: %v", err)
+				return
+			}
+			second, err := db.GetWhitelistByName("second")
+			if err != nil || first.IsActive != second.IsActive {
+				t.Errorf("event published before full batch committed: %+v, %+v, %v", first, second, err)
+			}
+			events++
+		}
+	})
+	h := NewFrontendHandler(db, nil, nil, bus)
+	request := "SET_WHITELISTS_ACTIVE\n5\nfirst\n1\n1\n6\nsecond\n1\n1\n\n"
+	for i := 0; i < 2; i++ {
+		if response := handlerResponse(t, h, request); response != "OK\n\n" {
+			t.Fatalf("batch response: %q", response)
+		}
+		if events != 1 {
+			t.Fatalf("expected one refresh for batch and no refresh for retry, got %d", events)
+		}
+	}
+	third, err := db.GetWhitelistByName("third")
+	if err != nil || third.IsActive {
+		t.Fatalf("unrelated whitelist changed: %+v, %v", third, err)
+	}
+	for _, request := range []string{
+		"SET_WHITELISTS_ACTIVE\n\n",
+		"SET_WHITELISTS_ACTIVE\n5\nfirst\n\n",
+		"SET_WHITELISTS_ACTIVE\n5\nfirst\n3\nyes\n\n",
+		"SET_WHITELISTS_ACTIVE\n5\nfirst\n1\n0\n5\nfirst\n1\n1\n\n",
+		"SET_WHITELISTS_ACTIVE\n5\nfirst\n1\n0\n7\nmissing\n1\n1\n\n",
+	} {
+		if response := handlerResponse(t, h, request); !strings.HasPrefix(response, "ERROR\n") {
+			t.Fatalf("invalid batch accepted: %q", response)
+		}
+		if events != 1 {
+			t.Fatalf("invalid batch published refresh: %d", events)
+		}
+	}
+	first, err := db.GetWhitelistByName("first")
+	if err != nil || !first.IsActive {
+		t.Fatalf("invalid batch changed state: %+v, %v", first, err)
+	}
+	h = NewFrontendHandler(failedWhitelistDB{DBInstance: db}, nil, nil, nil)
+	if response := handlerResponse(t, h, request); !strings.HasPrefix(response, "ERROR\n") {
+		t.Fatalf("write failure hidden: %q", response)
+	}
+	h = NewFrontendHandler(db, nil, nil, bus)
+	request = "SET_WHITELISTS_ACTIVE\n5\nfirst\n1\n0\n6\nsecond\n1\n0\n\n"
+	if response := handlerResponse(t, h, request); response != "OK\n\n" || events != 2 {
+		t.Fatalf("disable batch response: %q, events=%d", response, events)
+	}
+}
+
+func (failedWhitelistDB) SetWhitelistsActive(states map[string]bool) (bool, error) {
+	return false, errors.New("simulated database write failure")
 }

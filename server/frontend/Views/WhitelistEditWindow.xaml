@@ -55,7 +55,6 @@
                 <RowDefinition Height="*"/>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
             <!-- Name Input -->
@@ -107,16 +106,8 @@
                     <TextBlock Text="{Binding ValidationSummary}" TextWrapping="Wrap"/>
                 </ScrollViewer>
             </StackPanel>
-            <StackPanel Grid.Row="3" Margin="0,12,0,0">
-                <TextBlock Text="Проверка домена или IPv4:" FontWeight="Bold" Margin="0,0,0,5"/>
-                <TextBox Text="{Binding TestInput, UpdateSourceTrigger=PropertyChanged}"/>
-                <ScrollViewer MaxHeight="130" VerticalScrollBarVisibility="Auto" Margin="0,6,0,0">
-                    <TextBlock Text="{Binding TestResult}" TextWrapping="Wrap"/>
-                </ScrollViewer>
-            </StackPanel>
-
             <!-- Buttons -->
-            <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+            <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
                 <Button Content="Сохранить" Style="{StaticResource PrimaryButton}" Width="90" Height="28" Margin="0,0,5,0"
                         Command="{Binding SaveCommand}" IsDefault="True"/>
                 <Button Content="Отмена" Width="90" Height="28" IsCancel="True"/>

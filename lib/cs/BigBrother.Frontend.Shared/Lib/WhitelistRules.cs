@@ -104,7 +104,7 @@ public static class WhitelistRules
             Matches(b.Pattern.Trim('"').Replace("*.", ""), a.Pattern);
     }
 
-    public static string Test(WhitelistAnalysis analysis, string input)
+    public static string Test(WhitelistAnalysis analysis, string input, Func<WhitelistRule, string>? describeRule = null)
     {
         input = input.Trim();
         bool isIp = IsIpv4(input);
@@ -115,7 +115,7 @@ public static class WhitelistRules
         string outcome = exceptions.Count > 0 ? "Исключён (исключения имеют приоритет)" :
             matches.Count > 0 ? "Разрешён правилами" : "Не разрешён: совпадений нет";
         return outcome + (matches.Count == 0 ? "." : ":\n" +
-            string.Join("\n", matches.Select(r => $"Строка {r.Line}: {r.Text}"))) +
+            string.Join("\n", matches.Select(r => describeRule?.Invoke(r) ?? $"Строка {r.Line}: {r.Text}"))) +
             "\nПроверяется только список. DNS-кэш и общие IP доменов могут влиять на доступ клиента.";
     }
 }

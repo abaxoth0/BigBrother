@@ -429,10 +429,16 @@
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
+                        <RowDefinition Height="5"/>
+                        <RowDefinition Height="180" MinHeight="90"/>
                     </Grid.RowDefinitions>
 
                     <Border Grid.Row="0" Background="{StaticResource HeaderBackground}" CornerRadius="4" Margin="0,0,0,5">
                         <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="*"/>
@@ -440,20 +446,29 @@
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
-                            <StackPanel Grid.Column="0" Orientation="Horizontal" Margin="10,6">
-                                <TextBlock Text="Активный:" VerticalAlignment="Center" FontWeight="Bold"/>
-                                <TextBlock Text="{Binding ActiveWhitelist}" VerticalAlignment="Center"
-                                           Foreground="{StaticResource SecondaryAccent}" FontWeight="SemiBold" Margin="6,0,0,0"/>
-                            </StackPanel>
-                            <StackPanel Grid.Column="2" Orientation="Horizontal" Margin="8,0">
-                                <Button Content="Сделать активным" Style="{StaticResource SmallButton}"
-                                        Command="{Binding SetActiveSelectedWhitelistCommand}"/>
-                            </StackPanel>
-                            <Button Grid.Column="3" Content="Импорт" Style="{StaticResource ControlButton}" Command="{Binding ImportWhitelistsCommand}"/>
-                            <Button Grid.Column="4" Content="Экспорт" Style="{StaticResource ControlButton}" Command="{Binding ExportWhitelistsCommand}"/>
-                            <Button Grid.Column="5" Content="Удалить" Style="{StaticResource ControlButton}" Command="{Binding DeleteSelectedWhitelistsCommand}"/>
-                            <Button Grid.Column="6" Content="Создать" Style="{StaticResource ControlButton}" Command="{Binding OpenCreateWhitelistCommand}"/>
+                            <TextBlock Grid.Column="0" Text="{Binding ActiveWhitelistsText}" Margin="10,6"
+                                       VerticalAlignment="Center" FontWeight="Bold"/>
+                            <Button Grid.Column="6" Content="Проверка домена" Style="{StaticResource ControlButton}"
+                                    Command="{Binding OpenDomainCheckCommand}"/>
+                            <Button Grid.Column="2" Content="Импорт" Style="{StaticResource ControlButton}" Command="{Binding ImportWhitelistsCommand}"/>
+                            <Button Grid.Column="3" Content="Экспорт" Style="{StaticResource ControlButton}" Command="{Binding ExportWhitelistsCommand}"/>
+                            <Button Grid.Column="4" Content="Удалить" Style="{StaticResource ControlButton}" Command="{Binding DeleteSelectedWhitelistsCommand}"/>
+                            <Button Grid.Column="5" Content="Создать" Style="{StaticResource ControlButton}" Command="{Binding OpenCreateWhitelistCommand}"/>
+                            <Grid Grid.Row="1" Grid.ColumnSpan="7" Margin="10,2,6,6">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="Изменения активности не сохранены. Проверка и конфликты используют сохранённый список."
+                                           VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,10,0"
+                                           Visibility="{Binding HasWhitelistActivationChanges, Converter={StaticResource BoolToVisibility}}"/>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">
+                                    <Button Content="Сохранить" Style="{StaticResource ControlButton}" Command="{Binding SaveWhitelistActivationCommand}"/>
+                                    <Button Content="Отмена" Style="{StaticResource ControlButton}" Command="{Binding CancelWhitelistActivationCommand}"/>
+                                </StackPanel>
+                            </Grid>
                         </Grid>
                     </Border>
 
@@ -495,16 +510,73 @@
                             </DataGridTemplateColumn>
                             <DataGridTextColumn Header="Название" Binding="{Binding Name}" Width="200" IsReadOnly="True"/>
                             <DataGridTextColumn Header="Записей" Binding="{Binding EntryCount}" Width="100" IsReadOnly="True"/>
+                            <DataGridTemplateColumn Header="Активный" Width="90" SortMemberPath="IsActive">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <CheckBox IsChecked="{Binding IsActive, Mode=OneWay}"
+                                                  Command="{Binding DataContext.ToggleWhitelistActiveCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                  CommandParameter="{Binding}" ToolTip="Изменить активность списка; применить кнопкой «Сохранить»"
+                                                  HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
                         </DataGrid.Columns>
                         <DataGrid.ContextMenu>
                             <ContextMenu>
-                                <MenuItem Header="Установить активным" Command="{Binding SetActiveWhitelistCommand}" CommandParameter="{Binding PlacementTarget.SelectedItem.Name, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                                <MenuItem Header="Включить / выключить" Command="{Binding ToggleWhitelistActiveCommand}" CommandParameter="{Binding PlacementTarget.SelectedItem, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
                                 <MenuItem Header="Редактировать" Command="{Binding OpenEditWhitelistCommand}" CommandParameter="{Binding PlacementTarget.SelectedItem, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
                                 <Separator/>
                                 <MenuItem Header="Удалить" Command="{Binding DeleteWhitelistCommand}" CommandParameter="{Binding PlacementTarget.SelectedItem.Name, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
                             </ContextMenu>
                         </DataGrid.ContextMenu>
                     </DataGrid>
+                    <GridSplitter Grid.Row="2" Height="5" HorizontalAlignment="Stretch" ResizeDirection="Rows">
+                        <GridSplitter.Style>
+                            <Style TargetType="GridSplitter">
+                                <Setter Property="Background" Value="{StaticResource BorderBrush}"/>
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="GridSplitter">
+                                            <Border Background="{TemplateBinding Background}"/>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                                <Style.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter Property="Background" Value="{StaticResource ScrollThumbBg}"/>
+                                    </Trigger>
+                                    <Trigger Property="IsKeyboardFocused" Value="True">
+                                        <Setter Property="Background" Value="{StaticResource ScrollThumbHover}"/>
+                                    </Trigger>
+                                    <Trigger Property="IsDragging" Value="True">
+                                        <Setter Property="Background" Value="{StaticResource ScrollThumbHover}"/>
+                                    </Trigger>
+                                </Style.Triggers>
+                            </Style>
+                        </GridSplitter.Style>
+                    </GridSplitter>
+                    <Grid Grid.Row="3">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Text="{Binding WhitelistConflictsText}" Margin="8,6" TextWrapping="Wrap"/>
+                        <DataGrid Grid.Row="1" ItemsSource="{Binding WhitelistConflicts}" AutoGenerateColumns="False"
+                                  IsReadOnly="True" CanUserAddRows="False" CanUserDeleteRows="False"
+                                  Background="{StaticResource Surface}" Foreground="{StaticResource TitleBarText}"
+                                  BorderBrush="{StaticResource BorderBrush}"
+                                  ColumnHeaderStyle="{StaticResource GridColumnHeaderStyle}"
+                                  RowBackground="{StaticResource Surface}" AlternatingRowBackground="{StaticResource SurfaceAlt}"
+                                  HorizontalGridLinesBrush="{StaticResource BorderBrush}"
+                                  GridLinesVisibility="Horizontal" HeadersVisibility="Column" MinRowHeight="26">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Разрешение" Binding="{Binding AllowedRule}" Width="*"/>
+                                <DataGridTextColumn Header="Списки" Binding="{Binding AllowedSources}" Width="*"/>
+                                <DataGridTextColumn Header="Исключение" Binding="{Binding ExcludedRule}" Width="*"/>
+                                <DataGridTextColumn Header="Списки" Binding="{Binding ExcludedSources}" Width="*"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </Grid>
                 </Grid>
 
                 <!-- SECTION: Settings -->

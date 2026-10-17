@@ -3,6 +3,7 @@
 package rpc
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"bigbrother_server_backend/packages/application/settings"
+	whitelistapplication "bigbrother_server_backend/packages/application/whitelist"
 	"bigbrother_server_backend/packages/domain/entity"
 	"bigbrother_server_backend/packages/infrastructure/connection"
 	"bigbrother_server_backend/packages/infrastructure/database"
@@ -71,15 +73,85 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 		log.Debug("Frontend received: "+cmd, nil)
 
 		switch cmd {
-		case "GET_ACTIVE_WHITELIST":
-			writeTLVResponse(conn, h.GetActiveWhitelist())
-
-		case "SET_ACTIVE_WHITELIST":
-			if len(args) < 1 {
-				writeErrorTLV(conn, "Missing whitelist name")
+		case "GET_COMPOSED_WHITELIST_DETAILS":
+			composition, err := whitelistapplication.Compose(h.db)
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
 				continue
 			}
-			h.SetActiveWhitelist(args[0])
+			data, err := json.Marshal(composition.Entries)
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			writeTLVResponse(conn, string(data))
+
+		case "GET_COMPOSED_WHITELIST":
+			composition, err := whitelistapplication.Compose(h.db)
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			var data []string
+			for _, entry := range composition.Entries {
+				data = append(data, entry.Value)
+			}
+			writeTLVResponse(conn, data...)
+
+		case "GET_WHITELIST_CONFLICTS":
+			composition, err := whitelistapplication.Compose(h.db)
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			data, err := json.Marshal(composition.Conflicts)
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			writeTLVResponse(conn, string(data))
+
+		case "SET_WHITELISTS_ACTIVE":
+			if len(args) == 0 || len(args)%2 != 0 {
+				writeErrorTLV(conn, "Expected whitelist name and active value pairs")
+				continue
+			}
+			states := make(map[string]bool, len(args)/2)
+			valid := true
+			for i := 0; i < len(args); i += 2 {
+				_, duplicate := states[args[i]]
+				if duplicate || (args[i+1] != "0" && args[i+1] != "1") {
+					valid = false
+					break
+				}
+				states[args[i]] = args[i+1] == "1"
+			}
+			if !valid {
+				writeErrorTLV(conn, "Expected unique whitelist names and active values 0 or 1")
+				continue
+			}
+			changed, err := h.db.SetWhitelistsActive(states)
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			if changed {
+				h.bus.Publish(notification.Event{
+					Type: notification.WhitelistChanged,
+					Data: map[string]string{},
+				})
+			}
+			writeOK(conn)
+
+		case "SET_WHITELIST_ACTIVE":
+			if len(args) != 2 || (args[1] != "0" && args[1] != "1") {
+				writeErrorTLV(conn, "Expected whitelist name and active value 0 or 1")
+				continue
+			}
+			if err := h.db.SetWhitelistActive(args[0], args[1] == "1"); err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
 			h.bus.Publish(notification.Event{
 				Type: notification.WhitelistChanged,
 				Data: map[string]string{},
@@ -228,7 +300,7 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 				if err == nil {
 					entryCount = len(entries)
 				}
-				data = append(data, fmt.Sprintf("%s:%d", wl.Name, entryCount))
+				data = append(data, fmt.Sprintf("%s:%d:%t", wl.Name, entryCount, wl.IsActive))
 			}
 			writeTLVResponse(conn, data...)
 
@@ -407,25 +479,11 @@ func (h *FrontendHandler) CreateWhitelist(name string) error {
 }
 
 func (h *FrontendHandler) DeleteWhitelist(name string) error {
-	if err := h.db.DeleteWhitelist(name); err != nil {
-		return err
-	}
-	activeWl, _ := h.db.GetSetting("active_whitelist")
-	if activeWl == name {
-		h.db.SetSetting("active_whitelist", "")
-	}
-	return nil
+	return h.db.DeleteWhitelist(name)
 }
 
 func (h *FrontendHandler) ChangeWhitelistName(oldName, newName string) error {
-	if err := h.db.ChangeWhitelistName(oldName, newName); err != nil {
-		return err
-	}
-	activeWl, _ := h.db.GetSetting("active_whitelist")
-	if activeWl == oldName {
-		h.db.SetSetting("active_whitelist", newName)
-	}
-	return nil
+	return h.db.ChangeWhitelistName(oldName, newName)
 }
 
 func (h *FrontendHandler) SetWhitelistEntries(name string, entries []string) error {
@@ -476,15 +534,6 @@ func (h *FrontendHandler) RegenerateUserToken(name string) (string, error) {
 		return "", err
 	}
 	return token, nil
-}
-
-func (h *FrontendHandler) GetActiveWhitelist() string {
-	activeWl, _ := h.db.GetSetting("active_whitelist")
-	return activeWl
-}
-
-func (h *FrontendHandler) SetActiveWhitelist(name string) {
-	h.db.SetSetting("active_whitelist", name)
 }
 
 func (h *FrontendHandler) getLogPath() string {

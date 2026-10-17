@@ -2,6 +2,7 @@ using System.IO;
 using System.IO.Pipes;
 using System.Linq;
 using System.Text;
+using System.Text.Json;
 using System.Threading;
 using frontend.Models;
 
@@ -544,26 +545,27 @@ public class IpcService : IDisposable
         {
             if (!await ConnectAsync())
             {
-                return whitelists;
+                throw new IOException(_lastError);
             }
 
             try
             {
                 var (status, data) = SendCommand("GET_WHITELISTS");
-                if (status == "OK")
+                if (status != "OK") throw new IOException("Не удалось загрузить белые списки");
+                foreach (var line in data)
                 {
-                    foreach (var line in data)
+                    var activeSeparator = line.LastIndexOf(':');
+                    var countSeparator = activeSeparator > 0 ? line.LastIndexOf(':', activeSeparator - 1) : -1;
+                    if (countSeparator >= 0 &&
+                        int.TryParse(line[(countSeparator + 1)..activeSeparator], out var count) &&
+                        bool.TryParse(line[(activeSeparator + 1)..], out var active))
                     {
-                        var parts = line.Split(':');
-                        if (parts.Length >= 1)
+                        whitelists.Add(new WhitelistInfo
                         {
-                            whitelists.Add(new WhitelistInfo
-                            {
-                                Name = parts[0],
-                                EntryCount = parts.Length > 1 && int.TryParse(parts[1], out var count) ? count : 0
-                            });
-                        }
+                            Name = line[..countSeparator], EntryCount = count, IsActive = active
+                        });
                     }
+                    else throw new InvalidDataException("Некорректный ответ при загрузке белых списков");
                 }
             }
             finally
@@ -612,6 +614,30 @@ public class IpcService : IDisposable
         return entries;
     }
 
+    public async Task<List<ComposedWhitelistEntry>> GetComposedWhitelistAsync()
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) throw new IOException(_lastError);
+            try
+            {
+                var (status, data) = SendCommand("GET_COMPOSED_WHITELIST_DETAILS");
+                if (status != "OK" || data.Count != 1) throw new IOException("Не удалось загрузить общий белый список");
+                return JsonSerializer.Deserialize<List<ComposedWhitelistEntry>>(data[0],
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new();
+            }
+            finally
+            {
+                Disconnect();
+            }
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
     public async Task<bool> CreateWhitelistAsync(string name)
     {
         await _connectionLock.WaitAsync();
@@ -656,7 +682,7 @@ public class IpcService : IDisposable
         }
     }
 
-    public async Task<bool> SetActiveWhitelistAsync(string name)
+    public async Task<bool> SetWhitelistsActiveAsync(IReadOnlyDictionary<string, bool> states)
     {
         await _connectionLock.WaitAsync();
         try
@@ -664,7 +690,8 @@ public class IpcService : IDisposable
             if (!await ConnectAsync()) return false;
             try
             {
-                var (status, _) = SendCommand("SET_ACTIVE_WHITELIST", name);
+                var (status, _) = SendCommand("SET_WHITELISTS_ACTIVE",
+                    states.SelectMany(pair => new[] { pair.Key, pair.Value ? "1" : "0" }).ToArray());
                 return status == "OK";
             }
             finally
@@ -768,16 +795,18 @@ public class IpcService : IDisposable
         }
     }
 
-    public async Task<string> GetActiveWhitelistAsync()
+    public async Task<List<WhitelistConflict>> GetWhitelistConflictsAsync()
     {
         await _connectionLock.WaitAsync();
         try
         {
-            if (!await ConnectAsync()) return "";
+            if (!await ConnectAsync()) throw new IOException(_lastError);
             try
             {
-                var (status, data) = SendCommand("GET_ACTIVE_WHITELIST");
-                return status == "OK" && data.Count > 0 ? data[0] : "";
+                var (status, data) = SendCommand("GET_WHITELIST_CONFLICTS");
+                if (status != "OK" || data.Count != 1) throw new IOException("Не удалось загрузить конфликты списков");
+                return JsonSerializer.Deserialize<List<WhitelistConflict>>(data[0],
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new();
             }
             finally
             {

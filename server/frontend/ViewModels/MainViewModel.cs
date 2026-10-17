@@ -7,6 +7,7 @@ using System.Windows.Input;
 using frontend.Models;
 using frontend.Services;
 using frontend.Validation;
+using frontend.Views;
 
 namespace frontend.ViewModels;
 
@@ -35,6 +36,7 @@ public class MainViewModel : ViewModelBase
     private System.Timers.Timer? _serviceStatusTimer;
     private int _refreshInProgress;
     private int _statusRefreshInProgress;
+    private bool _openingDomainCheck;
 
     private string _serverStatus = "Подключение...";
     private string _uptime = "";
@@ -45,7 +47,10 @@ public class MainViewModel : ViewModelBase
 
     private string _serviceStatus = "Проверка...";
     private string _filtrationStatus = "N/A";
-    private string _activeWhitelist = "";
+    private readonly WhitelistActivationDraft _whitelistActivation = new();
+    private bool _savingWhitelistActivation;
+    private int _whitelistActivationRevision;
+    private List<WhitelistConflict> _whitelistConflicts = new();
     private string _serverName = "";
     private string _serverPort = "1984";
     private bool _isAllSelected;
@@ -158,8 +163,14 @@ public class MainViewModel : ViewModelBase
         DisconnectCommand = new RelayCommand(async o => await DisconnectUserAsync(o?.ToString()!), o => o != null);
         RefreshCommand = new RelayCommand(async _ => await RefreshAllAsync());
         DeleteWhitelistCommand = new RelayCommand(async o => await DeleteWhitelistAsync(o?.ToString()!), o => o != null);
-        SetActiveWhitelistCommand = new RelayCommand(async o => await SetActiveWhitelistAsync(o?.ToString()!), o => o != null);
-        SetActiveSelectedWhitelistCommand = new RelayCommand(async _ => await SetActiveWhitelistAsync(SelectedWhitelist?.Name), _ => HasSelectedWhitelist);
+        ToggleWhitelistActiveCommand = new RelayCommand(o => ToggleWhitelistActive(o as WhitelistInfo),
+            o => o is WhitelistInfo && IsConnected && !_savingWhitelistActivation);
+        SaveWhitelistActivationCommand = new RelayCommand(async _ => await SaveWhitelistActivationAsync(),
+            _ => IsConnected && HasWhitelistActivationChanges && !_savingWhitelistActivation);
+        CancelWhitelistActivationCommand = new RelayCommand(_ => CancelWhitelistActivation(),
+            _ => HasWhitelistActivationChanges && !_savingWhitelistActivation);
+        OpenDomainCheckCommand = new RelayCommand(async _ => await OpenDomainCheckAsync(),
+            _ => IsConnected && !_openingDomainCheck);
         OpenCreateWhitelistCommand = new RelayCommand(async _ => await OpenCreateWhitelistAsync());
         OpenEditWhitelistCommand = new RelayCommand(async o => await OpenEditWhitelistAsync(o as WhitelistInfo), o => o is WhitelistInfo);
         ImportWhitelistsCommand = new RelayCommand(async _ => await ImportWhitelistsAsync());
@@ -206,7 +217,6 @@ public class MainViewModel : ViewModelBase
                 break;
             case "WHITELIST_CHANGED":
                 _ = RefreshWhitelistsAsync();
-                _ = LoadActiveWhitelistAsync();
                 break;
             case "FILTRATION_TOGGLED":
                 _ = RefreshServerStatusAsync();
@@ -268,6 +278,7 @@ public class MainViewModel : ViewModelBase
             {
                 OnPropertyChanged(nameof(NotConnectedVisibility));
                 OnPropertyChanged(nameof(ConnectedVisibility));
+                CommandManager.InvalidateRequerySuggested();
             }
         }
     }
@@ -287,11 +298,23 @@ public class MainViewModel : ViewModelBase
         set => SetProperty(ref _serviceStatus, value);
     }
 
-    public string ActiveWhitelist
+    public bool HasWhitelistActivationChanges => _whitelistActivation.HasChanges;
+    public string ActiveWhitelistsText => $"Активных списков: {Whitelists.Count(w => w.IsActive)}";
+
+    public List<WhitelistConflict> WhitelistConflicts
     {
-        get => _activeWhitelist;
-        set => SetProperty(ref _activeWhitelist, value);
+        get => _whitelistConflicts;
+        private set
+        {
+            if (SetProperty(ref _whitelistConflicts, value))
+                OnPropertyChanged(nameof(WhitelistConflictsText));
+        }
     }
+
+    public string WhitelistConflictsText =>
+        (HasWhitelistActivationChanges ? "Показаны конфликты сохранённого списка. " : "") +
+        (WhitelistConflicts.Count == 0 ? "Конфликтов нет"
+            : $"Конфликты: {WhitelistConflicts.Count}. Обе записи каждой пары исключены из общего списка.");
 
     public string ServerName
     {
@@ -376,8 +399,10 @@ public class MainViewModel : ViewModelBase
     public ICommand DisconnectCommand { get; }
     public ICommand RefreshCommand { get; }
     public ICommand DeleteWhitelistCommand { get; }
-    public ICommand SetActiveWhitelistCommand { get; }
-    public ICommand SetActiveSelectedWhitelistCommand { get; }
+    public ICommand ToggleWhitelistActiveCommand { get; }
+    public ICommand SaveWhitelistActivationCommand { get; }
+    public ICommand CancelWhitelistActivationCommand { get; }
+    public ICommand OpenDomainCheckCommand { get; }
     public ICommand OpenCreateWhitelistCommand { get; }
     public ICommand OpenEditWhitelistCommand { get; }
     public ICommand ImportWhitelistsCommand { get; }
@@ -581,25 +606,16 @@ public class MainViewModel : ViewModelBase
             await Task.Run(async () =>
             {
                 await RefreshServerStatusAsync();
+                if (_disposed || !IsConnected) return;
                 await RefreshClientsAsync();
                 await RefreshPendingAsync();
                 await RefreshWhitelistsAsync();
-                await LoadActiveWhitelistAsync();
             });
         }
         finally
         {
             Interlocked.Exchange(ref _refreshInProgress, 0);
         }
-    }
-
-    private async Task LoadActiveWhitelistAsync()
-    {
-        var wl = await _ipcService.GetActiveWhitelistAsync();
-        await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
-        {
-            ActiveWhitelist = wl;
-        });
     }
 
     private string _certificateFingerprint = "";
@@ -693,7 +709,8 @@ public class MainViewModel : ViewModelBase
                     ConnectedClients.Clear();
                     PendingRegistrations.Clear();
                     Whitelists.Clear();
-                    ActiveWhitelist = "";
+                    WhitelistConflicts = new();
+                    OnPropertyChanged(nameof(ActiveWhitelistsText));
                     CertificateFingerprint = "";
                 }
                 LastUpdate = DateTime.Now;
@@ -724,7 +741,8 @@ public class MainViewModel : ViewModelBase
                     ConnectedClients.Clear();
                     PendingRegistrations.Clear();
                     Whitelists.Clear();
-                    ActiveWhitelist = "";
+                    WhitelistConflicts = new();
+                    OnPropertyChanged(nameof(ActiveWhitelistsText));
                     CertificateFingerprint = "";
                     AddLog("ERROR", $"Ошибка: {ex.Message}");
                 });
@@ -844,11 +862,17 @@ public class MainViewModel : ViewModelBase
 
     public async Task RefreshWhitelistsAsync()
     {
+        if (_disposed || !IsConnected || _savingWhitelistActivation) return;
+        var revision = Volatile.Read(ref _whitelistActivationRevision);
         try
         {
             var whitelists = await _ipcService.GetWhitelistsAsync();
+            if (_disposed || !IsConnected || _savingWhitelistActivation) return;
+            var conflicts = await _ipcService.GetWhitelistConflictsAsync();
             await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
             {
+                if (_disposed || !IsConnected || _savingWhitelistActivation || revision != _whitelistActivationRevision) return;
+                _whitelistActivation.Refresh(whitelists);
                 // Update collection in-place to preserve DataGrid stability (context menus, selection, etc.)
                 var toRemove = Whitelists.Where(w => !whitelists.Any(n => n.Name == w.Name)).ToList();
                 foreach (var w in toRemove)
@@ -860,6 +884,7 @@ public class MainViewModel : ViewModelBase
                     if (existing != null)
                     {
                         existing.EntryCount = nw.EntryCount;
+                        existing.IsActive = nw.IsActive;
                     }
                     else
                     {
@@ -867,6 +892,8 @@ public class MainViewModel : ViewModelBase
                         Whitelists.Add(nw);
                     }
                 }
+                WhitelistConflicts = conflicts;
+                NotifyWhitelistActivationChanged();
                 UpdateAllSelectedState();
             });
         }
@@ -874,11 +901,14 @@ public class MainViewModel : ViewModelBase
         {
             await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
             {
+                if (_disposed) return;
                 if (!IsConnected)
                 {
                     Whitelists.Clear();
-                    ActiveWhitelist = "";
+                    WhitelistConflicts = new();
+                    OnPropertyChanged(nameof(ActiveWhitelistsText));
                     CertificateFingerprint = "";
+                    return;
                 }
                 AddLog("ERROR", $"Ошибка загрузки списков: {ex.Message}");
             });
@@ -971,12 +1001,80 @@ public class MainViewModel : ViewModelBase
         await RefreshWhitelistsAsync();
     }
 
-    private async Task SetActiveWhitelistAsync(string? name)
+    private void NotifyWhitelistActivationChanged()
     {
-        if (string.IsNullOrEmpty(name)) return;
-        ActiveWhitelist = name;
-        var ok = await _ipcService.SetActiveWhitelistAsync(name);
-        AddLog(ok ? "INFO" : "ERROR", ok ? $"Активный список: {name}" : $"Ошибка установки активного списка");
+        OnPropertyChanged(nameof(HasWhitelistActivationChanges));
+        OnPropertyChanged(nameof(ActiveWhitelistsText));
+        OnPropertyChanged(nameof(WhitelistConflictsText));
+        CommandManager.InvalidateRequerySuggested();
+    }
+
+    private void ToggleWhitelistActive(WhitelistInfo? whitelist)
+    {
+        if (whitelist == null || !IsConnected || _savingWhitelistActivation) return;
+        _whitelistActivation.Toggle(whitelist);
+        NotifyWhitelistActivationChanged();
+    }
+
+    private void CancelWhitelistActivation()
+    {
+        if (_savingWhitelistActivation) return;
+        _whitelistActivation.Cancel(Whitelists);
+        NotifyWhitelistActivationChanged();
+    }
+
+    private async Task SaveWhitelistActivationAsync()
+    {
+        if (!IsConnected || _savingWhitelistActivation || !HasWhitelistActivationChanges) return;
+        var changes = _whitelistActivation.GetChanges();
+        _savingWhitelistActivation = true;
+        NotifyWhitelistActivationChanged();
+        try
+        {
+            var ok = await Task.Run(() => _ipcService.SetWhitelistsActiveAsync(changes));
+            if (ok)
+            {
+                _whitelistActivation.Accept(changes);
+                Interlocked.Increment(ref _whitelistActivationRevision);
+                AddLog("INFO", $"Активность списков сохранена: {changes.Count}");
+            }
+            else
+                AddLog("ERROR", "Не удалось сохранить активность списков. Изменения сохранены в черновике.");
+        }
+        catch (Exception ex)
+        {
+            AddLog("ERROR", $"Ошибка сохранения активности списков: {ex.Message}");
+        }
+        finally
+        {
+            _savingWhitelistActivation = false;
+            NotifyWhitelistActivationChanged();
+        }
+        await RefreshWhitelistsAsync();
+    }
+
+    private async Task OpenDomainCheckAsync()
+    {
+        if (_openingDomainCheck) return;
+        _openingDomainCheck = true;
+        CommandManager.InvalidateRequerySuggested();
+        try
+        {
+            var entries = await Task.Run(() => _ipcService.GetComposedWhitelistAsync());
+            var window = new DomainCheckWindow(entries) { Owner = Application.Current.MainWindow };
+            window.ShowDialog();
+        }
+        catch (Exception ex)
+        {
+            AddLog("ERROR", $"Ошибка проверки домена: {ex.Message}");
+            MessageBox.Show($"Не удалось загрузить общий белый список.\n{ex.Message}",
+                "Проверка домена", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            _openingDomainCheck = false;
+            CommandManager.InvalidateRequerySuggested();
+        }
     }
 
     private async Task OpenCreateWhitelistAsync()
@@ -1014,6 +1112,7 @@ public class MainViewModel : ViewModelBase
         if (whitelist.Name != result.Name)
         {
             ok = await _ipcService.RenameWhitelistAsync(whitelist.Name, result.Name);
+            if (ok) _whitelistActivation.Rename(whitelist.Name, result.Name);
         }
 
         if (ok) ok = await _ipcService.SaveWhitelistAsync(result.Name, result.Entries);
@@ -1075,7 +1174,6 @@ public class MainViewModel : ViewModelBase
         }
 
         await RefreshWhitelistsAsync();
-        await LoadActiveWhitelistAsync();
 
         var msg = imported.Count > 0
             ? $"Импортировано списков: {imported.Count} ({string.Join(", ", imported)})"
