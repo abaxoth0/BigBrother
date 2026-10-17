@@ -595,6 +595,7 @@ public class MainViewModel : ViewModelBase
             await Task.Run(async () =>
             {
                 await RefreshServerStatusAsync();
+                if (_disposed || !IsConnected) return;
                 await RefreshClientsAsync();
                 await RefreshPendingAsync();
                 await RefreshWhitelistsAsync();
@@ -850,12 +851,15 @@ public class MainViewModel : ViewModelBase
 
     public async Task RefreshWhitelistsAsync()
     {
+        if (_disposed || !IsConnected) return;
         try
         {
             var whitelists = await _ipcService.GetWhitelistsAsync();
+            if (_disposed || !IsConnected) return;
             var conflicts = await _ipcService.GetWhitelistConflictsAsync();
             await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
             {
+                if (_disposed || !IsConnected) return;
                 // Update collection in-place to preserve DataGrid stability (context menus, selection, etc.)
                 var toRemove = Whitelists.Where(w => !whitelists.Any(n => n.Name == w.Name)).ToList();
                 foreach (var w in toRemove)
@@ -884,12 +888,14 @@ public class MainViewModel : ViewModelBase
         {
             await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
             {
+                if (_disposed) return;
                 if (!IsConnected)
                 {
                     Whitelists.Clear();
                     WhitelistConflicts = new();
                     OnPropertyChanged(nameof(ActiveWhitelistsText));
                     CertificateFingerprint = "";
+                    return;
                 }
                 AddLog("ERROR", $"Ошибка загрузки списков: {ex.Message}");
             });

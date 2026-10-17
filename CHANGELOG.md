@@ -26,6 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Server frontend: skip whitelist/conflict refreshes while the backend is unavailable and use dark theme colors for the whitelist conflict divider, including hover, focus and drag states
+
 - Server domain checker: use readable theme colors for the domain/IPv4 label and show all source whitelist names for each matching rule, including deduplicated rules
 
 - Client/server frontends: live logs follow file notifications without idle polling or growing display backlogs; pending display updates retain the newest entries within the history limit, and split binary records/JSON lines survive subsequent writes
