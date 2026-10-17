@@ -762,7 +762,7 @@
                                      Style="{StaticResource NavItem}"
                                      IsChecked="{Binding SelectedSection, Converter={StaticResource EnumToBool}, ConverterParameter=Settings}"/>
                     </StackPanel>
-                    <TextBlock Grid.Row="1" Foreground="{StaticResource TextDim}" FontSize="11" Margin="6,12,6,0">
+                    <TextBlock Grid.Row="1" Foreground="{StaticResource TextDim}" FontSize="11" Margin="6,12,6,0" TextAlignment="Center">
                         <Run Text="Версия "/><Run Text="{x:Static local:BuildVersion.Current}"/>
                     </TextBlock>
                 </Grid>
