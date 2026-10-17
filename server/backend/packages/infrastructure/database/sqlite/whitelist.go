@@ -349,3 +349,35 @@ func (db *Database) SetWhitelistActive(name string, active bool) error {
 	}
 	return nil
 }
+
+func (db *Database) SetWhitelistsActive(states map[string]bool) (bool, error) {
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+	changed := false
+	names := make([]string, 0, len(states))
+	for name := range states {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	for _, name := range names {
+		active := states[name]
+		var saved bool
+		if err := tx.QueryRow("SELECT is_active FROM whitelist WHERE name = ?", name).Scan(&saved); err != nil {
+			return false, err
+		}
+		if saved == active {
+			continue
+		}
+		if _, err := tx.Exec("UPDATE whitelist SET is_active = ? WHERE name = ?", active, name); err != nil {
+			return false, err
+		}
+		changed = true
+	}
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return changed, nil
+}

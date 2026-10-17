@@ -97,4 +97,41 @@ checker.TestInput = "https://example.com";
 Check(checker.TestResult.StartsWith("Введите"), "Domain checker accepted a URL");
 var emptyChecker = new DomainCheckViewModel(Array.Empty<ComposedWhitelistEntry>()) { TestInput = "example.com" };
 Check(emptyChecker.TestResult.StartsWith("Не разрешён"), "Empty composition allows a domain");
-Console.WriteLine("Whitelist validation, matching, editor and domain checker checks passed.");
+var draft = new WhitelistActivationDraft();
+var rows = new List<WhitelistInfo>
+{
+    new() { Name = "first", IsActive = true }, new() { Name = "second" }, new() { Name = "third" }
+};
+draft.Refresh(rows);
+draft.Toggle(rows[0]);
+draft.Toggle(rows[1]);
+Check(draft.HasChanges && !rows[0].IsActive && rows[1].IsActive && draft.GetChanges().Count == 2,
+    "Multiple toggles not staged together");
+var refreshed = new List<WhitelistInfo>
+{
+    new() { Name = "first", IsActive = true }, new() { Name = "second" }, new() { Name = "third", IsActive = true }
+};
+draft.Refresh(refreshed);
+Check(!refreshed[0].IsActive && refreshed[1].IsActive && refreshed[2].IsActive && draft.GetChanges().Count == 2,
+    "Refresh overwrote pending edits or unrelated server updates");
+draft.Cancel(refreshed);
+Check(!draft.HasChanges && refreshed[0].IsActive && !refreshed[1].IsActive && refreshed[2].IsActive,
+    "Cancel did not restore saved selection");
+draft.Toggle(refreshed[0]);
+draft.Toggle(refreshed[0]);
+Check(!draft.HasChanges, "Reverting a toggle left unsaved changes");
+draft.Toggle(refreshed[1]);
+var submitted = draft.GetChanges();
+draft.Refresh(new[] { new WhitelistInfo { Name = "first", IsActive = true },
+    new WhitelistInfo { Name = "second" }, new WhitelistInfo { Name = "third", IsActive = true } });
+Check(draft.HasChanges && draft.GetChanges()["second"], "Failed save refresh discarded draft");
+draft.Accept(submitted);
+Check(!draft.HasChanges && draft.GetActive("second"), "Successful save did not accept draft");
+draft.Toggle(refreshed[1]);
+draft.Rename("second", "renamed");
+var renamed = new[] { new WhitelistInfo { Name = "renamed", IsActive = true } };
+draft.Refresh(renamed);
+Check(draft.HasChanges && !renamed[0].IsActive && draft.GetChanges().ContainsKey("renamed"), "Rename lost draft");
+draft.Refresh(Array.Empty<WhitelistInfo>());
+Check(!draft.HasChanges, "Deleted list retained stale draft");
+Console.WriteLine("Whitelist validation, matching, editor, domain checker and activation draft checks passed.");

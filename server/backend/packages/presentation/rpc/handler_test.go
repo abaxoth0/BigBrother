@@ -431,3 +431,76 @@ type failedWhitelistDB struct{ database.DBInstance }
 func (failedWhitelistDB) SetWhitelistActive(name string, active bool) error {
 	return errors.New("simulated database write failure")
 }
+
+func TestFrontendBatchWhitelistActivation(t *testing.T) {
+	db := sqlite.New(filepath.Join(t.TempDir(), "batch-activation.db"))
+	if err := db.Connect(); err != nil {
+		t.Fatal(err)
+	}
+	defer db.Disconnect()
+	for _, name := range []string{"first", "second", "third"} {
+		if err := db.CreateWhitelist(name, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	events := 0
+	bus := notification.NewManagerWithNotifier(func(event notification.Event) {
+		if event.Type == notification.WhitelistChanged {
+			first, err := db.GetWhitelistByName("first")
+			if err != nil {
+				t.Errorf("read committed whitelist: %v", err)
+				return
+			}
+			second, err := db.GetWhitelistByName("second")
+			if err != nil || first.IsActive != second.IsActive {
+				t.Errorf("event published before full batch committed: %+v, %+v, %v", first, second, err)
+			}
+			events++
+		}
+	})
+	h := NewFrontendHandler(db, nil, nil, bus)
+	request := "SET_WHITELISTS_ACTIVE\n5\nfirst\n1\n1\n6\nsecond\n1\n1\n\n"
+	for i := 0; i < 2; i++ {
+		if response := handlerResponse(t, h, request); response != "OK\n\n" {
+			t.Fatalf("batch response: %q", response)
+		}
+		if events != 1 {
+			t.Fatalf("expected one refresh for batch and no refresh for retry, got %d", events)
+		}
+	}
+	third, err := db.GetWhitelistByName("third")
+	if err != nil || third.IsActive {
+		t.Fatalf("unrelated whitelist changed: %+v, %v", third, err)
+	}
+	for _, request := range []string{
+		"SET_WHITELISTS_ACTIVE\n\n",
+		"SET_WHITELISTS_ACTIVE\n5\nfirst\n\n",
+		"SET_WHITELISTS_ACTIVE\n5\nfirst\n3\nyes\n\n",
+		"SET_WHITELISTS_ACTIVE\n5\nfirst\n1\n0\n5\nfirst\n1\n1\n\n",
+		"SET_WHITELISTS_ACTIVE\n5\nfirst\n1\n0\n7\nmissing\n1\n1\n\n",
+	} {
+		if response := handlerResponse(t, h, request); !strings.HasPrefix(response, "ERROR\n") {
+			t.Fatalf("invalid batch accepted: %q", response)
+		}
+		if events != 1 {
+			t.Fatalf("invalid batch published refresh: %d", events)
+		}
+	}
+	first, err := db.GetWhitelistByName("first")
+	if err != nil || !first.IsActive {
+		t.Fatalf("invalid batch changed state: %+v, %v", first, err)
+	}
+	h = NewFrontendHandler(failedWhitelistDB{DBInstance: db}, nil, nil, nil)
+	if response := handlerResponse(t, h, request); !strings.HasPrefix(response, "ERROR\n") {
+		t.Fatalf("write failure hidden: %q", response)
+	}
+	h = NewFrontendHandler(db, nil, nil, bus)
+	request = "SET_WHITELISTS_ACTIVE\n5\nfirst\n1\n0\n6\nsecond\n1\n0\n\n"
+	if response := handlerResponse(t, h, request); response != "OK\n\n" || events != 2 {
+		t.Fatalf("disable batch response: %q, events=%d", response, events)
+	}
+}
+
+func (failedWhitelistDB) SetWhitelistsActive(states map[string]bool) (bool, error) {
+	return false, errors.New("simulated database write failure")
+}

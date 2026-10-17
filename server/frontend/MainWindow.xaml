@@ -435,6 +435,10 @@
 
                     <Border Grid.Row="0" Background="{StaticResource HeaderBackground}" CornerRadius="4" Margin="0,0,0,5">
                         <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="*"/>
@@ -452,6 +456,19 @@
                             <Button Grid.Column="3" Content="Экспорт" Style="{StaticResource ControlButton}" Command="{Binding ExportWhitelistsCommand}"/>
                             <Button Grid.Column="4" Content="Удалить" Style="{StaticResource ControlButton}" Command="{Binding DeleteSelectedWhitelistsCommand}"/>
                             <Button Grid.Column="5" Content="Создать" Style="{StaticResource ControlButton}" Command="{Binding OpenCreateWhitelistCommand}"/>
+                            <Grid Grid.Row="1" Grid.ColumnSpan="7" Margin="10,2,6,6">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="Изменения активности не сохранены. Проверка и конфликты используют сохранённый список."
+                                           VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,10,0"
+                                           Visibility="{Binding HasWhitelistActivationChanges, Converter={StaticResource BoolToVisibility}}"/>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">
+                                    <Button Content="Сохранить" Style="{StaticResource ControlButton}" Command="{Binding SaveWhitelistActivationCommand}"/>
+                                    <Button Content="Отмена" Style="{StaticResource ControlButton}" Command="{Binding CancelWhitelistActivationCommand}"/>
+                                </StackPanel>
+                            </Grid>
                         </Grid>
                     </Border>
 
@@ -497,9 +514,8 @@
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate>
                                         <CheckBox IsChecked="{Binding IsActive, Mode=OneWay}"
-                                                  Click="WhitelistActive_Click"
                                                   Command="{Binding DataContext.ToggleWhitelistActiveCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
-                                                  CommandParameter="{Binding}" ToolTip="Включить список в общий белый список"
+                                                  CommandParameter="{Binding}" ToolTip="Изменить активность списка; применить кнопкой «Сохранить»"
                                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                     </DataTemplate>
                                 </DataGridTemplateColumn.CellTemplate>

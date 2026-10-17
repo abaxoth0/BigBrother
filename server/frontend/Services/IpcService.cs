@@ -545,28 +545,27 @@ public class IpcService : IDisposable
         {
             if (!await ConnectAsync())
             {
-                return whitelists;
+                throw new IOException(_lastError);
             }
 
             try
             {
                 var (status, data) = SendCommand("GET_WHITELISTS");
-                if (status == "OK")
+                if (status != "OK") throw new IOException("Не удалось загрузить белые списки");
+                foreach (var line in data)
                 {
-                    foreach (var line in data)
+                    var activeSeparator = line.LastIndexOf(':');
+                    var countSeparator = activeSeparator > 0 ? line.LastIndexOf(':', activeSeparator - 1) : -1;
+                    if (countSeparator >= 0 &&
+                        int.TryParse(line[(countSeparator + 1)..activeSeparator], out var count) &&
+                        bool.TryParse(line[(activeSeparator + 1)..], out var active))
                     {
-                        var activeSeparator = line.LastIndexOf(':');
-                        var countSeparator = activeSeparator > 0 ? line.LastIndexOf(':', activeSeparator - 1) : -1;
-                        if (countSeparator >= 0 &&
-                            int.TryParse(line[(countSeparator + 1)..activeSeparator], out var count) &&
-                            bool.TryParse(line[(activeSeparator + 1)..], out var active))
+                        whitelists.Add(new WhitelistInfo
                         {
-                            whitelists.Add(new WhitelistInfo
-                            {
-                                Name = line[..countSeparator], EntryCount = count, IsActive = active
-                            });
-                        }
+                            Name = line[..countSeparator], EntryCount = count, IsActive = active
+                        });
                     }
+                    else throw new InvalidDataException("Некорректный ответ при загрузке белых списков");
                 }
             }
             finally
@@ -683,7 +682,7 @@ public class IpcService : IDisposable
         }
     }
 
-    public async Task<bool> SetWhitelistActiveAsync(string name, bool active)
+    public async Task<bool> SetWhitelistsActiveAsync(IReadOnlyDictionary<string, bool> states)
     {
         await _connectionLock.WaitAsync();
         try
@@ -691,7 +690,8 @@ public class IpcService : IDisposable
             if (!await ConnectAsync()) return false;
             try
             {
-                var (status, _) = SendCommand("SET_WHITELIST_ACTIVE", name, active ? "1" : "0");
+                var (status, _) = SendCommand("SET_WHITELISTS_ACTIVE",
+                    states.SelectMany(pair => new[] { pair.Key, pair.Value ? "1" : "0" }).ToArray());
                 return status == "OK";
             }
             finally

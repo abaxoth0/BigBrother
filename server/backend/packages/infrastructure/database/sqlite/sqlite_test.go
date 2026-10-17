@@ -15,6 +15,42 @@ func newTestDatabase(t *testing.T) *Database {
 	return db
 }
 
+func TestSetWhitelistsActiveTransaction(t *testing.T) {
+	db := newTestDatabase(t)
+	for _, name := range []string{"first", "second", "untouched"} {
+		if err := db.CreateWhitelist(name, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	changed, err := db.SetWhitelistsActive(map[string]bool{"first": true, "second": true})
+	if err != nil || !changed {
+		t.Fatalf("batch save: %v, %v", changed, err)
+	}
+	changed, err = db.SetWhitelistsActive(map[string]bool{"first": true, "second": true})
+	if err != nil || changed {
+		t.Fatalf("unchanged save: %v, %v", changed, err)
+	}
+	if _, err := db.SetWhitelistsActive(map[string]bool{"first": false, "zz-missing": true}); err == nil {
+		t.Fatal("batch with missing list succeeded")
+	}
+	for name, active := range map[string]bool{"first": true, "second": true, "untouched": false} {
+		wl, err := db.GetWhitelistByName(name)
+		if err != nil || wl.IsActive != active {
+			t.Fatalf("partial batch or unrelated change: %+v, %v", wl, err)
+		}
+	}
+	changed, err = db.SetWhitelistsActive(map[string]bool{"first": false, "second": false})
+	if err != nil || !changed {
+		t.Fatalf("disable batch: %v, %v", changed, err)
+	}
+	for _, name := range []string{"first", "second"} {
+		wl, err := db.GetWhitelistByName(name)
+		if err != nil || wl.IsActive {
+			t.Fatalf("batch disable not persisted: %+v, %v", wl, err)
+		}
+	}
+}
+
 func TestUserToken(t *testing.T) {
 	db := newTestDatabase(t)
 

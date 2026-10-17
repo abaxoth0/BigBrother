@@ -109,13 +109,20 @@ Check((await WhitelistReply(name, service => service.GetWhitelistConflictsAsync(
 
 foreach (var active in new[] { true, false })
 {
-    Check(await WhitelistReply(name, service => service.SetWhitelistActiveAsync("Работа", active),
-        ["SET_WHITELIST_ACTIVE", "12", "Работа", "1", active ? "1" : "0"], []),
-        "Activation request failed");
+    var states = new Dictionary<string, bool> { ["Работа"] = active, ["Учёба"] = !active };
+    Check(await WhitelistReply(name, service => service.SetWhitelistsActiveAsync(states),
+        ["SET_WHITELISTS_ACTIVE", "12", "Работа", "1", active ? "1" : "0", "10", "Учёба", "1", active ? "0" : "1"], []),
+        "Batch activation request failed");
 }
-Check(!await WhitelistReply(name, service => service.SetWhitelistActiveAsync("Работа", true),
-    ["SET_WHITELIST_ACTIVE", "12", "Работа", "1", "1"], ["save failed"], "ERROR"),
+Check(!await WhitelistReply(name, service => service.SetWhitelistsActiveAsync(new Dictionary<string, bool> { ["Работа"] = true }),
+    ["SET_WHITELISTS_ACTIVE", "12", "Работа", "1", "1"], ["save failed"], "ERROR"),
     "Activation failure ignored");
+try
+{
+    await WhitelistReply(name, service => service.GetWhitelistsAsync(), ["GET_WHITELISTS"], ["load failed"], "ERROR");
+    throw new Exception("Failed whitelist load accepted as empty list");
+}
+catch (IOException) { }
 var composed = await WhitelistReply(name, service => service.GetComposedWhitelistAsync(),
     ["GET_COMPOSED_WHITELIST_DETAILS"],
     ["[{\"ID\":\"a\",\"Value\":\"*.example.com\",\"sources\":[\"Работа\",\"Учёба\"]},{\"ID\":\"b\",\"Value\":\"!blocked.example.com\",\"sources\":[\"Исключения\"]}]"]);

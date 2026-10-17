@@ -111,6 +111,38 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 			}
 			writeTLVResponse(conn, string(data))
 
+		case "SET_WHITELISTS_ACTIVE":
+			if len(args) == 0 || len(args)%2 != 0 {
+				writeErrorTLV(conn, "Expected whitelist name and active value pairs")
+				continue
+			}
+			states := make(map[string]bool, len(args)/2)
+			valid := true
+			for i := 0; i < len(args); i += 2 {
+				_, duplicate := states[args[i]]
+				if duplicate || (args[i+1] != "0" && args[i+1] != "1") {
+					valid = false
+					break
+				}
+				states[args[i]] = args[i+1] == "1"
+			}
+			if !valid {
+				writeErrorTLV(conn, "Expected unique whitelist names and active values 0 or 1")
+				continue
+			}
+			changed, err := h.db.SetWhitelistsActive(states)
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			if changed {
+				h.bus.Publish(notification.Event{
+					Type: notification.WhitelistChanged,
+					Data: map[string]string{},
+				})
+			}
+			writeOK(conn)
+
 		case "SET_WHITELIST_ACTIVE":
 			if len(args) != 2 || (args[1] != "0" && args[1] != "1") {
 				writeErrorTLV(conn, "Expected whitelist name and active value 0 or 1")
