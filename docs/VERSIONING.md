@@ -59,10 +59,9 @@ version for all six applications.
 
 Installers and update manifests read `VERSION` automatically. Inno Setup checks
 the embedded product version of every BigBrother executable in the payload and
-fails when a binary is stale, including a frontend copied from the VM. The
-optional legacy version argument must match `VERSION`.
+fails when a binary is stale, including a frontend copied from the VM.
 
 Release notes use the matching CHANGELOG.md release heading when present,
-otherwise `Unreleased`. To select notes explicitly, pass the common version and
-the desired changelog heading as the third and fourth arguments. See
+otherwise `Unreleased`. The build script accepts an optional changelog path as
+its third argument; package and notes versions are selected automatically. See
 [INSTALLERS.md](INSTALLERS.md) and [CLIENT-UPDATES.md](CLIENT-UPDATES.md).

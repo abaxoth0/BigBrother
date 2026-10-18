@@ -22,13 +22,11 @@ application must be rebuilt with that version. Visual Studio Build and Publish
 read it automatically, including when building the frontends in a Windows VM.
 See [VERSIONING.md](VERSIONING.md).
 
-Release notes default to the matching CHANGELOG.md release, or `Unreleased` when
-that release is absent. The optional fourth argument selects a section explicitly;
-a missing explicit section fails the build. The third argument, when supplied,
-must match `VERSION`. An optional fifth argument selects another changelog file:
+Release notes use the matching CHANGELOG.md release, or `Unreleased` when
+that release is absent. The optional third argument selects another changelog file:
 
 ```sh
-./build-installers.sh /path/to/payload /path/to/output 2.0.0 Unreleased /path/to/CHANGELOG.md
+./build-installers.sh /path/to/payload /path/to/output /path/to/CHANGELOG.md
 ```
 
 Added, Removed, Changed, Fixed, Deprecated and Security bullets become structured

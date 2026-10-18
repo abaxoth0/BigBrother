@@ -24,11 +24,10 @@ To build both installers from already published binaries:
 ```
 
 The arguments are the payload directory (default: repository `dist`), installer
-output directory (default: repository `dist/installers`), optional version
-(must match repository `VERSION`), optional changelog version, and optional
-changelog path (default: repository `CHANGELOG.md`). By default, notes come from
-the matching release heading, or `Unreleased` if that release is absent. An explicit
-changelog version must exist. Paths containing
+output directory (default: repository `dist/installers`), and optional changelog
+path (default: repository `CHANGELOG.md`). The version always comes from repository
+`VERSION`. Notes come from the matching release heading, or `Unreleased` if that
+release is absent. Paths containing
 spaces work, and scripts can be invoked from outside the repository.
 
 All application binaries must be rebuilt for the version in `VERSION`. The compiler
