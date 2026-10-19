@@ -4,33 +4,37 @@ include ../common/build.mk
 CXX = x86_64-w64-mingw32-g++
 AR = x86_64-w64-mingw32-ar
 WINDRES = x86_64-w64-mingw32-windres
-CXXFLAGS = -std=c++17 -Wall -Wextra -Werror -O2 -DUNICODE -D_UNICODE -D_WIN32_WINNT=0x0A00
+CXXFLAGS = -std=c++17 -Wall -Wextra -Werror $(if $(filter debug,$(BUILD_MODE)),-DDEBUG -g3 -O0,-DNDEBUG -O2) -DUNICODE -D_UNICODE -D_WIN32_WINNT=0x0A00
 CPPFLAGS += -Iinclude -I../common $(BB_VERSION_FLAGS)
 LIBS = -lwtsapi32 -luserenv -lshell32 -lshlwapi -ladvapi32 -lole32 -lpropsys -lruntimeobject -luuid
 APP_SOURCES = src/main.cpp src/diagnostics.cpp src/toast.cpp src/registration.cpp
 APP_HEADERS = $(wildcard include/*.h)
 TEST_SOURCES = tests/main.cpp tests/delivery_test.cpp src/diagnostics.cpp src/toast.cpp src/registration.cpp
-APP_OBJECTS = $(APP_SOURCES:%.cpp=build/obj/%.o)
-TEST_OBJECTS = $(TEST_SOURCES:%.cpp=build/obj/%.o)
+APP_OBJECTS = $(APP_SOURCES:%.cpp=build/$(BUILD_MODE)/obj/%.o)
+TEST_OBJECTS = $(TEST_SOURCES:%.cpp=build/$(BUILD_MODE)/obj/%.o)
 
-all: build/BigBrother\ Notifications.exe build/libbbnotify.a
+all: $(BUILD_MODE)
+
+debug release: build/$(BUILD_MODE)/BigBrother\ Notifications.exe build/$(BUILD_MODE)/libbbnotify.a
+	cp "build/$(BUILD_MODE)/BigBrother Notifications.exe" "build/BigBrother Notifications.exe"
+	cp build/$(BUILD_MODE)/libbbnotify.a build/libbbnotify.a
 
 build/icon.o: $(BB_VERSION_DEPS) resources/app.rc ../assets/icons/BigBrother_Client_Backend.ico ../assets/icons/BigBrother_Server_Backend.ico
 	mkdir -p build
 	$(WINDRES) $(BB_RESOURCE_VERSION_FLAGS) -I../assets/icons -i resources/app.rc -o build/icon.o
 
-build/BigBrother\ Notifications.exe: $(APP_OBJECTS) $(BB_VERSION_DEPS) build/icon.o
+build/$(BUILD_MODE)/BigBrother\ Notifications.exe: $(APP_OBJECTS) $(BB_VERSION_DEPS) build/icon.o
 	$(CXX) $(CXXFLAGS) -static -municode -mwindows -o "$@" $(APP_OBJECTS) build/icon.o $(LIBS)
 
-build/obj/%.o: %.cpp $(APP_HEADERS) $(BB_VERSION_DEPS)
+build/$(BUILD_MODE)/obj/%.o: %.cpp $(APP_HEADERS) $(BB_VERSION_DEPS) $(BB_BUILD_DEPS)
 	mkdir -p $(@D)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -MMD -MP -c $< -o $@
 
-build/notify.o: src/notify.cpp ../common/notify.h include/transport.h
-	mkdir -p build
+build/$(BUILD_MODE)/notify.o: src/notify.cpp ../common/notify.h include/transport.h $(BB_BUILD_DEPS)
+	mkdir -p $(@D)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c src/notify.cpp -o $@
 
-build/libbbnotify.a: build/notify.o
+build/$(BUILD_MODE)/libbbnotify.a: build/$(BUILD_MODE)/notify.o
 	$(AR) rcs $@ $<
 
 test-build: build/tests.exe
@@ -41,4 +45,4 @@ build/tests.exe: $(TEST_OBJECTS)
 
 -include $(sort $(APP_OBJECTS:.o=.d) $(TEST_OBJECTS:.o=.d))
 
-.PHONY: all test-build
+.PHONY: all debug release test-build

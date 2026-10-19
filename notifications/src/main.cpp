@@ -47,7 +47,7 @@ static DWORD send_notification(const product& app, const std::wstring& title_hex
     DWORD session;
     check_win32(ProcessIdToSessionId(GetCurrentProcessId(), &session), L"Read process session");
     bool system = is_system();
-    trace(L"Delivery context: session=" + std::to_wstring(session) + (system ? L", SYSTEM" : L", user"));
+    BB_TRACE(L"Delivery context: session=" + std::to_wstring(session) + (system ? L", SYSTEM" : L", user"));
     if (session && !system) {
         check(RoInitialize(RO_INIT_MULTITHREADED), L"Initialize WinRT");
         struct uninitialize { ~uninitialize() { RoUninitialize(); } } apartment;
@@ -82,7 +82,7 @@ static DWORD send_notification(const product& app, const std::wstring& title_hex
     }
     if (processes.empty() && result == ERROR_SUCCESS && diagnostics_enabled())
         throw failure{HRESULT_FROM_WIN32(ERROR_NO_SUCH_LOGON_SESSION), L"No active signed-in user session for the test notification"};
-    trace(L"User-session delivery processes: " + std::to_wstring(processes.size()));
+    BB_TRACE(L"User-session delivery processes: " + std::to_wstring(processes.size()));
     ULONGLONG deadline = GetTickCount64() + 8000;
     for (auto& process : processes) {
         ULONGLONG now = GetTickCount64();
@@ -109,10 +109,13 @@ static void open_frontend(const product& app) {
 static DWORD run(const command& request) {
     const auto& app = request.app;
     if (request.kind == command_kind::help) {
-        trace(L"Usage: BigBrother Notifications.exe [--show|--test [Client|Server]]; --register Client|Server; --unregister Client|Server; --version");
+        print_message(L"Usage: BigBrother Notifications.exe [--show|--test [Client|Server]]; --register Client|Server; --unregister Client|Server; --version");
         return ERROR_SUCCESS;
     }
-    if (request.kind == command_kind::version) return ERROR_SUCCESS;
+    if (request.kind == command_kind::version) {
+        print_message(L"BigBrother Notifications " BB_WIDEN(BB_VERSION));
+        return ERROR_SUCCESS;
+    }
     if (request.kind == command_kind::test)
         return send_notification(app, encode("BigBrother", 256), encode("Проверка уведомлений Windows", 1024));
     if (request.kind == command_kind::send) return send_notification(app, request.title, request.body);
@@ -138,13 +141,13 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
         if (!args) throw notifications::failure{HRESULT_FROM_WIN32(command_error ? command_error : ERROR_GEN_FAILURE), L"Read notification command"};
         auto request = notifications::parse_command(argc, args);
         notifications::set_diagnostics(manual || request.kind == notifications::command_kind::help || request.kind == notifications::command_kind::version);
-        notifications::trace(L"BigBrother Notifications " BB_WIDEN(BB_VERSION));
-        notifications::trace(L"BigBrother Notifications build " BB_WIDEN(__DATE__) L" " BB_WIDEN(__TIME__));
-        notifications::trace(L"Executable: " + notifications::executable_path());
-        if (manual) notifications::trace(L"Manual test command accepted for " + request.app.display_name());
+        BB_TRACE(L"BigBrother Notifications " BB_WIDEN(BB_VERSION));
+        BB_TRACE(L"BigBrother Notifications build " BB_WIDEN(__DATE__) L" " BB_WIDEN(__TIME__));
+        BB_TRACE(L"Executable: " + notifications::executable_path());
+        if (manual) BB_TRACE(L"Manual test command accepted for " + request.app.display_name());
         result = notifications::run(request);
         if (manual && result == ERROR_SUCCESS)
-            notifications::trace(L"Test request submitted to Windows; banner display is not confirmed. See the delivery stages above.");
+            BB_TRACE(L"Test request submitted to Windows; banner display is not confirmed. See the delivery stages above.");
     } catch (const notifications::failure& error) { result = notifications::report_failure(error); }
     catch (const std::invalid_argument&) { result = notifications::report_failure({E_INVALIDARG, L"Invalid UTF-8 notification payload"}); }
     catch (...) { result = notifications::report_failure({E_FAIL, L"Notification helper"}); }

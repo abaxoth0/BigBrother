@@ -11,8 +11,7 @@ COMMON_FLAGS = $(BB_VERSION_FLAGS) -Wall -Wno-format-truncation -mconsole \
 	-I$(CURDIR)/../lib/c
 
 DEBUG_FLAGS = -DDEBUG -g3 -O0
-RELEASE_FLAGS = -O2
-BUILD_MODE := $(if $(filter release,$(MAKECMDGOALS)),release,debug)
+RELEASE_FLAGS = -DNDEBUG -O2
 
 LDFLAGS = -L$(CURDIR)/include/third-party/WinDivert-2.2.2-A/x64 -lWinDivert -lws2_32 -ladvapi32 -static
 
@@ -23,7 +22,7 @@ OBJECTS = $(addprefix build/$(BUILD_MODE)/,$(patsubst %.c,%.o,$(patsubst $(CURDI
 
 FW_NAME = BigBrother Firewall
 FW_EXE = build/$(BUILD_MODE)/BigBrother\ Firewall.exe
-all: debug
+all: $(BUILD_MODE)
 
 debug: CFLAGS = $(COMMON_FLAGS) $(DEBUG_FLAGS)
 debug: $(FW_EXE)
@@ -33,11 +32,11 @@ release: CFLAGS = $(COMMON_FLAGS) $(RELEASE_FLAGS)
 release: $(FW_EXE)
 	cp "$<" "build/$(FW_NAME).exe"
 
-build/$(BUILD_MODE)/src/%.o: src/%.c $(BB_VERSION_DEPS)
+build/$(BUILD_MODE)/src/%.o: src/%.c $(BB_VERSION_DEPS) $(BB_BUILD_DEPS)
 	mkdir -p $(@D)
 	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
 
-build/$(BUILD_MODE)/common/%.o: ../common/%.c $(BB_VERSION_DEPS)
+build/$(BUILD_MODE)/common/%.o: ../common/%.c $(BB_VERSION_DEPS) $(BB_BUILD_DEPS)
 	mkdir -p $(@D)
 	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
 

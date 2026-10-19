@@ -14,7 +14,7 @@ prebuilt self-contained frontends in `dist`, as described in `INSTALLERS.md`.
 Then run:
 
 ```sh
-./build-installers.sh /path/to/payload /path/to/output
+./build-installers.sh Release /path/to/payload /path/to/output
 ```
 
 The package version comes from repository `VERSION` (currently `2.0.0`); every
@@ -23,10 +23,10 @@ read it automatically, including when building the frontends in a Windows VM.
 See [VERSIONING.md](VERSIONING.md).
 
 Release notes use the matching CHANGELOG.md release, or `Unreleased` when
-that release is absent. The optional third argument selects another changelog file:
+that release is absent. The optional fourth argument selects another changelog file:
 
 ```sh
-./build-installers.sh /path/to/payload /path/to/output /path/to/CHANGELOG.md
+./build-installers.sh Release /path/to/payload /path/to/output /path/to/CHANGELOG.md
 ```
 
 Added, Removed, Changed, Fixed, Deprecated and Security bullets become structured

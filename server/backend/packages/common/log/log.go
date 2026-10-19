@@ -24,6 +24,8 @@ var DefaultLoggerConfig = &logger.FileLoggerConfig{
 	FilePerm: 0600, // Group and Other bits are ignored on windows
 	LoggerConfig: &logger.LoggerConfig{
 		ApplicationName: "big-brother-server",
+		Debug:           DiagnosticsEnabled,
+		Trace:           DiagnosticsEnabled,
 	},
 }
 

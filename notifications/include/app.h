@@ -85,7 +85,13 @@ DWORD report_failure(const failure& error);
 bool attach_console_output();
 void set_diagnostics(bool enabled);
 bool diagnostics_enabled();
+void print_message(std::wstring_view message);
+#ifdef DEBUG
 void trace(std::wstring_view message);
+#define BB_TRACE(...) ::notifications::trace(__VA_ARGS__)
+#else
+#define BB_TRACE(...) do {} while (0)
+#endif
 bool is_system();
 
 }

@@ -131,7 +131,7 @@ int main(int argc, char** argv) {
 
     // Not running as service, run in console mode
     log_init();
-    printf("[DEBUG] main: log_init done\n");
+    DLOGF("main: log_init done");
 
     if (argc < 2) {
         print_usage(argv[0]);
@@ -139,9 +139,9 @@ int main(int argc, char** argv) {
     }
 
     // Load server IP from config
-    printf("[DEBUG] main: calling load_server_ip\n");
+    DLOGF("main: calling load_server_ip");
     load_server_ip();
-    printf("[DEBUG] main: load_server_ip done\n");
+    DLOGF("main: load_server_ip done");
 
     // Check for daemon mode
     if (strcmp(argv[1], "-d") == 0) {

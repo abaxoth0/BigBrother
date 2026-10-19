@@ -3,21 +3,27 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [[ "${1:-}" == --help ]]; then
-    echo "Usage: $0 [payload-dir [installer-output-dir [changelog-file]]]"
+    echo "Usage: $0 <Debug|Release> [payload-dir [installer-output-dir [changelog-file]]]"
     echo "Defaults: $SCRIPT_DIR/dist, $SCRIPT_DIR/dist/installers, repository VERSION; matching release notes or Unreleased"
     exit 0
 fi
-if [[ $# -gt 3 ]]; then
+source "$SCRIPT_DIR/scripts/build-configuration.sh"
+if [[ $# -gt 4 ]]; then
     echo "Too many arguments; use --help for usage." >&2
     exit 2
 fi
-source "$SCRIPT_DIR/scripts/inno-env.sh"
 source "$SCRIPT_DIR/scripts/frontend-files.sh"
-PAYLOAD_DIR="$(realpath -e "${1:-$SCRIPT_DIR/dist}")"
-INSTALLER_OUTPUT_DIR="${2:-$SCRIPT_DIR/dist/installers}"
+PAYLOAD_DIR="$(realpath -e "${2:-$SCRIPT_DIR/dist}")"
+if [[ ! -f "$PAYLOAD_DIR/build-configuration.txt" ]] || \
+    [[ "$(cat "$PAYLOAD_DIR/build-configuration.txt")" != "$BUILD_CONFIGURATION" ]]; then
+    echo "Payload configuration does not match $BUILD_CONFIGURATION; run build.sh $BUILD_CONFIGURATION for this payload first." >&2
+    exit 1
+fi
+source "$SCRIPT_DIR/scripts/inno-env.sh"
+INSTALLER_OUTPUT_DIR="${3:-$SCRIPT_DIR/dist/installers}"
 VERSION="$(python3 "$SCRIPT_DIR/scripts/version.py")"
 BUILD_JOBS="$(nproc)"
-CHANGELOG_FILE="${3:-$SCRIPT_DIR/CHANGELOG.md}"
+CHANGELOG_FILE="${4:-$SCRIPT_DIR/CHANGELOG.md}"
 python3 "$SCRIPT_DIR/scripts/update-manifest.py" --changelog "$CHANGELOG_FILE" --validate-only
 if [[ ! -f "$INNO_ISCC" ]]; then
     echo "Inno Setup compiler not found: $INNO_ISCC" >&2

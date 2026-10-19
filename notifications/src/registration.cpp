@@ -72,7 +72,7 @@ void ensure_registration(const product& app, bool force_user) {
     bool protocol_matches = RegGetValueW(HKEY_CLASSES_ROOT, (std::wstring(app.scheme) + L"\\shell\\open\\command").c_str(),
         nullptr, RRF_RT_REG_SZ, nullptr, existing, &size) == ERROR_SUCCESS && existing == protocol_command(app);
     if (!force_user && protocol_matches && (shortcut_identity(FOLDERID_CommonPrograms, app) || shortcut_identity(FOLDERID_Programs, app))) {
-        trace(L"Existing shortcut identity and activation protocol validated");
+        BB_TRACE(L"Existing shortcut identity and activation protocol validated");
         return;
     }
     std::wstring folder = programs_path(FOLDERID_Programs, app);
@@ -99,7 +99,7 @@ void ensure_registration(const product& app, bool force_user) {
     ComPtr<IPersistFile> file;
     check(link.As(&file), L"Query shortcut file");
     check(file->Save(shortcut_path(FOLDERID_Programs, app).c_str(), TRUE), L"Save notification shortcut");
-    trace(L"Saved Start menu shortcut: " + shortcut_path(FOLDERID_Programs, app));
+    BB_TRACE(L"Saved Start menu shortcut: " + shortcut_path(FOLDERID_Programs, app));
     auto key = std::wstring(L"Software\\Classes\\") + app.scheme;
     registry_string(key, nullptr, L"URL:" + app.display_name());
     registry_string(key, L"URL Protocol", L"");

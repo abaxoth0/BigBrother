@@ -48,9 +48,6 @@ func main() {
 		fmt.Println("BigBrother Server Daemon " + productVersion)
 		return
 	}
-	log.DefaultLoggerConfig.Trace = true
-	log.DefaultLoggerConfig.Debug = true
-
 	app.StartInit()
 	app.InitDefaults()
 	app.EndInit()

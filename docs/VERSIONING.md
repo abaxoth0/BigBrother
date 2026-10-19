@@ -25,20 +25,22 @@ components (`2.0.0.0`), while the informational/product version remains `2.0.0`.
 Remove any separate version overrides from project or publish settings.
 
 Publish both frontends as self-contained Windows x64 single files using the
-existing profiles. Copy the executable and required native WPF DLLs from each
+existing profiles, selecting the same Debug or Release configuration as the Linux
+build. Copy the executable and required native WPF DLLs from each
 publish directory into `dist/client-frontend` or `dist/server-frontend` before
 running `publish.sh` or `build-installers.sh` on Linux.
 
 ## Native and Go builds
 
-`build.sh` builds all daemons and the notification helper with the common version.
+`build.sh Debug` or `build.sh Release` builds all daemons and the notification
+helper with the common version.
 Individual builds also work:
 
 ```sh
-make -C firewall
-make -C notifications
-make -C client/backend
-make -C server/backend
+make -C firewall release
+make -C notifications release
+make -C client/backend release
+make -C server/backend release
 ```
 
 The native Makefiles validate `VERSION` with Python 3, pass `BB_VERSION` to the
@@ -54,7 +56,7 @@ version for all six applications.
 ## Installers and update manifests
 
 ```sh
-./build-installers.sh /path/to/payload /path/to/installers
+./build-installers.sh Release /path/to/payload /path/to/installers
 ```
 
 Installers and update manifests read `VERSION` automatically. Inno Setup checks
@@ -63,5 +65,5 @@ fails when a binary is stale, including a frontend copied from the VM.
 
 Release notes use the matching CHANGELOG.md release heading when present,
 otherwise `Unreleased`. The build script accepts an optional changelog path as
-its third argument; package and notes versions are selected automatically. See
+its fourth argument; package and notes versions are selected automatically. See
 [INSTALLERS.md](INSTALLERS.md) and [CLIENT-UPDATES.md](CLIENT-UPDATES.md).

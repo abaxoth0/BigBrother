@@ -136,7 +136,9 @@ func (l *Listener) serve() {
 				localIP := l.getLocalIP()
 				response := fmt.Sprintf("%s\n%s\n%s\n%d\n", ResponseMagic, serverName, localIP, l.serverPort)
 				l.conn.WriteToUDP([]byte(response), rAddr)
-				l.logger.Debug(fmt.Sprintf("Discovery response sent to %s: name=%s ip=%s port=%d", rAddr.String(), serverName, localIP, l.serverPort), nil)
+				if log.DiagnosticsEnabled {
+					l.logger.Debug(fmt.Sprintf("Discovery response sent to %s: name=%s ip=%s port=%d", rAddr.String(), serverName, localIP, l.serverPort), nil)
+				}
 			}
 		}
 	}

@@ -66,6 +66,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Build scripts require a Debug or Release configuration; native and Go builds select matching compiler settings, keep mode-specific objects separate and reject installer payloads built in another mode
+- Release builds compile out debug/trace logging in daemons, the notification helper and server frontend while retaining normal operational logs; Debug builds enable diagnostics
+
 - Client/server installers offer Manual (on demand) or Automatic service startup, default to Automatic for the firewall and Manual for the server, and leave services stopped after installation and upgrades
 - Build scripts and Makefiles use all available CPU cores, compile C/C++ and mbedTLS sources in parallel, and enable parallel installer compression
 - Native, Go, Visual Studio and installer builds read the common version from `VERSION`; installers reject application payloads with mismatched versions

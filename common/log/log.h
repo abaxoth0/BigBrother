@@ -104,7 +104,7 @@ void log_write_sync(uint16_t type, uint8_t level, const char* msg);
 
 #else
 
-#define DLOGF(...)
+#define DLOGF(...) do {} while(0)
 
 #endif
 

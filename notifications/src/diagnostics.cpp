@@ -20,7 +20,9 @@ void record(std::wstring_view message) {
     swprintf(prefix, ARRAYSIZE(prefix), L"%04u-%02u-%02u %02u:%02u:%02u.%03u [pid %lu] ",
         now.wYear, now.wMonth, now.wDay, now.wHour, now.wMinute, now.wSecond, now.wMilliseconds, GetCurrentProcessId());
     std::wstring line = prefix + std::wstring(message.substr(0, 4096)) + L"\r\n";
+#ifdef DEBUG
     OutputDebugStringW(line.c_str());
+#endif
     std::string utf8(WideCharToMultiByte(CP_UTF8, 0, line.data(), static_cast<int>(line.size()), nullptr, 0, nullptr, nullptr), 0);
     WideCharToMultiByte(CP_UTF8, 0, line.data(), static_cast<int>(line.size()), utf8.data(), static_cast<int>(utf8.size()), nullptr, nullptr);
     DWORD written, mode;
@@ -53,7 +55,10 @@ bool attach_console_output() {
 
 void set_diagnostics(bool enabled) { detailed = enabled; }
 bool diagnostics_enabled() { return detailed; }
+void print_message(std::wstring_view message) { record(message); }
+#ifdef DEBUG
 void trace(std::wstring_view message) { if (detailed) record(message); }
+#endif
 
 DWORD report_failure(const failure& error) {
     wchar_t code[32];

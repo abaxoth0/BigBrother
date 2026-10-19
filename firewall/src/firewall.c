@@ -588,7 +588,7 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
     void* payload_ptr = NULL;
     UINT payload_len = 0;
 
-    OutputDebugString("Firewall started");
+    DLOGF("Firewall started");
 
     // Backoff counter: if WinDivertRecv keeps failing (e.g. driver detach), avoid
     // busy-spinning at 100% CPU.
@@ -958,15 +958,13 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
  * @param[in] CtrlCode Control code from service manager.
  */
 void WINAPI ServiceControlHandler(DWORD CtrlCode) {
-    char buf[128];
-    snprintf(buf, sizeof(buf), "[ServiceControlHandler] Received control: %lu", CtrlCode);
-    OutputDebugString(buf);
+    DLOGF("[ServiceControlHandler] Received control: %lu", CtrlCode);
 
     switch (CtrlCode) {
         case SERVICE_CONTROL_STOP:
-            OutputDebugString("[ServiceControlHandler] STOP received");
+            DLOGF("[ServiceControlHandler] STOP received");
             if (g_ServiceStatus.dwCurrentState != SERVICE_RUNNING) {
-                OutputDebugString("[ServiceControlHandler] Not running, ignoring");
+                DLOGF("[ServiceControlHandler] Not running, ignoring");
                 break;
             }
 
@@ -975,13 +973,12 @@ void WINAPI ServiceControlHandler(DWORD CtrlCode) {
             g_ServiceStatus.dwWaitHint = 2000;
             SetServiceStatus(g_StatusHandle, &g_ServiceStatus);
 
-            OutputDebugString("[ServiceControlHandler] Setting stop event");
+            DLOGF("[ServiceControlHandler] Setting stop event");
             SetEvent(g_ServiceStopEvent);
-            OutputDebugString("[ServiceControlHandler] Stop event set");
+            DLOGF("[ServiceControlHandler] Stop event set");
             break;
         default:
-            snprintf(buf, sizeof(buf), "[ServiceControlHandler] Unknown control: %lu", CtrlCode);
-            OutputDebugString(buf);
+            DLOGF("[ServiceControlHandler] Unknown control: %lu", CtrlCode);
             break;
     }
 }
@@ -999,14 +996,14 @@ void WINAPI ServiceControlHandler(DWORD CtrlCode) {
  * @param[in] argv Argument vector.
  */
 void WINAPI ServiceMain(DWORD argc, LPTSTR *argv) {
-    OutputDebugString("[ServiceMain] Starting");
+    DLOGF("[ServiceMain] Starting");
     g_StatusHandle = RegisterServiceCtrlHandler(SERVICE_NAME, ServiceControlHandler);
     if (!g_StatusHandle) {
-        OutputDebugString("[ServiceMain] RegisterServiceCtrlHandler failed");
+        DLOGF("[ServiceMain] RegisterServiceCtrlHandler failed");
         return;
     }
 
-    OutputDebugString("[ServiceMain] Handler registered");
+    DLOGF("[ServiceMain] Handler registered");
     g_ServiceStatus.dwServiceType = SERVICE_WIN32_OWN_PROCESS;
     g_ServiceStatus.dwCurrentState = SERVICE_START_PENDING;
     g_ServiceStatus.dwControlsAccepted = SERVICE_ACCEPT_STOP;
@@ -1016,10 +1013,10 @@ void WINAPI ServiceMain(DWORD argc, LPTSTR *argv) {
     g_ServiceStatus.dwWaitHint = 5000;
     UpdateServiceStatus();
 
-    OutputDebugString("[ServiceMain] Creating stop event");
+    DLOGF("[ServiceMain] Creating stop event");
     g_ServiceStopEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
     if (!g_ServiceStopEvent) {
-        OutputDebugString("[ServiceMain] CreateEvent failed");
+        DLOGF("[ServiceMain] CreateEvent failed");
         g_ServiceStatus.dwCurrentState = SERVICE_STOPPED;
         UpdateServiceStatus();
         return;
@@ -1027,7 +1024,7 @@ void WINAPI ServiceMain(DWORD argc, LPTSTR *argv) {
 
     load_config(g_ConfigPath);
 
-    OutputDebugString("[ServiceMain] Starting IPC");
+    DLOGF("[ServiceMain] Starting IPC");
     IpcStart(g_ServiceStopEvent);
 
     g_ClientStopEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
@@ -1040,10 +1037,10 @@ void WINAPI ServiceMain(DWORD argc, LPTSTR *argv) {
         LOGF("[ServiceMain] Client monitor thread started");
     }
 
-    OutputDebugString("[ServiceMain] Creating worker thread");
+    DLOGF("[ServiceMain] Creating worker thread");
     HANDLE hThread = CreateThread(NULL, 0, FirewallServiceThread, NULL, 0, NULL);
     if (!hThread) {
-        OutputDebugString("[ServiceMain] CreateThread failed");
+        DLOGF("[ServiceMain] CreateThread failed");
         if (monitor_thread) CloseHandle(monitor_thread);
         CloseHandle(g_ServiceStopEvent);
         g_ServiceStatus.dwCurrentState = SERVICE_STOPPED;
@@ -1051,12 +1048,12 @@ void WINAPI ServiceMain(DWORD argc, LPTSTR *argv) {
         return;
     }
 
-    OutputDebugString("[ServiceMain] Setting RUNNING state");
+    DLOGF("[ServiceMain] Setting RUNNING state");
     g_ServiceStatus.dwCurrentState = SERVICE_RUNNING;
     g_ServiceStatus.dwCheckPoint = 0;
     g_ServiceStatus.dwWaitHint = 0;
     UpdateServiceStatus();
-    OutputDebugString("[ServiceMain] Running");
+    DLOGF("[ServiceMain] Running");
 
     // Wait for the firewall thread to exit (stop event set by SCM), then stop the
     // client backend and join the monitor thread BEFORE closing shared event handles.

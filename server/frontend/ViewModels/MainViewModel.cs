@@ -581,7 +581,9 @@ public class MainViewModel : ViewModelBase
         try
         {
             var newState = FiltrationStatus == "Вкл" ? "0" : "1";
+#if DEBUG
             AddLog("DEBUG", $"ToggleFiltration: current='{FiltrationStatus}', newState='{newState}'");
+#endif
             var ok = await _ipcService.SetFiltrationEnabledAsync(newState == "1");
             AddLog(ok ? "INFO" : "ERROR", ok
                 ? $"Фильтрация {(newState == "1" ? "включена" : "отключена")}"

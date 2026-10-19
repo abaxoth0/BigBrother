@@ -3,6 +3,7 @@
 package rpc
 
 import (
+	buildlog "bigbrother_server_backend/packages/common/log"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -71,7 +72,9 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 			return
 		}
 
-		log.Debug("Frontend received: "+cmd, nil)
+		if buildlog.DiagnosticsEnabled {
+			log.Debug("Frontend received: "+cmd, nil)
+		}
 
 		switch cmd {
 		case "SET_CLIENT_UPDATE":

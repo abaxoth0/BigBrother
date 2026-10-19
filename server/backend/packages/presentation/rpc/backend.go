@@ -3,6 +3,7 @@
 package rpc
 
 import (
+	buildlog "bigbrother_server_backend/packages/common/log"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
@@ -66,7 +67,9 @@ func (h *BackendHandler) handle(conn net.Conn) {
 			return
 		}
 
-		log.Debug("Received: "+cmd, nil)
+		if buildlog.DiagnosticsEnabled {
+			log.Debug("Received: "+cmd, nil)
+		}
 
 		switch cmd {
 		case "GET_CLIENT_UPDATE", "GET_CLIENT_UPDATE_DETAILS":

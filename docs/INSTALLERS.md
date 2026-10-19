@@ -25,20 +25,31 @@ default Make job count. Installer compression follows Inno Setup's
 To build both installers from already published binaries:
 
 ```sh
-./build-installers.sh
-./build-installers.sh /path/to/payload /path/to/installers
+./build-installers.sh Release
+./build-installers.sh Release /path/to/payload /path/to/installers
 ```
 
-The arguments are the payload directory (default: repository `dist`), installer
+The first argument is mandatory: `Debug` or `Release`. The remaining arguments
+are the payload directory (default: repository `dist`), installer
 output directory (default: repository `dist/installers`), and optional changelog
 path (default: repository `CHANGELOG.md`). The version always comes from repository
 `VERSION`. Notes come from the matching release heading, or `Unreleased` if that
 release is absent. Paths containing
 spaces work, and scripts can be invoked from outside the repository.
 
+`build.sh <Debug|Release> [output-dir]` builds the daemons and notification
+helper. Debug builds include debug/trace logs and debugging symbols; Release
+builds compile out debug/trace logging and use optimized code. Normal information,
+warning, error and firewall blocked logs remain available. Direct Makefile builds
+accept `debug` and `release` targets and default to `debug`. Objects are stored
+separately for each configuration so switching modes does not reuse the other
+mode's code. Successful builds write `build-configuration.txt` into the payload;
+installer builds require that marker to match their configuration argument.
+
 All application binaries must be rebuilt for the version in `VERSION`. The compiler
 checks their embedded product versions and rejects stale payloads. Build/publish
-the frontends normally in Visual Studio in the Windows VM, then copy the published
+the frontends in the matching Debug or Release configuration in Visual Studio in
+the Windows VM, then copy the published
 files into `dist/{client,server}-frontend`. The shared MSBuild files read `VERSION`
 automatically; no shell command or version edit in Visual Studio is needed.
 See [VERSIONING.md](VERSIONING.md) for the release workflow.
@@ -68,8 +79,8 @@ To rebuild daemons and installers using the prebuilt frontend executables in
 repository `dist/{client,server}-frontend`:
 
 ```sh
-./publish.sh
-./publish.sh /path/to/payload
+./publish.sh Release
+./publish.sh Release /path/to/payload
 ```
 
 The script does not rebuild frontends. With a custom payload directory it copies
@@ -150,7 +161,8 @@ codes for failed session launches and WinRT delivery errors. Windows enforces
 notification preferences when the toast is submitted; the helper does not
 require an existing notification-settings record before submitting the first toast.
 Client delivery errors go to the backend log; the server records the helper's
-exit status and diagnostic output. Manual-test traces and all errors are also
+exit status and diagnostic output. Debug builds include manual-test traces;
+Release builds omit those traces. All errors are also
 written to `%LOCALAPPDATA%\BigBrother\notifications.log` with timestamps and
 process IDs. The file rotates at approximately 64 KiB to `notifications.log.old`.
 A manual service-context test with no active signed-in session reports an error

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Build daemons and installers using the prebuilt frontend executables in dist.
-# Usage: ./publish.sh [output-dir]
+# Usage: ./publish.sh <Debug|Release> [output-dir]
 #   output-dir defaults to ./dist
 #
 # Frontends in dist contain prebuilt executables and their native WPF DLLs.
@@ -8,7 +8,16 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-OUTPUT_DIR="${1:-$SCRIPT_DIR/dist}"
+if [[ "${1:-}" == --help ]]; then
+    echo "Usage: $0 <Debug|Release> [output-dir]"
+    exit 0
+fi
+source "$SCRIPT_DIR/scripts/build-configuration.sh"
+if [[ $# -gt 2 ]]; then
+    echo "Too many arguments; use --help for usage." >&2
+    exit 2
+fi
+OUTPUT_DIR="${2:-$SCRIPT_DIR/dist}"
 source "$SCRIPT_DIR/scripts/frontend-files.sh"
 python3 "$SCRIPT_DIR/scripts/version.py"
 
@@ -21,7 +30,7 @@ OUTPUT_DIR="$(realpath -e "$OUTPUT_DIR")"
 
 # 1) Daemons + firewall (C/go) — build.sh puts them straight into $OUTPUT_DIR
 echo "--- Building daemons ---"
-"$SCRIPT_DIR/build.sh" "$OUTPUT_DIR"
+"$SCRIPT_DIR/build.sh" "$BUILD_CONFIGURATION" "$OUTPUT_DIR"
 
 echo "--- Using prebuilt frontends ---"
 for product in Client Server; do
@@ -41,7 +50,7 @@ for product in Client Server; do
 done
 
 echo "--- Building installers ---"
-"$SCRIPT_DIR/build-installers.sh" "$OUTPUT_DIR" "$OUTPUT_DIR/installers"
+"$SCRIPT_DIR/build-installers.sh" "$BUILD_CONFIGURATION" "$OUTPUT_DIR" "$OUTPUT_DIR/installers"
 
 echo "=== Publish complete ==="
 ls -la "$OUTPUT_DIR"
