@@ -16,6 +16,12 @@ absolute prefix path; use the same setting for both installation and builds.
 `INNO_ISCC` optionally selects an existing compiler by its absolute Linux path.
 Wine and Inno Setup are build dependencies; target Windows computers need neither.
 
+Build scripts and direct `make` builds use all available CPU cores reported by
+`nproc`. C/C++ sources, mbedTLS and Go packages compile in parallel, and all three
+installers use parallel LZMA2 compression. An explicit `make -jN` overrides the
+default Make job count. Installer compression follows Inno Setup's
+[block threading settings](https://jrsoftware.org/ishelp/topic_setup_lzmanumblockthreads.htm).
+
 To build both installers from already published binaries:
 
 ```sh

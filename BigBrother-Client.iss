@@ -26,8 +26,7 @@ OutputDir=dist\installers
 OutputBaseFilename=BigBrother-{#ProductVersion}-{#Product}-Setup
 SetupIconFile=assets\icons\BigBrother_Client_Frontend.ico
 UninstallDisplayIcon={app}\GUI\BigBrother {#Product}.exe
-Compression=lzma2
-SolidCompression=yes
+#include "installer\compression.iss"
 WizardStyle=modern
 CloseApplications=yes
 RestartApplications=no

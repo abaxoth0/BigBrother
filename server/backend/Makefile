@@ -1,4 +1,5 @@
 include ../../common/version.mk
+include ../../common/build.mk
 
 all: build
 
@@ -9,6 +10,6 @@ cmd/app_windows_amd64.syso: cmd/app.rc $(BB_VERSION_DEPS) ../../assets/icons/Big
 
 build: resources
 	mkdir -p build
-	CGO_ENABLED=1 CC=clang GOOS=windows GOARCH=amd64 go build -ldflags '-X main.productVersion=$(BB_VERSION)' -o 'build/BigBrother Server Daemon.exe' ./cmd
+	CGO_ENABLED=1 CC=clang GOOS=windows GOARCH=amd64 GOMAXPROCS=$(BB_BUILD_JOBS) go build -p $(BB_BUILD_JOBS) -ldflags '-X main.productVersion=$(BB_VERSION)' -o 'build/BigBrother Server Daemon.exe' ./cmd
 
 .PHONY: all resources build
