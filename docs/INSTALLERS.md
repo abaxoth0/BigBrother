@@ -164,8 +164,20 @@ identity, protocol and shortcut; it does not replace the Client or Server regist
 Upgrades reuse the previous Inno installation directory, or the directory recorded
 by the legacy NSIS uninstall entry. They stop and remove the existing service
 before replacing binaries, then recreate the service with a quoted executable
-path and manual startup. Secret permissions are secured before service startup;
-failures in that step or service setup/startup fail installation. Legacy NSIS
+path. Both installers offer Manual (on demand) and Automatic (when Windows
+starts) startup modes. The client firewall service defaults to Automatic; the
+server service defaults to Manual. Subsequent installs remember the selected
+mode. Both installers leave the service stopped, including after upgrades and
+silent installs. Start it from the frontend when ready; Automatic takes effect
+at the next Windows startup.
+
+For unattended installs, select the startup mode with `/TASKS="servicemanual"`
+or `/TASKS="serviceautomatic"`. These options do not start the service during
+installation. Windows calls manual startup
+[demand startup](https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/sc-config).
+
+Secret permissions are secured before service creation; failures in that step
+or service setup fail installation. Legacy NSIS
 uninstall registration and `uninstall.exe` are replaced by Inno's uninstaller.
 
 The client retains its existing firewall-rule setup. The server backend continues

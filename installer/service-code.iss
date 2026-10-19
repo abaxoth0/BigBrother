@@ -1,3 +1,12 @@
+[Tasks]
+#if Product == "Client"
+Name: serviceautomatic; Description: "Automatic (when Windows starts)"; GroupDescription: "Service startup:"; Flags: exclusive
+Name: servicemanual; Description: "Manual (on demand)"; GroupDescription: "Service startup:"; Flags: exclusive unchecked
+#else
+Name: servicemanual; Description: "Manual (on demand)"; GroupDescription: "Service startup:"; Flags: exclusive
+Name: serviceautomatic; Description: "Automatic (when Windows starts)"; GroupDescription: "Service startup:"; Flags: exclusive unchecked
+#endif
+
 [Code]
 type
   TServiceStatus = record
@@ -128,14 +137,20 @@ begin
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
+var
+  ServiceStartType: String;
 begin
   if CurStep <> ssPostInstall then Exit;
   PostInstallFailed := True;
   RunRequired(ExpandConstant('{app}\{#DaemonName}'), '--secure-storage',
     'Secret permissions setup failed. The service was not started.');
+  if WizardIsTaskSelected('serviceautomatic') then
+    ServiceStartType := 'auto'
+  else
+    ServiceStartType := 'demand';
   RunRequired(ExpandConstant('{sys}\sc.exe'),
     'create "{#ServiceName}" binPath= "\"' + ExpandConstant('{app}\{#ServiceExe}') +
-    '\"" start= demand DisplayName= "{#ServiceName}"',
+    '\"" start= ' + ServiceStartType + ' DisplayName= "{#ServiceName}"',
     'Cannot create {#ServiceName}.');
 #if Product == "Client"
   RunRequired(ExpandConstant('{sys}\sc.exe'),
@@ -154,8 +169,6 @@ begin
     'description "{#ServiceName}" "Manages whitelists, clients, and serves discovery."',
     'Cannot set the service description.');
 #endif
-  RunRequired(ExpandConstant('{sys}\net.exe'), 'start "{#ServiceName}"',
-    'Service startup failed. Check logs, configuration and Windows Firewall permissions.');
   PostInstallFailed := False;
 end;
 

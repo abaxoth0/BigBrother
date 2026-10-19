@@ -63,6 +63,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Client/server installers offer Manual (on demand) or Automatic service startup, default to Automatic for the firewall and Manual for the server, and leave services stopped after installation and upgrades
 - Build scripts and Makefiles use all available CPU cores, compile C/C++ and mbedTLS sources in parallel, and enable parallel installer compression
 - Native, Go, Visual Studio and installer builds read the common version from `VERSION`; installers reject application payloads with mismatched versions
 - Installer builds accept an optional changelog path instead of a version argument; release notes use the matching version heading or fall back to `Unreleased`
