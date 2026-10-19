@@ -34,6 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Server: log frontend connections only when the event subscription is established, avoiding repeated messages from health checks and ordinary pipe requests
 - Client/server frontends: prevent live logs from stalling until service shutdown with periodic read retries and batched UI updates; keep the newest pending entries under overload and preserve split binary records/JSON lines
 - Client history: avoid UI deadlocks when resolving log paths; load complete log files in the background with loading status and cancellation when the window closes
 - Client log viewer: use dark tabs and content borders, fully rounded headers, gold selection and visible hover/keyboard-focus states

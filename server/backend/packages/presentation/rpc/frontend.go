@@ -59,7 +59,6 @@ func NewFrontendHandler(
 
 func (h *FrontendHandler) handle(conn net.Conn) {
 	defer conn.Close()
-	log.Info("Frontend connected", nil)
 
 	scanner := newScanner(conn)
 	for {
@@ -485,6 +484,7 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 				writeErrorTLV(conn, err.Error())
 				continue
 			}
+			log.Info("Frontend connected", nil)
 			writeOK(conn)
 			conn.SetReadDeadline(time.Time{}) // pushed events only, no request deadline
 			scanner := newScanner(conn)
