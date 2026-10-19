@@ -16,6 +16,7 @@ source "$SCRIPT_DIR/scripts/frontend-files.sh"
 PAYLOAD_DIR="$(realpath -e "${1:-$SCRIPT_DIR/dist}")"
 INSTALLER_OUTPUT_DIR="${2:-$SCRIPT_DIR/dist/installers}"
 VERSION="$(python3 "$SCRIPT_DIR/scripts/version.py")"
+BUILD_JOBS="$(nproc)"
 CHANGELOG_FILE="${3:-$SCRIPT_DIR/CHANGELOG.md}"
 python3 "$SCRIPT_DIR/scripts/update-manifest.py" --changelog "$CHANGELOG_FILE" --validate-only
 if [[ ! -f "$INNO_ISCC" ]]; then
@@ -48,6 +49,7 @@ for product in Client Server Client-Update; do
     SCRIPT_WINDOWS="$(winepath -w "$SCRIPT_DIR/BigBrother-$product.iss")"
     "${INNO_WINE_RUNNER[@]}" "$INNO_ISCC" --quiet-progress \
         "--define=PayloadDir=$PAYLOAD_WINDOWS" "--define=ProductVersion=$VERSION" \
+        "--define=BuildJobs=$BUILD_JOBS" \
         "--output-dir=$OUTPUT_WINDOWS" "$SCRIPT_WINDOWS"
 done
 python3 "$SCRIPT_DIR/scripts/update-manifest.py" --changelog "$CHANGELOG_FILE" \

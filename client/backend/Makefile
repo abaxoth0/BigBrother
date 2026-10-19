@@ -1,4 +1,5 @@
 include ../../common/version.mk
+include ../../common/build.mk
 
 CC = x86_64-w64-mingw32-gcc
 AR = x86_64-w64-mingw32-ar
@@ -14,45 +15,60 @@ COMMON_FLAGS = $(BB_VERSION_FLAGS) -Wall -Wno-format-truncation -mconsole \
 
 DEBUG_FLAGS = -g3 -O0
 RELEASE_FLAGS = -O2
+BUILD_MODE := $(if $(filter release,$(MAKECMDGOALS)),release,debug)
 
 t-units = src/main.c src/common.c src/ipc_daemon.c src/ipc_client.c src/net_client.c src/tls_client.c src/client_key.c src/certificate_pin.c $(ROOT)/common/encoding/encoding.c $(ROOT)/common/log/log.c
+OBJECTS = $(addprefix build/$(BUILD_MODE)/,$(patsubst %.c,%.o,$(patsubst $(ROOT)/%,%,$(t-units))))
 
 # mbedTLS library sources (excluding the ARM-only AESCE accelerator).
 MB_UNITS := $(wildcard $(MBEDTLS_DIR)/library/*.c)
 MB_UNITS := $(filter-out %/aesce.c, $(MB_UNITS))
 MBED_CFLAGS = -O2 -I$(MBEDTLS_DIR)/include
 MBED_A = build/mbedtls/libmbedtls.a
+MB_OBJECTS = $(patsubst $(MBEDTLS_DIR)/library/%.c,build/mbedtls/obj/%.o,$(MB_UNITS))
 
 CB_NAME = BigBrother Client Daemon
+CB_EXE = build/$(BUILD_MODE)/BigBrother\ Client\ Daemon.exe
 NOTIFY_DIR = $(ROOT)/notifications
 NOTIFY_A = $(NOTIFY_DIR)/build/libbbnotify.a
 CLIENT_LIBS = $(NOTIFY_A) -Wl,-Bstatic -lstdc++ -lwinpthread -Wl,-Bdynamic $(MBED_A) -lws2_32 -liphlpapi -lbcrypt -lwinmm -ladvapi32
 all: debug
 
 debug: CFLAGS = $(COMMON_FLAGS) $(DEBUG_FLAGS)
-debug: $(CB_NAME)
+debug: $(CB_EXE)
+	cp "$<" "build/$(CB_NAME).exe"
 
 release: CFLAGS = $(COMMON_FLAGS) $(RELEASE_FLAGS)
-release: $(CB_NAME)
+release: $(CB_EXE)
+	cp "$<" "build/$(CB_NAME).exe"
 
 $(NOTIFY_A): $(NOTIFY_DIR)/src/notify.cpp $(ROOT)/common/notify.h $(NOTIFY_DIR)/include/transport.h
 	$(MAKE) -C $(NOTIFY_DIR) build/libbbnotify.a
 
-$(MBED_A): $(MB_UNITS)
-	mkdir -p build/mbedtls/obj
-	@for f in $(MB_UNITS); do \
-		o=build/mbedtls/obj/$$(basename $$f .c).o; \
-		$(CC) $(MBED_CFLAGS) -c "$$f" -o "$$o" || exit 1; \
-	done
-	$(AR) rcs build/mbedtls/libmbedtls.a build/mbedtls/obj/*.o
+$(MBED_A): $(MB_OBJECTS)
+	$(AR) rcs $@ $^
+
+build/mbedtls/obj/%.o: $(MBEDTLS_DIR)/library/%.c
+	mkdir -p $(@D)
+	$(CC) $(MBED_CFLAGS) -MMD -MP -c $< -o $@
+
+build/$(BUILD_MODE)/src/%.o: src/%.c $(BB_VERSION_DEPS)
+	mkdir -p $(@D)
+	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
+
+build/$(BUILD_MODE)/common/%.o: $(ROOT)/common/%.c $(BB_VERSION_DEPS)
+	mkdir -p $(@D)
+	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
 
 $(ICON_OBJ): $(BB_VERSION_DEPS) app.rc $(ROOT)/assets/icons/BigBrother_Client_Backend.ico
 	mkdir -p build
 	$(WINDRES) $(BB_RESOURCE_VERSION_FLAGS) -i app.rc -o $(ICON_OBJ)
 
-$(CB_NAME): $(BB_VERSION_DEPS) $(t-units) $(MBED_A) $(ICON_OBJ) $(NOTIFY_A)
+$(CB_EXE): $(BB_VERSION_DEPS) $(OBJECTS) $(MBED_A) $(ICON_OBJ) $(NOTIFY_A)
 	mkdir -p build
-	$(CC) $(CFLAGS) -o "build/$(CB_NAME).exe" $(t-units) $(ICON_OBJ) $(CLIENT_LIBS)
+	$(CC) $(CFLAGS) -o "$@" $(OBJECTS) $(ICON_OBJ) $(CLIENT_LIBS)
+
+-include $(OBJECTS:.o=.d) $(MB_OBJECTS:.o=.d)
 
 clean:
 	rm -rf build

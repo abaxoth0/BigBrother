@@ -6,6 +6,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 OUTPUT_DIR="${1:-$SCRIPT_DIR/dist}"
+BUILD_JOBS="$(nproc)"
 python3 "$SCRIPT_DIR/scripts/version.py"
 
 echo "Building BigBrother..."
@@ -15,19 +16,19 @@ mkdir -p "$OUTPUT_DIR"
 OUTPUT_DIR="$(realpath -e "$OUTPUT_DIR")"
 
 echo "Building firewall daemon..."
-cd "$SCRIPT_DIR/firewall" && make clean && make
+cd "$SCRIPT_DIR/firewall" && make clean && make -j"$BUILD_JOBS"
 cp build/*.exe "$OUTPUT_DIR/"
 
 echo "Building notification helper..."
-make -C "$SCRIPT_DIR/notifications"
+make -C "$SCRIPT_DIR/notifications" -j"$BUILD_JOBS"
 cp "$SCRIPT_DIR/notifications/build/BigBrother Notifications.exe" "$OUTPUT_DIR/"
 
 echo "Building client backend..."
-cd "$SCRIPT_DIR/client/backend" && make clean && make
+cd "$SCRIPT_DIR/client/backend" && make clean && make -j"$BUILD_JOBS"
 cp build/*.exe "$OUTPUT_DIR/"
 
 echo "Building server backend..."
-make -C "$SCRIPT_DIR/server/backend"
+make -C "$SCRIPT_DIR/server/backend" -j"$BUILD_JOBS"
 cp "$SCRIPT_DIR/server/backend/build/BigBrother Server Daemon.exe" "$OUTPUT_DIR/"
 
 WD_DIR="$SCRIPT_DIR/firewall/include/third-party/WinDivert-2.2.2-A"

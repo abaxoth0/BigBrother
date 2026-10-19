@@ -18,8 +18,7 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir=dist\installers
 OutputBaseFilename=BigBrother-{#ProductVersion}-Client-Update
-Compression=lzma2
-SolidCompression=yes
+#include "installer\compression.iss"
 DisableDirPage=yes
 DisableProgramGroupPage=yes
 DisableReadyPage=yes
