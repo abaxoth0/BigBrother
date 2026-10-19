@@ -9,15 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Common release version in root `VERSION` (2.0.0): embed it in all application binaries, show it centered at the bottom of frontend sidebars and in client update checks, and expose `--version` in daemons and the notification helper
-- Build version integration for native Makefiles, the Go linker and normal Visual Studio Build/Publish in the Windows VM; installers and update manifests use the same version and reject stale application payloads
-
-- Server update settings: select the client update EXE with «Обзор…» instead of entering its shared path manually
-- Client: «Обновления» tab with explicit checking, installed/available versions, release notes and a separate installation button; checks no longer download or install packages automatically
-- Update builds: parse a selected version from CHANGELOG.md into structured release notes in the JSON manifest; support Added, Removed, Changed, Fixed, Deprecated and Security sections, with an explicit Unreleased selector for development packages
-
-- Client updates: publish a shared EXE path from server settings with verified release metadata; clients copy newer releases into local staging, require administrator rights, and show update progress; SYSTEM/Administrators DACLs protect packages, runners, backups and recovery journals
-- Client updates: self-contained Inno update packages, complete pre-replacement installation snapshots with configuration and file security, rollback on replacement/startup failure, and retained journals for interrupted-update recovery
+- Server settings to publish and withdraw client update packages from an existing network share, with file selection, UNC paths and Windows credential prompts when required
+- Client «Обновления» tab with explicit update checks, installed and available versions, release notes and manual installation with progress
+- Self-contained client update executables and companion `.manifest.json` files containing package identity and release notes parsed from CHANGELOG.md
+- Installation backups, rollback on failure and recovery after an interrupted update
+- Common application version in root `VERSION`, embedded in all binaries, displayed at the bottom of frontend sidebars and available through `--version` in daemons and the notification helper
 
 - Server whitelist tab: stage activation changes locally with «Сохранить» and «Отмена»; save all changed flags in one transaction and send clients a single refresh event; retain drafts across refreshes and failed saves
 
@@ -37,12 +33,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Server whitelist editor: live validation rejects malformed entries, duplicate rules and directly conflicting exceptions before saving; overlapping exceptions show warnings, and imports use the same validation
 
 ### Fixed
-
-- Server network-folder dialog: use dark window colours and readable dropdown text; support typing UNC paths in the themed editable selector
-
-- Client updates: publish UNC paths instead of machine-specific mapped drive letters; resolve saved mappings hidden by elevation, provide a network-folder picker, and request Windows share credentials only after an access/login failure on the server or client
-
-- Client frontend: fix immediate startup failure caused by setting WPF `StartupUri` to null; create the normal or updater window explicitly without a XAML startup URI
 
 - Server frontend: skip whitelist/conflict refreshes while the backend is unavailable and use dark theme colors for the whitelist conflict divider, including hover, focus and drag states
 
@@ -73,9 +63,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Update packages: name companion manifests `.manifest.json` and use «файл обновления» in server update settings
-
-- Installer builds: remove version and release-note version arguments; read the package version from `VERSION` and select matching changelog notes, falling back to `Unreleased`; accept an optional changelog path as the third argument
+- Native, Go, Visual Studio and installer builds read the common version from `VERSION`; installers reject application payloads with mismatched versions
+- Installer builds accept an optional changelog path instead of a version argument; release notes use the matching version heading or fall back to `Unreleased`
 
 - Notification helper: moved the app to the top-level `notifications` directory with `include`, `src`, `resources` and `tests` subdirectories, keeping its shared C interface in `common/notify.h`; updated build and client integration paths
 
@@ -100,6 +89,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Security: added `check_ipc_access.py` (and a `.bat` launcher) to probe the named pipes and verify the restrictions
 - Security: resilience limits — TCP listener caps concurrent connections (default 256) and rate-limits connections per source IP; the event bus caps push subscribers (128); discovery replies are rate-limited per source
 - Security: tokens are never broadcast — approval events no longer carry the token (the client obtains it via the signed `GET_TOKEN` challenge); documented TLS/rotation hygiene in `docs/BBMP.md`/`docs/TODO.md`
+
+### Security
+
+- Client updates require administrator rights, copy packages to local storage and verify their size and SHA-256 before installation; SYSTEM/Administrators DACLs protect staged packages, updater executables, backups and recovery journals
 
 ## [1.3.0] - 27-09-2026
 
