@@ -13,9 +13,8 @@ COMMON_FLAGS = $(BB_VERSION_FLAGS) -Wall -Wno-format-truncation -mconsole \
 	-I$(ROOT)/common \
 	-I$(MBEDTLS_DIR)/include
 
-DEBUG_FLAGS = -g3 -O0
-RELEASE_FLAGS = -O2
-BUILD_MODE := $(if $(filter release,$(MAKECMDGOALS)),release,debug)
+DEBUG_FLAGS = -DDEBUG -g3 -O0
+RELEASE_FLAGS = -DNDEBUG -O2
 
 t-units = src/main.c src/common.c src/ipc_daemon.c src/ipc_client.c src/net_client.c src/tls_client.c src/client_key.c src/certificate_pin.c $(ROOT)/common/encoding/encoding.c $(ROOT)/common/log/log.c
 OBJECTS = $(addprefix build/$(BUILD_MODE)/,$(patsubst %.c,%.o,$(patsubst $(ROOT)/%,%,$(t-units))))
@@ -30,9 +29,9 @@ MB_OBJECTS = $(patsubst $(MBEDTLS_DIR)/library/%.c,build/mbedtls/obj/%.o,$(MB_UN
 CB_NAME = BigBrother Client Daemon
 CB_EXE = build/$(BUILD_MODE)/BigBrother\ Client\ Daemon.exe
 NOTIFY_DIR = $(ROOT)/notifications
-NOTIFY_A = $(NOTIFY_DIR)/build/libbbnotify.a
+NOTIFY_A = $(NOTIFY_DIR)/build/$(BUILD_MODE)/libbbnotify.a
 CLIENT_LIBS = $(NOTIFY_A) -Wl,-Bstatic -lstdc++ -lwinpthread -Wl,-Bdynamic $(MBED_A) -lws2_32 -liphlpapi -lbcrypt -lwinmm -ladvapi32
-all: debug
+all: $(BUILD_MODE)
 
 debug: CFLAGS = $(COMMON_FLAGS) $(DEBUG_FLAGS)
 debug: $(CB_EXE)
@@ -42,8 +41,8 @@ release: CFLAGS = $(COMMON_FLAGS) $(RELEASE_FLAGS)
 release: $(CB_EXE)
 	cp "$<" "build/$(CB_NAME).exe"
 
-$(NOTIFY_A): $(NOTIFY_DIR)/src/notify.cpp $(ROOT)/common/notify.h $(NOTIFY_DIR)/include/transport.h
-	$(MAKE) -C $(NOTIFY_DIR) build/libbbnotify.a
+$(NOTIFY_A): $(NOTIFY_DIR)/src/notify.cpp $(ROOT)/common/notify.h $(NOTIFY_DIR)/include/transport.h $(BB_BUILD_DEPS)
+	$(MAKE) -C $(NOTIFY_DIR) $(BUILD_MODE)
 
 $(MBED_A): $(MB_OBJECTS)
 	$(AR) rcs $@ $^
@@ -52,11 +51,11 @@ build/mbedtls/obj/%.o: $(MBEDTLS_DIR)/library/%.c
 	mkdir -p $(@D)
 	$(CC) $(MBED_CFLAGS) -MMD -MP -c $< -o $@
 
-build/$(BUILD_MODE)/src/%.o: src/%.c $(BB_VERSION_DEPS)
+build/$(BUILD_MODE)/src/%.o: src/%.c $(BB_VERSION_DEPS) $(BB_BUILD_DEPS)
 	mkdir -p $(@D)
 	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
 
-build/$(BUILD_MODE)/common/%.o: $(ROOT)/common/%.c $(BB_VERSION_DEPS)
+build/$(BUILD_MODE)/common/%.o: $(ROOT)/common/%.c $(BB_VERSION_DEPS) $(BB_BUILD_DEPS)
 	mkdir -p $(@D)
 	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
 

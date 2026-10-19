@@ -1,6 +1,7 @@
 package sqlite
 
 import (
+	"bigbrother_server_backend/packages/common/log"
 	"bigbrother_server_backend/packages/domain/entity"
 	dbcommon "bigbrother_server_backend/packages/infrastructure/database/common"
 	"database/sql"
@@ -15,7 +16,9 @@ import (
 )
 
 func (db *Database) GetUserByName(username string) (*entity.User, error) {
-	dbcommon.Log.Trace("Getting user with name \""+username+"\"...", nil)
+	if log.DiagnosticsEnabled {
+		dbcommon.Log.Trace("Getting user with name \""+username+"\"...", nil)
+	}
 
 	row := db.conn.QueryRow(
 		"SELECT id, name, addr, whitelist_id, token, sign_public FROM user WHERE name = ?",
@@ -35,14 +38,18 @@ func (db *Database) GetUserByName(username string) (*entity.User, error) {
 	user.Token = token.String
 	user.SignPublic = signPublic.String
 
-	dbcommon.Log.Trace("Getting user with name \""+username+"\": OK", nil)
+	if log.DiagnosticsEnabled {
+		dbcommon.Log.Trace("Getting user with name \""+username+"\": OK", nil)
+	}
 
 	return &user, nil
 }
 
 // FIXME Code duplication
 func (db *Database) GetUserByAddr(userAddr string) (*entity.User, error) {
-	dbcommon.Log.Trace("Getting user with address \""+userAddr+"\"...", nil)
+	if log.DiagnosticsEnabled {
+		dbcommon.Log.Trace("Getting user with address \""+userAddr+"\"...", nil)
+	}
 
 	row := db.conn.QueryRow(
 		"SELECT id, name, addr, whitelist_id, token, sign_public FROM user WHERE addr = ?",
@@ -62,7 +69,9 @@ func (db *Database) GetUserByAddr(userAddr string) (*entity.User, error) {
 	user.Token = token.String
 	user.SignPublic = signPublic.String
 
-	dbcommon.Log.Trace("Getting user with address \""+userAddr+"\": OK", nil)
+	if log.DiagnosticsEnabled {
+		dbcommon.Log.Trace("Getting user with address \""+userAddr+"\": OK", nil)
+	}
 
 	return &user, nil
 }

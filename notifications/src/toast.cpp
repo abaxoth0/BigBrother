@@ -38,7 +38,7 @@ public:
 };
 
 void show_toast(const product& app, const std::wstring& title, const std::wstring& body) {
-    trace(L"Preparing notification identity: " + std::wstring(app.app_id));
+    BB_TRACE(L"Preparing notification identity: " + std::wstring(app.app_id));
     ensure_registration(app);
     check(SetCurrentProcessExplicitAppUserModelID(app.app_id), L"Set notification identity");
     ComPtr<IToastNotificationManagerStatics> manager;
@@ -46,7 +46,7 @@ void show_toast(const product& app, const std::wstring& title, const std::wstrin
         IID_PPV_ARGS(&manager)), L"Activate WinRT toast manager");
     ComPtr<IToastNotifier> notifier;
     check(manager->CreateToastNotifierWithId(hstring(app.app_id).get(), &notifier), L"Create WinRT toast notifier");
-    trace(L"WinRT toast notifier created");
+    BB_TRACE(L"WinRT toast notifier created");
     ComPtr<IInspectable> instance;
     check(RoActivateInstance(hstring(L"Windows.Data.Xml.Dom.XmlDocument").get(), &instance), L"Activate WinRT XML document");
     ComPtr<IXmlDocument> document;
@@ -54,13 +54,14 @@ void show_toast(const product& app, const std::wstring& title, const std::wstrin
     ComPtr<IXmlDocumentIO> xml;
     check(document.As(&xml), L"Query WinRT XML loader");
     check(xml->LoadXml(hstring(toast_xml(app.uri(), title, body)).get()), L"Load toast XML");
-    trace(L"Toast XML loaded successfully");
+    BB_TRACE(L"Toast XML loaded successfully");
     ComPtr<IToastNotificationFactory> factory;
     check(RoGetActivationFactory(hstring(L"Windows.UI.Notifications.ToastNotification").get(),
         IID_PPV_ARGS(&factory)), L"Activate WinRT toast factory");
     ComPtr<IToastNotification> toast;
     check(factory->CreateToastNotification(document.Get(), &toast), L"Create WinRT toast");
     submit_toast(notifier.Get(), toast.Get());
+#ifdef DEBUG
     if (diagnostics_enabled()) {
         NotificationSetting setting;
         HRESULT status = notifier->get_Setting(&setting);
@@ -73,13 +74,14 @@ void show_toast(const product& app, const std::wstring& title, const std::wstrin
                 case NotificationSetting_DisabledByGroupPolicy: state = L"disabled by group policy"; break;
                 case NotificationSetting_DisabledByManifest: state = L"disabled by manifest"; break;
             }
-            trace(L"Windows notification setting after submission: " + std::wstring(state));
+            BB_TRACE(L"Windows notification setting after submission: " + std::wstring(state));
         } else {
             wchar_t code[32];
             swprintf(code, ARRAYSIZE(code), L"0x%08lX", static_cast<unsigned long>(status));
-            trace(L"Optional settings diagnostic after submission failed: " + std::wstring(code));
+            BB_TRACE(L"Optional settings diagnostic after submission failed: " + std::wstring(code));
         }
     }
+#endif
 }
 
 void submit_toast(IToastNotifier* notifier, IToastNotification* toast) {
@@ -88,14 +90,14 @@ void submit_toast(IToastNotifier* notifier, IToastNotification* toast) {
     check_win32(failed->event.get() != nullptr, L"Create toast result event");
     EventRegistrationToken token{};
     check(toast->add_Failed(failed.Get(), &token), L"Observe toast delivery failures");
-    trace(L"Calling IToastNotifier::Show");
+    BB_TRACE(L"Calling IToastNotifier::Show");
     HRESULT result = notifier->Show(toast);
     if (SUCCEEDED(result)) {
-        trace(L"Show returned S_OK; waiting for asynchronous delivery errors");
+        BB_TRACE(L"Show returned S_OK; waiting for asynchronous delivery errors");
         DWORD wait = WaitForSingleObject(failed->event.get(), diagnostics_enabled() ? 5000 : 1000);
         if (wait == WAIT_OBJECT_0) result = failed->result;
         else if (wait == WAIT_FAILED) result = HRESULT_FROM_WIN32(GetLastError());
-        else trace(L"No asynchronous delivery error reported during the observation window");
+        else BB_TRACE(L"No asynchronous delivery error reported during the observation window");
     }
     toast->remove_Failed(token);
     check(result, L"Show WinRT toast");

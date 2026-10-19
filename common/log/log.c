@@ -364,6 +364,9 @@ void log_shutdown(void) {
 }
 
 void log_write_async(uint16_t type, uint8_t level, const char* msg) {
+#ifndef DEBUG
+    if (type == LOG_TYPE_DLOG || level == LOG_LEVEL_DEBUG) return;
+#endif
     if (!g_logger || !g_logger->running) {
         return;
     }
@@ -469,6 +472,9 @@ void log_write_async(uint16_t type, uint8_t level, const char* msg) {
 }
 
 void log_write_sync(uint16_t type, uint8_t level, const char* msg) {
+#ifndef DEBUG
+    if (type == LOG_TYPE_DLOG || level == LOG_LEVEL_DEBUG) return;
+#endif
     if (!LogFile) return;
     
     uint64_t timestamp = (uint64_t)time(NULL);

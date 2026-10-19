@@ -420,9 +420,9 @@ void load_server_ip(void) {
     char buf[64] = {0};
     if (ini_get_string("server", "address", buf, sizeof(buf)) && buf[0]) {
         strncpy(g_server_ip, buf, sizeof(g_server_ip) - 1);
-        printf("[DEBUG] load_server_ip: loaded IP = '%s'\n", g_server_ip);
+        DLOGF("load_server_ip: loaded IP = '%s'", g_server_ip);
     } else {
-        printf("[DEBUG] load_server_ip: no config or empty\n");
+        DLOGF("load_server_ip: no config or empty");
     }
 }
 
@@ -1216,17 +1216,14 @@ int ServerRegister(const char* name) {
     char response[256];
     memset(response, 0, sizeof(response));
 
-    printf("[DEBUG] ServerRegister: local_ip='%s', pub='%s', sending to server...\n", local_ip, sigpub);
-    fflush(stdout);
+    DLOGF("ServerRegister: local_ip='%s', pub='%s', sending to server...", local_ip, sigpub);
 
     int result = send_to_server_tlv("REGISTER", args, arg_count, response, sizeof(response));
 
-    printf("[DEBUG] ServerRegister: send_to_server done, result=%d\n", result);
-    fflush(stdout);
+    DLOGF("ServerRegister: send_to_server done, result=%d", result);
 
     if (result == 0) {
-        printf("[DEBUG] ServerRegister: response='%s'\n", response);
-        fflush(stdout);
+        DLOGF("ServerRegister: response='%s'", response);
     }
 
     return result;

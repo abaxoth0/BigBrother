@@ -1,7 +1,12 @@
 include ../../common/version.mk
 include ../../common/build.mk
 
-all: build
+all: $(BUILD_MODE)
+
+GO_BUILD_FLAGS = $(if $(filter debug,$(BUILD_MODE)),-tags debug -gcflags='all=-N -l',-trimpath)
+GO_LINK_FLAGS = -X main.productVersion=$(BB_VERSION) $(if $(filter release,$(BUILD_MODE)),-s -w)
+
+debug release: build
 
 resources: cmd/app_windows_amd64.syso
 
@@ -10,6 +15,6 @@ cmd/app_windows_amd64.syso: cmd/app.rc $(BB_VERSION_DEPS) ../../assets/icons/Big
 
 build: resources
 	mkdir -p build
-	CGO_ENABLED=1 CC=clang GOOS=windows GOARCH=amd64 GOMAXPROCS=$(BB_BUILD_JOBS) go build -p $(BB_BUILD_JOBS) -ldflags '-X main.productVersion=$(BB_VERSION)' -o 'build/BigBrother Server Daemon.exe' ./cmd
+	CGO_ENABLED=1 CC=clang GOOS=windows GOARCH=amd64 GOMAXPROCS=$(BB_BUILD_JOBS) go build -p $(BB_BUILD_JOBS) $(GO_BUILD_FLAGS) -ldflags '$(GO_LINK_FLAGS)' -o 'build/BigBrother Server Daemon.exe' ./cmd
 
-.PHONY: all resources build
+.PHONY: all debug release resources build
