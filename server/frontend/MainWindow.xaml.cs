@@ -4,6 +4,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using frontend.Models;
+using frontend.Services;
 using frontend.ViewModels;
 
 namespace frontend;
@@ -13,6 +14,7 @@ public partial class MainWindow : ChromeWindow
     public MainWindow()
     {
         InitializeComponent();
+        LogSelectionCopy.Enable<ServerLogEntry>(ServerLogListBox, LogEntryFormatter.Format);
         Loaded += (s, e) =>
         {
             if (DataContext is MainViewModel vm)

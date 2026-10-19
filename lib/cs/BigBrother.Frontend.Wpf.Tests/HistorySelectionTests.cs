@@ -78,6 +78,7 @@ internal static partial class Program
             search.SelectAll();
             ApplicationCommands.Copy.Execute(null, search);
             Check(Clipboard.GetText() == "middle", "Search-box text copying must remain available");
+            TestLiveLogSelection();
         }
         finally
         {

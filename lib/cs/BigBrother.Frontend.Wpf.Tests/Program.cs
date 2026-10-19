@@ -117,6 +117,6 @@ internal static partial class Program
         }
         TestHistory(dispatcher);
         TestHistorySelection();
-        Console.WriteLine("PASS: bounded WPF log batches, live logs, asynchronous history loading, timestamps and copying selected/filtered records");
+        Console.WriteLine("PASS: bounded WPF log batches, live logs, history loading/timestamps and copying selected/filtered history and client/server live logs");
     }
 }
