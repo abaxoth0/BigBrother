@@ -2,8 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using frontend.Models;
 using frontend.ViewModels;
 
@@ -51,8 +53,25 @@ public partial class LogViewWindow : ChromeWindow
             {
                 FontFamily = new System.Windows.Media.FontFamily("Consolas"),
                 FontSize = 12,
+                DataContext = src,
+                SelectionMode = System.Windows.Controls.SelectionMode.Extended,
+                ToolTip = "Shift/Ctrl + щелчок — выбор строк; Ctrl+A — выделить всё; Ctrl+C — копировать",
                 ItemTemplate = (DataTemplate)FindResource("LogLineTemplate")
             };
+            listBox.CommandBindings.Add(new CommandBinding(ApplicationCommands.Copy, CopyLogs, CanCopyLogs));
+            listBox.CommandBindings.Add(new CommandBinding(ApplicationCommands.SelectAll,
+                (sender, e) => { ((System.Windows.Controls.ListBox)sender).SelectAll(); e.Handled = true; },
+                (sender, e) => { e.CanExecute = ((System.Windows.Controls.ListBox)sender).Items.Count > 0; e.Handled = true; }));
+            var menu = new System.Windows.Controls.ContextMenu { Style = (Style)FindResource("LogContextMenuStyle") };
+            menu.Items.Add(new System.Windows.Controls.MenuItem
+            {
+                Header = "Копировать", Command = ApplicationCommands.Copy, CommandTarget = listBox
+            });
+            menu.Items.Add(new System.Windows.Controls.MenuItem
+            {
+                Header = "Выделить всё", Command = ApplicationCommands.SelectAll, CommandTarget = listBox
+            });
+            listBox.ContextMenu = menu;
             listBox.SetValue(VirtualizingPanel.IsVirtualizingProperty, true);
             listBox.SetValue(VirtualizingPanel.VirtualizationModeProperty, VirtualizationMode.Recycling);
             tab.Content = listBox;
@@ -72,6 +91,34 @@ public partial class LogViewWindow : ChromeWindow
             _tabs[i].Header = $"{src.Label} ({src.AllEntries.Count})";
         }
     }
+
+    private static void CanCopyLogs(object sender, CanExecuteRoutedEventArgs e)
+    {
+        e.CanExecute = ((System.Windows.Controls.ListBox)sender).SelectedItems.Count > 0;
+        e.Handled = true;
+    }
+
+    private void CopyLogs(object sender, ExecutedRoutedEventArgs e)
+    {
+        var listBox = (System.Windows.Controls.ListBox)sender;
+        var source = (LogSourceViewModel)listBox.DataContext;
+        var selected = listBox.SelectedItems.Cast<Lib.LogEntry>().ToHashSet();
+        if (selected.Count == 0) return;
+        string text = string.Join(Environment.NewLine, listBox.Items.Cast<Lib.LogEntry>()
+            .Where(selected.Contains).Select(entry => FormatLogEntry(entry, source.Label)));
+        try
+        {
+            System.Windows.Clipboard.SetText(text);
+        }
+        catch (ExternalException)
+        {
+            _vm.StatusText = "Не удалось скопировать записи. Повторите попытку.";
+        }
+        e.Handled = true;
+    }
+
+    private static string FormatLogEntry(Lib.LogEntry entry, string label) =>
+        $"[{entry.LocalTimestamp:yyyy-MM-dd HH:mm:ss}] [{label}] [{entry.Level}] {entry.Message}";
 
     private void Export()
     {
@@ -94,7 +141,7 @@ public partial class LogViewWindow : ChromeWindow
                 var label = _vm.Sources[i].Label;
                 foreach (var log in logs)
                 {
-                    writer.WriteLine($"[{log.Timestamp:HH:mm:ss}] [{label}] [{log.Level}] {log.Message}");
+                    writer.WriteLine(FormatLogEntry(log, label));
                 }
             }
             System.Windows.MessageBox.Show($"Логи сохранены: {dialog.FileName}", "Успех", MessageBoxButton.OK, MessageBoxImage.Information);

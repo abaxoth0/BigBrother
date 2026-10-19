@@ -12,7 +12,7 @@ internal static partial class Program
         if (!condition) throw new Exception(message);
     }
 
-    private static void PumpUntil(Func<bool> condition, string message)
+    private static void PumpUntil(Func<bool> condition, string message, bool busyRendering = true)
     {
         var dispatcher = Dispatcher.CurrentDispatcher;
         var frame = new DispatcherFrame();
@@ -25,7 +25,7 @@ internal static partial class Program
             Thread.SpinWait(1000);
             dispatcher.BeginInvoke(DispatcherPriority.Render, busy);
         };
-        dispatcher.BeginInvoke(DispatcherPriority.Render, busy);
+        if (busyRendering) dispatcher.BeginInvoke(DispatcherPriority.Render, busy);
         var check = new DispatcherTimer(TimeSpan.FromMilliseconds(20), DispatcherPriority.Normal,
             (_, _) =>
             {
@@ -116,6 +116,7 @@ internal static partial class Program
             Directory.Delete(directory, true);
         }
         TestHistory(dispatcher);
-        Console.WriteLine("PASS: bounded WPF log batches, live binary/JSON display, asynchronous history requests/loading and cancellation");
+        TestHistorySelection();
+        Console.WriteLine("PASS: bounded WPF log batches, live logs, asynchronous history loading, timestamps and copying selected/filtered records");
     }
 }
