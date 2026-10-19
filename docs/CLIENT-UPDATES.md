@@ -50,7 +50,12 @@ that initial manual upgrade.
 Copy the EXE and JSON to the already configured shared directory. They must
 share the same basename; renaming them both is supported. In server settings,
 click **Обзор…** under **Обновления клиентов**, select the EXE, then click
-**Опубликовать**. The path can still be edited when needed.
+**Опубликовать**. The path can still be edited when needed. The frontend converts
+mapped drives to UNC paths before publication: `Y:\release\update.exe` becomes,
+for example, `\\fileserver\updates\release\update.exe`. Clients use that UNC
+path directly, regardless of whether they map the share as `Z:`, another letter,
+or do not map it at all. Local disk paths cannot be published; select the file
+through its shared UNC path even when the share is hosted on the server itself.
 The server frontend reads the adjacent JSON and checks the executable's size
 and SHA-256 before publishing the location, version, size and hash. The server
 service never needs access to the mapped drive. Metadata is saved through the
@@ -58,10 +63,26 @@ administrator frontend pipe and delivered to authenticated clients over pinned
 TLS. Remote clients cannot publish an update. **Убрать обновление** stops
 advertising the package without deleting shared files.
 
-Both the server frontend and client frontend run elevated. Drive mappings must
-therefore exist in their elevated sessions; a mapping present only in an
-unelevated Explorer session may be unavailable. A UNC path avoids that mapping
-dependency. Normal share permissions and network access still apply.
+Both frontends run elevated, so a drive mapped in Explorer may be invisible to
+them. The server can resolve active mappings and the current account's saved
+drive mappings without changing UAC policies or remapping drive letters. Saved
+UNC locations also appear in the file picker's shortcuts. Use **Сетевая папка…**
+if the file picker cannot access the share: select a saved UNC location or enter
+`\\fileserver\updates`, then open the folder and select the EXE. Nonpersistent
+mappings from another logon session, and mappings belonging to another user,
+must be entered as UNC paths manually. Republish existing drive-letter update
+references to convert them to UNC.
+
+The server first reads the share using its existing credentials. On an access or
+login failure, Windows opens its native network credential dialog for that share
+and the frontend retries once. The client does the same when opening the package
+for an explicitly requested installation. Accessible shares do not cause prompts;
+startup and checking update metadata do not connect to SMB shares. Credentials
+are handled by Windows and are never included in update metadata or application
+settings. Existing SMB connections are not disconnected automatically; Windows
+error 1219 indicates a conflicting account connection that must be resolved by
+the administrator. Network reachability and share/file permissions still apply;
+offline shares and missing files are reported without authentication loops.
 
 ## Installation and recovery
 
@@ -131,7 +152,8 @@ go test ./...
 The parser and portable tests exercise release selection, structured Unicode
 notes, explicit checks without installation, stale-state rejection, partial
 replacement, configuration changes, repeated recovery, damaged backup rejection,
-metadata and unsafe paths. Windows
+metadata, unsafe paths, UNC publication with different server/client drive letters,
+and credential retry/cancellation without prompts on successful reads. Windows
 RPC tests also cover publication permissions, authentication, invalid metadata,
 write failure and withdrawal. The installer can be compiled and extraction tested
 under Wine. Real Windows validation is still needed for UAC, DACL enforcement,

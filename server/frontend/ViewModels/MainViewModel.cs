@@ -178,7 +178,8 @@ public class MainViewModel : ViewModelBase
         ImportWhitelistsCommand = new RelayCommand(async _ => await ImportWhitelistsAsync());
         ExportWhitelistsCommand = new RelayCommand(async _ => await ExportWhitelistsAsync(), _ => Whitelists.Any(w => w.IsSelected));
         DeleteSelectedWhitelistsCommand = new RelayCommand(async _ => await DeleteSelectedWhitelistsAsync(), _ => Whitelists.Any(w => w.IsSelected));
-        BrowseClientUpdateCommand = new RelayCommand(_ => BrowseClientUpdate());
+        BrowseClientUpdateCommand = new RelayCommand(async _ => await BrowseClientUpdateAsync());
+        OpenUpdateShareCommand = new RelayCommand(_ => OpenUpdateShare());
         PublishClientUpdateCommand = new RelayCommand(async _ => await PublishClientUpdateAsync(), _ => IsConnected);
         ClearClientUpdateCommand = new RelayCommand(async _ => await ClearClientUpdateAsync(), _ => IsConnected);
         SaveServerSettingsCommand = new RelayCommand(async _ => await SaveAllServerSettingsAsync());
@@ -423,17 +424,44 @@ public class MainViewModel : ViewModelBase
     public string ClientUpdateLocation { get => _clientUpdateLocation; set => SetProperty(ref _clientUpdateLocation, value); }
     public string ClientUpdateStatus { get => _clientUpdateStatus; set => SetProperty(ref _clientUpdateStatus, value); }
     public ICommand BrowseClientUpdateCommand { get; }
+    public ICommand OpenUpdateShareCommand { get; }
     public ICommand PublishClientUpdateCommand { get; }
 
-    private void BrowseClientUpdate()
+    private async Task BrowseClientUpdateAsync()
     {
-        var dialog = new Microsoft.Win32.OpenFileDialog {
-            Title = "Выберите пакет обновления клиента",
-            Filter = "Пакет обновления (*.exe)|*.exe",
-            CheckFileExists = true,
-            Multiselect = false
-        };
-        if (dialog.ShowDialog() == true) ClientUpdateLocation = dialog.FileName;
+        try
+        {
+            var dialog = new Microsoft.Win32.OpenFileDialog {
+                Title = "Выберите пакет обновления клиента",
+                Filter = "Пакет обновления (*.exe)|*.exe",
+                CheckFileExists = true,
+                Multiselect = false
+            };
+            foreach (var folder in NetworkShareAccess.SavedLocations())
+                dialog.CustomPlaces.Add(new Microsoft.Win32.FileDialogCustomPlace(folder));
+            if (!string.IsNullOrWhiteSpace(ClientUpdateLocation))
+            {
+                var folder = Path.GetDirectoryName(NetworkShareAccess.ToUnc(ClientUpdateLocation))!;
+                await NetworkShareAccess.ReadAsync(folder, () => {
+                    using var entries = Directory.EnumerateFileSystemEntries(folder).GetEnumerator();
+                    entries.MoveNext();
+                    return true;
+                }, NetworkShareDialog.ConnectAsync);
+                dialog.InitialDirectory = folder;
+            }
+            if (dialog.ShowDialog() == true) ClientUpdateLocation = NetworkShareAccess.ToUnc(dialog.FileName);
+        }
+        catch (Exception ex) { ClientUpdateStatus = ex.Message; }
+    }
+
+    private void OpenUpdateShare()
+    {
+        try
+        {
+            var dialog = new NetworkShareWindow(ClientUpdateLocation) { Owner = Application.Current.MainWindow };
+            if (dialog.ShowDialog() == true) ClientUpdateLocation = dialog.SelectedFile!;
+        }
+        catch (Exception ex) { ClientUpdateStatus = ex.Message; }
     }
     public ICommand ClearClientUpdateCommand { get; }
 
@@ -451,13 +479,14 @@ public class MainViewModel : ViewModelBase
 
     private async Task PublishClientUpdateAsync()
     {
-        var location = ClientUpdateLocation.Trim();
         try
         {
+            var location = NetworkShareAccess.ToUnc(ClientUpdateLocation);
+            ClientUpdateLocation = location;
+            if (!location.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                throw new IOException("Укажите сетевой путь к EXE обновления.");
             ClientUpdateStatus = "Проверка пакета…";
-            var metadata = await Task.Run(() => {
-                if (!Path.IsPathFullyQualified(location) || !location.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
-                    throw new IOException("Укажите полный путь к EXE обновления.");
+            var metadata = await NetworkShareAccess.ReadAsync(location, () => {
                 var manifest = JsonNode.Parse(File.ReadAllText(Path.ChangeExtension(location, ".json")))
                     ?? throw new IOException("Отсутствует манифест обновления.");
                 using var package = File.OpenRead(location);
@@ -466,7 +495,7 @@ public class MainViewModel : ViewModelBase
                     throw new IOException("Размер или SHA-256 пакета не совпадает с манифестом.");
                 manifest["location"] = location;
                 return manifest.ToJsonString(new JsonSerializerOptions { WriteIndented = false, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
-            });
+            }, NetworkShareDialog.ConnectAsync);
             await _ipcService.ClientUpdateAsync(metadata);
             await LoadClientUpdateAsync();
         }

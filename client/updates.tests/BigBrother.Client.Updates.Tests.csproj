@@ -12,6 +12,7 @@
     <Compile Include="../../lib/cs/BigBrother.Frontend.Shared/ViewModels/ViewModelBase.cs" Link="ViewModelBase.cs" />
     <Compile Include="../../lib/cs/BigBrother.Frontend.Shared/ViewModels/RelayCommand.cs" Link="RelayCommand.cs" />
     <Compile Include="../../lib/cs/BigBrother.Frontend.Shared/BuildVersion.cs" Link="BuildVersion.cs" />
+    <Compile Include="../../lib/cs/BigBrother.Frontend.Shared/Services/NetworkShareAccess.cs" Link="NetworkShareAccess.cs" />
     <None Include="../../VERSION" Link="expected-version.txt" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

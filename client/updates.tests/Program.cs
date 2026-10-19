@@ -2,6 +2,7 @@ using frontend.Services;
 using System.Text.Json;
 
 await ManualUpdateTests.RunAsync();
+await NetworkShareTests.RunAsync();
 
 static void Assert(bool condition, string message)
 {

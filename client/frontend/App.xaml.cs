@@ -69,7 +69,7 @@ public partial class App : System.Windows.Application
         try
         {
             using var ipc = new IpcService();
-            var work = await Task.Run(() => ClientUpdates.PrepareAsync(ipc, update, progress.Report));
+            var work = await Task.Run(() => ClientUpdates.PrepareAsync(ipc, update, progress.Report, NetworkShareDialog.ConnectAsync));
             ClientUpdates.Launch(work);
             progress.Dismiss();
             Shutdown();

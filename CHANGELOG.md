@@ -38,6 +38,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Client updates: publish UNC paths instead of machine-specific mapped drive letters; resolve saved mappings hidden by elevation, provide a network-folder picker, and request Windows share credentials only after an access/login failure on the server or client
+
 - Client frontend: fix immediate startup failure caused by setting WPF `StartupUri` to null; create the normal or updater window explicitly without a XAML startup URI
 
 - Server frontend: skip whitelist/conflict refreshes while the backend is unavailable and use dark theme colors for the whitelist conflict divider, including hover, focus and drag states

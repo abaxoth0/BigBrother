@@ -165,7 +165,7 @@ public static class ClientUpdates
         return null;
     }
 
-    public static async Task<string> PrepareAsync(IpcService ipc, ClientUpdate approved, Action<string> progress)
+    public static async Task<string> PrepareAsync(IpcService ipc, ClientUpdate approved, Action<string> progress, Func<string, Task> authenticate)
     {
         RequireAdmin();
         RequireLocal(InstallDirectory);
@@ -182,7 +182,8 @@ public static class ClientUpdates
         {
             var package = Path.Combine(work, "package.exe");
             progress("Загрузка обновления…");
-            await using (var input = new FileStream(update.Location, FileMode.Open, FileAccess.Read, FileShare.Read, 65536, true))
+            await using (var input = await NetworkShareAccess.ReadAsync(update.Location,
+                () => new FileStream(update.Location, FileMode.Open, FileAccess.Read, FileShare.Read, 65536, true), authenticate))
             await using (var output = CreatePrivateFile(package))
             {
                 var buffer = new byte[65536];

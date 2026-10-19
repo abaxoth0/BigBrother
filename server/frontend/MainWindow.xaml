@@ -619,12 +619,13 @@
                                 </GroupBox>
                                 <GroupBox Header="Обновления клиентов" Margin="0,0,0,12">
                                     <StackPanel Margin="12">
-                                        <TextBlock Text="Путь к EXE обновления, доступный на каждом клиенте"/>
+                                        <TextBlock Text="Сетевой путь к EXE обновления (\\сервер\общая_папка\обновление.exe)"/>
                                         <DockPanel Margin="0,6,0,8">
                                             <Button DockPanel.Dock="Right" Content="Обзор…" Command="{Binding BrowseClientUpdateCommand}" Margin="8,0,0,0"/>
+                                            <Button DockPanel.Dock="Right" Content="Сетевая папка…" Command="{Binding OpenUpdateShareCommand}" Margin="8,0,0,0"/>
                                             <TextBox Text="{Binding ClientUpdateLocation, UpdateSourceTrigger=PropertyChanged}" VerticalContentAlignment="Center"/>
                                         </DockPanel>
-                                        <TextBlock Text="Рядом с EXE должен находиться JSON манифест из сборки. Клиенты копируют пакет локально перед установкой."
+                                        <TextBlock Text="Буква сетевого диска преобразуется в путь к общей папке. Если диск недоступен в «Обзоре», нажмите «Сетевая папка…». Рядом с EXE должен находиться JSON манифест из сборки. Клиенты копируют пакет локально перед установкой."
                                                    TextWrapping="Wrap" Foreground="{StaticResource TextDim}"/>
                                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
                                             <Button Content="Убрать обновление" Command="{Binding ClearClientUpdateCommand}" Margin="0,0,8,0"/>
