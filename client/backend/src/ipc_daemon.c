@@ -1187,6 +1187,19 @@ static int send_authenticated_request(const char* command, const char* username,
     return result; // At most one signed fetch and one retry per request.
 }
 
+int ServerGetUpdate(char* output, size_t size) {
+    char username[128] = {0}, token[256] = {0};
+    if (LoadUserName(username, sizeof(username)) != 0 || !username[0]) return -1;
+    get_client_token(token, sizeof(token));
+    const char* args[] = { username, token };
+    int result = send_authenticated_request("GET_CLIENT_UPDATE_DETAILS", username, args, 2, 1, output, size);
+    if (result != 0 && strstr(output, "unknown command") != NULL) {
+        output[0] = '\0';
+        return send_authenticated_request("GET_CLIENT_UPDATE", username, args, 2, 1, output, size);
+    }
+    return result;
+}
+
 int ServerRegister(const char* name) {
     if (!name) return -1;
 

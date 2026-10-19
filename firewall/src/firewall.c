@@ -22,6 +22,7 @@
 #include "../include/dns.h"
 #include "../include/ipc.h"
 #include "../../common/log/log.h"
+#include "../../common/version.h"
 
 SERVICE_STATUS g_ServiceStatus = {0};
 SERVICE_STATUS_HANDLE g_StatusHandle = NULL;
@@ -1081,11 +1082,15 @@ void WINAPI ServiceMain(DWORD argc, LPTSTR *argv) {
  * @return Exit code.
  */
 int main(int argc, char** argv) {
+    if (argc == 2 && strcmp(argv[1], "--version") == 0) {
+        printf("BigBrother Firewall %s\n", BB_VERSION);
+        return 0;
+    }
     init_paths();
     log_init_async(LOG_BUFFER_SIZE);
     init_logging();
     
-    LOGF("[Firewall] Started");
+    LOGF("[Firewall] Started, version %s", BB_VERSION);
     
     LoadWhiteList(NULL);
     PreResolveWhitelist();

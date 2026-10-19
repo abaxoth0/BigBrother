@@ -10,6 +10,7 @@
 #include "../include/ipc_daemon.h"
 #include "../include/ipc_client.h"
 #include "../../../common/log/log.h"
+#include "../../../common/version.h"
 
 SERVICE_STATUS g_ServiceStatus = {0};
 SERVICE_STATUS_HANDLE g_StatusHandle = NULL;
@@ -79,6 +80,7 @@ void WINAPI ServiceMain(DWORD argc, LPTSTR* argv) {
 }
 
 static void print_usage(const char* prog) {
+    printf("BigBrother Client Daemon %s\n", BB_VERSION);
     printf("Usage: %s <command>\n", prog);
     printf("       %s -d <server-ip>\n", prog);
     printf("\nLocal Commands:\n");
@@ -107,6 +109,10 @@ static void print_response(const char* cmd, int result, const char* response) {
 }
 
 int main(int argc, char** argv) {
+    if (argc == 2 && strcmp(argv[1], "--version") == 0) {
+        printf("BigBrother Client Daemon %s\n", BB_VERSION);
+        return 0;
+    }
     if (PrepareClientSecretPermissions() != 0) {
         fprintf(stderr, "Cannot secure client secrets. Run elevated or as SYSTEM (error %lu).\n", GetLastError());
         return 1;
@@ -149,7 +155,7 @@ int main(int argc, char** argv) {
             SetServerIp(server_ip);
         }
 
-        LOGF("[Main] Starting daemon mode, server: %s", server_ip[0] ? server_ip : "(none)");
+        LOGF("[Main] Starting daemon version %s, server: %s", BB_VERSION, server_ip[0] ? server_ip : "(none)");
         LOGF("[Main] Starting client server...");
         StartClientServer();
 

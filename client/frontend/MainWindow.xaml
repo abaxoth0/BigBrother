@@ -133,7 +133,7 @@
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
-                <TextBlock Grid.Column="0" Text="BigBrother" Foreground="{StaticResource TitleBarText}"
+                <TextBlock Grid.Column="0" Text="{Binding Title, RelativeSource={RelativeSource AncestorType=Window}}" Foreground="{StaticResource TitleBarText}"
                            FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" Margin="14,0,0,0"/>
 
                 <StackPanel Grid.Column="2" Orientation="Horizontal">
@@ -544,6 +544,59 @@
                     </Grid>
                 </Grid>
 
+                <Grid>
+                    <Grid.Style>
+                        <Style TargetType="Grid">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding SelectedSection}" Value="Updates">
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Grid.Style>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <StackPanel Margin="16" DataContext="{Binding Updates}">
+                            <TextBlock Text="Обновления" FontSize="22" FontWeight="SemiBold" Margin="0,0,0,18"/>
+                            <TextBlock Margin="0,0,0,6">
+                                <Run Text="Установленная версия: "/><Run Text="{Binding InstalledVersion, Mode=OneWay}"/>
+                            </TextBlock>
+                            <TextBlock Margin="0,0,0,16">
+                                <Run Text="Доступная версия: "/><Run Text="{Binding AvailableVersion, Mode=OneWay}"/>
+                            </TextBlock>
+                            <WrapPanel Margin="0,0,0,12">
+                                <Button Content="Проверить обновления" Command="{Binding CheckCommand}" Margin="0,0,10,6"/>
+                                <Button Content="Установить обновление" Command="{Binding InstallCommand}"
+                                        Style="{StaticResource PrimaryButton}" Margin="0,0,0,6"/>
+                            </WrapPanel>
+                            <ProgressBar IsIndeterminate="True" Height="6" Margin="0,0,0,12"
+                                         Visibility="{Binding Busy, Converter={StaticResource BoolToVisibility}}"/>
+                            <TextBlock Text="{Binding Status}" TextWrapping="Wrap" Margin="0,0,0,18"/>
+                            <TextBlock Text="{Binding NotesTitle}" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                            <TextBlock Text="{Binding NotesHint}" TextWrapping="Wrap" Foreground="{StaticResource TextDim}"/>
+                            <ItemsControl ItemsSource="{Binding Sections}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Margin="0,6,0,12">
+                                            <TextBlock Text="{Binding Title}" FontSize="15" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                                            <ItemsControl ItemsSource="{Binding Items}">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <DockPanel Margin="0,0,0,6">
+                                                            <TextBlock DockPanel.Dock="Left" Text="•" Margin="0,0,8,0"/>
+                                                            <TextBlock Text="{Binding}" TextWrapping="Wrap"/>
+                                                        </DockPanel>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </ScrollViewer>
+                </Grid>
+
                 <!-- SECTION: Settings -->
                 <Grid>
                     <Grid.Style>
@@ -687,20 +740,32 @@
             <!-- Side Navigation -->
             <Border Grid.Column="1" Background="{StaticResource SurfaceAlt}"
                     BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="4">
-                <StackPanel Margin="8,10">
-                    <TextBlock Text="Меню" FontWeight="Bold" Foreground="{StaticResource TextDim}"
-                               FontSize="11" Margin="6,0,0,8"/>
+                <Grid Margin="8,10">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <StackPanel VerticalAlignment="Top">
+                        <TextBlock Text="Меню" FontWeight="Bold" Foreground="{StaticResource TextDim}"
+                                   FontSize="11" Margin="6,0,0,8"/>
 
-                    <RadioButton Content="Главная" GroupName="Nav"
-                                 Style="{StaticResource NavItem}"
-                                 IsChecked="{Binding SelectedSection, Converter={StaticResource EnumToBool}, ConverterParameter=Main}"/>
-                    <RadioButton Content="Белый список" GroupName="Nav"
-                                 Style="{StaticResource NavItem}"
-                                 IsChecked="{Binding SelectedSection, Converter={StaticResource EnumToBool}, ConverterParameter=Whitelist}"/>
-                    <RadioButton Content="Настройки" GroupName="Nav"
-                                 Style="{StaticResource NavItem}"
-                                 IsChecked="{Binding SelectedSection, Converter={StaticResource EnumToBool}, ConverterParameter=Settings}"/>
-                </StackPanel>
+                        <RadioButton Content="Главная" GroupName="Nav"
+                                     Style="{StaticResource NavItem}"
+                                     IsChecked="{Binding SelectedSection, Converter={StaticResource EnumToBool}, ConverterParameter=Main}"/>
+                        <RadioButton Content="Белый список" GroupName="Nav"
+                                     Style="{StaticResource NavItem}"
+                                     IsChecked="{Binding SelectedSection, Converter={StaticResource EnumToBool}, ConverterParameter=Whitelist}"/>
+                        <RadioButton Content="Обновления" GroupName="Nav"
+                                     Style="{StaticResource NavItem}"
+                                     IsChecked="{Binding SelectedSection, Converter={StaticResource EnumToBool}, ConverterParameter=Updates}"/>
+                        <RadioButton Content="Настройки" GroupName="Nav"
+                                     Style="{StaticResource NavItem}"
+                                     IsChecked="{Binding SelectedSection, Converter={StaticResource EnumToBool}, ConverterParameter=Settings}"/>
+                    </StackPanel>
+                    <TextBlock Grid.Row="1" Foreground="{StaticResource TextDim}" FontSize="11" Margin="6,12,6,0" TextAlignment="Center">
+                        <Run Text="Версия "/><Run Text="{x:Static local:BuildVersion.Current}"/>
+                    </TextBlock>
+                </Grid>
             </Border>
         </Grid>
 

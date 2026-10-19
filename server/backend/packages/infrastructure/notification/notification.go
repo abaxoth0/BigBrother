@@ -19,6 +19,7 @@ const (
 	UserRejected
 	WhitelistChanged
 	FiltrationToggled
+	ClientUpdateChanged
 )
 
 func (e EventType) String() string {
@@ -37,6 +38,8 @@ func (e EventType) String() string {
 		return "USER_REJECTED"
 	case WhitelistChanged:
 		return "WHITELIST_CHANGED"
+	case ClientUpdateChanged:
+		return "CLIENT_UPDATE_CHANGED"
 	case FiltrationToggled:
 		return "FILTRATION_TOGGLED"
 	default:

@@ -1,1 +1,4 @@
 1 ICON "../assets/icons/BigBrother_Firewall.ico"
+
+#define BB_APP_NAME "BigBrother Firewall"
+#include "../common/version-resource.rc"

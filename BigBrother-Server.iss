@@ -6,12 +6,11 @@
 #define DaemonName "BigBrother Server Daemon.exe"
 #define ServiceName "BigBrother Server"
 #define ServiceExe "BigBrother Server Daemon.exe"
-#ifndef ProductVersion
-  #define ProductVersion "1.0.0"
-#endif
+#include "installer\version.iss"
 #ifndef PayloadDir
   #define PayloadDir SourcePath + "dist"
 #endif
+#include "installer\payload-version.iss"
 
 [Setup]
 AppId={{8B65ED89-B2C9-42E3-BE1C-3ADB054A5968}

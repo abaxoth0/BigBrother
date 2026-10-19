@@ -21,12 +21,17 @@ public enum NavigationSection
 {
     Main,
     Whitelist,
+    Updates,
     Settings
 }
 
 public class MainViewModel : ViewModelBase, IDisposable
 {
     private const int MaxLogs = 500;
+
+    public UpdatesViewModel Updates { get; } = new(ClientUpdates.InstalledVersion,
+        async () => { using var ipc = new IpcService(); return await ClientUpdates.CheckAsync(ipc); },
+        update => ((App)System.Windows.Application.Current).InstallUpdateAsync(update));
 
     // Services
     private readonly IpcService _ipcService = new IpcService();

@@ -10,6 +10,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OUTPUT_DIR="${1:-$SCRIPT_DIR/dist}"
 source "$SCRIPT_DIR/scripts/frontend-files.sh"
+python3 "$SCRIPT_DIR/scripts/version.py"
 
 echo "=== BigBrother publish ==="
 echo "Repo:      $SCRIPT_DIR"

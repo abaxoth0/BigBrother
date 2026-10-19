@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../frontend/Services/UpdateFiles.cs" Link="UpdateFiles.cs" />
+    <Compile Include="../frontend/Services/UpdateMetadata.cs" Link="UpdateMetadata.cs" />
+    <Compile Include="../frontend/ViewModels/UpdatesViewModel.cs" Link="UpdatesViewModel.cs" />
+    <Compile Include="../../lib/cs/BigBrother.Frontend.Shared/ViewModels/ViewModelBase.cs" Link="ViewModelBase.cs" />
+    <Compile Include="../../lib/cs/BigBrother.Frontend.Shared/ViewModels/RelayCommand.cs" Link="RelayCommand.cs" />
+    <Compile Include="../../lib/cs/BigBrother.Frontend.Shared/BuildVersion.cs" Link="BuildVersion.cs" />
+    <Compile Include="../../lib/cs/BigBrother.Frontend.Shared/Services/NetworkShareAccess.cs" Link="NetworkShareAccess.cs" />
+    <None Include="../../VERSION" Link="expected-version.txt" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

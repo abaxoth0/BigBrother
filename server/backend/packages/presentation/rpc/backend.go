@@ -4,6 +4,7 @@ package rpc
 
 import (
 	"crypto/subtle"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"bigbrother_server_backend/packages/application/settings"
+	"bigbrother_server_backend/packages/application/updates"
 	whitelistapplication "bigbrother_server_backend/packages/application/whitelist"
 	"bigbrother_server_backend/packages/domain/entity"
 	"bigbrother_server_backend/packages/infrastructure/connection"
@@ -67,6 +69,32 @@ func (h *BackendHandler) handle(conn net.Conn) {
 		log.Debug("Received: "+cmd, nil)
 
 		switch cmd {
+		case "GET_CLIENT_UPDATE", "GET_CLIENT_UPDATE_DETAILS":
+			if len(args) != 2 || !h.authenticate(args[0], args[1]) {
+				writeErrorTLV(conn, "invalid token")
+				continue
+			}
+			data, err := h.db.GetSetting("client_update")
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			if data == "" {
+				writeOK(conn)
+				continue
+			}
+			manifest, err := updates.Parse(data)
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			if cmd == "GET_CLIENT_UPDATE" {
+				manifest.ReleaseNotes = nil
+				metadata, _ := json.Marshal(manifest)
+				data = string(metadata)
+			}
+			writeTLVResponse(conn, data)
+
 		case "GET_WHITELIST":
 			if len(args) < 2 {
 				writeErrorTLV(conn, "Missing username or token")

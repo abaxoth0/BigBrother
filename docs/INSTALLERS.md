@@ -1,6 +1,6 @@
 # Building Windows installers on Linux
 
-Install Wine with 64-bit Windows support, curl, and coreutils. For a headless
+Install Wine with 64-bit Windows support, Python 3, curl, and coreutils. For a headless
 machine, also install Xvfb (`xvfb-run`). Then install the pinned Inno Setup 7.1.0
 compiler:
 
@@ -20,13 +20,22 @@ To build both installers from already published binaries:
 
 ```sh
 ./build-installers.sh
-./build-installers.sh /path/to/payload /path/to/installers 1.2.3
+./build-installers.sh /path/to/payload /path/to/installers
 ```
 
 The arguments are the payload directory (default: repository `dist`), installer
-output directory (default: repository `dist/installers`), and version (default:
-`1.0.0`). Three or four numeric version components are accepted. Paths containing
+output directory (default: repository `dist/installers`), and optional changelog
+path (default: repository `CHANGELOG.md`). The version always comes from repository
+`VERSION`. Notes come from the matching release heading, or `Unreleased` if that
+release is absent. Paths containing
 spaces work, and scripts can be invoked from outside the repository.
+
+All application binaries must be rebuilt for the version in `VERSION`. The compiler
+checks their embedded product versions and rejects stale payloads. Build/publish
+the frontends normally in Visual Studio in the Windows VM, then copy the published
+files into `dist/{client,server}-frontend`. The shared MSBuild files read `VERSION`
+automatically; no shell command or version edit in Visual Studio is needed.
+See [VERSIONING.md](VERSIONING.md) for the release workflow.
 
 The payload must contain:
 
@@ -64,6 +73,10 @@ compiler is unavailable or either installer cannot compile. The outputs are:
 
 - `BigBrother-<version>-Client-Setup.exe`
 - `BigBrother-<version>-Server-Setup.exe`
+- `BigBrother-<version>-Client-Update.exe` and `BigBrother-<version>-Client-Update.manifest.json`
+
+Client update publication, local staging, elevation and rollback are described
+in [CLIENT-UPDATES.md](CLIENT-UPDATES.md).
 
 # Installation and upgrades
 

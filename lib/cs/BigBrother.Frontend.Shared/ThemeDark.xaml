@@ -219,7 +219,7 @@
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
-                                <ContentPresenter Grid.Column="0" Margin="{TemplateBinding Padding}"
+                                <ContentPresenter x:Name="SelectionContent" Grid.Column="0" Margin="{TemplateBinding Padding}"
                                                   VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
                                                   HorizontalAlignment="Left"
                                                   Content="{TemplateBinding SelectionBoxItem}"
@@ -232,6 +232,12 @@
                                       HorizontalAlignment="Right" Margin="0,0,8,0"/>
                             </Grid>
                         </Border>
+                        <TextBox x:Name="PART_EditableTextBox" Visibility="Collapsed"
+                                 Style="{x:Null}" Background="Transparent" BorderThickness="0"
+                                 Foreground="{TemplateBinding Foreground}" CaretBrush="{TemplateBinding Foreground}"
+                                 SelectionBrush="{DynamicResource Accent}" SelectionTextBrush="{DynamicResource OnAccent}"
+                                 Margin="6,0,28,0" Padding="0" VerticalContentAlignment="Center"
+                                 IsReadOnly="{TemplateBinding IsReadOnly}" FocusVisualStyle="{x:Null}"/>
                         <Popup x:Name="PART_Popup" IsOpen="{TemplateBinding IsDropDownOpen}"
                                AllowsTransparency="True">
                             <Border Background="{StaticResource Surface}"
@@ -246,6 +252,13 @@
                         </Popup>
                     </Grid>
                     <ControlTemplate.Triggers>
+                        <Trigger Property="IsEditable" Value="True">
+                            <Setter Property="IsTabStop" Value="False"/>
+                            <Setter TargetName="SelectionContent" Property="Visibility" Value="Collapsed"/>
+                            <Setter TargetName="PART_EditableTextBox" Property="Visibility" Value="Visible"/>
+                            <Setter TargetName="ToggleButton" Property="HorizontalAlignment" Value="Right"/>
+                            <Setter TargetName="ToggleButton" Property="Width" Value="28"/>
+                        </Trigger>
                         <Trigger Property="IsMouseOver" Value="True">
                             <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource AccentText}"/>
                         </Trigger>
@@ -271,7 +284,7 @@
             <Setter.Value>
                 <ControlTemplate TargetType="ComboBoxItem">
                     <Border x:Name="Bd" Background="Transparent" Padding="{TemplateBinding Padding}">
-                        <ContentPresenter/>
+                        <ContentPresenter TextElement.Foreground="{TemplateBinding Foreground}"/>
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsHighlighted" Value="True">

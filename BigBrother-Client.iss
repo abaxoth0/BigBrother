@@ -6,12 +6,11 @@
 #define DaemonName "BigBrother Client Daemon.exe"
 #define ServiceName "BigBrother Firewall"
 #define ServiceExe "BigBrother Firewall.exe"
-#ifndef ProductVersion
-  #define ProductVersion "1.0.0"
-#endif
+#include "installer\version.iss"
 #ifndef PayloadDir
   #define PayloadDir SourcePath + "dist"
 #endif
+#include "installer\payload-version.iss"
 
 [Setup]
 AppId={{23D8A0D8-6A0C-4D53-80D8-050C4CD2C1AB}
@@ -34,6 +33,7 @@ CloseApplications=yes
 RestartApplications=no
 
 [Files]
+Source: "{#PayloadDir}\client-version.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#PayloadDir}\BigBrother Notifications.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#PayloadDir}\{#DaemonName}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#PayloadDir}\BigBrother Firewall.exe"; DestDir: "{app}"; Flags: ignoreversion

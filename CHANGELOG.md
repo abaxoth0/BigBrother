@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Server settings to publish and withdraw client update packages from an existing network share, with file selection, UNC paths and Windows credential prompts when required
+- Client «Обновления» tab with explicit update checks, installed and available versions, release notes and manual installation with progress
+- Self-contained client update executables and companion `.manifest.json` files containing package identity and release notes parsed from CHANGELOG.md
+- Installation backups, rollback on failure and recovery after an interrupted update
+- Common application version in root `VERSION`, embedded in all binaries, displayed at the bottom of frontend sidebars and available through `--version` in daemons and the notification helper
+
 - Server whitelist tab: stage activation changes locally with «Сохранить» and «Отмена»; save all changed flags in one transaction and send clients a single refresh event; retain drafts across refreshes and failed saves
 
 - Server whitelist tab: domain/IPv4 checker opens in a separate window and tests the composed active whitelist; removed the checker from the whitelist editor and ordered table columns as «Название», «Записей», «Активный»
@@ -57,6 +63,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Native, Go, Visual Studio and installer builds read the common version from `VERSION`; installers reject application payloads with mismatched versions
+- Installer builds accept an optional changelog path instead of a version argument; release notes use the matching version heading or fall back to `Unreleased`
+
 - Notification helper: moved the app to the top-level `notifications` directory with `include`, `src`, `resources` and `tests` subdirectories, keeping its shared C interface in `common/notify.h`; updated build and client integration paths
 
 - Installer: replaced NSIS with separate Inno Setup client/server installers; Wine compiler installation and installer-only build scripts support custom payload/output directories, publishing now builds installers through Wine
@@ -80,6 +89,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Security: added `check_ipc_access.py` (and a `.bat` launcher) to probe the named pipes and verify the restrictions
 - Security: resilience limits — TCP listener caps concurrent connections (default 256) and rate-limits connections per source IP; the event bus caps push subscribers (128); discovery replies are rate-limited per source
 - Security: tokens are never broadcast — approval events no longer carry the token (the client obtains it via the signed `GET_TOKEN` challenge); documented TLS/rotation hygiene in `docs/BBMP.md`/`docs/TODO.md`
+
+### Security
+
+- Client updates require administrator rights, copy packages to local storage and verify their size and SHA-256 before installation; SYSTEM/Administrators DACLs protect staged packages, updater executables, backups and recovery journals
 
 ## [1.3.0] - 27-09-2026
 

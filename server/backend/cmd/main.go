@@ -1,6 +1,6 @@
 //go:build windows
 
-//go:generate x86_64-w64-mingw32-windres -i app.rc -o app_windows_amd64.syso
+//go:generate make -C .. resources
 
 package main
 
@@ -29,6 +29,8 @@ import (
 	"github.com/abaxoth0/Ain/logger"
 )
 
+var productVersion = "development"
+
 var mainLogger = logger.NewSource("MAIN", log.DefaultLogger)
 
 const frontendPipePath = `\\.\pipe\BigBrother.Server.Frontend`
@@ -42,6 +44,10 @@ const serviceName = "BigBrother Server"
 const pipeSecurityDescriptor = "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GA;;;OW)"
 
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "--version" {
+		fmt.Println("BigBrother Server Daemon " + productVersion)
+		return
+	}
 	log.DefaultLoggerConfig.Trace = true
 	log.DefaultLoggerConfig.Debug = true
 
@@ -61,6 +67,7 @@ func main() {
 	}()
 
 	time.Sleep(time.Millisecond * 50)
+	mainLogger.Info("Version: "+productVersion, nil)
 
 	desktop := notification.NewDesktopNotifier(notification.DeliverWindowsNotification, func(err error) {
 		mainLogger.Error("Windows notification failed", err.Error(), nil)

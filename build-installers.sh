@@ -3,8 +3,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [[ "${1:-}" == --help ]]; then
-    echo "Usage: $0 [payload-dir [installer-output-dir [version]]]"
-    echo "Defaults: $SCRIPT_DIR/dist, $SCRIPT_DIR/dist/installers, 1.0.0"
+    echo "Usage: $0 [payload-dir [installer-output-dir [changelog-file]]]"
+    echo "Defaults: $SCRIPT_DIR/dist, $SCRIPT_DIR/dist/installers, repository VERSION; matching release notes or Unreleased"
     exit 0
 fi
 if [[ $# -gt 3 ]]; then
@@ -15,11 +15,9 @@ source "$SCRIPT_DIR/scripts/inno-env.sh"
 source "$SCRIPT_DIR/scripts/frontend-files.sh"
 PAYLOAD_DIR="$(realpath -e "${1:-$SCRIPT_DIR/dist}")"
 INSTALLER_OUTPUT_DIR="${2:-$SCRIPT_DIR/dist/installers}"
-VERSION="${3:-1.0.0}"
-if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
-    echo "Version must contain three or four numeric components." >&2
-    exit 1
-fi
+VERSION="$(python3 "$SCRIPT_DIR/scripts/version.py")"
+CHANGELOG_FILE="${3:-$SCRIPT_DIR/CHANGELOG.md}"
+python3 "$SCRIPT_DIR/scripts/update-manifest.py" --changelog "$CHANGELOG_FILE" --validate-only
 if [[ ! -f "$INNO_ISCC" ]]; then
     echo "Inno Setup compiler not found: $INNO_ISCC" >&2
     echo "Run $SCRIPT_DIR/install-inno-setup.sh first." >&2
@@ -45,10 +43,13 @@ mkdir -p "$INSTALLER_OUTPUT_DIR"
 INSTALLER_OUTPUT_DIR="$(realpath -e "$INSTALLER_OUTPUT_DIR")"
 PAYLOAD_WINDOWS="$(winepath -w "$PAYLOAD_DIR")"
 OUTPUT_WINDOWS="$(winepath -w "$INSTALLER_OUTPUT_DIR")"
-for product in Client Server; do
+printf '%s\n' "$VERSION" > "$PAYLOAD_DIR/client-version.txt"
+for product in Client Server Client-Update; do
     SCRIPT_WINDOWS="$(winepath -w "$SCRIPT_DIR/BigBrother-$product.iss")"
     "${INNO_WINE_RUNNER[@]}" "$INNO_ISCC" --quiet-progress \
         "--define=PayloadDir=$PAYLOAD_WINDOWS" "--define=ProductVersion=$VERSION" \
         "--output-dir=$OUTPUT_WINDOWS" "$SCRIPT_WINDOWS"
 done
-echo "Installers built in $INSTALLER_OUTPUT_DIR"
+python3 "$SCRIPT_DIR/scripts/update-manifest.py" --changelog "$CHANGELOG_FILE" \
+    --package "$INSTALLER_OUTPUT_DIR/BigBrother-$VERSION-Client-Update.exe"
+echo "Installers and client update built in $INSTALLER_OUTPUT_DIR"

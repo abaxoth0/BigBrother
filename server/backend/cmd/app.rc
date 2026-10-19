@@ -1,1 +1,4 @@
 1 ICON "../../../assets/icons/BigBrother_Server_Backend.ico"
+
+#define BB_APP_NAME "BigBrother Server Daemon"
+#include "../../../common/version-resource.rc"

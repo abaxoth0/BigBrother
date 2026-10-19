@@ -19,12 +19,85 @@ import (
 	"testing"
 	"time"
 
+	"bigbrother_server_backend/packages/application/updates"
 	"bigbrother_server_backend/packages/domain/entity"
 	"bigbrother_server_backend/packages/infrastructure/connection"
 	"bigbrother_server_backend/packages/infrastructure/database"
 	"bigbrother_server_backend/packages/infrastructure/database/sqlite"
 	"bigbrother_server_backend/packages/infrastructure/notification"
 )
+
+func TestClientUpdatePublication(t *testing.T) {
+	db := sqlite.New(filepath.Join(t.TempDir(), "updates.db"))
+	if err := db.Connect(); err != nil {
+		t.Fatal(err)
+	}
+	defer db.Disconnect()
+	if _, err := db.CreateUser("eve", "10.0.0.4"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetUserToken("eve", "token"); err != nil {
+		t.Fatal(err)
+	}
+	events := 0
+	bus := notification.NewManagerWithNotifier(func(event notification.Event) {
+		if event.Type == notification.ClientUpdateChanged {
+			events++
+		}
+	})
+	frontend := NewFrontendHandler(db, nil, nil, bus)
+	backend := NewBackendHandler(db, nil, nil, nil)
+	m := updates.Manifest{Version: "1.4.0", Location: `Z:\shared\tmp\BigBrother Updater.exe`, Size: 100, SHA256: strings.Repeat("a", 64)}
+	data, _ := json.Marshal(m)
+	request := fmt.Sprintf("SET_CLIENT_UPDATE\n%d\n%s\n\n", len(data), data)
+	if got := handlerResponse(t, frontend, request); got != "OK\n\n" {
+		t.Fatalf("publication: %q", got)
+	}
+	if events != 1 {
+		t.Fatalf("missing update event: %d", events)
+	}
+	get := "GET_CLIENT_UPDATE\n3\neve\n5\ntoken\n\n"
+	if got := handlerResponse(t, backend, get); got != fmt.Sprintf("OK\n%d\n%s\n\n", len(data), data) {
+		t.Fatalf("download metadata: %q", got)
+	}
+	if got := handlerResponse(t, backend, "GET_CLIENT_UPDATE\n3\neve\n3\nbad\n\n"); !strings.HasPrefix(got, "ERROR\n") {
+		t.Fatalf("unauthenticated read: %q", got)
+	}
+	if got := handlerResponse(t, backend, request); !strings.HasPrefix(got, "ERROR\n") {
+		t.Fatalf("remote publication accepted: %q", got)
+	}
+	if got := handlerResponse(t, frontend, "SET_CLIENT_UPDATE\n3\nbad\n\n"); !strings.HasPrefix(got, "ERROR\n") || events != 1 {
+		t.Fatalf("bad metadata: %q, events %d", got, events)
+	}
+	failed := NewFrontendHandler(failingPortDB{}, nil, nil, bus)
+	if got := handlerResponse(t, failed, request); !strings.HasPrefix(got, "ERROR\n") || events != 1 {
+		t.Fatalf("failed write: %q, events %d", got, events)
+	}
+	m.ReleaseNotes = &updates.ReleaseNotes{Version: "1.4.0", Sections: []updates.ReleaseSection{
+		{Kind: "fixed", Items: []string{strings.Repeat("Исправление. ", 2000)}},
+	}}
+	withNotes, _ := json.Marshal(m)
+	request = fmt.Sprintf("SET_CLIENT_UPDATE\n%d\n%s\n\n", len(withNotes), withNotes)
+	if got := handlerResponse(t, frontend, request); got != "OK\n\n" {
+		t.Fatalf("publish release notes: %q", got)
+	}
+	if got := handlerResponse(t, backend, get); got != fmt.Sprintf("OK\n%d\n%s\n\n", len(data), data) {
+		t.Fatalf("legacy client received oversized notes: %q", got)
+	}
+	details := "GET_CLIENT_UPDATE_DETAILS\n3\neve\n5\ntoken\n\n"
+	if got := handlerResponse(t, backend, details); got != fmt.Sprintf("OK\n%d\n%s\n\n", len(withNotes), withNotes) {
+		t.Fatal("release notes did not survive publication and serving")
+	}
+	if got := handlerResponse(t, backend, "GET_CLIENT_UPDATE_DETAILS\n3\neve\n3\nbad\n\n"); !strings.HasPrefix(got, "ERROR\n") {
+		t.Fatalf("unauthenticated release notes: %q", got)
+	}
+	if got := handlerResponse(t, frontend, "SET_CLIENT_UPDATE\n0\n\n\n"); got != "OK\n\n" {
+		t.Fatalf("clear publication: %q", got)
+	}
+	if got := handlerResponse(t, backend, get); got != "OK\n\n" {
+		t.Fatalf("cleared update still served: %q", got)
+	}
+}
 
 // TestBackendHandlerGetWhitelistServing checks that known users receive the active composition.
 func TestBackendHandlerGetWhitelistServing(t *testing.T) {

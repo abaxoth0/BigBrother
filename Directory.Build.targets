@@ -1,0 +1,20 @@
+<Project>
+  <ItemGroup>
+    <UpToDateCheckInput Include="$(BigBrotherVersionFile)" />
+    <CustomAdditionalCompileInputs Include="$(BigBrotherVersionFile)" />
+  </ItemGroup>
+  <Target Name="ValidateBigBrotherVersion" BeforeTargets="PrepareForBuild">
+    <PropertyGroup>
+      <BigBrotherVersion>$([System.IO.File]::ReadAllText('$(BigBrotherVersionFile)').Trim())</BigBrotherVersion>
+      <Version>$(BigBrotherVersion)</Version>
+      <PackageVersion>$(BigBrotherVersion)</PackageVersion>
+      <AssemblyVersion>$(BigBrotherVersion).0</AssemblyVersion>
+      <FileVersion>$(BigBrotherVersion).0</FileVersion>
+      <InformationalVersion>$(BigBrotherVersion)</InformationalVersion>
+    </PropertyGroup>
+    <Error Condition="!$([System.Text.RegularExpressions.Regex]::IsMatch('$(BigBrotherVersion)', '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'))"
+           Text="VERSION must contain a version such as 2.0.0." />
+    <Error Condition="'$(Version)' != '$(BigBrotherVersion)' Or '$(InformationalVersion)' != '$(BigBrotherVersion)' Or '$(FileVersion)' != '$(BigBrotherVersion).0' Or '$(AssemblyVersion)' != '$(BigBrotherVersion).0'"
+           Text="Application versions must come from the repository VERSION file; remove version overrides from the project or publish profile." />
+  </Target>
+</Project>
