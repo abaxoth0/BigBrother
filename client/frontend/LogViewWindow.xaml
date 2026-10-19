@@ -79,7 +79,14 @@
             </Setter>
         </Style>
         <DataTemplate x:Key="LogLineTemplate">
-            <TextBlock Text="{Binding Message}" FontFamily="Consolas" FontSize="12"/>
+            <TextBlock FontSize="12">
+                <TextBlock.Text>
+                    <MultiBinding StringFormat="[{0:yyyy-MM-dd HH:mm:ss}] {1}">
+                        <Binding Path="LocalTimestamp"/>
+                        <Binding Path="Message"/>
+                    </MultiBinding>
+                </TextBlock.Text>
+            </TextBlock>
         </DataTemplate>
     </Window.Resources>
     <Grid>

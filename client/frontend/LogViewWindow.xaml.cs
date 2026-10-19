@@ -5,6 +5,7 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using frontend.Models;
+using frontend.Services;
 using frontend.ViewModels;
 
 namespace frontend;
@@ -51,8 +52,11 @@ public partial class LogViewWindow : ChromeWindow
             {
                 FontFamily = new System.Windows.Media.FontFamily("Consolas"),
                 FontSize = 12,
+                DataContext = src,
                 ItemTemplate = (DataTemplate)FindResource("LogLineTemplate")
             };
+            LogSelectionCopy.Enable<Lib.LogEntry>(listBox, entry => LogEntryFormatter.Format(entry, src.Label),
+                error => _vm.StatusText = error);
             listBox.SetValue(VirtualizingPanel.IsVirtualizingProperty, true);
             listBox.SetValue(VirtualizingPanel.VirtualizationModeProperty, VirtualizationMode.Recycling);
             tab.Content = listBox;
@@ -94,7 +98,7 @@ public partial class LogViewWindow : ChromeWindow
                 var label = _vm.Sources[i].Label;
                 foreach (var log in logs)
                 {
-                    writer.WriteLine($"[{log.Timestamp:HH:mm:ss}] [{label}] [{log.Level}] {log.Message}");
+                    writer.WriteLine(LogEntryFormatter.Format(log, label));
                 }
             }
             System.Windows.MessageBox.Show($"Логи сохранены: {dialog.FileName}", "Успех", MessageBoxButton.OK, MessageBoxImage.Information);

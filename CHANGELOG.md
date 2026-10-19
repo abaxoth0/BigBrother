@@ -34,6 +34,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Client/server live log views: support multiple-row selection, Ctrl+A, Ctrl+C and themed right-click Copy, preserving displayed order and log metadata
+
+- Client log history: show local date/time on every entry; support multiple-row selection, Ctrl+A, Ctrl+C and right-click Copy, including timestamps and source/level in copied and exported records
+
 - Server: log frontend connections only when the event subscription is established, avoiding repeated messages from health checks and ordinary pipe requests
 - Client/server frontends: prevent live logs from stalling until service shutdown with periodic read retries and batched UI updates; keep the newest pending entries under overload and preserve split binary records/JSON lines
 - Client history: avoid UI deadlocks when resolving log paths; load complete log files in the background with loading status and cancellation when the window closes

@@ -27,6 +27,7 @@ public class LogEntry
     public LogType Type { get; set; }
     public LogLevel Level { get; set; }
     public DateTime Timestamp { get; set; }
+    public DateTime LocalTimestamp => Timestamp.ToLocalTime();
     public string Message { get; set; } = "";
     public LogSource Source { get; set; } = LogSource.Unknown;
 }
