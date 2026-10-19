@@ -491,9 +491,8 @@ public class MainViewModel : ViewModelBase, IDisposable
 
     public MainViewModel()
     {
-        _logUpdates = new LogUpdateQueue<LogEntry>(MaxLogs,
-            action => System.Windows.Application.Current.Dispatcher.BeginInvoke(
-                System.Windows.Threading.DispatcherPriority.Background, action), FlushPendingLogs);
+        _logUpdates = new DispatcherLogQueue<LogEntry>(MaxLogs,
+            System.Windows.Application.Current.Dispatcher, FlushPendingLogs);
 
         ClearLogsCommand = new RelayCommand(_ => ClearLogs());
         ExportLogsCommand = new RelayCommand(_ => ExportLogs());
@@ -510,7 +509,7 @@ public class MainViewModel : ViewModelBase, IDisposable
         RestartDaemonCommand = new RelayCommand(async _ => await RestartDaemonAsync());
         RestartClientCommand = new RelayCommand(async _ => await RestartClientAsync());
         RefreshStatusCommand = new RelayCommand(async _ => await RefreshStateAsync());
-        OpenHistoryCommand = new RelayCommand(_ => OpenHistory());
+        OpenHistoryCommand = new RelayCommand(async _ => await OpenHistoryAsync());
         OpenArchivedLogCommand = new RelayCommand(_ => OpenArchivedLogs());
         JumpToBottomCommand = new RelayCommand(_ => ScrollToBottomRequested?.Invoke());
 
@@ -839,7 +838,7 @@ public class MainViewModel : ViewModelBase, IDisposable
         AddLog("INFO", $"Выбран сервер: {selected.Name} ({selected.Ip}:{selected.Port})");
     }
 
-    private readonly LogUpdateQueue<LogEntry> _logUpdates;
+    private readonly DispatcherLogQueue<LogEntry> _logUpdates;
 
     public void AddLog(string level, string message)
     {
@@ -1113,17 +1112,16 @@ public class MainViewModel : ViewModelBase, IDisposable
         AddLog(level, line);
     }
 
-    public void OpenHistory()
+    public async Task OpenHistoryAsync()
     {
         string clientLog = _lastClientLogPath;
         string firewallLog = _lastFirewallLogPath;
 
-        // Only try IPC if we have a valid client PID (connected)
-        if (_lastClientPid != 0)
+        if (_lastClientPid != 0 && (string.IsNullOrEmpty(clientLog) || string.IsNullOrEmpty(firewallLog)))
         {
             try
             {
-                var paths = _ipcService.GetLogPathAsync().GetAwaiter().GetResult();
+                var paths = await _ipcService.GetLogPathAsync();
                 if (!string.IsNullOrEmpty(paths.clientLog))
                     clientLog = paths.clientLog;
                 if (!string.IsNullOrEmpty(paths.firewallLog))
@@ -1131,6 +1129,8 @@ public class MainViewModel : ViewModelBase, IDisposable
             }
             catch { }
         }
+
+        if (_disposed) return;
 
         // Save for next time
         if (!string.IsNullOrEmpty(clientLog))
@@ -1202,6 +1202,7 @@ public class MainViewModel : ViewModelBase, IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        _logUpdates.Dispose();
         _statusTimer?.Stop();
         _statusTimer?.Dispose();
         _ipcService.StateChanged -= OnStateChanged;

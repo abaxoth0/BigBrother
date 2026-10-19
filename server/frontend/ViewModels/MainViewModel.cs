@@ -32,7 +32,7 @@ public class MainViewModel : ViewModelBase
     private readonly IpcService _ipcService;
     private readonly ServiceManager _serviceManager;
     private readonly ServerLogTailer _logTailer;
-    private readonly LogUpdateQueue<ServerLogEntry> _logUpdates;
+    private readonly DispatcherLogQueue<ServerLogEntry> _logUpdates;
     private readonly IWhitelistDialogService _whitelistDialog;
     private System.Timers.Timer? _refreshTimer;
     private System.Timers.Timer? _serviceStatusTimer;
@@ -147,9 +147,8 @@ public class MainViewModel : ViewModelBase
     {
         _ipcService = new IpcService();
         _serviceManager = new ServiceManager("BigBrother Server");
-        _logUpdates = new LogUpdateQueue<ServerLogEntry>(2000,
-            action => System.Windows.Application.Current.Dispatcher.BeginInvoke(
-                System.Windows.Threading.DispatcherPriority.Background, action), AppendLogEntries);
+        _logUpdates = new DispatcherLogQueue<ServerLogEntry>(2000,
+            System.Windows.Application.Current.Dispatcher, AppendLogEntries);
         _logTailer = new ServerLogTailer();
         _logTailer.EntriesRead += OnLogEntriesRead;
         _whitelistDialog = new WhitelistDialogService();
@@ -1412,6 +1411,7 @@ public class MainViewModel : ViewModelBase
     {
         if (_disposed) return;
         _disposed = true;
+        _logUpdates.Dispose();
         _refreshTimer?.Stop();
         _refreshTimer?.Dispose();
         _serviceStatusTimer?.Stop();

@@ -120,13 +120,14 @@ public static class LogParser
         return entries;
     }
 
-    public static List<LogEntry> ParseAll(byte[] data)
+    public static List<LogEntry> ParseAll(byte[] data, CancellationToken cancellationToken = default)
     {
         var entries = new List<LogEntry>();
         int offset = 0;
 
         while (offset < data.Length)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var entry = ParseEntry(data, offset);
             if (entry == null)
             {

@@ -27,6 +27,19 @@ public partial class LogViewWindow : ChromeWindow
 
         BuildTabs();
         RefreshTabBindings();
+        Loaded += OnLoaded;
+    }
+
+    private async void OnLoaded(object sender, RoutedEventArgs e)
+    {
+        Loaded -= OnLoaded;
+        await _vm.ReloadAsync();
+    }
+
+    protected override void OnClosed(EventArgs e)
+    {
+        _vm.Dispose();
+        base.OnClosed(e);
     }
 
     private void BuildTabs()
@@ -41,6 +54,7 @@ public partial class LogViewWindow : ChromeWindow
                 ItemTemplate = (DataTemplate)FindResource("LogLineTemplate")
             };
             listBox.SetValue(VirtualizingPanel.IsVirtualizingProperty, true);
+            listBox.SetValue(VirtualizingPanel.VirtualizationModeProperty, VirtualizationMode.Recycling);
             tab.Content = listBox;
             LogTabs.Items.Add(tab);
 
@@ -57,7 +71,6 @@ public partial class LogViewWindow : ChromeWindow
             _listBoxes[i].ItemsSource = src.FilteredEntries;
             _tabs[i].Header = $"{src.Label} ({src.AllEntries.Count})";
         }
-        StatusText.Text = _vm.StatusText;
     }
 
     private void Export()
