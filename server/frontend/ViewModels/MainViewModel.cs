@@ -484,10 +484,10 @@ public class MainViewModel : ViewModelBase
             var location = NetworkShareAccess.ToUnc(ClientUpdateLocation);
             ClientUpdateLocation = location;
             if (!location.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
-                throw new IOException("Укажите сетевой путь к EXE обновления.");
+                throw new IOException("Укажите сетевой путь к файлу обновления.");
             ClientUpdateStatus = "Проверка пакета…";
             var metadata = await NetworkShareAccess.ReadAsync(location, () => {
-                var manifest = JsonNode.Parse(File.ReadAllText(Path.ChangeExtension(location, ".json")))
+                var manifest = JsonNode.Parse(File.ReadAllText(Path.ChangeExtension(location, ".manifest.json")))
                     ?? throw new IOException("Отсутствует манифест обновления.");
                 using var package = File.OpenRead(location);
                 if (package.Length != manifest["size"]?.GetValue<long>() ||

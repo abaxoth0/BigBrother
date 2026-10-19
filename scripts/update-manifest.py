@@ -96,7 +96,7 @@ def main():
         if args.package is None:
             parser.error("--package is required unless --validate-only is used")
         manifest = create_manifest(args.package, version, notes)
-        args.package.with_suffix(".json").write_text(manifest + "\n", encoding="utf-8")
+        args.package.with_suffix(".manifest.json").write_text(manifest + "\n", encoding="utf-8")
     except (OSError, ValueError) as error:
         parser.exit(1, f"{error}\n")
 

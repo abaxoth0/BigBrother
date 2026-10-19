@@ -38,7 +38,7 @@ Older manifests without notes still work and show that no description was suppli
 Alongside the two normal installers this produces:
 
 - `BigBrother-2.0.0-Client-Update.exe`
-- `BigBrother-2.0.0-Client-Update.json`
+- `BigBrother-2.0.0-Client-Update.manifest.json`
 
 The update EXE includes all client executables, native WPF DLLs, WinDivert files,
 and `client-version.txt`. Its Inno instructions extract this fixed payload into
@@ -47,8 +47,9 @@ The independent updater handles replacement and recovery. This package requires
 the updater-capable client installed by the normal installer; older clients need
 that initial manual upgrade.
 
-Copy the EXE and JSON to the already configured shared directory. They must
-share the same basename; renaming them both is supported. In server settings,
+Copy the update file and its `.manifest.json` to the already configured shared
+directory. The manifest name replaces `.exe` with `.manifest.json`; when renaming
+the update file, rename its manifest to match. In server settings,
 click **Обзор…** under **Обновления клиентов**, select the EXE, then click
 **Опубликовать**. The path can still be edited when needed. The frontend converts
 mapped drives to UNC paths before publication: `Y:\release\update.exe` becomes,
@@ -56,7 +57,7 @@ for example, `\\fileserver\updates\release\update.exe`. Clients use that UNC
 path directly, regardless of whether they map the share as `Z:`, another letter,
 or do not map it at all. Local disk paths cannot be published; select the file
 through its shared UNC path even when the share is hosted on the server itself.
-The server frontend reads the adjacent JSON and checks the executable's size
+The server frontend reads the adjacent `.manifest.json` and checks the executable's size
 and SHA-256 before publishing the location, version, size and hash. The server
 service never needs access to the mapped drive. Metadata is saved through the
 administrator frontend pipe and delivered to authenticated clients over pinned

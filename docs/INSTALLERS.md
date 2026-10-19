@@ -73,7 +73,7 @@ compiler is unavailable or either installer cannot compile. The outputs are:
 
 - `BigBrother-<version>-Client-Setup.exe`
 - `BigBrother-<version>-Server-Setup.exe`
-- `BigBrother-<version>-Client-Update.exe` and its JSON manifest
+- `BigBrother-<version>-Client-Update.exe` and `BigBrother-<version>-Client-Update.manifest.json`
 
 Client update publication, local staging, elevation and rollback are described
 in [CLIENT-UPDATES.md](CLIENT-UPDATES.md).

@@ -73,6 +73,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Update packages: name companion manifests `.manifest.json` and use «файл обновления» in server update settings
+
 - Installer builds: remove version and release-note version arguments; read the package version from `VERSION` and select matching changelog notes, falling back to `Unreleased`; accept an optional changelog path as the third argument
 
 - Notification helper: moved the app to the top-level `notifications` directory with `include`, `src`, `resources` and `tests` subdirectories, keeping its shared C interface in `common/notify.h`; updated build and client integration paths
