@@ -27,7 +27,8 @@ internal sealed class LogFileMonitor : IDisposable
             {
                 while (true)
                 {
-                    await _signal.WaitAsync(_stop.Token);
+                    // Windows can defer file notifications while the service keeps its log open.
+                    await _signal.WaitAsync(TimeSpan.FromSeconds(1), _stop.Token);
                     if (_stop.IsCancellationRequested) break;
                     try { read(); }
                     catch (IOException) { }

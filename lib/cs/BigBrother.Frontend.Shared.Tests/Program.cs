@@ -33,6 +33,20 @@ static byte[] Record(string message)
     return stream.ToArray();
 }
 
+static void DisableNotifications(LogFileMonitor monitor)
+{
+    var field = typeof(LogFileMonitor).GetField("_watcher",
+        System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+    ((FileSystemWatcher)field.GetValue(monitor)!).EnableRaisingEvents = false;
+}
+
+static LogFileMonitor MonitorOf(object reader)
+{
+    var field = reader.GetType().GetField("_monitor",
+        System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+    return (LogFileMonitor)field.GetValue(reader)!;
+}
+
 var scheduled = new ConcurrentQueue<Action>();
 var received = new List<int>();
 LogUpdateQueue<int>? updates = null;
@@ -72,7 +86,9 @@ try
     {
         await Until(() => Volatile.Read(ref reads) == 1, "Initial notification");
         await Task.Delay(250);
-        Check(reads == 1, "Idle monitor does not poll");
+        Check(reads == 1, "Idle monitor limits fallback reads");
+        DisableNotifications(monitor);
+        await Until(() => Volatile.Read(ref reads) >= 2, "Monitor retries without notifications");
     }
 
     string binary = Path.Combine(directory, "client.binlog");
@@ -81,6 +97,14 @@ try
     var reader = new LogReader();
     reader.OnNewLine += lines.Enqueue;
     reader.Start(binary, LogSource.Client, loadFullHistory: true);
+    DisableNotifications(MonitorOf(reader));
+    using (var output = new FileStream(binary, FileMode.Append, FileAccess.Write, FileShare.ReadWrite))
+    {
+        output.Write(Record("open binary writer"));
+        output.Flush();
+        await Until(() => lines.Any(line => line.EndsWith("open binary writer")),
+            "Binary logs arrive without notifications before writer closes");
+    }
     using (var output = new FileStream(binary, FileMode.Append, FileAccess.Write, FileShare.ReadWrite))
     {
         for (int i = 0; i < 10000; i++) output.Write(Record($"burst {i}"));
@@ -114,6 +138,14 @@ try
         foreach (var entry in entries) serverLines.Enqueue(entry.Message);
     };
     tailer.SetLogPath(directory);
+    DisableNotifications(MonitorOf(tailer));
+    using (var output = new FileStream(json, FileMode.Append, FileAccess.Write, FileShare.ReadWrite))
+    {
+        output.Write(Encoding.UTF8.GetBytes("{\"msg\":\"open JSON writer\"}\n"));
+        output.Flush();
+        await Until(() => serverLines.Contains("open JSON writer"),
+            "Server logs arrive without notifications before writer closes");
+    }
     using (var output = new FileStream(json, FileMode.Append, FileAccess.Write, FileShare.ReadWrite))
     {
         output.Write(Encoding.UTF8.GetBytes("{\"msg\":\"split"));
@@ -130,7 +162,6 @@ try
             output.Write(Encoding.UTF8.GetBytes($"{{\"msg\":\"continuous {i}\"}}\n"));
             output.Flush();
             await Task.Delay(10);
-            if (i == 50) Check(serverLines.Any(line => line.StartsWith("continuous ")), "Continuous writes do not starve reads");
         }
     }
     await Until(() => serverLines.Contains("continuous 99"), "Latest JSON entry arrives promptly");
@@ -144,4 +175,4 @@ finally
 {
     Directory.Delete(directory, true);
 }
-Console.WriteLine("PASS: bounded UI updates, idle notifications, binary bursts/split records, stop, continuous JSON writes, split lines and truncation");
+Console.WriteLine("PASS: bounded UI updates, notification fallback with open writers, binary bursts/split records, stop, continuous JSON writes, split lines and truncation");

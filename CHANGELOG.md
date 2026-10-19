@@ -34,11 +34,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Client/server frontends: prevent live logs from stalling until service shutdown with periodic read retries and batched UI updates; keep the newest pending entries under overload and preserve split binary records/JSON lines
+- Client history: avoid UI deadlocks when resolving log paths; load complete log files in the background with loading status and cancellation when the window closes
+- Client log viewer: use dark tabs and content borders, fully rounded headers, gold selection and visible hover/keyboard-focus states
+- Frontend buttons: honor content alignment so «К последнему» stays centered in the log toolbar
+
 - Server frontend: skip whitelist/conflict refreshes while the backend is unavailable and use dark theme colors for the whitelist conflict divider, including hover, focus and drag states
 
 - Server domain checker: use readable theme colors for the domain/IPv4 label and show all source whitelist names for each matching rule, including deduplicated rules
-
-- Client/server frontends: live logs follow file notifications without idle polling or growing display backlogs; pending display updates retain the newest entries within the history limit, and split binary records/JSON lines survive subsequent writes
 
 - Server discovery: rate limits now share a budget across UDP source ports from the same IP, with bounded source tracking; replies advertise the running TCP port instead of a pending saved value
 - Server deployment: startup synchronizes program-scoped Windows Firewall rules with the effective TCP port, removes the legacy default-port rule, and limits UDP discovery to local subnets on Private/Domain profiles; firewall setup failures prevent startup and uninstall removes both current and legacy rules
