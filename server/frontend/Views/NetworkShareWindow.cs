@@ -15,6 +15,8 @@ public sealed class NetworkShareWindow : Window
     public NetworkShareWindow(string current)
     {
         Title = "Общая папка обновлений";
+        SetResourceReference(BackgroundProperty, "WindowBackground");
+        SetResourceReference(ForegroundProperty, "TitleBarText");
         Width = 640;
         SizeToContent = SizeToContent.Height;
         ResizeMode = ResizeMode.NoResize;

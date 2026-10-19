@@ -38,6 +38,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Server network-folder dialog: use dark window colours and readable dropdown text; support typing UNC paths in the themed editable selector
+
 - Client updates: publish UNC paths instead of machine-specific mapped drive letters; resolve saved mappings hidden by elevation, provide a network-folder picker, and request Windows share credentials only after an access/login failure on the server or client
 
 - Client frontend: fix immediate startup failure caused by setting WPF `StartupUri` to null; create the normal or updater window explicitly without a XAML startup URI
