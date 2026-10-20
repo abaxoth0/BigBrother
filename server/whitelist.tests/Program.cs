@@ -134,4 +134,31 @@ draft.Refresh(renamed);
 Check(draft.HasChanges && !renamed[0].IsActive && draft.GetChanges().ContainsKey("renamed"), "Rename lost draft");
 draft.Refresh(Array.Empty<WhitelistInfo>());
 Check(!draft.HasChanges, "Deleted list retained stale draft");
-Console.WriteLine("Whitelist validation, matching, editor, domain checker and activation draft checks passed.");
+var selection = new WhitelistSelection();
+var selectionRows = Enumerable.Range(0, 5).Select(i => new WhitelistInfo { Name = i.ToString() }).ToList();
+Check(!selection.HandleClick(selectionRows, selectionRows[1], false, false) && selectionRows.All(w => !w.IsSelected),
+    "Plain row clicks should leave checkbox handling to the table");
+selectionRows[1].IsSelected = true;
+Check(selection.HandleClick(selectionRows, selectionRows[3], false, true) &&
+    selectionRows.Select(w => w.IsSelected).SequenceEqual(new[] { false, true, true, true, false }),
+    "Shift-click did not select the inclusive range");
+selection.HandleClick(selectionRows, selectionRows[2], false, true);
+Check(selectionRows.Select(w => w.IsSelected).SequenceEqual(new[] { false, true, true, false, false }),
+    "Shift-click did not shrink the range from the original anchor");
+selection.HandleClick(selectionRows, selectionRows[0], true, false);
+selection.HandleClick(selectionRows, selectionRows[2], true, false);
+Check(selectionRows.Select(w => w.IsSelected).SequenceEqual(new[] { true, true, false, false, false }),
+    "Ctrl-click did not toggle individual checkboxes while retaining the others");
+selection.HandleClick(selectionRows, selectionRows[4], true, true);
+Check(selectionRows.All(w => w.IsSelected), "Ctrl+Shift-click did not preserve selection outside the range");
+var sortedRows = selectionRows.AsEnumerable().Reverse().ToList();
+selection.HandleClick(sortedRows, selectionRows[4], false, false);
+selection.HandleClick(sortedRows, selectionRows[2], false, true);
+Check(selectionRows.Select(w => w.IsSelected).SequenceEqual(new[] { false, false, true, true, true }),
+    "Shift-click did not follow the displayed sort order");
+selection.HandleClick(selectionRows, selectionRows[0], false, false);
+selectionRows.RemoveAt(0);
+selection.HandleClick(selectionRows, selectionRows[3], false, true);
+Check(selectionRows.Count(w => w.IsSelected) == 1 && selectionRows[3].IsSelected,
+    "Deleting the selection anchor broke subsequent Shift-clicks");
+Console.WriteLine("Whitelist validation, matching, editor, domain checker, activation draft and selection checks passed.");

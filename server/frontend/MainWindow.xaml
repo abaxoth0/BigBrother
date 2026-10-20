@@ -446,17 +446,15 @@
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="0" Text="{Binding ActiveWhitelistsText}" Margin="10,6"
                                        VerticalAlignment="Center" FontWeight="Bold"/>
-                            <Button Grid.Column="6" Content="Проверка домена" Style="{StaticResource ControlButton}"
+                            <Button Grid.Column="5" Content="Проверка домена" Style="{StaticResource ControlButton}"
                                     Command="{Binding OpenDomainCheckCommand}"/>
                             <Button Grid.Column="2" Content="Импорт" Style="{StaticResource ControlButton}" Command="{Binding ImportWhitelistsCommand}"/>
                             <Button Grid.Column="3" Content="Экспорт" Style="{StaticResource ControlButton}" Command="{Binding ExportWhitelistsCommand}"/>
-                            <Button Grid.Column="4" Content="Удалить" Style="{StaticResource ControlButton}" Command="{Binding DeleteSelectedWhitelistsCommand}"/>
-                            <Button Grid.Column="5" Content="Создать" Style="{StaticResource ControlButton}" Command="{Binding OpenCreateWhitelistCommand}"/>
-                            <Grid Grid.Row="1" Grid.ColumnSpan="7" Margin="10,2,6,6">
+                            <Button Grid.Column="4" Content="Создать" Style="{StaticResource ControlButton}" Command="{Binding OpenCreateWhitelistCommand}"/>
+                            <Grid Grid.Row="1" Grid.ColumnSpan="6" Margin="10,2,6,6">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
@@ -486,6 +484,7 @@
                               VerticalContentAlignment="Center" MinRowHeight="26">
                         <DataGrid.RowStyle>
                             <Style TargetType="DataGridRow">
+                                <EventSetter Event="PreviewMouseLeftButtonDown" Handler="WhitelistRow_PreviewMouseLeftButtonDown"/>
                                 <EventSetter Event="MouseDoubleClick" Handler="WhitelistRow_MouseDoubleClick"/>
                             </Style>
                         </DataGrid.RowStyle>
@@ -536,7 +535,7 @@
                                 <MenuItem Header="Включить / выключить" Command="{Binding ToggleWhitelistActiveCommand}" CommandParameter="{Binding PlacementTarget.SelectedItem, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
                                 <MenuItem Header="Редактировать" Command="{Binding OpenEditWhitelistCommand}" CommandParameter="{Binding PlacementTarget.SelectedItem, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
                                 <Separator/>
-                                <MenuItem Header="Удалить" Command="{Binding DeleteWhitelistCommand}" CommandParameter="{Binding PlacementTarget.SelectedItem.Name, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                                <MenuItem Header="Удалить" Command="{Binding DeleteSelectedWhitelistsCommand}" CommandParameter="{Binding PlacementTarget.SelectedItem, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
                             </ContextMenu>
                         </DataGrid.ContextMenu>
                     </DataGrid>
