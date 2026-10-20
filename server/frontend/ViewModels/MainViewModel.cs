@@ -198,6 +198,7 @@ public class MainViewModel : ViewModelBase
         _ = RefreshAllAsync();
         _ = LoadServerNameAsync();
         _ = LoadServerPortAsync();
+        _ = LoadWindowsNotificationsAsync();
         _ = LoadCertificateFingerprintAsync();
         _ = LoadClientUpdateAsync();
         _ = LoadLogPathAsync();
@@ -348,6 +349,16 @@ public class MainViewModel : ViewModelBase
     {
         get => _hasSettingsChanges;
         set => SetProperty(ref _hasSettingsChanges, value);
+    }
+
+    private bool _windowsNotificationsEnabled = true;
+    public bool WindowsNotificationsEnabled
+    {
+        get => _windowsNotificationsEnabled;
+        set
+        {
+            if (SetProperty(ref _windowsNotificationsEnabled, value)) MarkSettingsChanged();
+        }
     }
 
     private void MarkSettingsChanged()
@@ -781,7 +792,25 @@ public class MainViewModel : ViewModelBase
     {
         await SaveServerNameAsync();
         await SaveServerPortAsync();
+        if (!await _ipcService.SetWindowsNotificationsAsync(WindowsNotificationsEnabled))
+        {
+            AddLog("ERROR", "Ошибка сохранения: уведомления Windows");
+            return;
+        }
         HasSettingsChanges = false;
+    }
+
+    private async Task LoadWindowsNotificationsAsync()
+    {
+        var enabled = await _ipcService.GetWindowsNotificationsAsync();
+        await Application.Current.Dispatcher.InvokeAsync(() =>
+        {
+            if (!_disposed && enabled.HasValue)
+            {
+                _windowsNotificationsEnabled = enabled.Value;
+                OnPropertyChanged(nameof(WindowsNotificationsEnabled));
+            }
+        });
     }
 
     private async Task RefreshServerStatusAsync()
@@ -821,6 +850,7 @@ public class MainViewModel : ViewModelBase
                 _ = RefreshAllAsync();
                 _ = LoadServerNameAsync();
                 _ = LoadServerPortAsync();
+                _ = LoadWindowsNotificationsAsync();
                 _ = LoadCertificateFingerprintAsync();
                 _ = LoadClientUpdateAsync();
                 _ = LoadLogPathAsync();

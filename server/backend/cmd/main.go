@@ -66,14 +66,6 @@ func main() {
 	time.Sleep(time.Millisecond * 50)
 	mainLogger.Info("Version: "+productVersion, nil)
 
-	desktop := notification.NewDesktopNotifier(notification.DeliverWindowsNotification, func(err error) {
-		mainLogger.Error("Windows notification failed", err.Error(), nil)
-	})
-	defer desktop.Close()
-	notifMgr := notification.NewManagerWithNotifier(desktop.Notify)
-	connManager := connection.NewMemoryResidentConnectionManagerWithDisconnectHandler(func(user entity.User) {
-		notifMgr.Publish(notification.Event{Type: notification.UserDisconnected, Data: map[string]string{"name": user.Name, "addr": user.Addr}})
-	})
 	dbPath := "bb-server.db"
 	if exe, err := os.Executable(); err == nil {
 		exeDir := filepath.Dir(exe)
@@ -104,6 +96,18 @@ func main() {
 		mainLogger.Fatal("Secret permissions error", err.Error(), nil)
 		return
 	}
+
+	desktop := notification.NewDesktopNotifier(notification.DeliverWindowsNotification, func(err error) {
+		mainLogger.Error("Windows notification failed", err.Error(), nil)
+	}, func() bool {
+		value, err := db.GetSetting("windows_notifications_enabled")
+		return err == nil && value != "0"
+	})
+	defer desktop.Close()
+	notifMgr := notification.NewManagerWithNotifier(desktop.Notify)
+	connManager := connection.NewMemoryResidentConnectionManagerWithDisconnectHandler(func(user entity.User) {
+		notifMgr.Publish(notification.Event{Type: notification.UserDisconnected, Data: map[string]string{"name": user.Name, "addr": user.Addr}})
+	})
 
 	pendingUsersStorage := pending.NewUserStorage()
 

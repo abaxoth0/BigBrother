@@ -77,9 +77,17 @@ int main(int argc, char** argv) {
     char* filename = strrchr(helper, '\\');
     assert(filename);
     strcpy(filename + 1, "BigBrother Notifications.exe");
-    assert(CopyFileA(path, helper, FALSE));
     *strrchr(path, '\\') = 0;
     assert(SetCurrentDirectoryA(path));
+    if (argc == 2 && !strcmp(argv[1], "--read-disabled")) {
+        assert(IsWindowsNotificationsEnabled() == 0);
+        puts("PASS: disabled notification preference survives process restart");
+        return 0;
+    }
+    assert(GetModuleFileNameA(NULL, path, sizeof(path)));
+    assert(CopyFileA(path, helper, FALSE));
+    DeleteFileA("config\\config.ini");
+    assert(IsWindowsNotificationsEnabled() == 1);
     DeleteFileA("notifications.log");
     bb_notifications_set_error_handler(capture_error);
     assert(bb_notify(NULL, "invalid") != 0 && GetLastError() == ERROR_INVALID_PARAMETER);
@@ -110,6 +118,24 @@ int main(int argc, char** argv) {
     assert(delivery_error == ERROR_ACCESS_DENIED);
     Sleep(100);
     assert(notice_count() == 6);
-    puts("PASS: C API, backend notifications without frontend, duplicate suppression, rejected whitelist, and delivery failures");
+    assert(SetWindowsNotificationsEnabled(0) == 0);
+    assert(IsWindowsNotificationsEnabled() == 0);
+    SetServerSessionActive(1);
+    SetServerSessionActive(0);
+    filtration = 1;
+    assert(DaemonGetFiltration() == 1);
+    assert(DaemonSetWhitelist("example.org", 11, response, sizeof(response)) == 0);
+    assert(DaemonReloadWhitelist(response, sizeof(response)) == 0);
+    Sleep(100);
+    assert(notice_count() == 6);
+    assert(SetWindowsNotificationsEnabled(1) == 0);
+    assert(IsWindowsNotificationsEnabled() == 1);
+    assert(DaemonGetFiltration() == 1);
+    assert(DaemonReloadWhitelist(response, sizeof(response)) == 0);
+    started = GetTickCount();
+    while (notice_count() < 7 && GetTickCount() - started < 5000) Sleep(10);
+    assert(notice_count() == 7);
+    assert(SetWindowsNotificationsEnabled(0) == 0);
+    puts("PASS: backend notification delivery, suppression, re-enabling, and delivery failures");
     return 0;
 }

@@ -456,6 +456,28 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 		case "GET_LOG_PATH":
 			writeTLVResponse(conn, h.getLogPath())
 
+		case "GET_WINDOWS_NOTIFICATIONS":
+			value, err := h.db.GetSetting("windows_notifications_enabled")
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			if value != "0" {
+				value = "1"
+			}
+			writeTLVResponse(conn, value)
+
+		case "SET_WINDOWS_NOTIFICATIONS":
+			if len(args) != 1 || (args[0] != "0" && args[0] != "1") {
+				writeErrorTLV(conn, "Expected Windows notification value 0 or 1")
+				continue
+			}
+			if err := h.db.SetSetting("windows_notifications_enabled", args[0]); err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			writeOK(conn)
+
 		case "GET_FILTRATION":
 			filt, _ := h.db.GetSetting("filtration_enabled")
 			if filt == "" {

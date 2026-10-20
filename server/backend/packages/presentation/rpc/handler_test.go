@@ -407,6 +407,52 @@ type failingPortDB struct{ database.DBInstance }
 
 func (failingPortDB) SetSetting(string, string) error { return errors.New("write failed") }
 
+func TestWindowsNotificationSettings(t *testing.T) {
+	db := sqlite.New(filepath.Join(t.TempDir(), "notifications.db"))
+	if err := db.Connect(); err != nil {
+		t.Fatal(err)
+	}
+	defer db.Disconnect()
+	h := NewFrontendHandler(db, nil, nil, nil)
+	if got := handlerResponse(t, h, "GET_WINDOWS_NOTIFICATIONS\n\n"); got != "OK\n1\n1\n\n" {
+		t.Fatalf("default: %q", got)
+	}
+	for _, value := range []string{"0", "1", "0"} {
+		if got := handlerResponse(t, h, "SET_WINDOWS_NOTIFICATIONS\n1\n"+value+"\n\n"); got != "OK\n\n" {
+			t.Fatalf("save %s: %q", value, got)
+		}
+		if err := db.Disconnect(); err != nil {
+			t.Fatal(err)
+		}
+		if err := db.Connect(); err != nil {
+			t.Fatal(err)
+		}
+		if got := handlerResponse(t, h, "GET_WINDOWS_NOTIFICATIONS\n\n"); got != "OK\n1\n"+value+"\n\n" {
+			t.Fatalf("reopened preference %s: %q", value, got)
+		}
+	}
+	for _, request := range []string{
+		"SET_WINDOWS_NOTIFICATIONS\n\n",
+		"SET_WINDOWS_NOTIFICATIONS\n3\nyes\n\n",
+		"SET_WINDOWS_NOTIFICATIONS\n1\n0\n1\n1\n\n",
+	} {
+		if got := handlerResponse(t, h, request); !strings.HasPrefix(got, "ERROR\n") {
+			t.Fatalf("invalid value accepted: %q", got)
+		}
+	}
+	if value, err := db.GetSetting("windows_notifications_enabled"); err != nil || value != "0" {
+		t.Fatalf("invalid request changed preference: %q, %v", value, err)
+	}
+	failed := NewFrontendHandler(failingPortDB{}, nil, nil, nil)
+	if got := handlerResponse(t, failed, "SET_WINDOWS_NOTIFICATIONS\n1\n1\n\n"); !strings.HasPrefix(got, "ERROR\n") {
+		t.Fatalf("failed save accepted: %q", got)
+	}
+	backend := NewBackendHandler(db, nil, nil, nil)
+	if got := handlerResponse(t, backend, "SET_WINDOWS_NOTIFICATIONS\n1\n1\n\n"); !strings.HasPrefix(got, "ERROR\n") {
+		t.Fatalf("remote settings change accepted: %q", got)
+	}
+}
+
 func TestFrontendValidatesAndPersistsServerPort(t *testing.T) {
 	db := sqlite.New(filepath.Join(t.TempDir(), "port.db"))
 	if err := db.Connect(); err != nil {

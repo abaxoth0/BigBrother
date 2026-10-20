@@ -2,6 +2,7 @@ package notification
 
 import (
 	"errors"
+	"sync/atomic"
 	"testing"
 )
 
@@ -10,7 +11,7 @@ func TestDesktopNotificationsWithoutFrontend(t *testing.T) {
 	notifier := NewDesktopNotifier(func(title, body string) error {
 		messages = append(messages, desktopMessage{title, body})
 		return nil
-	}, nil)
+	}, nil, nil)
 	bus := NewManagerWithNotifier(notifier.Notify)
 	for _, event := range []Event{
 		{Type: UserConnected, Data: map[string]string{"name": "Alice", "addr": "192.0.2.1"}},
@@ -43,7 +44,7 @@ func TestDesktopDeliveryFailureDoesNotStopEvents(t *testing.T) {
 		if err == deliveryError {
 			failures++
 		}
-	})
+	}, nil)
 	notifier.Notify(Event{Type: UserConnected})
 	notifier.Notify(Event{Type: UserDisconnected})
 	notifier.Close()
@@ -62,7 +63,7 @@ func TestDesktopQueueIsBounded(t *testing.T) {
 			<-release
 		}
 		return nil
-	}, nil)
+	}, nil, nil)
 	notifier.Notify(Event{Type: UserConnected})
 	<-started
 	for i := 0; i < 1000; i++ {
@@ -72,5 +73,49 @@ func TestDesktopQueueIsBounded(t *testing.T) {
 	notifier.Close()
 	if delivered != 65 {
 		t.Fatalf("expected one active delivery plus 64 queued, got %d", delivered)
+	}
+}
+
+func TestDesktopNotificationsCanBeReenabled(t *testing.T) {
+	var enabled atomic.Bool
+	var delivered int
+	notifier := NewDesktopNotifier(func(_, _ string) error {
+		delivered++
+		return nil
+	}, nil, enabled.Load)
+	bus := NewManagerWithNotifier(notifier.Notify)
+	for _, kind := range []EventType{UserConnected, UserDisconnected, PendingAdded} {
+		bus.Publish(Event{Type: kind})
+	}
+	enabled.Store(true)
+	bus.Publish(Event{Type: UserConnected})
+	notifier.Close()
+	if delivered != 1 {
+		t.Fatalf("expected only the event after re-enabling, got %d", delivered)
+	}
+}
+
+func TestDisablingDesktopNotificationsDropsQueuedMessages(t *testing.T) {
+	var enabled atomic.Bool
+	enabled.Store(true)
+	started, release := make(chan struct{}), make(chan struct{})
+	var delivered int
+	notifier := NewDesktopNotifier(func(_, _ string) error {
+		delivered++
+		if delivered == 1 {
+			close(started)
+			<-release
+		}
+		return nil
+	}, nil, enabled.Load)
+	notifier.Notify(Event{Type: UserConnected})
+	<-started
+	notifier.Notify(Event{Type: UserDisconnected})
+	notifier.Notify(Event{Type: PendingAdded})
+	enabled.Store(false)
+	close(release)
+	notifier.Close()
+	if delivered != 1 {
+		t.Fatalf("expected queued notifications to be dropped, got %d deliveries", delivered)
 	}
 }

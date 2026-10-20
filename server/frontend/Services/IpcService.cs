@@ -947,6 +947,51 @@ public class IpcService : IDisposable
         }
     }
 
+    public async Task<bool?> GetWindowsNotificationsAsync()
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return null;
+            try
+            {
+                var (status, data) = SendCommand("GET_WINDOWS_NOTIFICATIONS");
+                return status == "OK" && data.Count > 0 && (data[0] == "0" || data[0] == "1")
+                    ? data[0] == "1" : null;
+            }
+            finally
+            {
+                Disconnect();
+            }
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
+    public async Task<bool> SetWindowsNotificationsAsync(bool enabled)
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return false;
+            try
+            {
+                var (status, _) = SendCommand("SET_WINDOWS_NOTIFICATIONS", enabled ? "1" : "0");
+                return status == "OK";
+            }
+            finally
+            {
+                Disconnect();
+            }
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
     public async Task<string> GetCertificateFingerprintAsync()
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(1500));

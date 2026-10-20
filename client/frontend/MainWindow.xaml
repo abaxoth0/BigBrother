@@ -723,6 +723,11 @@
                                 </StackPanel>
                             </GroupBox>
 
+                            <GroupBox Header="Уведомления" Margin="0,0,0,10" Padding="10">
+                                <CheckBox IsChecked="{Binding WindowsNotificationsEnabled}"
+                                          Content="Показывать уведомления Windows" Margin="0,5"/>
+                            </GroupBox>
+
                             <Button Content="Сохранить настройки" Style="{StaticResource PrimaryButton}" Command="{Binding SaveSettingsCommand}" IsEnabled="{Binding HasSettingsChanges}"
                                     HorizontalAlignment="Right" MinWidth="150" Padding="10,6" Margin="0,10"/>
                         </StackPanel>
