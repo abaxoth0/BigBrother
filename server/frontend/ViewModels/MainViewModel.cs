@@ -165,7 +165,7 @@ public class MainViewModel : ViewModelBase
         RefreshCommand = new RelayCommand(async _ => await RefreshAllAsync());
         DeleteWhitelistCommand = new RelayCommand(async o => await DeleteWhitelistAsync(o?.ToString()!), o => o != null);
         ToggleWhitelistActiveCommand = new RelayCommand(o => ToggleWhitelistActive(o as WhitelistInfo),
-            o => o is WhitelistInfo && IsConnected && !_savingWhitelistActivation);
+            o => (Whitelists.Any(w => w.IsSelected) || o is WhitelistInfo) && IsConnected && !_savingWhitelistActivation);
         SaveWhitelistActivationCommand = new RelayCommand(async _ => await SaveWhitelistActivationAsync(),
             _ => IsConnected && HasWhitelistActivationChanges && !_savingWhitelistActivation);
         CancelWhitelistActivationCommand = new RelayCommand(_ => CancelWhitelistActivation(),
@@ -1143,8 +1143,10 @@ public class MainViewModel : ViewModelBase
 
     private void ToggleWhitelistActive(WhitelistInfo? whitelist)
     {
-        if (whitelist == null || !IsConnected || _savingWhitelistActivation) return;
-        _whitelistActivation.Toggle(whitelist);
+        if (!IsConnected || _savingWhitelistActivation) return;
+        var selected = Whitelists.Where(w => w.IsSelected).ToList();
+        if (selected.Count == 0 && whitelist != null) selected.Add(whitelist);
+        foreach (var row in selected) _whitelistActivation.Toggle(row);
         NotifyWhitelistActivationChanged();
     }
 

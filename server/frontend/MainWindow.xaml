@@ -513,10 +513,20 @@
                             <DataGridTemplateColumn Header="Активный" Width="90" SortMemberPath="IsActive">
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate>
-                                        <CheckBox IsChecked="{Binding IsActive, Mode=OneWay}"
-                                                  Command="{Binding DataContext.ToggleWhitelistActiveCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
-                                                  CommandParameter="{Binding}" ToolTip="Изменить активность списка; применить кнопкой «Сохранить»"
-                                                  HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="Text" Value="Нет"/>
+                                                    <Setter Property="Foreground" Value="{StaticResource StatusDisconnected}"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsActive}" Value="True">
+                                                            <Setter Property="Text" Value="Да"/>
+                                                            <Setter Property="Foreground" Value="{StaticResource StatusRunning}"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
                                     </DataTemplate>
                                 </DataGridTemplateColumn.CellTemplate>
                             </DataGridTemplateColumn>
