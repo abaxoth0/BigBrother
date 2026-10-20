@@ -73,6 +73,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Server whitelist table: highlight all checked rows with the teal selection background and cyan text
+
+- Server whitelist table: context-menu Delete applies to all checked lists and replaces the toolbar Delete button; Delete and activation toggles clear checkboxes; Ctrl-click toggles a checkbox and Shift-click selects a range in the current table order
+
+- Server whitelist table: show green «Да» / red «Нет» activation labels; the context-menu activation toggle applies to all checked lists, falling back to the current row when none are checked
+
 - Build scripts require a Debug or Release configuration; native and Go builds select matching compiler settings, keep mode-specific objects separate and reject installer payloads built in another mode
 - Release builds compile out debug/trace logging in daemons, the notification helper and server frontend while retaining normal operational logs; Debug builds enable diagnostics
 

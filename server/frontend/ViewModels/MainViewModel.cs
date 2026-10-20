@@ -163,9 +163,8 @@ public class MainViewModel : ViewModelBase
         RegenerateTokenCommand = new RelayCommand(async o => await RegenerateUserTokenAsync(o?.ToString()!), o => o != null);
         DisconnectCommand = new RelayCommand(async o => await DisconnectUserAsync(o?.ToString()!), o => o != null);
         RefreshCommand = new RelayCommand(async _ => await RefreshAllAsync());
-        DeleteWhitelistCommand = new RelayCommand(async o => await DeleteWhitelistAsync(o?.ToString()!), o => o != null);
         ToggleWhitelistActiveCommand = new RelayCommand(o => ToggleWhitelistActive(o as WhitelistInfo),
-            o => o is WhitelistInfo && IsConnected && !_savingWhitelistActivation);
+            o => (Whitelists.Any(w => w.IsSelected) || o is WhitelistInfo) && IsConnected && !_savingWhitelistActivation);
         SaveWhitelistActivationCommand = new RelayCommand(async _ => await SaveWhitelistActivationAsync(),
             _ => IsConnected && HasWhitelistActivationChanges && !_savingWhitelistActivation);
         CancelWhitelistActivationCommand = new RelayCommand(_ => CancelWhitelistActivation(),
@@ -176,7 +175,8 @@ public class MainViewModel : ViewModelBase
         OpenEditWhitelistCommand = new RelayCommand(async o => await OpenEditWhitelistAsync(o as WhitelistInfo), o => o is WhitelistInfo);
         ImportWhitelistsCommand = new RelayCommand(async _ => await ImportWhitelistsAsync());
         ExportWhitelistsCommand = new RelayCommand(async _ => await ExportWhitelistsAsync(), _ => Whitelists.Any(w => w.IsSelected));
-        DeleteSelectedWhitelistsCommand = new RelayCommand(async _ => await DeleteSelectedWhitelistsAsync(), _ => Whitelists.Any(w => w.IsSelected));
+        DeleteSelectedWhitelistsCommand = new RelayCommand(async o => await DeleteSelectedWhitelistsAsync(o as WhitelistInfo),
+            o => Whitelists.Any(w => w.IsSelected) || o is WhitelistInfo);
         BrowseClientUpdateCommand = new RelayCommand(async _ => await BrowseClientUpdateAsync());
         OpenUpdateShareCommand = new RelayCommand(_ => OpenUpdateShare());
         PublishClientUpdateCommand = new RelayCommand(async _ => await PublishClientUpdateAsync(), _ => IsConnected);
@@ -388,12 +388,10 @@ public class MainViewModel : ViewModelBase
         get => _isAllSelected;
         set
         {
-            if (SetProperty(ref _isAllSelected, value))
-            {
-                foreach (var wl in Whitelists)
-                    wl.IsSelected = value;
-                CommandManager.InvalidateRequerySuggested();
-            }
+            foreach (var wl in Whitelists)
+                wl.IsSelected = value;
+            UpdateAllSelectedState();
+            CommandManager.InvalidateRequerySuggested();
         }
     }
 
@@ -419,7 +417,6 @@ public class MainViewModel : ViewModelBase
     public ICommand RejectCommand { get; }
     public ICommand DisconnectCommand { get; }
     public ICommand RefreshCommand { get; }
-    public ICommand DeleteWhitelistCommand { get; }
     public ICommand ToggleWhitelistActiveCommand { get; }
     public ICommand SaveWhitelistActivationCommand { get; }
     public ICommand CancelWhitelistActivationCommand { get; }
@@ -1100,17 +1097,10 @@ public class MainViewModel : ViewModelBase
         await RefreshClientsAsync();
     }
 
-    private async Task DeleteWhitelistAsync(string? name)
-    {
-        if (string.IsNullOrEmpty(name)) return;
-        var ok = await _ipcService.DeleteWhitelistAsync(name);
-        AddLog(ok ? "INFO" : "ERROR", ok ? $"Список {name} удален" : $"Ошибка удаления {name}");
-        await RefreshWhitelistsAsync();
-    }
-
-    private async Task DeleteSelectedWhitelistsAsync()
+    private async Task DeleteSelectedWhitelistsAsync(WhitelistInfo? whitelist)
     {
         var selected = Whitelists.Where(w => w.IsSelected).Select(w => w.Name).ToList();
+        if (selected.Count == 0 && whitelist != null) selected.Add(whitelist.Name);
         if (selected.Count == 0) return;
 
         var result = MessageBox.Show($"Удалить выбранные списки ({selected.Count})?",
@@ -1143,8 +1133,11 @@ public class MainViewModel : ViewModelBase
 
     private void ToggleWhitelistActive(WhitelistInfo? whitelist)
     {
-        if (whitelist == null || !IsConnected || _savingWhitelistActivation) return;
-        _whitelistActivation.Toggle(whitelist);
+        if (!IsConnected || _savingWhitelistActivation) return;
+        var selected = Whitelists.Where(w => w.IsSelected).ToList();
+        if (selected.Count == 0 && whitelist != null) selected.Add(whitelist);
+        foreach (var row in selected) _whitelistActivation.Toggle(row);
+        IsAllSelected = false;
         NotifyWhitelistActivationChanged();
     }
 
@@ -1330,6 +1323,7 @@ public class MainViewModel : ViewModelBase
         {
             if (e.PropertyName == nameof(WhitelistInfo.IsSelected))
             {
+                UpdateAllSelectedState();
                 CommandManager.InvalidateRequerySuggested();
             }
         };

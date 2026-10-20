@@ -446,17 +446,15 @@
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="0" Text="{Binding ActiveWhitelistsText}" Margin="10,6"
                                        VerticalAlignment="Center" FontWeight="Bold"/>
-                            <Button Grid.Column="6" Content="Проверка домена" Style="{StaticResource ControlButton}"
+                            <Button Grid.Column="5" Content="Проверка домена" Style="{StaticResource ControlButton}"
                                     Command="{Binding OpenDomainCheckCommand}"/>
                             <Button Grid.Column="2" Content="Импорт" Style="{StaticResource ControlButton}" Command="{Binding ImportWhitelistsCommand}"/>
                             <Button Grid.Column="3" Content="Экспорт" Style="{StaticResource ControlButton}" Command="{Binding ExportWhitelistsCommand}"/>
-                            <Button Grid.Column="4" Content="Удалить" Style="{StaticResource ControlButton}" Command="{Binding DeleteSelectedWhitelistsCommand}"/>
-                            <Button Grid.Column="5" Content="Создать" Style="{StaticResource ControlButton}" Command="{Binding OpenCreateWhitelistCommand}"/>
-                            <Grid Grid.Row="1" Grid.ColumnSpan="7" Margin="10,2,6,6">
+                            <Button Grid.Column="4" Content="Создать" Style="{StaticResource ControlButton}" Command="{Binding OpenCreateWhitelistCommand}"/>
+                            <Grid Grid.Row="1" Grid.ColumnSpan="6" Margin="10,2,6,6">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
@@ -486,9 +484,25 @@
                               VerticalContentAlignment="Center" MinRowHeight="26">
                         <DataGrid.RowStyle>
                             <Style TargetType="DataGridRow">
+                                <EventSetter Event="PreviewMouseLeftButtonDown" Handler="WhitelistRow_PreviewMouseLeftButtonDown"/>
                                 <EventSetter Event="MouseDoubleClick" Handler="WhitelistRow_MouseDoubleClick"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                        <Setter Property="Background" Value="{DynamicResource SelectedBackground}"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
                             </Style>
                         </DataGrid.RowStyle>
+                        <DataGrid.CellStyle>
+                            <Style TargetType="DataGridCell" BasedOn="{StaticResource {x:Type DataGridCell}}">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                        <Setter Property="Background" Value="{DynamicResource SelectedBackground}"/>
+                                        <Setter Property="Foreground" Value="{DynamicResource AccentText}"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </DataGrid.CellStyle>
                         <DataGrid.Columns>
                             <DataGridTemplateColumn Header=" " Width="34">
                                 <DataGridTemplateColumn.HeaderTemplate>
@@ -513,10 +527,20 @@
                             <DataGridTemplateColumn Header="Активный" Width="90" SortMemberPath="IsActive">
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate>
-                                        <CheckBox IsChecked="{Binding IsActive, Mode=OneWay}"
-                                                  Command="{Binding DataContext.ToggleWhitelistActiveCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
-                                                  CommandParameter="{Binding}" ToolTip="Изменить активность списка; применить кнопкой «Сохранить»"
-                                                  HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="Text" Value="Нет"/>
+                                                    <Setter Property="Foreground" Value="{StaticResource StatusDisconnected}"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsActive}" Value="True">
+                                                            <Setter Property="Text" Value="Да"/>
+                                                            <Setter Property="Foreground" Value="{StaticResource StatusRunning}"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
                                     </DataTemplate>
                                 </DataGridTemplateColumn.CellTemplate>
                             </DataGridTemplateColumn>
@@ -526,7 +550,7 @@
                                 <MenuItem Header="Включить / выключить" Command="{Binding ToggleWhitelistActiveCommand}" CommandParameter="{Binding PlacementTarget.SelectedItem, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
                                 <MenuItem Header="Редактировать" Command="{Binding OpenEditWhitelistCommand}" CommandParameter="{Binding PlacementTarget.SelectedItem, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
                                 <Separator/>
-                                <MenuItem Header="Удалить" Command="{Binding DeleteWhitelistCommand}" CommandParameter="{Binding PlacementTarget.SelectedItem.Name, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                                <MenuItem Header="Удалить" Command="{Binding DeleteSelectedWhitelistsCommand}" CommandParameter="{Binding PlacementTarget.SelectedItem, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
                             </ContextMenu>
                         </DataGrid.ContextMenu>
                     </DataGrid>

@@ -11,6 +11,8 @@ namespace frontend;
 
 public partial class MainWindow : ChromeWindow
 {
+    private readonly WhitelistSelection _whitelistSelection = new();
+
     public MainWindow()
     {
         InitializeComponent();
@@ -30,9 +32,25 @@ public partial class MainWindow : ChromeWindow
         };
     }
 
+    private void WhitelistRow_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is not DataGridRow row || row.Item is not WhitelistInfo whitelist ||
+            ItemsControl.ItemsControlFromItemContainer(row) is not DataGrid grid) return;
+
+        var control = Keyboard.Modifiers.HasFlag(ModifierKeys.Control);
+        var shift = Keyboard.Modifiers.HasFlag(ModifierKeys.Shift);
+        var items = grid.Items.OfType<WhitelistInfo>().ToList();
+        if (!_whitelistSelection.HandleClick(items, whitelist, control, shift)) return;
+
+        grid.SelectedItem = whitelist;
+        row.Focus();
+        e.Handled = true;
+    }
+
     private void WhitelistRow_MouseDoubleClick(object sender, MouseButtonEventArgs e)
     {
-        if (e.ChangedButton != MouseButton.Left || sender is not DataGridRow row ||
+        if (e.ChangedButton != MouseButton.Left ||
+            (Keyboard.Modifiers & (ModifierKeys.Control | ModifierKeys.Shift)) != 0 || sender is not DataGridRow row ||
             row.Item is not WhitelistInfo whitelist || DataContext is not MainViewModel vm) return;
 
         // Selection checkboxes keep their own click behavior.
