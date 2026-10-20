@@ -1061,6 +1061,51 @@ public class IpcService : IDisposable
         }
     }
 
+    public async Task<bool?> GetWindowsNotificationsAsync()
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return null;
+            try
+            {
+                var (status, data) = await SendCommandWithTimeoutAsync("GET_WINDOWS_NOTIFICATIONS", ReadTimeoutMs);
+                return status == "OK" && data.Count > 0 && (data[0] == "0" || data[0] == "1")
+                    ? data[0] == "1" : null;
+            }
+            finally
+            {
+                Disconnect();
+            }
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
+    public async Task<bool> SetWindowsNotificationsAsync(bool enabled)
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return false;
+            try
+            {
+                var (status, _) = await SendCommandWithTimeoutAsync("SET_WINDOWS_NOTIFICATIONS", ReadTimeoutMs, enabled ? "1" : "0");
+                return status == "OK";
+            }
+            finally
+            {
+                Disconnect();
+            }
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
     private async Task<(string status, List<string> data, string error)> CertificateCommandAsync(string command, params string[] args)
     {
         await _connectionLock.WaitAsync();

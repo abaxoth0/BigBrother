@@ -10,17 +10,21 @@ type desktopMessage struct {
 }
 
 type DesktopNotifier struct {
-	mu     sync.Mutex
-	closed bool
-	queue  chan desktopMessage
-	done   chan struct{}
+	mu      sync.Mutex
+	closed  bool
+	enabled func() bool
+	queue   chan desktopMessage
+	done    chan struct{}
 }
 
-func NewDesktopNotifier(deliver func(string, string) error, reportError func(error)) *DesktopNotifier {
-	n := &DesktopNotifier{queue: make(chan desktopMessage, 64), done: make(chan struct{})}
+func NewDesktopNotifier(deliver func(string, string) error, reportError func(error), enabled func() bool) *DesktopNotifier {
+	n := &DesktopNotifier{queue: make(chan desktopMessage, 64), done: make(chan struct{}), enabled: enabled}
 	go func() {
 		defer close(n.done)
 		for message := range n.queue {
+			if n.enabled != nil && !n.enabled() {
+				continue
+			}
 			if err := deliver(message.title, message.body); err != nil && reportError != nil {
 				reportError(err)
 			}
@@ -30,6 +34,9 @@ func NewDesktopNotifier(deliver func(string, string) error, reportError func(err
 }
 
 func (n *DesktopNotifier) Notify(event Event) {
+	if n.enabled != nil && !n.enabled() {
+		return
+	}
 	var title string
 	switch event.Type {
 	case UserConnected:

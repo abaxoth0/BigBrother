@@ -237,6 +237,16 @@ public class MainViewModel : ViewModelBase, IDisposable
         set => SetProperty(ref _hasSettingsChanges, value);
     }
 
+    private bool _windowsNotificationsEnabled = true;
+    public bool WindowsNotificationsEnabled
+    {
+        get => _windowsNotificationsEnabled;
+        set
+        {
+            if (SetProperty(ref _windowsNotificationsEnabled, value)) MarkSettingsChanged();
+        }
+    }
+
     public bool IsRegistering
     {
         get => _isRegistering;
@@ -541,6 +551,7 @@ public class MainViewModel : ViewModelBase, IDisposable
         var netMask = await _ipcService.GetNetworkMaskAsync();
         var filtAuto = await _ipcService.GetFiltrationAutoDisableAsync();
         var ipv6Block = await _ipcService.GetIpv6BlockAsync();
+        var notifications = await _ipcService.GetWindowsNotificationsAsync();
         await RefreshSavedFingerprintAsync();
         var available = addr != "" || name != "" || enabled || srvName != "";
 
@@ -570,6 +581,11 @@ public class MainViewModel : ViewModelBase, IDisposable
             {
                 _ipv6BlockEnabled = ipv6Block.Value;
                 OnPropertyChanged(nameof(Ipv6BlockEnabled));
+            }
+            if (notifications.HasValue)
+            {
+                _windowsNotificationsEnabled = notifications.Value;
+                OnPropertyChanged(nameof(WindowsNotificationsEnabled));
             }
             SettingsAvailable = available;
         });
@@ -713,6 +729,11 @@ public class MainViewModel : ViewModelBase, IDisposable
         if (!ipv6Saved)
         {
             AddLog("ERROR", "Ошибка сохранения: блокировка IPv6");
+            return;
+        }
+        if (!await _ipcService.SetWindowsNotificationsAsync(WindowsNotificationsEnabled))
+        {
+            AddLog("ERROR", "Ошибка сохранения: уведомления Windows");
             return;
         }
         HasSettingsChanges = false;

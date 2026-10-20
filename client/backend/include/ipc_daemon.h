@@ -158,6 +158,9 @@ int IsFiltrationEnabled(void);
 int IsIpv6BlockEnabled(void);
 int SetIpv6BlockEnabled(int enabled);
 
+int IsWindowsNotificationsEnabled(void);
+int SetWindowsNotificationsEnabled(int enabled);
+
 /**
  * @brief Recompute and return the effective (connection-gated) filtration state.
  *

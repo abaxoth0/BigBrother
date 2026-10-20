@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Client/server settings: disable Windows notifications independently; preferences persist across restarts and apply immediately after saving, including while frontends are closed
+
 - Server settings to publish and withdraw client update packages from an existing network share, with file selection, UNC paths and Windows credential prompts when required
 - Client «Обновления» tab with explicit update checks, installed and available versions, release notes and manual installation with progress
 - Self-contained client update executables and companion `.manifest.json` files containing package identity and release notes parsed from CHANGELOG.md

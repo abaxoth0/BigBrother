@@ -93,10 +93,23 @@ static int wl_last_equals(const char* s) {
     return g_last_whitelist && strcmp(g_last_whitelist, s) == 0;
 }
 
+int IsWindowsNotificationsEnabled(void) {
+    char value[8] = {0};
+    return !ini_get_string("notifications", "enabled", value, sizeof(value)) || strcmp(value, "0") != 0;
+}
+
+int SetWindowsNotificationsEnabled(int enabled) {
+    return ini_set_string("notifications", "enabled", enabled ? "1" : "0");
+}
+
+static int notify_windows(const char* title, const char* message) {
+    return IsWindowsNotificationsEnabled() ? bb_notify(title, message) : 0;
+}
+
 void SetServerSessionActive(int active) {
     active = active ? 1 : 0;
     if (InterlockedExchange(&g_server_session_active, active) != active) {
-        if (bb_notify("Соединение с сервером", active ? "Подключено к серверу" : "Соединение с сервером потеряно") != 0)
+        if (notify_windows("Соединение с сервером", active ? "Подключено к серверу" : "Соединение с сервером потеряно") != 0)
             LOGF("[Notifications] Could not launch connection notification");
         NotifyStateChanged();
         // Sync filtration with the connection state so both connected and
@@ -571,7 +584,7 @@ int DaemonSetWhitelist(const char* data, size_t size, char* out_buffer, size_t b
     const char* args[1] = {data};
     int result = send_command_tlv("SET_WHITELIST", args, 1, out_buffer, buffer_size);
     if (result == 0 && strcmp(out_buffer, "OK") == 0 &&
-        bb_notify("Белый список", "Белый список обновлён") != 0)
+        notify_windows("Белый список", "Белый список обновлён") != 0)
         LOGF("[Notifications] Could not launch whitelist notification");
     if (result == 0 && strcmp(out_buffer, "OK") != 0) return -1;
     return result;
@@ -580,7 +593,7 @@ int DaemonSetWhitelist(const char* data, size_t size, char* out_buffer, size_t b
 int DaemonReloadWhitelist(char* out_buffer, size_t buffer_size) {
     int result = send_command_tlv("RELOAD", NULL, 0, out_buffer, buffer_size);
     if (result == 0 && strcmp(out_buffer, "OK") == 0 &&
-        bb_notify("Белый список", "Белый список перезагружен") != 0)
+        notify_windows("Белый список", "Белый список перезагружен") != 0)
         LOGF("[Notifications] Could not launch whitelist notification");
     if (result == 0 && strcmp(out_buffer, "OK") != 0) return -1;
     return result;
@@ -600,7 +613,7 @@ static volatile LONG g_notification_filtration = -1;
 static void notify_filtration(int enabled) {
     LONG previous = InterlockedExchange(&g_notification_filtration, enabled);
     if (previous != -1 && previous != enabled &&
-        bb_notify("Фильтрация", enabled ? "Фильтрация включена" : "Фильтрация выключена") != 0)
+        notify_windows("Фильтрация", enabled ? "Фильтрация включена" : "Фильтрация выключена") != 0)
         LOGF("[Notifications] Could not launch filtration notification");
 }
 
