@@ -486,8 +486,23 @@
                             <Style TargetType="DataGridRow">
                                 <EventSetter Event="PreviewMouseLeftButtonDown" Handler="WhitelistRow_PreviewMouseLeftButtonDown"/>
                                 <EventSetter Event="MouseDoubleClick" Handler="WhitelistRow_MouseDoubleClick"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                        <Setter Property="Background" Value="{DynamicResource SelectedBackground}"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
                             </Style>
                         </DataGrid.RowStyle>
+                        <DataGrid.CellStyle>
+                            <Style TargetType="DataGridCell" BasedOn="{StaticResource {x:Type DataGridCell}}">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                        <Setter Property="Background" Value="{DynamicResource SelectedBackground}"/>
+                                        <Setter Property="Foreground" Value="{DynamicResource AccentText}"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </DataGrid.CellStyle>
                         <DataGrid.Columns>
                             <DataGridTemplateColumn Header=" " Width="34">
                                 <DataGridTemplateColumn.HeaderTemplate>
