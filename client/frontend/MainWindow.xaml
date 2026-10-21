@@ -541,6 +541,13 @@
                                  Foreground="{StaticResource LogInfo}"
                                  Padding="10"
                                  Visibility="{Binding ShowPrettyWhitelist, Converter={StaticResource InverseBoolToVisibility}}"/>
+
+                        <TextBlock Text="Белый список пуст. Нет активных правил."
+                                   Foreground="{StaticResource TextDim}"
+                                   FontSize="14" TextWrapping="Wrap" TextAlignment="Center" Margin="20"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                                   IsHitTestVisible="False"
+                                   Visibility="{Binding IsWhitelistEmpty, Converter={StaticResource BoolToVisibility}}"/>
                     </Grid>
                 </Grid>
 

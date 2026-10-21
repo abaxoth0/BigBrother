@@ -118,6 +118,13 @@ public class MainViewModel : ViewModelBase, IDisposable
         set => SetProperty(ref _whitelistCount, value);
     }
 
+    private bool _isWhitelistEmpty;
+    public bool IsWhitelistEmpty
+    {
+        get => _isWhitelistEmpty;
+        private set => SetProperty(ref _isWhitelistEmpty, value);
+    }
+
     public DateTime LastUpdate
     {
         get => _lastUpdate;
@@ -470,6 +477,7 @@ public class MainViewModel : ViewModelBase, IDisposable
                                     WhitelistEntries.Add(WhitelistEntry.Parse(domain));
                                 }
 
+                                IsWhitelistEmpty = whitelist.Count == 0;
                                 UpdateWhitelistDisplay();
                                 AddLog("INFO", $"Whitelist updated ({whitelist.Count} domains)");
                             });

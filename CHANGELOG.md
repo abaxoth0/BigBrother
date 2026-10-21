@@ -36,7 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Client frontend: clear the displayed whitelist when all server lists are disabled; preserve the current display and retry after a failed whitelist request
+- Client: relay empty firewall whitelist responses correctly and clear the frontend when all server lists are disabled; show «Белый список пуст. Нет активных правил.» in both formats, preserve the current display and retry after a failed whitelist request
 
 - Client/server live log views: support multiple-row selection, Ctrl+A, Ctrl+C and themed right-click Copy, preserving displayed order and log metadata
 
