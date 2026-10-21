@@ -36,6 +36,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Client frontend: clear the displayed whitelist when all server lists are disabled; preserve the current display and retry after a failed whitelist request
+
 - Client/server live log views: support multiple-row selection, Ctrl+A, Ctrl+C and themed right-click Copy, preserving displayed order and log metadata
 
 - Client log history: show local date/time on every entry; support multiple-row selection, Ctrl+A, Ctrl+C and right-click Copy, including timestamps and source/level in copied and exported records

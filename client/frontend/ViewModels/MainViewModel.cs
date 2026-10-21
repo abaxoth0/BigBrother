@@ -455,13 +455,12 @@ public class MainViewModel : ViewModelBase, IDisposable
 
                     if (status.WhitelistRevision != 0 && status.WhitelistRevision != _lastWhitelistRevision)
                     {
-                        _lastWhitelistRevision = status.WhitelistRevision;
-
                         var whitelist = await _ipcService.GetWhitelistAsync().ConfigureAwait(false);
                         if (_disposed) return;
 
-                        if (whitelist.Count > 0)
+                        if (whitelist != null)
                         {
+                            _lastWhitelistRevision = status.WhitelistRevision;
                             System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
                             {
                                 if (_disposed) return;
