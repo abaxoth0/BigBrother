@@ -369,7 +369,10 @@ DWORD WINAPI client_handler(LPVOID param) {
             // Parse firewall response: "WHITELIST\ndomain1\ndomain2\n..."
             // Skip "WHITELIST" header line
             char* line = strchr(whitelist_buf, '\n');
-            if (!line) {
+            if (strcmp(whitelist_buf, "WHITELIST") == 0) {
+                free(whitelist_buf);
+                write_ok(pipe);
+            } else if (!line || strncmp(whitelist_buf, "WHITELIST\n", 10) != 0) {
                 free(whitelist_buf);
                 write_error_tlv(pipe, "invalid whitelist format");
             } else {

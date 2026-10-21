@@ -342,25 +342,20 @@ public class IpcService : IDisposable
         return status;
     }
 
-    public async Task<List<string>> GetWhitelistAsync()
+    public async Task<List<string>?> GetWhitelistAsync()
     {
-        var whitelist = new List<string>();
-
         await _connectionLock.WaitAsync();
         try
         {
             if (!await ConnectAsync())
             {
-                return whitelist;
+                return null;
             }
 
             try
             {
                 var (status, data) = await SendCommandWithTimeoutAsync("GET_WHITELIST", ReadTimeoutMs);
-                if (status == "OK")
-                {
-                    whitelist.AddRange(data);
-                }
+                return status == "OK" ? data : null;
             }
             finally
             {
@@ -371,8 +366,6 @@ public class IpcService : IDisposable
         {
             _connectionLock.Release();
         }
-
-        return whitelist;
     }
 
     public async Task<bool> RestartClientAsync()

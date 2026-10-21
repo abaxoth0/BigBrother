@@ -118,6 +118,13 @@ public class MainViewModel : ViewModelBase, IDisposable
         set => SetProperty(ref _whitelistCount, value);
     }
 
+    private bool _isWhitelistEmpty;
+    public bool IsWhitelistEmpty
+    {
+        get => _isWhitelistEmpty;
+        private set => SetProperty(ref _isWhitelistEmpty, value);
+    }
+
     public DateTime LastUpdate
     {
         get => _lastUpdate;
@@ -455,13 +462,12 @@ public class MainViewModel : ViewModelBase, IDisposable
 
                     if (status.WhitelistRevision != 0 && status.WhitelistRevision != _lastWhitelistRevision)
                     {
-                        _lastWhitelistRevision = status.WhitelistRevision;
-
                         var whitelist = await _ipcService.GetWhitelistAsync().ConfigureAwait(false);
                         if (_disposed) return;
 
-                        if (whitelist.Count > 0)
+                        if (whitelist != null)
                         {
+                            _lastWhitelistRevision = status.WhitelistRevision;
                             System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
                             {
                                 if (_disposed) return;
@@ -471,6 +477,7 @@ public class MainViewModel : ViewModelBase, IDisposable
                                     WhitelistEntries.Add(WhitelistEntry.Parse(domain));
                                 }
 
+                                IsWhitelistEmpty = whitelist.Count == 0;
                                 UpdateWhitelistDisplay();
                                 AddLog("INFO", $"Whitelist updated ({whitelist.Count} domains)");
                             });

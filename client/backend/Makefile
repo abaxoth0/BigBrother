@@ -111,3 +111,9 @@ notifications-test-build: $(MBED_A) $(NOTIFY_A)
 	$(CC) $(COMMON_FLAGS) $(DEBUG_FLAGS) -o build/notifications-test/test.exe tests/notifications_test.c $(filter-out src/main.c,$(t-units)) $(CLIENT_LIBS)
 
 .PHONY: notifications-test-build
+
+whitelist-test-build: $(MBED_A) $(NOTIFY_A)
+	mkdir -p build/whitelist-test
+	$(CC) $(COMMON_FLAGS) $(DEBUG_FLAGS) -o "build/whitelist-test/BigBrother Client.exe" tests/whitelist_test.c $(filter-out src/main.c,$(t-units)) $(CLIENT_LIBS)
+
+.PHONY: whitelist-test-build
