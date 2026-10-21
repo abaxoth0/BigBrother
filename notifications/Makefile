@@ -9,7 +9,7 @@ CPPFLAGS += -Iinclude -I../common $(BB_VERSION_FLAGS)
 LIBS = -lwtsapi32 -luserenv -lshell32 -lshlwapi -ladvapi32 -lole32 -lpropsys -lruntimeobject -luuid
 APP_SOURCES = src/main.cpp src/diagnostics.cpp src/toast.cpp src/registration.cpp
 APP_HEADERS = $(wildcard include/*.h)
-TEST_SOURCES = tests/main.cpp tests/delivery_test.cpp src/diagnostics.cpp src/toast.cpp src/registration.cpp
+TEST_SOURCES = tests/main.cpp tests/delivery_test.cpp tests/process_test.cpp src/diagnostics.cpp src/toast.cpp src/registration.cpp
 APP_OBJECTS = $(APP_SOURCES:%.cpp=build/$(BUILD_MODE)/obj/%.o)
 TEST_OBJECTS = $(TEST_SOURCES:%.cpp=build/$(BUILD_MODE)/obj/%.o)
 
@@ -30,7 +30,7 @@ build/$(BUILD_MODE)/obj/%.o: %.cpp $(APP_HEADERS) $(BB_VERSION_DEPS) $(BB_BUILD_
 	mkdir -p $(@D)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -MMD -MP -c $< -o $@
 
-build/$(BUILD_MODE)/notify.o: src/notify.cpp ../common/notify.h include/transport.h $(BB_BUILD_DEPS)
+build/$(BUILD_MODE)/notify.o: src/notify.cpp ../common/notify.h include/transport.h include/process.h include/app.h $(BB_BUILD_DEPS)
 	mkdir -p $(@D)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c src/notify.cpp -o $@
 

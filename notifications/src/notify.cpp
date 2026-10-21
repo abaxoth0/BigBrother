@@ -1,5 +1,6 @@
 #include "notify.h"
 #include "transport.h"
+#include "process.h"
 #include <atomic>
 #include <memory>
 
@@ -8,19 +9,19 @@ std::atomic<bb_notification_error_handler> error_handler{nullptr};
 volatile LONG active_deliveries = 0;
 
 struct delivery {
-    HANDLE process;
+    notifications::process_group group;
+    notifications::handle process;
 };
 
 DWORD WINAPI await_delivery(void* context) {
     std::unique_ptr<delivery> pending(static_cast<delivery*>(context));
     DWORD result = ERROR_GEN_FAILURE;
-    if (WaitForSingleObject(pending->process, 12000) == WAIT_OBJECT_0)
-        GetExitCodeProcess(pending->process, &result);
+    if (WaitForSingleObject(pending->process.get(), 35000) == WAIT_OBJECT_0)
+        GetExitCodeProcess(pending->process.get(), &result);
     else {
         result = ERROR_TIMEOUT;
-        TerminateProcess(pending->process, result);
+        TerminateProcess(pending->process.get(), result);
     }
-    CloseHandle(pending->process);
     if (result) {
         if (auto handler = error_handler.load()) handler(result);
         else OutputDebugStringW(L"BigBrother: notification delivery failed\n");
@@ -53,28 +54,33 @@ extern "C" int bb_notify(const char* title, const char* message) {
             SetLastError(ERROR_BUSY);
             return -1;
         }
+        struct active_guard {
+            bool armed = true;
+            ~active_guard() { if (armed) InterlockedDecrement(&active_deliveries); }
+        } active;
         STARTUPINFOW startup{};
         PROCESS_INFORMATION process{};
         startup.cb = sizeof(startup);
-        if (!CreateProcessW(path.c_str(), command.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW,
+        if (!CreateProcessW(path.c_str(), command.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW | CREATE_SUSPENDED,
             nullptr, nullptr, &startup, &process)) {
-            InterlockedDecrement(&active_deliveries);
             return -1;
         }
-        CloseHandle(process.hThread);
-        pending->process = process.hProcess;
+        auto child = pending->group.resume(process);
+        *pending->process.put() = child.get();
+        *child.put() = nullptr;
         HANDLE waiter = CreateThread(nullptr, 0, await_delivery, pending.get(), 0, nullptr);
         if (!waiter) {
             DWORD error = GetLastError();
-            TerminateProcess(process.hProcess, error);
-            CloseHandle(process.hProcess);
-            InterlockedDecrement(&active_deliveries);
+            TerminateProcess(pending->process.get(), error);
             SetLastError(error);
             return -1;
         }
+        active.armed = false;
         pending.release();
         CloseHandle(waiter);
         return 0;
+    } catch (const notifications::failure& error) {
+        SetLastError(HRESULT_CODE(error.code));
     } catch (const std::invalid_argument&) {
         SetLastError(ERROR_INVALID_PARAMETER);
     } catch (...) {

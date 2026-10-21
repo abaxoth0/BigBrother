@@ -86,6 +86,7 @@ bool attach_console_output();
 void set_diagnostics(bool enabled);
 bool diagnostics_enabled();
 void print_message(std::wstring_view message);
+void set_report_target(std::wstring target);
 #ifdef DEBUG
 void trace(std::wstring_view message);
 #define BB_TRACE(...) ::notifications::trace(__VA_ARGS__)

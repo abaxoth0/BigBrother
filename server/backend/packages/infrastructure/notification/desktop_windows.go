@@ -16,13 +16,17 @@ func DeliverWindowsNotification(parent context.Context, title, body string) erro
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(parent, 10*time.Second)
+	ctx, cancel := context.WithTimeout(parent, 30*time.Second)
 	defer cancel()
 	command := exec.CommandContext(ctx, filepath.Join(filepath.Dir(executable), "BigBrother Notifications.exe"),
 		"--send", "Server", hex.EncodeToString([]byte(title)), hex.EncodeToString([]byte(body)))
+	command.WaitDelay = time.Second
 	command.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 	output, err := command.CombinedOutput()
 	if err != nil {
+		if ctx.Err() != nil {
+			err = ctx.Err()
+		}
 		return fmt.Errorf("Windows toast delivery failed: %w: %s", err, output)
 	}
 	return nil

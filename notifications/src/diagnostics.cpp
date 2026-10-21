@@ -1,9 +1,11 @@
 #include "app.h"
+#include "report.h"
 #include <shlobj.h>
 
 namespace notifications {
 namespace {
 bool detailed = false;
+std::wstring report_target;
 
 bool output_available() {
     HANDLE output = GetStdHandle(STD_ERROR_HANDLE);
@@ -53,6 +55,8 @@ bool attach_console_output() {
     return AttachConsole(ATTACH_PARENT_PROCESS) && output_available();
 }
 
+void set_report_target(std::wstring target) { report_target = std::move(target); }
+
 void set_diagnostics(bool enabled) { detailed = enabled; }
 bool diagnostics_enabled() { return detailed; }
 void print_message(std::wstring_view message) { record(message); }
@@ -63,7 +67,9 @@ void trace(std::wstring_view message) { if (detailed) record(message); }
 DWORD report_failure(const failure& error) {
     wchar_t code[32];
     swprintf(code, ARRAYSIZE(code), L"0x%08lX", static_cast<unsigned long>(error.code));
-    record(std::wstring(error.operation) + L" failed: " + code);
+    auto message = std::wstring(error.operation) + L" failed: " + code;
+    record(message);
+    write_report(report_target, message);
     return static_cast<DWORD>(error.code);
 }
 }

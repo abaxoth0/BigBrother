@@ -1,6 +1,7 @@
 #include "transport.h"
 #include "app.h"
 #include "command_line.h"
+#include "report.h"
 #include <shlobj.h>
 #include <propkey.h>
 #include <cassert>
@@ -9,6 +10,7 @@
 #include <vector>
 
 void delivery_tests();
+void process_tests();
 
 template<class Action> static void rejects(Action action) {
     bool rejected = false;
@@ -97,6 +99,21 @@ static void registration_test() {
 
 int main(int argc, char** argv) {
     using namespace notifications;
+    if (argc == 3 && !strcmp(argv[1], "--report-child")) {
+        std::wstring name;
+        for (const char* c = argv[2]; *c; c++) name += static_cast<unsigned char>(*c);
+        write_report(name, L"Simulated child failure: доступ запрещён");
+        return static_cast<int>(E_ACCESSDENIED);
+    }
+    if (argc == 3 && !strcmp(argv[1], "--watchdog-child")) {
+        std::wstring name;
+        for (const char* c = argv[2]; *c; c++) name += static_cast<unsigned char>(*c);
+        parent_watch watchdog(name);
+        Sleep(60000);
+        return 0;
+    }
+    if (argc == 2 && !strcmp(argv[1], "--wait-child")) { Sleep(60000); return 0; }
+    process_tests();
     command_line_tests();
     delivery_tests();
     const char* text = "Русский текст: \\\" & <test> 😀";

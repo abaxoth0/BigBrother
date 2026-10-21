@@ -2,6 +2,8 @@
 #include "transport.h"
 #include "command_line.h"
 #include "version.h"
+#include "report.h"
+#include <memory>
 #include <wtsapi32.h>
 #include <userenv.h>
 #include <shellapi.h>
@@ -23,9 +25,9 @@ bool is_system() {
     return IsWellKnownSid(reinterpret_cast<TOKEN_USER*>(buffer)->User.Sid, WinLocalSystemSid);
 }
 
-static handle launch_in_session(const product& app, const std::wstring& title_hex, const std::wstring& body_hex, HANDLE token) {
+static handle launch_in_session(delivery_report& report, ULONGLONG deadline, const product& app, const std::wstring& title_hex, const std::wstring& body_hex, HANDLE token) {
     auto path = executable_path();
-    std::wstring command = L"\"" + path + L"\" --show " + app.name + L" " + title_hex + L" " + body_hex;
+    std::wstring command = L"\"" + path + L"\" --show " + app.name + L" " + title_hex + L" " + body_hex + L" --report " + report.name;
     STARTUPINFOW startup{};
     PROCESS_INFORMATION process{};
     startup.cb = sizeof(startup);
@@ -34,12 +36,16 @@ static handle launch_in_session(const product& app, const std::wstring& title_he
     LPVOID environment = nullptr;
     check_win32(CreateEnvironmentBlock(&environment, token, FALSE), L"Create user environment");
     BOOL created = CreateProcessAsUserW(token, path.c_str(), command.data(), nullptr, nullptr, FALSE,
-        CREATE_UNICODE_ENVIRONMENT | CREATE_NO_WINDOW, environment, app_directory().c_str(), &startup, &process);
+        CREATE_UNICODE_ENVIRONMENT | CREATE_NO_WINDOW | CREATE_SUSPENDED | CREATE_BREAKAWAY_FROM_JOB, environment, app_directory().c_str(), &startup, &process);
     DWORD error = GetLastError();
     DestroyEnvironmentBlock(environment);
     check(HRESULT_FROM_WIN32(created ? ERROR_SUCCESS : error), L"Launch user notification process");
-    CloseHandle(process.hThread);
-    return handle(process.hProcess);
+    handle child(process.hProcess), thread(process.hThread);
+    try {
+        report.supervise(child.get(), deadline);
+        check_win32(ResumeThread(thread.get()) != static_cast<DWORD>(-1), L"Resume user notification process");
+    } catch (...) { TerminateProcess(child.get(), ERROR_CANCELLED); throw; }
+    return child;
 }
 
 static DWORD send_notification(const product& app, const std::wstring& title_hex, const std::wstring& body_hex) {
@@ -55,6 +61,7 @@ static DWORD send_notification(const product& app, const std::wstring& title_hex
         return ERROR_SUCCESS;
     }
 
+    ULONGLONG deadline = GetTickCount64() + 20000;
     handle token;
     check_win32(OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, token.put()), L"Open service token");
     TOKEN_PRIVILEGES privileges{};
@@ -68,32 +75,57 @@ static DWORD send_notification(const product& app, const std::wstring& title_hex
         WTS_SESSION_INFOW* data = nullptr;
         ~session_list() { if (data) WTSFreeMemory(data); }
     } sessions;
-    DWORD count;
-    check_win32(WTSEnumerateSessionsW(WTS_CURRENT_SERVER_HANDLE, 0, 1, &sessions.data, &count), L"Enumerate user sessions");
-    std::vector<handle> processes;
+    DWORD count = 0;
+    for (int attempt = 0; attempt < 3; attempt++) {
+        check_win32(WTSEnumerateSessionsW(WTS_CURRENT_SERVER_HANDLE, 0, 1, &sessions.data, &count), L"Enumerate user sessions");
+        bool active = false;
+        for (DWORD i = 0; i < count; i++)
+            if (sessions.data[i].SessionId && sessions.data[i].State == WTSActive) active = true;
+        if (active || attempt == 2) break;
+        WTSFreeMemory(sessions.data);
+        sessions.data = nullptr;
+        Sleep(500);
+    }
+    struct recipient {
+        std::unique_ptr<delivery_report> report;
+        handle process;
+        DWORD session;
+    };
+    std::vector<recipient> processes;
     DWORD result = ERROR_SUCCESS;
     for (DWORD i = 0; i < count; i++) {
         if (!sessions.data[i].SessionId || sessions.data[i].State != WTSActive) continue;
         try {
             handle user;
-            check_win32(WTSQueryUserToken(sessions.data[i].SessionId, user.put()), L"Read signed-in user token");
-            processes.push_back(launch_in_session(app, title_hex, body_hex, user.get()));
+            BOOL available = WTSQueryUserToken(sessions.data[i].SessionId, user.put());
+            if (!available && GetLastError() == ERROR_NO_TOKEN) {
+                Sleep(250);
+                available = WTSQueryUserToken(sessions.data[i].SessionId, user.put());
+            }
+            check_win32(available, L"Read signed-in user token");
+            check(HRESULT_FROM_WIN32(GetTickCount64() < deadline ? ERROR_SUCCESS : ERROR_TIMEOUT), L"Notification delivery deadline");
+            auto report = std::make_unique<delivery_report>(user.get());
+            auto process = launch_in_session(*report, deadline, app, title_hex, body_hex, user.get());
+            processes.push_back({std::move(report), std::move(process), sessions.data[i].SessionId});
         } catch (const failure& error) { result = report_failure(error); }
     }
     if (processes.empty() && result == ERROR_SUCCESS)
         throw failure{HRESULT_FROM_WIN32(ERROR_NO_SUCH_LOGON_SESSION), L"No active signed-in user session for notification delivery"};
     print_message(L"User-session delivery processes: " + std::to_wstring(processes.size()));
-    ULONGLONG deadline = GetTickCount64() + 8000;
     for (auto& process : processes) {
         ULONGLONG now = GetTickCount64();
         DWORD remaining = static_cast<DWORD>(deadline > now ? deadline - now : 0);
-        if (WaitForSingleObject(process.get(), remaining) != WAIT_OBJECT_0) {
-            TerminateProcess(process.get(), ERROR_TIMEOUT);
+        if (WaitForSingleObject(process.process.get(), remaining) != WAIT_OBJECT_0) {
+            TerminateProcess(process.process.get(), ERROR_TIMEOUT);
             result = report_failure({HRESULT_FROM_WIN32(ERROR_TIMEOUT), L"Wait for user notification result"});
             continue;
         }
         DWORD code;
-        check_win32(GetExitCodeProcess(process.get(), &code), L"Read user notification result");
+        check_win32(GetExitCodeProcess(process.process.get(), &code), L"Read user notification result");
+        if (code) {
+            auto detail = process.report->read();
+            if (!detail.empty()) print_message(L"User session " + std::to_wstring(process.session) + L": " + detail);
+        }
         if (code) result = report_failure({static_cast<HRESULT>(code), L"User notification delivery"});
     }
     return result;
@@ -137,8 +169,15 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
     DWORD result;
     bool console_output = notifications::attach_console_output();
     bool manual = args && notifications::manual_test_command(argc, args);
+    std::unique_ptr<notifications::parent_watch> watchdog;
     try {
         if (!args) throw notifications::failure{HRESULT_FROM_WIN32(command_error ? command_error : ERROR_GEN_FAILURE), L"Read notification command"};
+        if (argc == 7 && std::wstring_view(args[1]) == L"--show" && std::wstring_view(args[5]) == L"--report") {
+            if (!notifications::report_name(args[6])) throw notifications::failure{E_INVALIDARG, L"Invalid notification result target"};
+            notifications::set_report_target(args[6]);
+            watchdog = std::make_unique<notifications::parent_watch>(args[6]);
+            argc -= 2;
+        }
         auto request = notifications::parse_command(argc, args);
         notifications::set_diagnostics(manual || request.kind == notifications::command_kind::help || request.kind == notifications::command_kind::version ||
             request.kind == notifications::command_kind::send || request.kind == notifications::command_kind::show);
