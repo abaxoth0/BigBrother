@@ -99,9 +99,9 @@ func main() {
 
 	desktop := notification.NewDesktopNotifier(notification.DeliverWindowsNotification, func(err error) {
 		mainLogger.Error("Windows notification failed", err.Error(), nil)
-	}, func() bool {
+	}, func() (bool, error) {
 		value, err := db.GetSetting("windows_notifications_enabled")
-		return err == nil && value != "0"
+		return value != "0", err
 	})
 	defer desktop.Close()
 	notifMgr := notification.NewManagerWithNotifier(desktop.Notify)
