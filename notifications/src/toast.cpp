@@ -61,30 +61,31 @@ void show_toast(const product& app, const std::wstring& title, const std::wstrin
     ComPtr<IToastNotification> toast;
     check(factory->CreateToastNotification(document.Get(), &toast), L"Create WinRT toast");
     submit_toast(notifier.Get(), toast.Get());
-#ifdef DEBUG
-    if (diagnostics_enabled()) {
-        NotificationSetting setting;
-        HRESULT status = notifier->get_Setting(&setting);
-        if (SUCCEEDED(status)) {
-            const wchar_t* state = L"unknown";
-            switch (setting) {
-                case NotificationSetting_Enabled: state = L"enabled"; break;
-                case NotificationSetting_DisabledForApplication: state = L"disabled for this application"; break;
-                case NotificationSetting_DisabledForUser: state = L"disabled for this user"; break;
-                case NotificationSetting_DisabledByGroupPolicy: state = L"disabled by group policy"; break;
-                case NotificationSetting_DisabledByManifest: state = L"disabled by manifest"; break;
-            }
-            BB_TRACE(L"Windows notification setting after submission: " + std::wstring(state));
-        } else {
-            wchar_t code[32];
-            swprintf(code, ARRAYSIZE(code), L"0x%08lX", static_cast<unsigned long>(status));
-            BB_TRACE(L"Optional settings diagnostic after submission failed: " + std::wstring(code));
-        }
-    }
-#endif
 }
 
 void submit_toast(IToastNotifier* notifier, IToastNotification* toast) {
+    NotificationSetting setting;
+    HRESULT settings_result = notifier->get_Setting(&setting);
+    if (SUCCEEDED(settings_result)) {
+        switch (setting) {
+            case NotificationSetting_Enabled: break;
+            case NotificationSetting_DisabledForApplication:
+                throw failure{E_ACCESSDENIED, L"Windows notifications disabled for this application"};
+            case NotificationSetting_DisabledForUser:
+                throw failure{E_ACCESSDENIED, L"Windows notifications disabled for this user"};
+            case NotificationSetting_DisabledByGroupPolicy:
+                throw failure{E_ACCESSDENIED, L"Windows notifications disabled by group policy"};
+            case NotificationSetting_DisabledByManifest:
+                throw failure{E_ACCESSDENIED, L"Windows notifications disabled by manifest"};
+            default:
+                print_message(L"Windows returned an unknown notification setting; attempting submission");
+        }
+    } else {
+        wchar_t message[128];
+        swprintf(message, ARRAYSIZE(message), L"Notification settings unavailable (0x%08lX); attempting submission",
+            static_cast<unsigned long>(settings_result));
+        print_message(message);
+    }
     ComPtr<toast_failure> failed;
     failed.Attach(new toast_failure());
     check_win32(failed->event.get() != nullptr, L"Create toast result event");
@@ -94,10 +95,10 @@ void submit_toast(IToastNotifier* notifier, IToastNotification* toast) {
     HRESULT result = notifier->Show(toast);
     if (SUCCEEDED(result)) {
         BB_TRACE(L"Show returned S_OK; waiting for asynchronous delivery errors");
-        DWORD wait = WaitForSingleObject(failed->event.get(), diagnostics_enabled() ? 5000 : 1000);
+        DWORD wait = WaitForSingleObject(failed->event.get(), 5000);
         if (wait == WAIT_OBJECT_0) result = failed->result;
         else if (wait == WAIT_FAILED) result = HRESULT_FROM_WIN32(GetLastError());
-        else BB_TRACE(L"No asynchronous delivery error reported during the observation window");
+        else print_message(L"Submitted to Windows; no failure reported within 5 seconds. Banner display is not confirmed.");
     }
     toast->remove_Failed(token);
     check(result, L"Show WinRT toast");

@@ -80,9 +80,9 @@ static DWORD send_notification(const product& app, const std::wstring& title_hex
             processes.push_back(launch_in_session(app, title_hex, body_hex, user.get()));
         } catch (const failure& error) { result = report_failure(error); }
     }
-    if (processes.empty() && result == ERROR_SUCCESS && diagnostics_enabled())
-        throw failure{HRESULT_FROM_WIN32(ERROR_NO_SUCH_LOGON_SESSION), L"No active signed-in user session for the test notification"};
-    BB_TRACE(L"User-session delivery processes: " + std::to_wstring(processes.size()));
+    if (processes.empty() && result == ERROR_SUCCESS)
+        throw failure{HRESULT_FROM_WIN32(ERROR_NO_SUCH_LOGON_SESSION), L"No active signed-in user session for notification delivery"};
+    print_message(L"User-session delivery processes: " + std::to_wstring(processes.size()));
     ULONGLONG deadline = GetTickCount64() + 8000;
     for (auto& process : processes) {
         ULONGLONG now = GetTickCount64();
@@ -140,7 +140,8 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
     try {
         if (!args) throw notifications::failure{HRESULT_FROM_WIN32(command_error ? command_error : ERROR_GEN_FAILURE), L"Read notification command"};
         auto request = notifications::parse_command(argc, args);
-        notifications::set_diagnostics(manual || request.kind == notifications::command_kind::help || request.kind == notifications::command_kind::version);
+        notifications::set_diagnostics(manual || request.kind == notifications::command_kind::help || request.kind == notifications::command_kind::version ||
+            request.kind == notifications::command_kind::send || request.kind == notifications::command_kind::show);
         BB_TRACE(L"BigBrother Notifications " BB_WIDEN(BB_VERSION));
         BB_TRACE(L"BigBrother Notifications build " BB_WIDEN(__DATE__) L" " BB_WIDEN(__TIME__));
         BB_TRACE(L"Executable: " + notifications::executable_path());
