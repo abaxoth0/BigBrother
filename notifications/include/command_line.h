@@ -5,7 +5,7 @@
 
 namespace notifications {
 
-enum class command_kind { test, send, show, open, register_user, unregister_user, help, version };
+enum class command_kind { test, send, show, open, register_user, unregister_user, unregister_all, help, version };
 
 struct command {
     command_kind kind;
@@ -27,6 +27,7 @@ inline command parse_command(int argc, wchar_t** args) {
         return {mode == L"--send" ? command_kind::send : command_kind::show, find_product(args[2]), args[3], args[4]};
     }
     if (argc == 3 && mode == L"--register") return {command_kind::register_user, find_product(args[2])};
+    if (argc == 3 && mode == L"--unregister-all") return {command_kind::unregister_all, find_product(args[2])};
     if (argc == 3 && mode == L"--unregister") return {command_kind::unregister_user, find_product(args[2])};
     if ((argc == 3 || argc == 4) && mode == L"--open") {
         auto app = find_product(args[2]);

@@ -41,7 +41,7 @@ release: CFLAGS = $(COMMON_FLAGS) $(RELEASE_FLAGS)
 release: $(CB_EXE)
 	cp "$<" "build/$(CB_NAME).exe"
 
-$(NOTIFY_A): $(NOTIFY_DIR)/src/notify.cpp $(ROOT)/common/notify.h $(NOTIFY_DIR)/include/transport.h $(BB_BUILD_DEPS)
+$(NOTIFY_A): $(NOTIFY_DIR)/src/notify.cpp $(ROOT)/common/notify.h $(wildcard $(NOTIFY_DIR)/include/*.h) $(BB_BUILD_DEPS)
 	$(MAKE) -C $(NOTIFY_DIR) $(BUILD_MODE)
 
 $(MBED_A): $(MB_OBJECTS)

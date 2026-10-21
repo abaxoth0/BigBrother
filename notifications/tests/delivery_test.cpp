@@ -1,5 +1,7 @@
 #include "toast.h"
 #include <cassert>
+#include <thread>
+#include <chrono>
 
 namespace {
 using namespace ABI::Windows::UI::Notifications;
@@ -58,18 +60,30 @@ public:
     int submissions = 0;
     HRESULT result = S_OK;
     bool asynchronous_failure = false;
+    DWORD failure_delay = 0;
+    std::thread callback;
+    HRESULT settings_result = HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+    NotificationSetting setting = NotificationSetting_Enabled;
+    ~fake_notifier() { if (callback.joinable()) callback.join(); }
     HRESULT STDMETHODCALLTYPE Show(IToastNotification* toast) override {
         submissions++;
         if (asynchronous_failure) {
-            failure_args args;
-            static_cast<fake_toast*>(toast)->failed->Invoke(toast, &args);
+            auto handler = static_cast<fake_toast*>(toast)->failed;
+            handler->AddRef();
+            callback = std::thread([handler, toast, delay = failure_delay] {
+                std::this_thread::sleep_for(std::chrono::milliseconds(delay));
+                failure_args args;
+                handler->Invoke(toast, &args);
+                handler->Release();
+            });
         }
         return result;
     }
     HRESULT STDMETHODCALLTYPE Hide(IToastNotification*) override { return E_NOTIMPL; }
-    HRESULT STDMETHODCALLTYPE get_Setting(NotificationSetting*) override {
+    HRESULT STDMETHODCALLTYPE get_Setting(NotificationSetting* value) override {
         settings_reads++;
-        return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+        *value = setting;
+        return settings_result;
     }
     HRESULT STDMETHODCALLTYPE AddToSchedule(IScheduledToastNotification*) override { return E_NOTIMPL; }
     HRESULT STDMETHODCALLTYPE RemoveFromSchedule(IScheduledToastNotification*) override { return E_NOTIMPL; }
@@ -81,7 +95,7 @@ void delivery_tests() {
     fake_notifier notifier;
     fake_toast toast;
     notifications::submit_toast(&notifier, &toast);
-    assert(notifier.submissions == 1 && notifier.settings_reads == 0 && !toast.failed);
+    assert(notifier.submissions == 1 && notifier.settings_reads == 1 && !toast.failed);
     notifier.result = E_ACCESSDENIED;
     bool failed = false;
     try { notifications::submit_toast(&notifier, &toast); }
@@ -89,8 +103,19 @@ void delivery_tests() {
     assert(failed && !toast.failed);
     notifier.result = S_OK;
     notifier.asynchronous_failure = true;
+    notifier.failure_delay = 1500;
     failed = false;
     try { notifications::submit_toast(&notifier, &toast); }
     catch (const notifications::failure& error) { failed = error.code == E_FAIL; }
-    assert(failed && !toast.failed && notifier.settings_reads == 0);
+    assert(failed && !toast.failed && notifier.settings_reads == 3);
+    notifier.callback.join();
+    notifier.settings_result = S_OK;
+    for (auto setting : {NotificationSetting_DisabledForApplication, NotificationSetting_DisabledForUser,
+                        NotificationSetting_DisabledByGroupPolicy, NotificationSetting_DisabledByManifest}) {
+        notifier.setting = setting;
+        failed = false;
+        try { notifications::submit_toast(&notifier, &toast); }
+        catch (const notifications::failure& error) { failed = error.code == E_ACCESSDENIED; }
+        assert(failed && !toast.failed && notifier.submissions == 3);
+    }
 }

@@ -99,9 +99,9 @@ func main() {
 
 	desktop := notification.NewDesktopNotifier(notification.DeliverWindowsNotification, func(err error) {
 		mainLogger.Error("Windows notification failed", err.Error(), nil)
-	}, func() bool {
+	}, func() (bool, error) {
 		value, err := db.GetSetting("windows_notifications_enabled")
-		return err == nil && value != "0"
+		return value != "0", err
 	})
 	defer desktop.Close()
 	notifMgr := notification.NewManagerWithNotifier(desktop.Notify)
@@ -187,7 +187,7 @@ func main() {
 
 	if isService() {
 		mainLogger.Info("Starting as Windows service...", nil)
-		runService(backendAddr, frontendPipePath, discoveryListener, connManager, backendServer, frontendServer)
+		runService(backendAddr, frontendPipePath, discoveryListener, connManager, backendServer, frontendServer, desktop.Close)
 	} else {
 		mainLogger.Info("Starting in console mode...", nil)
 		runConsole(backendAddr, frontendPipePath, discoveryListener, backendServer, frontendServer, connManager)

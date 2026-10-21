@@ -19,7 +19,7 @@ func isService() bool {
 	return isSvc
 }
 
-func runService(backendAddr, frontendPipePath string, discoveryListener *discovery.Listener, connManager *connection.MemoryResidentConnectionManager, backendServer, frontendServer *rpc.Server) {
+func runService(backendAddr, frontendPipePath string, discoveryListener *discovery.Listener, connManager *connection.MemoryResidentConnectionManager, backendServer, frontendServer *rpc.Server, stopNotifications func()) {
 	handler := &serviceHandler{
 		backendAddr:       backendAddr,
 		frontendPipePath:  frontendPipePath,
@@ -27,6 +27,7 @@ func runService(backendAddr, frontendPipePath string, discoveryListener *discove
 		connManager:       connManager,
 		backendServer:     backendServer,
 		frontendServer:    frontendServer,
+		stopNotifications: stopNotifications,
 	}
 	if err := svc.Run(serviceName, handler); err != nil {
 		mainLogger.Fatal("Service run failed", err.Error(), nil)
@@ -40,9 +41,13 @@ type serviceHandler struct {
 	connManager       *connection.MemoryResidentConnectionManager
 	backendServer     *rpc.Server
 	frontendServer    *rpc.Server
+	stopNotifications func()
 }
 
 func (h *serviceHandler) Execute(args []string, r <-chan svc.ChangeRequest, changes chan<- svc.Status) (svcSpecificEC bool, exitCode uint32) {
+	if h.stopNotifications != nil {
+		defer h.stopNotifications()
+	}
 	changes <- svc.Status{State: svc.StartPending, WaitHint: 45000}
 	if err := configureFirewall(h.backendAddr); err != nil {
 		mainLogger.Error("Firewall setup failed", err.Error(), nil)

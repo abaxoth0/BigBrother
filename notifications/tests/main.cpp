@@ -1,6 +1,7 @@
 #include "transport.h"
 #include "app.h"
 #include "command_line.h"
+#include "report.h"
 #include <shlobj.h>
 #include <propkey.h>
 #include <cassert>
@@ -9,6 +10,9 @@
 #include <vector>
 
 void delivery_tests();
+void process_tests();
+void cleanup_tests();
+void profile_cleanup_tests();
 
 template<class Action> static void rejects(Action action) {
     bool rejected = false;
@@ -31,6 +35,7 @@ static void command_line_tests() {
     auto internal = parse({L"helper.exe", L"--show", L"Client", L"54657374", L"626f6479"});
     assert(internal.kind == command_kind::show && internal.title == L"54657374" && internal.body == L"626f6479");
     assert(parse({L"helper.exe", L"--send", L"Server", L"54657374", L"626f6479"}).kind == command_kind::send);
+    assert(parse({L"helper.exe", L"--unregister-all", L"Server"}).kind == command_kind::unregister_all);
     assert(parse({L"helper.exe", L"--help"}).kind == command_kind::help);
     bool rejected = false;
     try { parse({L"helper.exe", L"--send"}); } catch (const failure& error) { rejected = error.code == E_INVALIDARG; }
@@ -97,9 +102,34 @@ static void registration_test() {
 
 int main(int argc, char** argv) {
     using namespace notifications;
+    if (argc == 3 && !strcmp(argv[1], "--report-child")) {
+        std::wstring name;
+        for (const char* c = argv[2]; *c; c++) name += static_cast<unsigned char>(*c);
+        write_report(name, L"Simulated child failure: доступ запрещён");
+        return static_cast<int>(E_ACCESSDENIED);
+    }
+    if (argc == 3 && !strcmp(argv[1], "--watchdog-child")) {
+        std::wstring name;
+        for (const char* c = argv[2]; *c; c++) name += static_cast<unsigned char>(*c);
+        parent_watch watchdog(name);
+        Sleep(60000);
+        return 0;
+    }
+    if (argc == 2 && !strcmp(argv[1], "--wait-child")) { Sleep(60000); return 0; }
+    cleanup_tests();
+    profile_cleanup_tests();
+    process_tests();
     command_line_tests();
     delivery_tests();
     const char* text = "Русский текст: \\\" & <test> 😀";
+    assert(prepare_text(text, 256, "fallback") == text);
+    assert(prepare_text(std::string("a\0b\x01", 4), 256, "fallback") == "a b ");
+    assert(prepare_text("\xff", 256, "fallback") == "\xef\xbf\xbd");
+    assert(prepare_text("\xef\xbf\xbe", 256, "fallback") == "\xef\xbf\xbd");
+    assert(prepare_text(" \t", 256, "fallback") == "fallback");
+    auto shortened = prepare_text("😀😀😀", 10, "fallback");
+    assert(shortened == "😀…" && decode(encode(shortened, 10), 10) == L"😀…");
+    assert(prepare_text(std::string(2000, 'x'), 1024, "fallback").size() == 1024);
     auto hex = encode(text, 256);
     assert(decode(hex, 256) == L"Русский текст: \\\" & <test> 😀");
     for (auto bad : {L"", L"a", L"zz", L"00", L"c0af", L"610062"})

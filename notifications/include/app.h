@@ -80,12 +80,15 @@ inline std::wstring app_directory() {
 
 void ensure_registration(const product& app, bool force_user = false);
 void unregister_user(const product& app);
+void unregister_profile(const product& app, HKEY classes, const std::wstring& folder);
+DWORD unregister_all(const product& app);
 void show_toast(const product& app, const std::wstring& title, const std::wstring& body);
 DWORD report_failure(const failure& error);
 bool attach_console_output();
 void set_diagnostics(bool enabled);
 bool diagnostics_enabled();
 void print_message(std::wstring_view message);
+void set_report_target(std::wstring target);
 #ifdef DEBUG
 void trace(std::wstring_view message);
 #define BB_TRACE(...) ::notifications::trace(__VA_ARGS__)

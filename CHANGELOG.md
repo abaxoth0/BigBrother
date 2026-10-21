@@ -36,6 +36,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Notifications: sanitize malformed text and truncate long UTF-8 payloads safely, reuse valid machine registration without creating user overrides, and remove installation-owned notification registrations and shortcuts from user profiles during uninstall; finish server notification shutdown before reporting the service stopped
+
+- Notifications: supervise helper processes with Windows jobs and user-session children with parent/deadline watchdogs, apply a shared delivery deadline with longer caller timeouts, and relay detailed child errors through recipient-restricted shared memory
+
+- Server notifications: summarize bursts with complete event counts instead of silently overflowing the queue, retain the last known preference on database errors and report them, and cancel delivery after a bounded shutdown grace period
+
+- Notifications: report unavailable user sessions and Windows notification blocks during normal delivery, enable Debug delivery traces, and observe asynchronous failures for five seconds in both real deliveries and manual tests
+
 - Client: relay empty firewall whitelist responses correctly and clear the frontend when all server lists are disabled; show «Белый список пуст. Нет активных правил.» in both formats, preserve the current display and retry after a failed whitelist request
 
 - Client/server live log views: support multiple-row selection, Ctrl+A, Ctrl+C and themed right-click Copy, preserving displayed order and log metadata
