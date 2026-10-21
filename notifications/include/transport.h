@@ -1,11 +1,34 @@
 #pragma once
 
 #include <windows.h>
+#include <algorithm>
 #include <stdexcept>
 #include <string>
 #include <string_view>
 
 namespace notifications {
+
+inline std::string prepare_text(std::string_view text, size_t limit, std::string_view fallback) {
+    auto sample = text.substr(0, std::min(text.size(), limit + 4));
+    int count = MultiByteToWideChar(CP_UTF8, 0, sample.data(), static_cast<int>(sample.size()), nullptr, 0);
+    std::wstring wide(count, 0);
+    MultiByteToWideChar(CP_UTF8, 0, sample.data(), static_cast<int>(sample.size()), wide.data(), count);
+    for (auto& c : wide) {
+        if (c < 32 && c != L'\t' && c != L'\n' && c != L'\r') c = L' ';
+        if (c == 0xfffe || c == 0xffff) c = 0xfffd;
+    }
+    int bytes = WideCharToMultiByte(CP_UTF8, 0, wide.data(), count, nullptr, 0, nullptr, nullptr);
+    std::string result(bytes, 0);
+    WideCharToMultiByte(CP_UTF8, 0, wide.data(), count, result.data(), bytes, nullptr, nullptr);
+    if (result.find_first_not_of(" \t\r\n") == result.npos) result = fallback;
+    if (result.size() > limit || sample.size() < text.size()) {
+        size_t end = std::min(result.size(), limit >= 3 ? limit - 3 : limit);
+        while (end && end < result.size() && (static_cast<unsigned char>(result[end]) & 0xc0) == 0x80) end--;
+        result.resize(end);
+        if (limit >= 3) result += "\xe2\x80\xa6";
+    }
+    return result;
+}
 
 inline std::wstring encode(std::string_view text, size_t limit) {
     if (text.empty() || text.size() > limit || text.find('\0') != text.npos ||

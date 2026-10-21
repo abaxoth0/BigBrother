@@ -91,7 +91,6 @@ int main(int argc, char** argv) {
     DeleteFileA("notifications.log");
     bb_notifications_set_error_handler(capture_error);
     assert(bb_notify(NULL, "invalid") != 0 && GetLastError() == ERROR_INVALID_PARAMETER);
-    assert(bb_notify("invalid", "\xff") != 0 && GetLastError() == ERROR_INVALID_PARAMETER);
     assert(ini_set_string("filtration", "auto_disable", "1") == 0);
 
     ready = CreateEvent(NULL, TRUE, FALSE, NULL);
@@ -135,6 +134,10 @@ int main(int argc, char** argv) {
     started = GetTickCount();
     while (notice_count() < 7 && GetTickCount() - started < 5000) Sleep(10);
     assert(notice_count() == 7);
+    assert(bb_notify("\xff", "repaired\x01") == 0);
+    started = GetTickCount();
+    while (notice_count() < 8 && GetTickCount() - started < 5000) Sleep(10);
+    assert(notice_count() == 8);
     assert(SetWindowsNotificationsEnabled(0) == 0);
     puts("PASS: backend notification delivery, suppression, re-enabling, and delivery failures");
     return 0;

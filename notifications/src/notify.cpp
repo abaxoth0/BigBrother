@@ -46,8 +46,8 @@ extern "C" int bb_notify(const char* title, const char* message) {
         if (separator == path.npos) { SetLastError(ERROR_BAD_PATHNAME); return -1; }
         path.resize(separator + 1);
         path += L"BigBrother Notifications.exe";
-        std::wstring command = L"\"" + path + L"\" --send Client " + notifications::encode(title, 256) +
-            L" " + notifications::encode(message, 1024);
+        std::wstring command = L"\"" + path + L"\" --send Client " + notifications::encode(notifications::prepare_text(title, 256, "BigBrother"), 256) +
+            L" " + notifications::encode(notifications::prepare_text(message, 1024, "Notification"), 1024);
         auto pending = std::make_unique<delivery>();
         if (InterlockedIncrement(&active_deliveries) > 16) {
             InterlockedDecrement(&active_deliveries);

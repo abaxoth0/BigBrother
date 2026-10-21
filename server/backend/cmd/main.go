@@ -187,7 +187,7 @@ func main() {
 
 	if isService() {
 		mainLogger.Info("Starting as Windows service...", nil)
-		runService(backendAddr, frontendPipePath, discoveryListener, connManager, backendServer, frontendServer)
+		runService(backendAddr, frontendPipePath, discoveryListener, connManager, backendServer, frontendServer, desktop.Close)
 	} else {
 		mainLogger.Info("Starting in console mode...", nil)
 		runConsole(backendAddr, frontendPipePath, discoveryListener, backendServer, frontendServer, connManager)

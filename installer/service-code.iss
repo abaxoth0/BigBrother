@@ -178,10 +178,18 @@ begin
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  ExitCode: Integer;
 begin
   if CurUninstallStep = usUninstall then
   begin
     StopAndRemoveService;
+    if FileExists(ExpandConstant('{app}\BigBrother Notifications.exe')) then
+      if not Exec(ExpandConstant('{app}\BigBrother Notifications.exe'),
+        '--unregister-all {#Product}', ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ExitCode) then
+        Log('Could not launch notification registration cleanup.')
+      else if ExitCode <> 0 then
+        Log('Notification registration cleanup returned ' + IntToStr(ExitCode));
 #if Product == "Server"
     RemoveFirewallRule('BigBrother Server (TCP)');
 #endif

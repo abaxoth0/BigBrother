@@ -141,7 +141,7 @@ static void open_frontend(const product& app) {
 static DWORD run(const command& request) {
     const auto& app = request.app;
     if (request.kind == command_kind::help) {
-        print_message(L"Usage: BigBrother Notifications.exe [--show|--test [Client|Server]]; --register Client|Server; --unregister Client|Server; --version");
+        print_message(L"Usage: BigBrother Notifications.exe [--show|--test [Client|Server]]; --register Client|Server; --unregister Client|Server; --unregister-all Client|Server; --version");
         return ERROR_SUCCESS;
     }
     if (request.kind == command_kind::version) {
@@ -151,6 +151,11 @@ static DWORD run(const command& request) {
     if (request.kind == command_kind::test)
         return send_notification(app, encode("BigBrother", 256), encode("Проверка уведомлений Windows", 1024));
     if (request.kind == command_kind::send) return send_notification(app, request.title, request.body);
+    if (request.kind == command_kind::unregister_all) {
+        check(RoInitialize(RO_INIT_MULTITHREADED), L"Initialize registration cleanup");
+        struct uninitialize { ~uninitialize() { RoUninitialize(); } } apartment;
+        return unregister_all(app);
+    }
     if (is_system()) throw failure{E_ACCESSDENIED, L"Display and registration require a signed-in user"};
     if (request.kind == command_kind::open) { open_frontend(app); return ERROR_SUCCESS; }
     check(RoInitialize(RO_INIT_MULTITHREADED), L"Initialize WinRT");
