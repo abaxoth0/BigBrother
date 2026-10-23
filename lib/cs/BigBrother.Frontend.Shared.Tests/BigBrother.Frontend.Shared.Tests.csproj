@@ -6,6 +6,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="../BigBrother.Frontend.Shared/Lib/WhitelistRules.cs" Link="WhitelistRules.cs" />
+    <Compile Include="../BigBrother.Frontend.Shared/Models/WhitelistEntry.cs" Link="WhitelistEntry.cs" />
     <Compile Include="../BigBrother.Frontend.Shared/Services/Log*.cs" Exclude="../BigBrother.Frontend.Shared/Services/LogSelectionCopy.cs" Link="Services/%(Filename)%(Extension)" />
     <Compile Include="../BigBrother.Frontend.Shared/Services/ServerLogTailer.cs" Link="Services/ServerLogTailer.cs" />
     <Compile Include="../BigBrother.Frontend.Shared/Lib/LogParser.cs" Link="LogParser.cs" />

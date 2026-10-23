@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Whitelist rules: optional TCP/UDP destination ports, inclusive ranges and OR lists (`1.1.1.1:443|80|53|20|22`, `1.1.1.1:{0-1023|5432|2000-3000}`); omitted ports allow all ports. Supports domains, wildcards, substrings and port-specific exceptions, with validation, client display and host:port checking; requires an updated firewall and frontends
+
 - Server whitelist tab: «Синхронизировать» checks clients against the saved composed whitelist using SHA-256; only clients with differing or unavailable firewall rules download and reapply it, bypassing stale download caches and retrying failures without restarting the client backend; requires updated client and server applications
 
 - Server users filter: «Все пользователи» combines connected and offline registered clients with pending registrations, with connection state, activity/request times and name/address search

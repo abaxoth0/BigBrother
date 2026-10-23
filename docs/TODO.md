@@ -2,7 +2,6 @@
 
 ## Feature ideas
 
-- **Add rules for ports** (medium)
 - **Temporary access** (medium): allow a domain for a limited time, then revoke access automatically.
 - **Client groups and separate policies** (medium–large): assign different whitelists to departments, classrooms, or individual machines.
 - **Full IPv6 whitelist support** (large): filter IPv6 destinations instead of choosing between blocking or allowing all IPv6 traffic.

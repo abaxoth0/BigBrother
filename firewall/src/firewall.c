@@ -419,11 +419,6 @@ int LoadWhiteList(char* path) {
     if (!path) path = g_WhitelistPath;
     LOGF("[INFO] Reading whitelist at: %s", path);
 
-    WhitelistInit(&g_Whitelist);
-    WhitelistInit(&g_Blacklist);
-    IpAllowlistClear(&g_IpAllowlist);
-    IpAllowlistClear(&g_IpBlocklist);
-
     FILE *f = fopen(path, "r");
     if (!f) {
         // Create empty whitelist file so service doesn't fail on missing file
@@ -435,37 +430,32 @@ int LoadWhiteList(char* path) {
         } else {
             LOGF("[WARN] Could not create whitelist file: %s, continuing with empty whitelist", path);
         }
+        WhitelistClear(&g_Whitelist);
+        WhitelistClear(&g_Blacklist);
+        IpAllowlistClear(&g_IpAllowlist);
+        IpAllowlistClear(&g_IpBlocklist);
         return STATUS_OK;
     }
 
-    char line[256];
-    while (fgets(line, sizeof(line), f)) {
-        // Trim leading whitespace
-        char* p = line;
-        while (*p == ' ' || *p == '\t' || *p == '\r') p++;
-
-        // Trim trailing whitespace and newline
-        size_t len = strlen(p);
-        while (len > 0 && (p[len-1] == '\n' || p[len-1] == '\r' || p[len-1] == ' ' || p[len-1] == '\t')) {
-            p[--len] = '\0';
-        }
-
-        if (p[0] == '#' || p[0] == ';' || p[0] == '\0') continue;
-
-        struct in_addr addr;
-        if (inet_pton(AF_INET, p, &addr) == 1) {
-            WhitelistAdd(&g_Whitelist, p);
-            IpAllowlistAdd(&g_IpAllowlist, ntohl(addr.s_addr), p, 0);
-            LOGF("[INFO] Added IP to allowlist: %s", p);
-
-        } else {
-            int is_exception = (p[0] == '!');
-            const char* domain = is_exception ? p + 1 : p;
-            WhitelistAdd(is_exception ? &g_Blacklist : &g_Whitelist, domain);
-        }
-    }
-
+    if (fseek(f, 0, SEEK_END) != 0) { fclose(f); return STATUS_FAILED_TO_READ_WHITELIST; }
+    long length = ftell(f);
+    if (length < 0 || fseek(f, 0, SEEK_SET) != 0) { fclose(f); return STATUS_FAILED_TO_READ_WHITELIST; }
+    char* data = malloc((size_t)length + 1);
+    if (!data) { fclose(f); return STATUS_FAILED_TO_READ_WHITELIST; }
+    size_t size = fread(data, 1, (size_t)length, f);
+    int failed = ferror(f);
     fclose(f);
+    data[size] = '\0';
+    int loaded = failed ? -1 : size ? WhitelistLoadFromData(&g_Whitelist, &g_Blacklist, data, size) : 0;
+    free(data);
+    if (loaded != 0) return STATUS_FAILED_TO_READ_WHITELIST;
+    if (!size) {
+        WhitelistClear(&g_Whitelist);
+        WhitelistClear(&g_Blacklist);
+    }
+    IpAllowlistPurgeUnowned(&g_IpAllowlist, &g_Whitelist);
+    IpAllowlistClear(&g_IpBlocklist);
+
     LOGF("[INFO] Loaded %zu whitelisted domains, %zu exception rules, and %zu IPs",
           g_Whitelist.count, g_Blacklist.count, g_IpAllowlist.count);
 
@@ -817,19 +807,17 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
                     }
                 }
 
-                // Only whitelisted domains may enter the allowlist. If the domain
-                // matches an exception rule, its IPs go to the blocklist so they
-                // stay blocked even when shared with an allowed domain.
-                if (g_FiltrationEnabled && domain_whitelisted && !domain_excepted) {
+                // Keep both associations: an exception may cover only some ports.
+                if (g_FiltrationEnabled && domain_whitelisted) {
                     for (uint32_t i = 0; i < dns.answer_count; i++) {
                         for (uint32_t j = 0; j < dns.answers[i].ip_count; j++) {
                             IpAllowlistAdd(&g_IpAllowlist, dns.answers[i].ips[j], dns.question.domain, dns.answers[i].ttl);
                         }
                     }
-                } else if (domain_excepted) {
+                }
+                if (domain_excepted) {
                     for (uint32_t i = 0; i < dns.answer_count; i++) {
                         for (uint32_t j = 0; j < dns.answers[i].ip_count; j++) {
-                            IpAllowlistRemove(&g_IpAllowlist, dns.answers[i].ips[j]);
                             IpAllowlistAdd(&g_IpBlocklist, dns.answers[i].ips[j], dns.question.domain, IP_BLOCKLIST_TTL);
                         }
                     }
@@ -880,38 +868,15 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
                 continue;
             }
 
-            // Copy domain to local buffer to avoid dangling pointer if IPC thread
-            // modifies the allowlist between GetDomain and the whitelist iteration.
             char domain_buf[MAX_DOMAIN_LEN] = {0};
-            int allowed = 0;
+            int port = tcp_hdr ? ntohs(tcp_hdr->DstPort) : udp_hdr ? ntohs(udp_hdr->DstPort) : RULE_NO_PORT;
             time_t now = time(NULL);
             AcquireSRWLockShared(&g_AllowlistLock);
-
-            // Blocklist wins: an IP learned from an excepted domain is blocked
-            // even if the same IP is also in the allowlist (shared CDN IP).
-            if (IpAllowlistLookup(&g_IpBlocklist, dest_ip, now)) {
-                allowed = 0;
-            } else {
-                // Single lookup: reuse the cached current time instead of the
-                // three separate time() calls the old helpers made.
-                AllowedIp* entry = IpAllowlistLookup(&g_IpAllowlist, dest_ip, now);
-                allowed = entry != NULL;
-
-                // Exception rules win: even an allowlisted IP must be blocked when
-                // its learned domain matches an exception (e.g. the exception was
-                // added after the IP was resolved, so its IPs are still in the
-                // allowlist but not yet in the blocklist).
-                if (allowed && entry->domain[0]) {
-                    strncpy(domain_buf, entry->domain, sizeof(domain_buf) - 1);
-                    // Lowercase once; the blacklist patterns are pre-lowercased.
-                    ToLowerInplace(domain_buf);
-                    for (size_t w = 0; w < g_Blacklist.count; w++) {
-                        if (DnsCheckDomainLower(domain_buf, g_Blacklist.entries[w].pattern_lower)) {
-                            allowed = 0;
-                            break;
-                        }
-                    }
-                }
+            int allowed = WhitelistAllows(&g_Whitelist, &g_Blacklist, &g_IpAllowlist,
+                                          &g_IpBlocklist, dest_ip, port, now);
+            if (!allowed) {
+                const char* learned = IpAllowlistGetDomain(&g_IpAllowlist, dest_ip);
+                if (learned) strncpy(domain_buf, learned, sizeof(domain_buf) - 1);
             }
             ReleaseSRWLockShared(&g_AllowlistLock);
 

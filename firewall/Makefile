@@ -60,5 +60,7 @@ test-build:
 	mkdir -p build
 	$(CC) $(COMMON_FLAGS) $(DEBUG_FLAGS) -o build/allowlist_test.exe tests/allowlist_test.c src/allowlist.c src/dns.c src/common.c -lws2_32 -static
 	$(CC) $(COMMON_FLAGS) $(DEBUG_FLAGS) -o build/ipv6_block_test.exe tests/ipv6_block_test.c src/allowlist.c src/dns.c src/common.c $(CURDIR)/../common/encoding/encoding.c -lws2_32 -ladvapi32 -static
+	$(CC) $(COMMON_FLAGS) $(DEBUG_FLAGS) -o build/whitelist_file_test.exe tests/whitelist_file_test.c $(filter-out src/firewall.c,$(t-units)) $(LDFLAGS)
+	cp include/third-party/WinDivert-2.2.2-A/x64/WinDivert.dll build/
 
 .PHONY: test-build
