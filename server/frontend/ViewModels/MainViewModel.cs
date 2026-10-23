@@ -53,6 +53,7 @@ public class MainViewModel : ViewModelBase
     private string _filtrationStatus = "N/A";
     private readonly WhitelistActivationDraft _whitelistActivation = new();
     private bool _savingWhitelistActivation;
+    private bool _syncingWhitelists;
     private int _whitelistActivationRevision;
     private List<WhitelistConflict> _whitelistConflicts = new();
     private string _serverName = "";
@@ -192,6 +193,8 @@ public class MainViewModel : ViewModelBase
             _ => IsConnected && HasWhitelistActivationChanges && !_savingWhitelistActivation);
         CancelWhitelistActivationCommand = new RelayCommand(_ => CancelWhitelistActivation(),
             _ => HasWhitelistActivationChanges && !_savingWhitelistActivation);
+        SyncWhitelistsCommand = new RelayCommand(async _ => await SyncWhitelistsAsync(),
+            _ => IsConnected && !_syncingWhitelists && !_savingWhitelistActivation);
         OpenDomainCheckCommand = new RelayCommand(async _ => await OpenDomainCheckAsync(),
             _ => IsConnected && !_openingDomainCheck);
         OpenCreateWhitelistCommand = new RelayCommand(async _ => await OpenCreateWhitelistAsync());
@@ -483,6 +486,7 @@ public class MainViewModel : ViewModelBase
     public ICommand EnableWhitelistsCommand { get; }
     public ICommand SaveWhitelistActivationCommand { get; }
     public ICommand CancelWhitelistActivationCommand { get; }
+    public ICommand SyncWhitelistsCommand { get; }
     public ICommand OpenDomainCheckCommand { get; }
     public ICommand OpenCreateWhitelistCommand { get; }
     public ICommand OpenEditWhitelistCommand { get; }
@@ -1285,6 +1289,29 @@ public class MainViewModel : ViewModelBase
         if (_savingWhitelistActivation) return;
         _whitelistActivation.Cancel(Whitelists);
         NotifyWhitelistActivationChanged();
+    }
+
+    private async Task SyncWhitelistsAsync()
+    {
+        if (!IsConnected || _syncingWhitelists || _savingWhitelistActivation) return;
+        _syncingWhitelists = true;
+        CommandManager.InvalidateRequerySuggested();
+        try
+        {
+            var ok = await Task.Run(() => _ipcService.SyncWhitelistsAsync());
+            AddLog(ok ? "INFO" : "ERROR", ok
+                ? "Запрошена синхронизация белых списков. Клиенты с отличающимися правилами загрузят сохранённый список сервера."
+                : "Не удалось запросить синхронизацию белых списков.");
+        }
+        catch (Exception ex)
+        {
+            AddLog("ERROR", $"Ошибка синхронизации белых списков: {ex.Message}");
+        }
+        finally
+        {
+            _syncingWhitelists = false;
+            CommandManager.InvalidateRequerySuggested();
+        }
     }
 
     private async Task SaveWhitelistActivationAsync()

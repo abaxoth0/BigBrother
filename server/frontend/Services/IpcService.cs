@@ -708,6 +708,28 @@ public class IpcService : IDisposable
         }
     }
 
+    public async Task<bool> SyncWhitelistsAsync()
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return false;
+            try
+            {
+                var (status, _) = SendCommand("SYNC_WHITELISTS");
+                return status == "OK";
+            }
+            finally
+            {
+                Disconnect();
+            }
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
     public async Task<bool> SetWhitelistsActiveAsync(IReadOnlyDictionary<string, bool> states)
     {
         await _connectionLock.WaitAsync();

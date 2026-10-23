@@ -98,6 +98,11 @@ Check(whitelists.Count == 2 && whitelists[0].Name == "Работа:основн�
     whitelists[0].EntryCount == 3 && whitelists[0].IsActive && !whitelists[1].IsActive,
     "Whitelist names, counts or active flags lost");
 
+Check(await WhitelistReply(name, service => service.SyncWhitelistsAsync(), ["SYNC_WHITELISTS"], []),
+    "Whitelist synchronization request failed");
+Check(!await WhitelistReply(name, service => service.SyncWhitelistsAsync(), ["SYNC_WHITELISTS"], ["load failed"], "ERROR"),
+    "Whitelist synchronization failure ignored");
+
 var clientDetails = "[{\"name\":\"Клиент:1\",\"address\":\"[::1]:1984\",\"lastActivity\":\"2026-10-22T09:10:11Z\"," +
     "\"policy\":{\"whitelistRevision\":\"revision\",\"filtrationEnabled\":true,\"blockIpv6\":false,\"canSetIpv6Block\":true},\"whitelistCurrent\":true}," +
     "{\"name\":\"old\",\"address\":\"10.0.0.2\",\"policy\":null,\"whitelistCurrent\":null}]";

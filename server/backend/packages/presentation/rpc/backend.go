@@ -110,7 +110,11 @@ func (h *BackendHandler) handle(conn net.Conn) {
 				writeErrorTLV(conn, "invalid token")
 				continue
 			}
-			wl := h.GetWhitelist(args[0])
+			wl, err := h.GetWhitelist(args[0])
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
 			var data []string
 			for _, entry := range wl {
 				data = append(data, entry.Value)
@@ -372,15 +376,15 @@ func (h *BackendHandler) handle(conn net.Conn) {
 	}
 }
 
-func (s *BackendHandler) GetWhitelist(username string) []*entity.WhitelistEntry {
+func (s *BackendHandler) GetWhitelist(username string) ([]*entity.WhitelistEntry, error) {
 	if _, err := s.db.GetUserByName(username); err != nil {
-		return nil
+		return nil, err
 	}
 	composition, err := whitelistapplication.Compose(s.db)
 	if err != nil {
-		return nil
+		return nil, err
 	}
-	return composition.Entries
+	return composition.Entries, nil
 }
 
 func (s *BackendHandler) ConnectUser(name string, addr string) error {
