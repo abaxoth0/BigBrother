@@ -10,14 +10,21 @@ public class ServerLogEntry
     public string Message { get; set; } = "";
 }
 
-public class ConnectedClient : INotifyPropertyChanged
+public interface ISelectableRow : INotifyPropertyChanged
+{
+    bool IsSelected { get; set; }
+}
+
+public class ConnectedClient : ISelectableRow
 {
     public event PropertyChangedEventHandler? PropertyChanged;
 
     private string _address = "";
-    private string _status = "";
-    private string _whitelist = "";
-    private DateTime _lastActivity;
+    private string _status = "Подключён";
+    private ClientPolicyStatus? _policy;
+    private bool? _whitelistCurrent;
+    private DateTime? _lastActivity;
+    private bool _isSelected;
 
     public string Name { get; set; } = "";
     public string Address
@@ -30,25 +37,62 @@ public class ConnectedClient : INotifyPropertyChanged
         get => _status;
         set { if (_status != value) { _status = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Status))); } }
     }
-    public string Whitelist
+    public ClientPolicyStatus? Policy
     {
-        get => _whitelist;
-        set { if (_whitelist != value) { _whitelist = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Whitelist))); } }
+        get => _policy;
+        set
+        {
+            _policy = value;
+            foreach (var name in new[] { nameof(Policy), nameof(Whitelist), nameof(FiltrationText), nameof(Ipv6BlockText) })
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+        }
     }
-    public DateTime LastActivity
+    public bool? WhitelistCurrent
+    {
+        get => _whitelistCurrent;
+        set
+        {
+            if (_whitelistCurrent == value) return;
+            _whitelistCurrent = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(WhitelistCurrent)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Whitelist)));
+        }
+    }
+    public string Whitelist => WhitelistCurrent switch
+    {
+        true => "Актуален",
+        false => "Устарел",
+        null => Policy == null ? "Нет данных" : "Недоступен"
+    };
+    public string FiltrationText => Policy == null ? "Нет данных" : Policy.FiltrationEnabled ? "Вкл" : "Выкл";
+    public string Ipv6BlockText => Policy == null ? "Нет данных" : Policy.BlockIpv6 ? "Вкл" : "Выкл";
+    public DateTime? LastActivity
     {
         get => _lastActivity;
         set { if (_lastActivity != value) { _lastActivity = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LastActivity))); } }
     }
-    public bool IsSelected { get; set; }
+    public bool IsSelected
+    {
+        get => _isSelected;
+        set { if (_isSelected != value) { _isSelected = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsSelected))); } }
+    }
 }
 
-public class PendingRegistration : INotifyPropertyChanged
+public class ClientPolicyStatus
+{
+    public string WhitelistRevision { get; set; } = "";
+    public bool FiltrationEnabled { get; set; }
+    public bool BlockIpv6 { get; set; }
+    public bool CanSetIpv6Block { get; set; }
+}
+
+public class PendingRegistration : ISelectableRow
 {
     public event PropertyChangedEventHandler? PropertyChanged;
 
     private string _address = "";
     private DateTime _createdAt;
+    private bool _isSelected;
 
     public string Name { get; set; } = "";
     public string Address
@@ -61,9 +105,14 @@ public class PendingRegistration : INotifyPropertyChanged
         get => _createdAt;
         set { if (_createdAt != value) { _createdAt = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CreatedAt))); } }
     }
+    public bool IsSelected
+    {
+        get => _isSelected;
+        set { if (_isSelected != value) { _isSelected = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsSelected))); } }
+    }
 }
 
-public class WhitelistInfo : INotifyPropertyChanged
+public class WhitelistInfo : ISelectableRow
 {
     public event PropertyChangedEventHandler? PropertyChanged;
 

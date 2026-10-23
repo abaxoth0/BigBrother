@@ -103,10 +103,10 @@ var rows = new List<WhitelistInfo>
     new() { Name = "first", IsActive = true }, new() { Name = "second" }, new() { Name = "third" }
 };
 draft.Refresh(rows);
-draft.Toggle(rows[0]);
-draft.Toggle(rows[1]);
+draft.SetActive(rows[0], false);
+draft.SetActive(rows[1], true);
 Check(draft.HasChanges && !rows[0].IsActive && rows[1].IsActive && draft.GetChanges().Count == 2,
-    "Multiple toggles not staged together");
+    "Multiple activation changes not staged together");
 var refreshed = new List<WhitelistInfo>
 {
     new() { Name = "first", IsActive = true }, new() { Name = "second" }, new() { Name = "third", IsActive = true }
@@ -117,23 +117,37 @@ Check(!refreshed[0].IsActive && refreshed[1].IsActive && refreshed[2].IsActive &
 draft.Cancel(refreshed);
 Check(!draft.HasChanges && refreshed[0].IsActive && !refreshed[1].IsActive && refreshed[2].IsActive,
     "Cancel did not restore saved selection");
-draft.Toggle(refreshed[0]);
-draft.Toggle(refreshed[0]);
-Check(!draft.HasChanges, "Reverting a toggle left unsaved changes");
-draft.Toggle(refreshed[1]);
+draft.SetActive(refreshed[0], false);
+draft.SetActive(refreshed[0], true);
+Check(!draft.HasChanges, "Restoring the saved state left unsaved changes");
+draft.SetActive(refreshed[1], true);
 var submitted = draft.GetChanges();
 draft.Refresh(new[] { new WhitelistInfo { Name = "first", IsActive = true },
     new WhitelistInfo { Name = "second" }, new WhitelistInfo { Name = "third", IsActive = true } });
 Check(draft.HasChanges && draft.GetChanges()["second"], "Failed save refresh discarded draft");
 draft.Accept(submitted);
 Check(!draft.HasChanges && draft.GetActive("second"), "Successful save did not accept draft");
-draft.Toggle(refreshed[1]);
+draft.SetActive(refreshed[1], false);
 draft.Rename("second", "renamed");
 var renamed = new[] { new WhitelistInfo { Name = "renamed", IsActive = true } };
 draft.Refresh(renamed);
 Check(draft.HasChanges && !renamed[0].IsActive && draft.GetChanges().ContainsKey("renamed"), "Rename lost draft");
 draft.Refresh(Array.Empty<WhitelistInfo>());
 Check(!draft.HasChanges, "Deleted list retained stale draft");
+var bulkDraft = new WhitelistActivationDraft();
+var mixedRows = new[] { new WhitelistInfo { Name = "on", IsActive = true }, new WhitelistInfo { Name = "off" } };
+bulkDraft.Refresh(mixedRows);
+foreach (var row in mixedRows) bulkDraft.SetActive(row, true);
+foreach (var row in mixedRows) bulkDraft.SetActive(row, true);
+Check(mixedRows.All(row => row.IsActive) && bulkDraft.GetChanges().Count == 1 && bulkDraft.GetChanges()["off"],
+    "Enable did not set mixed rows uniformly or repeated Enable toggled them");
+foreach (var row in mixedRows) bulkDraft.SetActive(row, false);
+foreach (var row in mixedRows) bulkDraft.SetActive(row, false);
+Check(mixedRows.All(row => !row.IsActive) && bulkDraft.GetChanges().Count == 1 && !bulkDraft.GetChanges()["on"],
+    "Disable did not set mixed rows uniformly or retained a reverted draft");
+bulkDraft.Cancel(mixedRows);
+Check(mixedRows[0].IsActive && !mixedRows[1].IsActive && !bulkDraft.HasChanges,
+    "Cancel did not restore saved states after explicit bulk actions");
 var selection = new WhitelistSelection();
 var selectionRows = Enumerable.Range(0, 5).Select(i => new WhitelistInfo { Name = i.ToString() }).ToList();
 Check(!selection.HandleClick(selectionRows, selectionRows[1], false, false) && selectionRows.All(w => !w.IsSelected),

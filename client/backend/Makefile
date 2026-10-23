@@ -117,3 +117,9 @@ whitelist-test-build: $(MBED_A) $(NOTIFY_A)
 	$(CC) $(COMMON_FLAGS) $(DEBUG_FLAGS) -o "build/whitelist-test/BigBrother Client.exe" tests/whitelist_test.c $(filter-out src/main.c,$(t-units)) $(CLIENT_LIBS)
 
 .PHONY: whitelist-test-build
+
+policy-test-build: $(MBED_A) $(NOTIFY_A)
+	mkdir -p build/policy-test
+	$(CC) $(COMMON_FLAGS) $(DEBUG_FLAGS) -o build/policy-test/test.exe tests/policy_test.c $(filter-out src/main.c src/ipc_daemon.c,$(t-units)) $(CLIENT_LIBS)
+
+.PHONY: policy-test-build

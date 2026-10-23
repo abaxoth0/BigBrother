@@ -76,6 +76,24 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 		}
 
 		switch cmd {
+		case "SET_CLIENT_IPV6_BLOCK":
+			if len(args) != 2 || (args[1] != "0" && args[1] != "1") {
+				writeErrorTLV(conn, "Expected client name and IPv6 blocking value 0 or 1")
+				continue
+			}
+			client, err := h.connManager.GetConnection(args[0])
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			if client.Policy == nil || !client.Policy.CanSetIpv6Block {
+				writeErrorTLV(conn, "Client does not support remote IPv6 blocking changes")
+				continue
+			}
+			h.bus.Publish(notification.Event{Type: notification.ClientIpv6BlockChanged,
+				Data: map[string]string{"name": args[0], "enabled": args[1]}})
+			writeOK(conn)
+
 		case "SET_CLIENT_UPDATE":
 			if len(args) != 1 {
 				writeErrorTLV(conn, "Expected update metadata")
@@ -280,7 +298,7 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 				writeErrorTLV(conn, "Missing name")
 				continue
 			}
-			if err := h.connManager.DeleteConnection(args[0]); err != nil {
+			if err := h.connManager.DisconnectConnection(args[0]); err != nil {
 				writeErrorTLV(conn, err.Error())
 			} else {
 				writeOK(conn)
@@ -316,6 +334,58 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 				data = append(data, fmt.Sprintf("%s:%s:%s", client.Name, client.Addr, "Active"))
 			}
 			writeTLVResponse(conn, data...)
+
+		case "GET_REGISTERED_USERS":
+			users, err := h.db.GetUsers()
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			type registeredUser struct {
+				Name    string `json:"name"`
+				Address string `json:"address"`
+			}
+			result := []registeredUser{}
+			for _, user := range users {
+				result = append(result, registeredUser{Name: user.Name, Address: user.Addr})
+			}
+			data, err := json.Marshal(result)
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			writeTLVResponse(conn, string(data))
+
+		case "GET_CLIENTS_DETAILS":
+			composition, err := whitelistapplication.Compose(h.db)
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			revision := whitelistapplication.Revision(composition.Entries)
+			type clientDetails struct {
+				Name             string                   `json:"name"`
+				Address          string                   `json:"address"`
+				LastActivity     time.Time                `json:"lastActivity"`
+				Policy           *connection.PolicyStatus `json:"policy"`
+				WhitelistCurrent *bool                    `json:"whitelistCurrent"`
+			}
+			clients := []clientDetails{}
+			for _, conn := range h.connManager.GetAllConnections() {
+				user := conn.GetUser()
+				client := clientDetails{Name: user.Name, Address: user.Addr, LastActivity: conn.LastActivity, Policy: conn.Policy}
+				if conn.Policy != nil && conn.Policy.WhitelistRevision != "" {
+					current := conn.Policy.WhitelistRevision == revision
+					client.WhitelistCurrent = &current
+				}
+				clients = append(clients, client)
+			}
+			data, err := json.Marshal(clients)
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			writeTLVResponse(conn, string(data))
 
 		case "GET_PENDING":
 			var data []string

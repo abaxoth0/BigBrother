@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Server users filter: «Все пользователи» combines connected and offline registered clients with pending registrations, with connection state, activity/request times and name/address search
+
+- Server users tables: row and select-all checkboxes, highlighted checked rows and Ctrl/Shift selection matching the whitelist table; context-menu actions apply to eligible checked users, falling back to the current row when none are checked
+
+- Server users context menu: separate Enable and Disable IPv6 blocking actions, ordered Enable first; persist the chosen preference on each checked client and confirm its reported state, with remote-control capability checks
+
+- Server clients table: show whether the firewall has applied the current composed whitelist, its effective filtration state and the client's IPv6 blocking preference; authenticated policy heartbeats report actual firewall rules, with explicit unavailable/unknown states
+
 - Client/server settings: disable Windows notifications independently; preferences persist across restarts and apply immediately after saving, including while frontends are closed
 
 - Server settings to publish and withdraw client update packages from an existing network share, with file selection, UNC paths and Windows credential prompts when required
@@ -35,6 +43,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Server whitelist editor: live validation rejects malformed entries, duplicate rules and directly conflicting exceptions before saving; overlapping exceptions show warnings, and imports use the same validation
 
 ### Fixed
+
+- Client/server disconnect: close the client's event subscription and update its connection state; apply filtration connection-sync settings and pause automatic reconnect until «Подключиться» or a client daemon restart. Unexpected network failures still retry automatically, and stale subscription cleanup cannot remove a new session; requires both daemons to be updated
+
+- Client settings: refresh the IPv6 blocking checkbox after server changes, on status refreshes and when opening settings; preserve unsaved checkbox edits and ignore stale reads after editing or saving
+
+- Server users tables: preserve checked rows, row selection, keyboard focus and open context menus during refreshes, including connection changes in «Все пользователи»
+
+- Server clients table: populate «Последняя активность» from client connections and heartbeats, display local date/time and refresh every ten seconds
+
+- Client whitelist synchronization: retry failed firewall applications instead of caching them as successful
 
 - Notifications: sanitize malformed text and truncate long UTF-8 payloads safely, reuse valid machine registration without creating user overrides, and remove installation-owned notification registrations and shortcuts from user profiles during uninstall; finish server notification shutdown before reporting the service stopped
 
@@ -83,11 +101,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Server whitelist context menu: replace the activation toggle with separate Enable and Disable actions, ordered Enable first; apply the chosen state to checked lists, or the current row when none are checked, while retaining staged Save/Cancel behavior
+
+- Server connected-users table: remove the redundant connection status column; «Все пользователи» retains a state column to distinguish connected, offline and pending users
+
 - Server whitelist table: highlight all checked rows with the teal selection background and cyan text
 
-- Server whitelist table: context-menu Delete applies to all checked lists and replaces the toolbar Delete button; Delete and activation toggles clear checkboxes; Ctrl-click toggles a checkbox and Shift-click selects a range in the current table order
+- Server whitelist table: context-menu Delete applies to all checked lists and replaces the toolbar Delete button; Delete and activation actions clear checkboxes; Ctrl-click toggles a checkbox and Shift-click selects a range in the current table order
 
-- Server whitelist table: show green «Да» / red «Нет» activation labels; the context-menu activation toggle applies to all checked lists, falling back to the current row when none are checked
+- Server whitelist table: show green «Да» / red «Нет» activation labels
 
 - Build scripts require a Debug or Release configuration; native and Go builds select matching compiler settings, keep mode-specific objects separate and reject installer payloads built in another mode
 - Release builds compile out debug/trace logging in daemons, the notification helper and server frontend while retaining normal operational logs; Debug builds enable diagnostics

@@ -83,6 +83,39 @@ func TestUserToken(t *testing.T) {
 	}
 }
 
+func TestGetUsersIncludesOfflineWithoutCredentials(t *testing.T) {
+	db := newTestDatabase(t)
+	if users, err := db.GetUsers(); err != nil || len(users) != 0 {
+		t.Fatalf("empty registry: %v, %v", users, err)
+	}
+	for name, address := range map[string]string{"alice": "10.0.0.1", "bob:клиент": "[::1]:1984"} {
+		if _, err := db.CreateUser(name, address); err != nil {
+			t.Fatal(err)
+		}
+		if err := db.SetUserToken(name, "secret"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	users, err := db.GetUsers()
+	if err != nil || len(users) != 2 {
+		t.Fatalf("registry: %v, %v", users, err)
+	}
+	if users[0].Name != "alice" || users[1].Name != "bob:клиент" || users[1].Addr != "[::1]:1984" {
+		t.Fatalf("registry fields: %v", users)
+	}
+	for _, user := range users {
+		if user.Token != "" || user.SignPublic != "" {
+			t.Fatal("listing loaded credentials")
+		}
+	}
+	if err := db.DeleteUsers("alice"); err != nil {
+		t.Fatal(err)
+	}
+	if users, err := db.GetUsers(); err != nil || len(users) != 1 || users[0].Name != "bob:клиент" {
+		t.Fatalf("deleted user still listed: %v, %v", users, err)
+	}
+}
+
 func TestCreateAndGetUser(t *testing.T) {
 	db := newTestDatabase(t)
 

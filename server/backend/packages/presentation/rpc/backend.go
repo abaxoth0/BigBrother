@@ -4,12 +4,15 @@ package rpc
 
 import (
 	buildlog "bigbrother_server_backend/packages/common/log"
+	"context"
 	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net"
+	"strings"
 	"time"
 
 	"bigbrother_server_backend/packages/application/settings"
@@ -271,27 +274,96 @@ func (h *BackendHandler) handle(conn net.Conn) {
 				writeErrorTLV(conn, "invalid token")
 				continue
 			}
+			session, err := h.connManager.GetConnection(name)
+			if err == nil && session.GetUser().Token != args[1] {
+				h.connManager.DeleteSession(name, session.ID())
+				err = connection.ErrConnectionNotFound
+			}
+			createdSession := false
+			if err != nil {
+				user, userErr := h.db.GetUserByName(name)
+				if userErr != nil {
+					writeErrorTLV(conn, userErr.Error())
+					continue
+				}
+				session, err = h.connManager.NewConnection(user)
+				if err == nil {
+					createdSession = true
+					h.bus.Publish(notification.Event{Type: notification.UserConnected,
+						Data: map[string]string{"name": name, "addr": user.Addr}})
+				}
+				if errors.Is(err, connection.ErrAlreadyConnected) {
+					session, err = h.connManager.GetConnection(name)
+				}
+				if err != nil {
+					writeErrorTLV(conn, err.Error())
+					continue
+				}
+			}
 			sub := notification.NewSubscriber(conn, 4096)
 			if err := h.bus.Add(sub); err != nil {
+				if createdSession {
+					h.connManager.DeleteSession(name, session.ID())
+				}
 				writeErrorTLV(conn, err.Error())
 				continue
 			}
 			writeOK(conn)
 			conn.SetReadDeadline(time.Time{}) // pushed events/heartbeats, no request deadline
+			watchDone := make(chan struct{})
+			go func() {
+				select {
+				case <-session.Context().Done():
+					var terminal *notification.Event
+					if errors.Is(context.Cause(session.Context()), connection.ErrDisconnectedByServer) {
+						terminal = &notification.Event{Type: notification.ClientDisconnected, Data: map[string]string{"name": name}}
+					}
+					h.bus.RemoveWithEvent(sub, terminal)
+				case <-watchDone:
+				}
+			}()
 			scanner := newScanner(conn)
 			for scanner.Scan() {
 				line := scanner.Text()
 				if line == "" {
 					continue
 				}
+				if session.Context().Err() != nil {
+					continue
+				}
 				// Revalidate on heartbeat so rotated tokens cannot retain a subscription.
 				if !h.authenticate(name, args[1]) {
 					break
 				}
-				h.RefreshConnection(name)
+				if strings.HasPrefix(line, "POLICY ") {
+					var report struct {
+						WhitelistRevision *string `json:"whitelistRevision"`
+						FiltrationEnabled *bool   `json:"filtrationEnabled"`
+						BlockIpv6         *bool   `json:"blockIpv6"`
+						CanSetIpv6Block   bool    `json:"canSetIpv6Block"`
+					}
+					if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "POLICY ")), &report); err != nil ||
+						report.WhitelistRevision == nil || report.FiltrationEnabled == nil || report.BlockIpv6 == nil {
+						continue
+					}
+					policy := connection.PolicyStatus{WhitelistRevision: *report.WhitelistRevision,
+						FiltrationEnabled: *report.FiltrationEnabled, BlockIpv6: *report.BlockIpv6, CanSetIpv6Block: report.CanSetIpv6Block}
+					if policy.WhitelistRevision != "" {
+						if digest, err := hex.DecodeString(policy.WhitelistRevision); err != nil || len(digest) != 32 {
+							continue
+						}
+					}
+					if changed, err := h.connManager.RefreshSession(name, session.ID(), &policy); err == nil && changed {
+						h.bus.Publish(notification.Event{Type: notification.ClientPolicyChanged,
+							Data: map[string]string{"name": name}})
+					}
+					continue
+				}
+				h.connManager.RefreshSession(name, session.ID(), nil)
 			}
+			close(watchDone)
 			h.bus.Remove(sub)
-			h.connManager.DeleteConnection(name)
+			h.connManager.DeleteSession(name, session.ID())
 			return
 
 		default:

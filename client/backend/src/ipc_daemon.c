@@ -20,6 +20,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>
+#include <mbedtls/sha256.h>
 
 #define DAEMON_PIPE_PREFIX "\\\\.\\pipe\\"
 #define CONFIG_INI_PATH "config\\config.ini"
@@ -50,6 +51,8 @@ static int ini_set_string_locked(const char* section, const char* key, const cha
 
 static char g_server_ip[64] = {0};
 static volatile LONG g_server_session_active = 0;
+static volatile LONG g_server_connection_paused = 0;
+static volatile LONG g_server_connection_revision = 0;
 static int g_registration_tried = 0;
 static int g_fallback_whitelist_enabled = 1;
 // Desired filtration state (set explicitly by the user via the "Вкл/Выкл"
@@ -66,6 +69,7 @@ static int apply_filtration_sync(void);
 static char* g_last_whitelist = NULL;
 static size_t g_last_whitelist_cap = 0;
 static int g_blocked_all_pushed = 0;
+static int g_whitelist_sync_pending = 1;
 
 static int wl_last_reserve(size_t need) {
     if (need + 1 <= g_last_whitelist_cap) return 0;
@@ -108,6 +112,7 @@ static int notify_windows(const char* title, const char* message) {
 
 void SetServerSessionActive(int active) {
     active = active ? 1 : 0;
+    if (active && InterlockedCompareExchange(&g_server_connection_paused, 0, 0)) active = 0;
     if (InterlockedExchange(&g_server_session_active, active) != active) {
         if (notify_windows("Соединение с сервером", active ? "Подключено к серверу" : "Соединение с сервером потеряно") != 0)
             LOGF("[Notifications] Could not launch connection notification");
@@ -120,6 +125,21 @@ void SetServerSessionActive(int active) {
 
 int IsServerSessionActive(void) {
     return g_server_session_active;
+}
+
+void ResumeServerConnection(void) {
+    InterlockedIncrement(&g_server_connection_revision);
+    InterlockedExchange(&g_server_connection_paused, 0);
+}
+
+static int is_server_connection_paused(void) {
+    return InterlockedCompareExchange(&g_server_connection_paused, 0, 0) != 0;
+}
+
+static void pause_server_connection(void) {
+    InterlockedExchange(&g_server_connection_paused, 1);
+    InterlockedIncrement(&g_server_connection_revision);
+    SetServerSessionActive(0);
 }
 
 void SetFallbackWhitelistEnabled(int enabled) {
@@ -557,7 +577,7 @@ static int send_command_tlv(const char* command, const char** args, size_t arg_c
         if (total >= buffer_size - 1) break;
     }
 
-    if (!ok && total == 0) {
+    if (!ok) {
         CloseHandle(pipe);
         return -1;
     }
@@ -698,6 +718,7 @@ int SetIpv6BlockEnabled(int enabled) {
     ReleaseSRWLockExclusive(&g_ipv6_sync_lock);
     if (synced != 0)
         LOGF("[Daemon] IPv6 blocking preference saved; firewall sync pending");
+    NotifyStateChanged();
     return 0;
 }
 
@@ -1243,7 +1264,7 @@ int ServerRegister(const char* name) {
 }
 
 int ServerConnect(const char* name) {
-    if (!name) return -1;
+    if (!name || is_server_connection_paused()) return -1;
     char local_ip[64] = {0};
     GetLocalIp(g_server_ip, local_ip, sizeof(local_ip));
     char token[256] = {0};
@@ -1271,12 +1292,12 @@ int ServerDisconnect(const char* name) {
     const char* args[2] = {name, token};
     char response[256];
     int result = send_authenticated_request("DISCONNECT", name, args, 2, 1, response, sizeof(response));
-    if (result == 0) SetServerSessionActive(0);
+    if (result == 0) pause_server_connection();
     return result;
 }
 
 int ServerRefresh(const char* name) {
-    if (!name) return -1;
+    if (!name || is_server_connection_paused()) return -1;
     char token[256] = {0};
     get_client_token(token, sizeof(token));
     const char* args[2] = {name, token};
@@ -1384,6 +1405,7 @@ static int srv_read_tlv(SrvLineReader* r, char* out, size_t out_size) {
 
 // Fetches and applies the whitelist from the server.
 static void sync_whitelist_from_server(const char* username) {
+    g_whitelist_sync_pending = 1;
     char token[256] = {0};
     get_client_token(token, sizeof(token));
     const char* wl_args[2] = {username, token};
@@ -1418,6 +1440,7 @@ static void sync_whitelist_from_server(const char* username) {
             }
             wl_last_set("SYNC_DISABLED");
         }
+        g_whitelist_sync_pending = 0;
         free(response);
         return;
     }
@@ -1427,20 +1450,82 @@ static void sync_whitelist_from_server(const char* username) {
         wl_last_clear();
     }
     if (wl_last_equals(response)) {
+        g_whitelist_sync_pending = 0;
         free(response);
         return;
     }
-    wl_last_set(response);
-
     char ok_buf[16];
     if (DaemonSetWhitelist(response, strlen(response), ok_buf, sizeof(ok_buf)) != 0) {
         LOGF("[Daemon] Failed to set whitelist on daemon");
     } else {
+        wl_last_set(response);
+        g_whitelist_sync_pending = 0;
         LOGF("[Daemon] Whitelist updated");
         g_whitelist_revision++;
         NotifyStateChanged();
     }
     free(response);
+}
+
+static int compare_rules(const void* a, const void* b) {
+    return strcmp(*(const char* const*)a, *(const char* const*)b);
+}
+
+static int whitelist_revision(char* rules, char revision[65]) {
+    size_t capacity = 1;
+    for (char* p = rules; *p; p++) if (*p == '\n') capacity++;
+    char** entries = malloc(capacity * sizeof(*entries));
+    if (!entries) return -1;
+    size_t count = 0;
+    char* context;
+    for (char* line = strtok_r(rules, "\n", &context); line; line = strtok_r(NULL, "\n", &context)) {
+        while (isspace((unsigned char)*line)) line++;
+        size_t len = strlen(line);
+        while (len && isspace((unsigned char)line[len - 1])) line[--len] = '\0';
+        if (!len || line[0] == '#' || line[0] == ';') continue;
+        for (char* p = line; *p; p++) if (*p >= 'A' && *p <= 'Z') *p += 'a' - 'A';
+        entries[count++] = line;
+    }
+    qsort(entries, count, sizeof(*entries), compare_rules);
+    mbedtls_sha256_context hash;
+    mbedtls_sha256_init(&hash);
+    int result = mbedtls_sha256_starts(&hash, 0);
+    for (size_t i = 0; !result && i < count; i++) {
+        if (i && strcmp(entries[i], entries[i - 1]) == 0) continue;
+        result = mbedtls_sha256_update(&hash, (unsigned char*)entries[i], strlen(entries[i]));
+        if (!result) result = mbedtls_sha256_update(&hash, (const unsigned char*)"\n", 1);
+    }
+    unsigned char digest[32];
+    if (!result) result = mbedtls_sha256_finish(&hash, digest);
+    mbedtls_sha256_free(&hash);
+    free(entries);
+    if (result) return -1;
+    for (size_t i = 0; i < sizeof(digest); i++) snprintf(revision + i * 2, 3, "%02x", digest[i]);
+    return 0;
+}
+
+static int build_policy_heartbeat(char* message, size_t capacity) {
+    int filtration = RefreshFiltrationEffective();
+    char revision[65] = {0};
+    char* whitelist = malloc(DAEMON_MAX_MESSAGE_SIZE);
+    if (whitelist) {
+        if (DaemonGetWhitelist(whitelist, DAEMON_MAX_MESSAGE_SIZE) == 0) {
+            if (strcmp(whitelist, "WHITELIST") == 0)
+                whitelist_revision(whitelist + strlen(whitelist), revision);
+            else if (strncmp(whitelist, "WHITELIST\n", 10) == 0)
+                whitelist_revision(whitelist + 10, revision);
+        }
+        free(whitelist);
+    }
+    return snprintf(message, capacity,
+        "POLICY {\"whitelistRevision\":\"%s\",\"filtrationEnabled\":%s,\"blockIpv6\":%s,\"canSetIpv6Block\":true}\n",
+        revision, filtration ? "true" : "false", IsIpv6BlockEnabled() ? "true" : "false");
+}
+
+static int send_policy_heartbeat(bb_tls_t* tls) {
+    char message[256];
+    int length = build_policy_heartbeat(message, sizeof(message));
+    return bb_tls_write(tls, message, (size_t)length);
 }
 
 // Syncs filtration state from the server.
@@ -1521,7 +1606,7 @@ static int try_discover_server(void) {
 }
 
 // Handle a server-pushed event. Reads the event's data TLV lines (terminated
-// by an empty line) and applies the change. Returns 0 to continue, 1 to resubscribe.
+// by an empty line) and applies the change. Returns 0 to continue, 1 to close the subscription, 2 to report policy.
 static int handle_server_event(const char* event_type, SrvLineReader* reader, const char* username) {
     // Read data key=value lines until empty line
     char data[8][256];
@@ -1535,6 +1620,31 @@ static int handle_server_event(const char* event_type, SrvLineReader* reader, co
         data_count++;
     }
 
+    if (strcmp(event_type, "CLIENT_DISCONNECTED") == 0) {
+        for (int i = 0; i < data_count; i++) {
+            if (strncmp(data[i], "name=", 5) == 0 && strcmp(data[i] + 5, username) == 0) {
+                LOGF("[Daemon] Disconnected by server; automatic reconnect paused");
+                pause_server_connection();
+                return 1;
+            }
+        }
+        return 0;
+    }
+    if (strcmp(event_type, "CLIENT_IPV6_BLOCK_CHANGED") == 0) {
+        const char* target = NULL;
+        int enabled = -1;
+        for (int i = 0; i < data_count; i++) {
+            if (strncmp(data[i], "name=", 5) == 0) target = data[i] + 5;
+            else if (strcmp(data[i], "enabled=0") == 0) enabled = 0;
+            else if (strcmp(data[i], "enabled=1") == 0) enabled = 1;
+        }
+        if (!target || strcmp(target, username) != 0 || enabled < 0) return 0;
+        if (SetIpv6BlockEnabled(enabled) != 0)
+            LOGF("[Daemon] Failed to save server-requested IPv6 blocking preference");
+        else
+            LOGF("[Daemon] Server set IPv6 blocking to %d", enabled);
+        return 2;
+    }
     if (strcmp(event_type, "WHITELIST_CHANGED") == 0) {
         sync_whitelist_from_server(username);
         return 0;
@@ -1576,6 +1686,8 @@ static int handle_server_event(const char* event_type, SrvLineReader* reader, co
 // Runs the server subscription loop. Returns 0 on connection loss, 1 on service stop.
 // Blocks until the connection drops or the service should shut down.
 static int server_subscribe_loop(const char* username, int* consecutive_failures, int allow_auth_retry) {
+    if (is_server_connection_paused()) return 0;
+    LONG connection_revision = InterlockedCompareExchange(&g_server_connection_revision, 0, 0);
     WSADATA wsa;
     if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) return 0;
 
@@ -1662,12 +1774,7 @@ static int server_subscribe_loop(const char* username, int* consecutive_failures
 
     LOGF("[Daemon] Subscribed to server events for user '%s'", username);
 
-    // On successful subscribe, ensure we are connected and synced
-    if (ServerConnect(username) == 0) {
-        SetServerSessionActive(1);
-    } else {
-        apply_filtration_sync();
-    }
+    SetServerSessionActive(1);
     sync_whitelist_from_server(username);
     sync_filtration_from_server();
     if (consecutive_failures) *consecutive_failures = 0;
@@ -1675,14 +1782,17 @@ static int server_subscribe_loop(const char* username, int* consecutive_failures
     // Event loop
     DWORD last_heartbeat = GetTickCount();
     DWORD last_local_check = GetTickCount();
-    int keep_going = 1;
+    int keep_going = send_policy_heartbeat(&subscription_tls) > 0;
+    int stop_requested = 0;
 
     while (keep_going) {
+        if (is_server_connection_paused() || connection_revision != InterlockedCompareExchange(&g_server_connection_revision, 0, 0)) break;
         if (certificate_revision != InterlockedCompareExchange(&g_certificate_revision, 0, 0)) break;
         // Check for service stop
         if (g_ServiceStopEvent != INVALID_HANDLE_VALUE &&
             WaitForSingleObject(g_ServiceStopEvent, 0) == WAIT_OBJECT_0) {
             keep_going = 0;
+            stop_requested = 1;
             break;
         }
 
@@ -1690,7 +1800,7 @@ static int server_subscribe_loop(const char* username, int* consecutive_failures
         DWORD now = GetTickCount();
         if (now - last_heartbeat >= SRV_HEARTBEAT_INTERVAL_MS) {
             last_heartbeat = now;
-            if (bb_tls_write(&subscription_tls, "K\n", 2) <= 0) {
+            if (send_policy_heartbeat(&subscription_tls) <= 0) {
                 LOGF("[Daemon] Heartbeat send failed, connection lost");
                 break;
             }
@@ -1699,12 +1809,13 @@ static int server_subscribe_loop(const char* username, int* consecutive_failures
         // Check local daemon health
         if (now - last_local_check >= SRV_LOCAL_DAEMON_CHECK_MS) {
             last_local_check = now;
-            PingDaemon(); // just check — failure is non-fatal here
+            if (g_whitelist_sync_pending) sync_whitelist_from_server(username);
         }
 
         // Try to read a line (non-blocking with SO_RCVTIMEO)
         char line[512];
         int rd = srv_readline(&reader, line, sizeof(line));
+        if (connection_revision != InterlockedCompareExchange(&g_server_connection_revision, 0, 0)) break;
         if (rd == 0) {
             // Connection closed or real error — leave loop
             keep_going = 0;
@@ -1721,10 +1832,11 @@ static int server_subscribe_loop(const char* username, int* consecutive_failures
                 break; // bad data
             }
 
-            if (handle_server_event(event_type, &reader, username) == 1) {
-                // Resubscribe requested
+            int result = handle_server_event(event_type, &reader, username);
+            if (result == 1) {
                 break;
             }
+            if (result == 2 && send_policy_heartbeat(&subscription_tls) <= 0) break;
         } else if (strcmp(line, "K") == 0) {
             // Server heartbeat reply — ignore
         } else {
@@ -1743,7 +1855,7 @@ static int server_subscribe_loop(const char* username, int* consecutive_failures
     bb_tls_free(&subscription_tls);
     closesocket(sock);
     WSACleanup();
-    return keep_going; // 1 = service stop, 0 = connection lost
+    return stop_requested;
 }
 
 // Sleep in increments of 1 second, checking for service stop.
@@ -1849,6 +1961,11 @@ int DaemonRun(const char* server_ip) {
             continue;
         }
 
+        if (is_server_connection_paused()) {
+            sleep_with_stop_check(1000);
+            continue;
+        }
+
         // Try to subscribe to server events
         fetch_token_if_needed(username);
         int sub_result = server_subscribe_loop(username, &consecutive_failures, 1);
@@ -1858,9 +1975,10 @@ int DaemonRun(const char* server_ip) {
         }
 
         // Connection lost — clean up state
-        LOGF("[Daemon] Lost connection to server %s, retrying...", g_server_ip);
+        LOGF("[Daemon] Server session ended%s", is_server_connection_paused() ? "; automatic reconnect paused" : "; retrying");
         SetServerSessionActive(0); // syncs filtration off when connection-sync is enabled
         block_all_if_no_fallback();
+        if (is_server_connection_paused()) continue;
 
         consecutive_failures++;
         if (consecutive_failures >= 3) {

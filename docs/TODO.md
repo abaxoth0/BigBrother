@@ -2,7 +2,6 @@
 
 ## Feature ideas
 
-- **Client policy status** (medium): show whether each client has applied the latest whitelist, its effective filtration state, and its IPv6 blocking preference.
 - **Add rules for ports** (medium)
 - **Temporary access** (medium): allow a domain for a limited time, then revoke access automatically.
 - **Whitelist history and rollback** (medium): review changes and restore a previous version when an edit breaks access.

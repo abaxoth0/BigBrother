@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -24,7 +25,8 @@ public enum NavigationSection
 public enum UsersFilterMode
 {
     Connected,
-    Pending
+    Pending,
+    All
 }
 
 public class MainViewModel : ViewModelBase
@@ -84,6 +86,7 @@ public class MainViewModel : ViewModelBase
             {
                 OnPropertyChanged(nameof(UsersShowConnected));
                 OnPropertyChanged(nameof(UsersShowPending));
+                OnPropertyChanged(nameof(UsersShowAll));
                 OnPropertyChanged(nameof(UsersFilterLabel));
                 RebuildUsersView();
             }
@@ -92,16 +95,25 @@ public class MainViewModel : ViewModelBase
 
     public bool UsersShowConnected => UsersFilter == UsersFilterMode.Connected;
     public bool UsersShowPending => UsersFilter == UsersFilterMode.Pending;
-    public string UsersFilterLabel => UsersShowConnected ? "Подключённые клиенты" : "Ожидающие регистрации";
+    public bool UsersShowAll => UsersFilter == UsersFilterMode.All;
+    public string UsersFilterLabel => UsersFilter switch
+    {
+        UsersFilterMode.Pending => "Ожидающие регистрации",
+        UsersFilterMode.All => "Все пользователи",
+        _ => "Подключённые клиенты"
+    };
 
     public int UsersFilterIndex
     {
-        get => UsersFilter == UsersFilterMode.Connected ? 0 : 1;
-        set => UsersFilter = value == 0 ? UsersFilterMode.Connected : UsersFilterMode.Pending;
+        get => (int)UsersFilter;
+        set => UsersFilter = value is >= 0 and <= 2 ? (UsersFilterMode)value : UsersFilterMode.Connected;
     }
 
     public ObservableCollection<ConnectedClient> FilteredConnected { get; } = new();
     public ObservableCollection<PendingRegistration> FilteredPending { get; } = new();
+    public ObservableCollection<ConnectedClient> RegisteredUsers { get; } = new();
+    public ObservableCollection<UserOverview> AllUsers { get; } = new();
+    public ObservableCollection<UserOverview> FilteredAllUsers { get; } = new();
 
     private string _usersSearchText = "";
     public string UsersSearchText
@@ -157,13 +169,24 @@ public class MainViewModel : ViewModelBase
         PendingRegistrations = new ObservableCollection<PendingRegistration>();
         Whitelists = new ObservableCollection<WhitelistInfo>();
 
-        ApproveCommand = new RelayCommand(async o => await ApproveUserAsync(o?.ToString()!), o => o != null);
-        RejectCommand = new RelayCommand(async o => await RejectUserAsync(o?.ToString()!), o => o != null);
-        ShowUserTokenCommand = new RelayCommand(async o => await ShowUserTokenAsync(o?.ToString()!), o => o != null);
-        RegenerateTokenCommand = new RelayCommand(async o => await RegenerateUserTokenAsync(o?.ToString()!), o => o != null);
-        DisconnectCommand = new RelayCommand(async o => await DisconnectUserAsync(o?.ToString()!), o => o != null);
+        ApproveCommand = new RelayCommand(async o => await RunUserActionAsync(() => ApproveUserAsync(o?.ToString())),
+            o => CanRunUserAction && GetPendingTargets(o?.ToString()).Count > 0);
+        RejectCommand = new RelayCommand(async o => await RunUserActionAsync(() => RejectUserAsync(o?.ToString())),
+            o => CanRunUserAction && GetPendingTargets(o?.ToString()).Count > 0);
+        ShowUserTokenCommand = new RelayCommand(async o => await RunUserActionAsync(() => ShowUserTokenAsync(o?.ToString())),
+            o => CanRunUserAction && GetClientTargets(o?.ToString()).Count > 0);
+        RegenerateTokenCommand = new RelayCommand(async o => await RunUserActionAsync(() => RegenerateUserTokenAsync(o?.ToString())),
+            o => CanRunUserAction && GetClientTargets(o?.ToString()).Count > 0);
+        DisconnectCommand = new RelayCommand(async o => await RunUserActionAsync(() => DisconnectUserAsync(o?.ToString())),
+            o => CanRunUserAction && GetConnectedTargets(o?.ToString()).Count > 0);
+        DisableClientIpv6BlockCommand = new RelayCommand(async o => await RunUserActionAsync(() => SetClientIpv6BlockAsync(o as ConnectedClient, false)),
+            o => CanSetClientIpv6Block(o as ConnectedClient));
+        EnableClientIpv6BlockCommand = new RelayCommand(async o => await RunUserActionAsync(() => SetClientIpv6BlockAsync(o as ConnectedClient, true)),
+            o => CanSetClientIpv6Block(o as ConnectedClient));
         RefreshCommand = new RelayCommand(async _ => await RefreshAllAsync());
-        ToggleWhitelistActiveCommand = new RelayCommand(o => ToggleWhitelistActive(o as WhitelistInfo),
+        DisableWhitelistsCommand = new RelayCommand(o => SetWhitelistsActive(o as WhitelistInfo, false),
+            o => (Whitelists.Any(w => w.IsSelected) || o is WhitelistInfo) && IsConnected && !_savingWhitelistActivation);
+        EnableWhitelistsCommand = new RelayCommand(o => SetWhitelistsActive(o as WhitelistInfo, true),
             o => (Whitelists.Any(w => w.IsSelected) || o is WhitelistInfo) && IsConnected && !_savingWhitelistActivation);
         SaveWhitelistActivationCommand = new RelayCommand(async _ => await SaveWhitelistActivationAsync(),
             _ => IsConnected && HasWhitelistActivationChanges && !_savingWhitelistActivation);
@@ -215,11 +238,15 @@ public class MainViewModel : ViewModelBase
                 _ = RefreshClientsAsync();
                 _ = RefreshServerStatusAsync();
                 break;
+            case "CLIENT_POLICY_CHANGED":
+                _ = RefreshClientsAsync();
+                break;
             case "PENDING_ADDED":
             case "PENDING_REMOVED":
             case "USER_APPROVED":
             case "USER_REJECTED":
                 _ = RefreshPendingAsync();
+                if (type == "USER_APPROVED") _ = RefreshClientsAsync();
                 _ = RefreshServerStatusAsync();
                 break;
             case "WHITELIST_CHANGED":
@@ -395,6 +422,37 @@ public class MainViewModel : ViewModelBase
         }
     }
 
+    public bool AreAllConnectedSelected
+    {
+        get => ConnectedClients.Count > 0 && ConnectedClients.All(c => c.IsSelected);
+        set { foreach (var client in ConnectedClients) client.IsSelected = value; }
+    }
+
+    public bool AreAllPendingSelected
+    {
+        get => PendingRegistrations.Count > 0 && PendingRegistrations.All(p => p.IsSelected);
+        set { foreach (var pending in PendingRegistrations) pending.IsSelected = value; }
+    }
+
+    public bool AreAllUsersSelected
+    {
+        get => AllUsers.Count > 0 && AllUsers.All(u => u.IsSelected);
+        set { foreach (var user in AllUsers) user.IsSelected = value; }
+    }
+
+    private void OnUserSelectionChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(ISelectableRow.IsSelected)) NotifyUserSelectionChanged();
+    }
+
+    private void NotifyUserSelectionChanged()
+    {
+        OnPropertyChanged(nameof(AreAllConnectedSelected));
+        OnPropertyChanged(nameof(AreAllPendingSelected));
+        OnPropertyChanged(nameof(AreAllUsersSelected));
+        CommandManager.InvalidateRequerySuggested();
+    }
+
     public string LogSearchText
     {
         get => _logSearchText;
@@ -416,8 +474,13 @@ public class MainViewModel : ViewModelBase
     public ICommand RegenerateTokenCommand { get; }
     public ICommand RejectCommand { get; }
     public ICommand DisconnectCommand { get; }
+    public ICommand DisableClientIpv6BlockCommand { get; }
+    public ICommand EnableClientIpv6BlockCommand { get; }
+    private bool _userActionInProgress;
+    private bool CanRunUserAction => IsConnected && !_userActionInProgress;
     public ICommand RefreshCommand { get; }
-    public ICommand ToggleWhitelistActiveCommand { get; }
+    public ICommand DisableWhitelistsCommand { get; }
+    public ICommand EnableWhitelistsCommand { get; }
     public ICommand SaveWhitelistActivationCommand { get; }
     public ICommand CancelWhitelistActivationCommand { get; }
     public ICommand OpenDomainCheckCommand { get; }
@@ -527,8 +590,7 @@ public class MainViewModel : ViewModelBase
     public event Action? AutoScrollRequested;
     private void StartAutoRefresh()
     {
-        // Safety net only: updates are event-driven via the server SUBSCRIBE feed.
-        _refreshTimer = new System.Timers.Timer(30000);
+        _refreshTimer = new System.Timers.Timer(10000);
         _refreshTimer.Elapsed += async (s, e) =>
         {
             if (_disposed) return;
@@ -835,6 +897,8 @@ public class MainViewModel : ViewModelBase
                 {
                     ConnectedClients.Clear();
                     PendingRegistrations.Clear();
+                    RegisteredUsers.Clear();
+                    RebuildUsersView();
                     Whitelists.Clear();
                     WhitelistConflicts = new();
                     OnPropertyChanged(nameof(ActiveWhitelistsText));
@@ -869,6 +933,8 @@ public class MainViewModel : ViewModelBase
                     FiltrationStatus = "N/A";
                     ConnectedClients.Clear();
                     PendingRegistrations.Clear();
+                    RegisteredUsers.Clear();
+                    RebuildUsersView();
                     Whitelists.Clear();
                     WhitelistConflicts = new();
                     OnPropertyChanged(nameof(ActiveWhitelistsText));
@@ -888,58 +954,31 @@ public class MainViewModel : ViewModelBase
     {
         var searchLower = UsersSearchText?.ToLower() ?? "";
 
-        FilteredConnected.Clear();
-        foreach (var c in ConnectedClients)
-        {
-            if (searchLower == "" ||
-                c.Name.ToLower().Contains(searchLower) ||
-                c.Address.ToLower().Contains(searchLower))
-            {
-                FilteredConnected.Add(c);
-            }
-        }
-
-        FilteredPending.Clear();
-        foreach (var p in PendingRegistrations)
-        {
-            if (searchLower == "" ||
-                p.Name.ToLower().Contains(searchLower) ||
-                p.Address.ToLower().Contains(searchLower))
-            {
-                FilteredPending.Add(p);
-            }
-        }
+        UserTableView.UpdateOverview(AllUsers, RegisteredUsers, ConnectedClients, PendingRegistrations);
+        UserTableView.Update(FilteredAllUsers, AllUsers.Where(u =>
+            searchLower == "" || u.Name.ToLower().Contains(searchLower) || u.Address.ToLower().Contains(searchLower)));
+        UserTableView.Update(FilteredConnected, ConnectedClients.Where(c =>
+            searchLower == "" || c.Name.ToLower().Contains(searchLower) || c.Address.ToLower().Contains(searchLower)));
+        UserTableView.Update(FilteredPending, PendingRegistrations.Where(p =>
+            searchLower == "" || p.Name.ToLower().Contains(searchLower) || p.Address.ToLower().Contains(searchLower)));
+        NotifyUserSelectionChanged();
     }
 
     public async Task RefreshClientsAsync()
     {
         try
         {
+            var registered = await _ipcService.GetRegisteredUsersAsync();
             var clients = await _ipcService.GetClientsAsync();
             await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
             {
-                // Update in place to keep DataGrid rows stable (preserves context menu focus)
-                var toRemove = ConnectedClients.Where(c => !clients.Any(n => n.Name == c.Name)).ToList();
-                foreach (var c in toRemove)
-                    ConnectedClients.Remove(c);
-
-                foreach (var nc in clients)
-                {
-                    var existing = ConnectedClients.FirstOrDefault(c => c.Name == nc.Name);
-                    if (existing != null)
-                    {
-                        existing.Address = nc.Address;
-                        existing.Status = nc.Status;
-                        existing.Whitelist = nc.Whitelist;
-                        existing.LastActivity = nc.LastActivity;
-                    }
-                    else
-                    {
-                        ConnectedClients.Add(nc);
-                    }
-                }
+                var previous = RegisteredUsers.ToHashSet();
+                UserTableView.UpdateRegistered(RegisteredUsers, ConnectedClients, registered, clients);
+                foreach (var removed in previous.Except(RegisteredUsers)) removed.PropertyChanged -= OnUserSelectionChanged;
+                foreach (var added in RegisteredUsers.Except(previous)) added.PropertyChanged += OnUserSelectionChanged;
                 ConnectedClientsCount = ConnectedClients.Count;
                 RebuildUsersView();
+                CommandManager.InvalidateRequerySuggested();
             });
         }
         catch (Exception ex)
@@ -961,7 +1000,10 @@ public class MainViewModel : ViewModelBase
                 // Update in place to keep DataGrid rows stable (preserves context menu focus)
                 var toRemove = PendingRegistrations.Where(p => !pending.Any(n => n.Name == p.Name)).ToList();
                 foreach (var p in toRemove)
+                {
+                    p.PropertyChanged -= OnUserSelectionChanged;
                     PendingRegistrations.Remove(p);
+                }
 
                 foreach (var np in pending)
                 {
@@ -973,6 +1015,7 @@ public class MainViewModel : ViewModelBase
                     }
                     else
                     {
+                        np.PropertyChanged += OnUserSelectionChanged;
                         PendingRegistrations.Add(np);
                     }
                 }
@@ -1044,57 +1087,153 @@ public class MainViewModel : ViewModelBase
         }
     }
 
+    private List<ConnectedClient> GetClientTargets(string? name) =>
+        UserTableView.SelectedOrCurrent(UsersShowAll ? RegisteredUsers : ConnectedClients,
+            (UsersShowAll ? RegisteredUsers : ConnectedClients).FirstOrDefault(c => c.Name == name),
+            UsersShowAll && AllUsers.Any(u => u.IsSelected));
+
+    private List<ConnectedClient> GetConnectedTargets(string? name) =>
+        GetClientTargets(name).Where(c => ConnectedClients.Contains(c)).ToList();
+
+    private List<PendingRegistration> GetPendingTargets(string? name) =>
+        UserTableView.SelectedOrCurrent(PendingRegistrations, PendingRegistrations.FirstOrDefault(p => p.Name == name),
+            UsersShowAll && AllUsers.Any(u => u.IsSelected));
+
+    private static void ClearUserSelection(IEnumerable<ISelectableRow> rows)
+    {
+        foreach (var row in rows) row.IsSelected = false;
+    }
+
+    private async Task RunUserActionAsync(Func<Task> action)
+    {
+        if (!CanRunUserAction) return;
+        _userActionInProgress = true;
+        CommandManager.InvalidateRequerySuggested();
+        try { await action(); }
+        catch (Exception ex) { AddLog("ERROR", $"Ошибка действия с пользователями: {ex.Message}"); }
+        finally
+        {
+            _userActionInProgress = false;
+            CommandManager.InvalidateRequerySuggested();
+        }
+    }
+
     private async Task ApproveUserAsync(string? name)
     {
-        if (string.IsNullOrEmpty(name)) return;
-        var ok = await _ipcService.ApproveUserAsync(name);
-        AddLog(ok ? "INFO" : "ERROR", ok
-            ? $"Пользователь {name} одобрен — токен будет доставлен клиенту автоматически"
-            : $"Ошибка одобрения {name}");
+        var targets = GetPendingTargets(name);
+        ClearUserSelection(targets);
+        foreach (var user in targets)
+        {
+            var ok = await _ipcService.ApproveUserAsync(user.Name);
+            AddLog(ok ? "INFO" : "ERROR", ok
+                ? $"Пользователь {user.Name} одобрен — токен будет доставлен клиенту автоматически"
+                : $"Ошибка одобрения {user.Name}");
+        }
         await RefreshPendingAsync();
         await RefreshClientsAsync();
     }
 
     private async Task ShowUserTokenAsync(string? name)
     {
-        if (string.IsNullOrEmpty(name)) return;
-        var token = await _ipcService.GetUserTokenAsync(name);
-        if (string.IsNullOrEmpty(token))
+        var targets = GetClientTargets(name);
+        if (targets.Count == 0) return;
+        ClearUserSelection(targets);
+        var tokens = new List<string>();
+        foreach (var user in targets)
         {
-            MessageBox.Show("Токен не установлен.", "Токен доступа", MessageBoxButton.OK, MessageBoxImage.Warning);
-            return;
+            var token = await _ipcService.GetUserTokenAsync(user.Name);
+            tokens.Add($"Клиент «{user.Name}»:\n{(string.IsNullOrEmpty(token) ? "Токен не установлен или недоступен." : token)}");
         }
-        MessageBox.Show($"Токен клиента «{name}»:\n\n{token}",
-            "Токен доступа", MessageBoxButton.OK, MessageBoxImage.Information);
+        MessageBox.Show(string.Join("\n\n", tokens), "Токены доступа", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
     private async Task RegenerateUserTokenAsync(string? name)
     {
-        if (string.IsNullOrEmpty(name)) return;
-        var token = await _ipcService.RegenerateUserTokenAsync(name);
-        AddLog(string.IsNullOrEmpty(token) ? "ERROR" : "INFO",
-            string.IsNullOrEmpty(token) ? $"Ошибка сброса токена {name}" : $"Токен {name} обновлён");
-        if (!string.IsNullOrEmpty(token))
+        var targets = GetClientTargets(name);
+        ClearUserSelection(targets);
+        var updated = new List<string>();
+        foreach (var user in targets)
         {
-            MessageBox.Show($"Токен клиента «{name}» обновлён. Клиент получит новый токен автоматически после повторной проверки своей ключевой пары. Редактировать настройки клиента не требуется.",
+            var token = await _ipcService.RegenerateUserTokenAsync(user.Name);
+            AddLog(string.IsNullOrEmpty(token) ? "ERROR" : "INFO",
+                string.IsNullOrEmpty(token) ? $"Ошибка сброса токена {user.Name}" : $"Токен {user.Name} обновлён");
+            if (!string.IsNullOrEmpty(token)) updated.Add(user.Name);
+        }
+        if (updated.Count > 0)
+        {
+            MessageBox.Show($"Токены обновлены: {string.Join(", ", updated)}. Клиенты получат новые токены автоматически после повторной проверки своих ключевых пар. Редактировать настройки клиентов не требуется.",
                 "Токен доступа", MessageBoxButton.OK, MessageBoxImage.Information);
         }
     }
 
     private async Task RejectUserAsync(string? name)
     {
-        if (string.IsNullOrEmpty(name)) return;
-        var ok = await _ipcService.RejectUserAsync(name);
-        AddLog(ok ? "INFO" : "ERROR", ok ? $"Пользователь {name} отклонен" : $"Ошибка отклонения {name}");
+        var targets = GetPendingTargets(name);
+        ClearUserSelection(targets);
+        foreach (var user in targets)
+        {
+            var ok = await _ipcService.RejectUserAsync(user.Name);
+            AddLog(ok ? "INFO" : "ERROR", ok ? $"Пользователь {user.Name} отклонен" : $"Ошибка отклонения {user.Name}");
+        }
         await RefreshPendingAsync();
     }
 
     private async Task DisconnectUserAsync(string? name)
     {
-        if (string.IsNullOrEmpty(name)) return;
-        var ok = await _ipcService.DisconnectUserAsync(name);
-        AddLog(ok ? "INFO" : "ERROR", ok ? $"Пользователь {name} отключен" : $"Ошибка отключения {name}");
+        var targets = GetConnectedTargets(name);
+        ClearUserSelection(targets);
+        foreach (var user in targets)
+        {
+            var ok = await _ipcService.DisconnectUserAsync(user.Name);
+            AddLog(ok ? "INFO" : "ERROR", ok ? $"Пользователь {user.Name} отключен" : $"Ошибка отключения {user.Name}");
+        }
         await RefreshClientsAsync();
+    }
+
+    private bool CanSetClientIpv6Block(ConnectedClient? client)
+    {
+        if (!CanRunUserAction) return false;
+        var targets = GetConnectedTargets(client?.Name);
+        return targets.Count > 0 && targets.All(c => c.Policy?.CanSetIpv6Block == true);
+    }
+
+    private async Task SetClientIpv6BlockAsync(ConnectedClient? client, bool blockIpv6)
+    {
+        var targets = GetConnectedTargets(client?.Name);
+        if (targets.Count == 0 || targets.Any(c => c.Policy?.CanSetIpv6Block != true)) return;
+        var pending = targets.ToDictionary(c => c.Name, _ => blockIpv6);
+        ClearUserSelection(targets);
+        foreach (var (name, enabled) in pending.ToList())
+        {
+            try { await _ipcService.SetClientIpv6BlockAsync(name, enabled); }
+            catch (Exception ex)
+            {
+                AddLog("ERROR", $"Клиент {name}: {ex.Message}");
+                pending.Remove(name);
+            }
+        }
+        var deadline = DateTime.UtcNow.AddSeconds(12);
+        while (pending.Count > 0 && !_disposed && DateTime.UtcNow < deadline)
+        {
+            await RefreshClientsAsync();
+            foreach (var (name, enabled) in pending.ToList())
+            {
+                var current = ConnectedClients.FirstOrDefault(c => c.Name == name);
+                if (current == null)
+                {
+                    AddLog("ERROR", $"Клиент {name}: клиент отключился");
+                    pending.Remove(name);
+                }
+                else if (current.Policy?.BlockIpv6 == enabled)
+                {
+                    AddLog("INFO", $"Клиент {name}: блокировка IPv6 {(enabled ? "включена" : "выключена")}");
+                    pending.Remove(name);
+                }
+            }
+            if (pending.Count > 0) await Task.Delay(500);
+        }
+        foreach (var name in pending.Keys)
+            AddLog("ERROR", $"Клиент {name}: клиент не подтвердил изменение блокировки IPv6");
     }
 
     private async Task DeleteSelectedWhitelistsAsync(WhitelistInfo? whitelist)
@@ -1131,12 +1270,12 @@ public class MainViewModel : ViewModelBase
         CommandManager.InvalidateRequerySuggested();
     }
 
-    private void ToggleWhitelistActive(WhitelistInfo? whitelist)
+    private void SetWhitelistsActive(WhitelistInfo? whitelist, bool active)
     {
         if (!IsConnected || _savingWhitelistActivation) return;
         var selected = Whitelists.Where(w => w.IsSelected).ToList();
         if (selected.Count == 0 && whitelist != null) selected.Add(whitelist);
-        foreach (var row in selected) _whitelistActivation.Toggle(row);
+        foreach (var row in selected) _whitelistActivation.SetActive(row, active);
         IsAllSelected = false;
         NotifyWhitelistActivationChanged();
     }
@@ -1437,6 +1576,7 @@ public class MainViewModel : ViewModelBase
     {
         if (_disposed) return;
         _disposed = true;
+        foreach (var user in AllUsers) user.Dispose();
         _logUpdates.Dispose();
         _refreshTimer?.Stop();
         _refreshTimer?.Dispose();

@@ -3,6 +3,7 @@ package userapplication
 import "bigbrother_server_backend/packages/domain/entity"
 
 type QueryHandler interface {
+	GetUsers() ([]*entity.User, error)
 	GetUserByName(username string) (*entity.User, error)
 	GetUserByAddr(userAddr string) (*entity.User, error)
 }
