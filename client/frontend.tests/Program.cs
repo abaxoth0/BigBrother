@@ -79,3 +79,4 @@ foreach (var (reply, expected, fail) in new[] {
     catch (IOException) when (fail) { }
 }
 Console.WriteLine("Update pipe tests passed: long Unicode notes, no publication and server errors.");
+await Ipv6BlockPreferenceTests.RunAsync();

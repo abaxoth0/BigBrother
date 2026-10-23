@@ -29,6 +29,28 @@
         <conv:InverseBoolToVisibilityConverter x:Key="InverseBoolToVisibility"/>
         <conv:EnumToBoolConverter x:Key="EnumToBool"/>
 
+        <Style x:Key="UserRowStyle" TargetType="DataGridRow">
+            <EventSetter Event="PreviewMouseLeftButtonDown" Handler="UserRow_PreviewMouseLeftButtonDown"/>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource SelectedBackground}"/>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="UserCellStyle" TargetType="DataGridCell" BasedOn="{StaticResource {x:Type DataGridCell}}">
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource SelectedBackground}"/>
+                    <Setter Property="Foreground" Value="{DynamicResource AccentText}"/>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <DataTemplate x:Key="UserSelectionCellTemplate">
+            <CheckBox IsChecked="{Binding IsSelected, UpdateSourceTrigger=PropertyChanged}"
+                      Width="18" ClipToBounds="True"
+                      HorizontalAlignment="Center" VerticalAlignment="Center"/>
+        </DataTemplate>
+
         <Style x:Key="ControlButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
             <Setter Property="Padding" Value="10,5"/>
             <Setter Property="Margin" Value="2"/>
@@ -349,6 +371,7 @@
                             <ComboBox Grid.Column="1" Width="220" SelectedIndex="{Binding UsersFilterIndex}" Margin="8,0,8,0">
                                 <ComboBoxItem Content="Подключённые клиенты"/>
                                 <ComboBoxItem Content="Ожидающие регистрации"/>
+                                <ComboBoxItem Content="Все пользователи"/>
                             </ComboBox>
                             <TextBox Grid.Column="2" Text="{Binding UsersSearchText, UpdateSourceTrigger=PropertyChanged}"
                                      Margin="8,0,8,0" Height="26" VerticalContentAlignment="Center"
@@ -359,6 +382,7 @@
 
                     <!-- Connected clients -->
                     <DataGrid Grid.Row="1" ItemsSource="{Binding FilteredConnected}" AutoGenerateColumns="False"
+                              RowStyle="{StaticResource UserRowStyle}" CellStyle="{StaticResource UserCellStyle}"
                               Background="{StaticResource Surface}" Foreground="{StaticResource TitleBarText}"
                               BorderBrush="{StaticResource BorderBrush}"
                               ColumnHeaderStyle="{StaticResource GridColumnHeaderStyle}"
@@ -371,15 +395,41 @@
                               GridLinesVisibility="Horizontal" HeadersVisibility="Column"
                               VerticalContentAlignment="Center" MinRowHeight="26">
                         <DataGrid.Columns>
+                            <DataGridTemplateColumn Header=" " Width="34" CellTemplate="{StaticResource UserSelectionCellTemplate}">
+                                <DataGridTemplateColumn.HeaderTemplate>
+                                    <DataTemplate>
+                                        <CheckBox IsChecked="{Binding DataContext.AreAllConnectedSelected, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                  Width="18" ClipToBounds="True" ToolTip="Выбрать всех подключённых клиентов"
+                                                  HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.HeaderTemplate>
+                            </DataGridTemplateColumn>
                             <DataGridTextColumn Header="Имя" Binding="{Binding Name}" Width="150"/>
                             <DataGridTextColumn Header="Адрес" Binding="{Binding Address}" Width="150"/>
-                            <DataGridTextColumn Header="Статус" Binding="{Binding Status}" Width="100"/>
-                            <DataGridTextColumn Header="Список" Binding="{Binding Whitelist}" Width="100"/>
-                            <DataGridTextColumn Header="Последняя активность" Binding="{Binding LastActivity, StringFormat=HH:mm:ss}" Width="130"/>
+                            <DataGridTextColumn Header="Белый список" Binding="{Binding Whitelist}" Width="120"/>
+                            <DataGridTextColumn Header="Фильтрация" Binding="{Binding FiltrationText}" Width="100"/>
+                            <DataGridTextColumn Binding="{Binding Ipv6BlockText}" Width="145">
+                                <DataGridTextColumn.Header>
+                                    <TextBlock Text="Блокировка IPv6" ToolTip="Предпочтение клиента: блокировать IPv6 при включённой фильтрации"/>
+                                </DataGridTextColumn.Header>
+                            </DataGridTextColumn>
+                            <DataGridTextColumn Binding="{Binding LastActivity, StringFormat=dd.MM.yyyy HH:mm:ss, TargetNullValue=—}" Width="170">
+                                <DataGridTextColumn.Header>
+                                    <TextBlock Text="Последняя активность" ToolTip="Время последнего сигнала от клиента"/>
+                                </DataGridTextColumn.Header>
+                            </DataGridTextColumn>
                         </DataGrid.Columns>
                         <DataGrid.ContextMenu>
                             <ContextMenu>
                                 <MenuItem Header="Отключить" Command="{Binding DisconnectCommand}" CommandParameter="{Binding PlacementTarget.SelectedItem.Name, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                                <MenuItem Header="Включить блокировку IPv6" Command="{Binding EnableClientIpv6BlockCommand}"
+                                          CommandParameter="{Binding PlacementTarget.SelectedItem, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                          ToolTipService.ShowOnDisabled="True"
+                                          ToolTip="Включить блокировку IPv6 у всех отмеченных клиентов; настройка сохраняется на каждом клиенте"/>
+                                <MenuItem Header="Отключить блокировку IPv6" Command="{Binding DisableClientIpv6BlockCommand}"
+                                          CommandParameter="{Binding PlacementTarget.SelectedItem, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                          ToolTipService.ShowOnDisabled="True"
+                                          ToolTip="Отключить блокировку IPv6 у всех отмеченных клиентов; настройка сохраняется на каждом клиенте"/>
                                 <Separator/>
                                 <MenuItem Header="Показать токен" Command="{Binding ShowUserTokenCommand}" CommandParameter="{Binding PlacementTarget.SelectedItem.Name, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
                                 <MenuItem Header="Сбросить токен" Command="{Binding RegenerateTokenCommand}" CommandParameter="{Binding PlacementTarget.SelectedItem.Name, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
@@ -387,8 +437,52 @@
                         </DataGrid.ContextMenu>
                     </DataGrid>
 
+                    <DataGrid Grid.Row="1" ItemsSource="{Binding FilteredAllUsers}" AutoGenerateColumns="False"
+                              RowStyle="{StaticResource UserRowStyle}" CellStyle="{StaticResource UserCellStyle}"
+                              Background="{StaticResource Surface}" Foreground="{StaticResource TitleBarText}"
+                              BorderBrush="{StaticResource BorderBrush}"
+                              ColumnHeaderStyle="{StaticResource GridColumnHeaderStyle}"
+                              Visibility="{Binding UsersShowAll, Converter={StaticResource BoolToVisibility}}"
+                              CanUserAddRows="False" CanUserDeleteRows="False" IsReadOnly="True"
+                              RowBackground="{StaticResource Surface}" AlternatingRowBackground="{StaticResource SurfaceAlt}"
+                              HorizontalGridLinesBrush="{StaticResource BorderBrush}"
+                              VerticalGridLinesBrush="{StaticResource BorderBrush}"
+                              GridLinesVisibility="Horizontal" HeadersVisibility="Column"
+                              VerticalContentAlignment="Center" MinRowHeight="26">
+                        <DataGrid.Columns>
+                            <DataGridTemplateColumn Header=" " Width="34" CellTemplate="{StaticResource UserSelectionCellTemplate}">
+                                <DataGridTemplateColumn.HeaderTemplate>
+                                    <DataTemplate>
+                                        <CheckBox IsChecked="{Binding DataContext.AreAllUsersSelected, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                  Width="18" ClipToBounds="True" ToolTip="Выбрать всех пользователей и все заявки"
+                                                  HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.HeaderTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTextColumn Header="Имя" Binding="{Binding Name}" Width="180"/>
+                            <DataGridTextColumn Header="Адрес" Binding="{Binding Address}" Width="180"/>
+                            <DataGridTextColumn Header="Состояние" Binding="{Binding State}" Width="180"/>
+                            <DataGridTextColumn Header="Последняя активность" Binding="{Binding LastActivity, StringFormat=dd.MM.yyyy HH:mm:ss, TargetNullValue=—}" Width="170"/>
+                            <DataGridTextColumn Header="Запрошено" Binding="{Binding CreatedAt, StringFormat=dd.MM.yyyy HH:mm:ss, TargetNullValue=—}" Width="170"/>
+                        </DataGrid.Columns>
+                        <DataGrid.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="Одобрить" Command="{Binding ApproveCommand}" CommandParameter="{Binding PlacementTarget.SelectedItem.Pending.Name, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                                <MenuItem Header="Отклонить" Command="{Binding RejectCommand}" CommandParameter="{Binding PlacementTarget.SelectedItem.Pending.Name, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                                <Separator/>
+                                <MenuItem Header="Отключить" Command="{Binding DisconnectCommand}" CommandParameter="{Binding PlacementTarget.SelectedItem.Client.Name, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                                <MenuItem Header="Включить блокировку IPv6" Command="{Binding EnableClientIpv6BlockCommand}" CommandParameter="{Binding PlacementTarget.SelectedItem.Client, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                                <MenuItem Header="Отключить блокировку IPv6" Command="{Binding DisableClientIpv6BlockCommand}" CommandParameter="{Binding PlacementTarget.SelectedItem.Client, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                                <Separator/>
+                                <MenuItem Header="Показать токен" Command="{Binding ShowUserTokenCommand}" CommandParameter="{Binding PlacementTarget.SelectedItem.Client.Name, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                                <MenuItem Header="Сбросить токен" Command="{Binding RegenerateTokenCommand}" CommandParameter="{Binding PlacementTarget.SelectedItem.Client.Name, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                            </ContextMenu>
+                        </DataGrid.ContextMenu>
+                    </DataGrid>
+
                     <!-- Pending registrations -->
                     <DataGrid Grid.Row="1" ItemsSource="{Binding FilteredPending}" AutoGenerateColumns="False"
+                              RowStyle="{StaticResource UserRowStyle}" CellStyle="{StaticResource UserCellStyle}"
                               Background="{StaticResource Surface}" Foreground="{StaticResource TitleBarText}"
                               BorderBrush="{StaticResource BorderBrush}"
                               ColumnHeaderStyle="{StaticResource GridColumnHeaderStyle}"
@@ -401,6 +495,15 @@
                               GridLinesVisibility="Horizontal" HeadersVisibility="Column"
                               VerticalContentAlignment="Center" MinRowHeight="26">
                         <DataGrid.Columns>
+                            <DataGridTemplateColumn Header=" " Width="34" CellTemplate="{StaticResource UserSelectionCellTemplate}">
+                                <DataGridTemplateColumn.HeaderTemplate>
+                                    <DataTemplate>
+                                        <CheckBox IsChecked="{Binding DataContext.AreAllPendingSelected, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                  Width="18" ClipToBounds="True" ToolTip="Выбрать все заявки"
+                                                  HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.HeaderTemplate>
+                            </DataGridTemplateColumn>
                             <DataGridTextColumn Header="Имя" Binding="{Binding Name}" Width="200"/>
                             <DataGridTextColumn Header="Адрес" Binding="{Binding Address}" Width="200"/>
                             <DataGridTextColumn Header="Запрошено" Binding="{Binding CreatedAt, StringFormat=yyyy-MM-dd HH:mm}" Width="180"/>
@@ -547,7 +650,8 @@
                         </DataGrid.Columns>
                         <DataGrid.ContextMenu>
                             <ContextMenu>
-                                <MenuItem Header="Включить / выключить" Command="{Binding ToggleWhitelistActiveCommand}" CommandParameter="{Binding PlacementTarget.SelectedItem, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                                <MenuItem Header="Включить" Command="{Binding EnableWhitelistsCommand}" CommandParameter="{Binding PlacementTarget.SelectedItem, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                                <MenuItem Header="Выключить" Command="{Binding DisableWhitelistsCommand}" CommandParameter="{Binding PlacementTarget.SelectedItem, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
                                 <MenuItem Header="Редактировать" Command="{Binding OpenEditWhitelistCommand}" CommandParameter="{Binding PlacementTarget.SelectedItem, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
                                 <Separator/>
                                 <MenuItem Header="Удалить" Command="{Binding DeleteSelectedWhitelistsCommand}" CommandParameter="{Binding PlacementTarget.SelectedItem, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>

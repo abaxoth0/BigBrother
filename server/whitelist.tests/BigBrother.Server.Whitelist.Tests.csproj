@@ -11,6 +11,7 @@
     <Compile Include="../frontend/ViewModels/DomainCheckViewModel.cs" Link="DomainCheckViewModel.cs" />
     <Compile Include="../frontend/ViewModels/WhitelistActivationDraft.cs" Link="WhitelistActivationDraft.cs" />
     <Compile Include="../frontend/ViewModels/WhitelistSelection.cs" Link="WhitelistSelection.cs" />
+    <Compile Include="../frontend/ViewModels/CheckboxSelection.cs" Link="CheckboxSelection.cs" />
     <Compile Include="../../lib/cs/BigBrother.Frontend.Shared/Models/SharedModels.cs" Link="SharedModels.cs" />
     <Compile Include="../../lib/cs/BigBrother.Frontend.Shared/Lib/LogParser.cs" Link="LogParser.cs" />
     <Compile Include="../../lib/cs/BigBrother.Frontend.Shared/ViewModels/ViewModelBase.cs" Link="ViewModelBase.cs" />

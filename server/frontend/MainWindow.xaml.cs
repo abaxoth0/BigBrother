@@ -12,6 +12,9 @@ namespace frontend;
 public partial class MainWindow : ChromeWindow
 {
     private readonly WhitelistSelection _whitelistSelection = new();
+    private readonly CheckboxSelection<ConnectedClient> _connectedSelection = new();
+    private readonly CheckboxSelection<PendingRegistration> _pendingSelection = new();
+    private readonly CheckboxSelection<UserOverview> _allUsersSelection = new();
 
     public MainWindow()
     {
@@ -43,6 +46,24 @@ public partial class MainWindow : ChromeWindow
         if (!_whitelistSelection.HandleClick(items, whitelist, control, shift)) return;
 
         grid.SelectedItem = whitelist;
+        row.Focus();
+        e.Handled = true;
+    }
+
+    private void UserRow_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is not DataGridRow row || ItemsControl.ItemsControlFromItemContainer(row) is not DataGrid grid) return;
+        var control = Keyboard.Modifiers.HasFlag(ModifierKeys.Control);
+        var shift = Keyboard.Modifiers.HasFlag(ModifierKeys.Shift);
+        var handled = row.Item switch
+        {
+            ConnectedClient client => _connectedSelection.HandleClick(grid.Items.OfType<ConnectedClient>().ToList(), client, control, shift),
+            PendingRegistration pending => _pendingSelection.HandleClick(grid.Items.OfType<PendingRegistration>().ToList(), pending, control, shift),
+            UserOverview user => _allUsersSelection.HandleClick(grid.Items.OfType<UserOverview>().ToList(), user, control, shift),
+            _ => false
+        };
+        if (!handled) return;
+        grid.SelectedItem = row.Item;
         row.Focus();
         e.Handled = true;
     }

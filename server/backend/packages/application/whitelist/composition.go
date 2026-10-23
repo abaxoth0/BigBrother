@@ -2,10 +2,20 @@ package whitelistapplication
 
 import (
 	"bigbrother_server_backend/packages/domain/entity"
+	"crypto/sha256"
+	"encoding/hex"
 	"slices"
 	"sort"
 	"strings"
 )
+
+func Revision(entries []*entity.WhitelistEntry) string {
+	hash := sha256.New()
+	for _, entry := range entries {
+		hash.Write([]byte(entry.Value + "\n"))
+	}
+	return hex.EncodeToString(hash.Sum(nil))
+}
 
 func Compose(db QueryHandler) (*entity.WhitelistComposition, error) {
 	whitelists, err := db.GetWhitelists()

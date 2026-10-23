@@ -15,6 +15,23 @@ import (
 	_ "github.com/ncruces/go-sqlite3/driver"
 )
 
+func (db *Database) GetUsers() ([]*entity.User, error) {
+	rows, err := db.conn.Query("SELECT name, addr FROM user ORDER BY name")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	users := []*entity.User{}
+	for rows.Next() {
+		user := &entity.User{}
+		if err := rows.Scan(&user.Name, &user.Addr); err != nil {
+			return nil, err
+		}
+		users = append(users, user)
+	}
+	return users, rows.Err()
+}
+
 func (db *Database) GetUserByName(username string) (*entity.User, error) {
 	if log.DiagnosticsEnabled {
 		dbcommon.Log.Trace("Getting user with name \""+username+"\"...", nil)

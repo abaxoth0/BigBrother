@@ -108,7 +108,10 @@ public class MainViewModel : ViewModelBase, IDisposable
         set
         {
             if (SetProperty(ref _selectedSection, value) && value == NavigationSection.Settings)
+            {
                 _ = RefreshSavedFingerprintAsync();
+                _ = RefreshIpv6BlockAsync();
+            }
         }
     }
 
@@ -228,13 +231,17 @@ public class MainViewModel : ViewModelBase, IDisposable
         }
     }
 
-    private bool _ipv6BlockEnabled = true;
+    private readonly Ipv6BlockPreference _ipv6BlockPreference = new();
     public bool Ipv6BlockEnabled
     {
-        get => _ipv6BlockEnabled;
+        get => _ipv6BlockPreference.Value;
         set
         {
-            if (SetProperty(ref _ipv6BlockEnabled, value)) MarkSettingsChanged();
+            if (_ipv6BlockPreference.Edit(value))
+            {
+                OnPropertyChanged();
+                MarkSettingsChanged();
+            }
         }
     }
 
@@ -436,6 +443,7 @@ public class MainViewModel : ViewModelBase, IDisposable
                 {
                     var status = await _ipcService.GetStatusAsync().ConfigureAwait(false);
                     if (_disposed) return;
+                    if (status.IsConnected) await RefreshIpv6BlockAsync().ConfigureAwait(false);
 
                     System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
                     {
@@ -557,7 +565,6 @@ public class MainViewModel : ViewModelBase, IDisposable
         var netGw = await _ipcService.GetNetworkGatewayAsync();
         var netMask = await _ipcService.GetNetworkMaskAsync();
         var filtAuto = await _ipcService.GetFiltrationAutoDisableAsync();
-        var ipv6Block = await _ipcService.GetIpv6BlockAsync();
         var notifications = await _ipcService.GetWindowsNotificationsAsync();
         await RefreshSavedFingerprintAsync();
         var available = addr != "" || name != "" || enabled || srvName != "";
@@ -584,17 +591,24 @@ public class MainViewModel : ViewModelBase, IDisposable
             OnPropertyChanged(nameof(FallbackWhitelistEnabled));
             _filtrationAutoDisable = filtAuto;
             OnPropertyChanged(nameof(FiltrationAutoDisable));
-            if (ipv6Block.HasValue)
-            {
-                _ipv6BlockEnabled = ipv6Block.Value;
-                OnPropertyChanged(nameof(Ipv6BlockEnabled));
-            }
             if (notifications.HasValue)
             {
                 _windowsNotificationsEnabled = notifications.Value;
                 OnPropertyChanged(nameof(WindowsNotificationsEnabled));
             }
             SettingsAvailable = available;
+        });
+        await RefreshIpv6BlockAsync();
+    }
+
+    private async Task RefreshIpv6BlockAsync()
+    {
+        var revision = _ipv6BlockPreference.Revision;
+        var value = await _ipcService.GetIpv6BlockAsync().ConfigureAwait(false);
+        await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+        {
+            if (!_disposed && _ipv6BlockPreference.Refresh(value, revision))
+                OnPropertyChanged(nameof(Ipv6BlockEnabled));
         });
     }
 
@@ -732,18 +746,20 @@ public class MainViewModel : ViewModelBase, IDisposable
         await _ipcService.SetDiscoveryEnabledAsync(DiscoveryEnabled);
         await _ipcService.SetNetworkAutoAsync(NetworkAuto);
         await _ipcService.SetFiltrationAutoDisableAsync(FiltrationAutoDisable);
+        var ipv6Revision = _ipv6BlockPreference.Revision;
         var ipv6Saved = await _ipcService.SetIpv6BlockAsync(Ipv6BlockEnabled);
         if (!ipv6Saved)
         {
             AddLog("ERROR", "Ошибка сохранения: блокировка IPv6");
             return;
         }
+        _ipv6BlockPreference.ConfirmSave(ipv6Revision);
         if (!await _ipcService.SetWindowsNotificationsAsync(WindowsNotificationsEnabled))
         {
             AddLog("ERROR", "Ошибка сохранения: уведомления Windows");
             return;
         }
-        HasSettingsChanges = false;
+        HasSettingsChanges = _ipv6BlockPreference.IsEdited;
     }
 
     private async Task SaveFieldAsync(string label, string value, Func<string, Task<bool>> setter)

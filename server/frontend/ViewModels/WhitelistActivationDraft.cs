@@ -21,9 +21,8 @@ public class WhitelistActivationDraft
     public bool GetActive(string name) => _pending.TryGetValue(name, out var active)
         ? active : _saved.GetValueOrDefault(name);
 
-    public void Toggle(WhitelistInfo whitelist)
+    public void SetActive(WhitelistInfo whitelist, bool active)
     {
-        var active = !GetActive(whitelist.Name);
         if (active == _saved.GetValueOrDefault(whitelist.Name)) _pending.Remove(whitelist.Name);
         else _pending[whitelist.Name] = active;
         whitelist.IsActive = active;

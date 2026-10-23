@@ -444,6 +444,7 @@ DWORD WINAPI client_handler(LPVOID param) {
         if (LoadUserName(username, sizeof(username)) != 0) {
             write_error_tlv(pipe, "no saved username");
         } else {
+            ResumeServerConnection();
             int r = ServerConnect(username);
             if (r == 0) {
                 write_ok(pipe);

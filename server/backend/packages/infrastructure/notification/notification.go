@@ -6,6 +6,7 @@ import (
 	"net"
 	"strconv"
 	"sync"
+	"time"
 )
 
 type EventType int
@@ -20,6 +21,9 @@ const (
 	WhitelistChanged
 	FiltrationToggled
 	ClientUpdateChanged
+	ClientIpv6BlockChanged
+	ClientPolicyChanged
+	ClientDisconnected
 )
 
 func (e EventType) String() string {
@@ -40,6 +44,12 @@ func (e EventType) String() string {
 		return "WHITELIST_CHANGED"
 	case ClientUpdateChanged:
 		return "CLIENT_UPDATE_CHANGED"
+	case ClientIpv6BlockChanged:
+		return "CLIENT_IPV6_BLOCK_CHANGED"
+	case ClientPolicyChanged:
+		return "CLIENT_POLICY_CHANGED"
+	case ClientDisconnected:
+		return "CLIENT_DISCONNECTED"
 	case FiltrationToggled:
 		return "FILTRATION_TOGGLED"
 	default:
@@ -58,11 +68,23 @@ type Subscriber struct {
 	EventCh   chan Event
 	done      chan struct{}
 	closeOnce sync.Once
+	terminal  *Event
 }
 
 func (s *Subscriber) Close() {
+	s.closeWithEvent(nil)
+}
+
+func (s *Subscriber) closeWithEvent(event *Event) {
 	s.closeOnce.Do(func() {
+		s.terminal = event
+		if event != nil {
+			s.Conn.SetWriteDeadline(time.Now().Add(time.Second))
+		}
 		close(s.done)
+		if event == nil {
+			s.Conn.Close()
+		}
 	})
 }
 
@@ -117,11 +139,18 @@ func (m *Manager) Add(sub *Subscriber) error {
 }
 
 func (m *Manager) Remove(sub *Subscriber) {
+	m.RemoveWithEvent(sub, nil)
+}
+
+func (m *Manager) RemoveWithEvent(sub *Subscriber, event *Event) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	if _, ok := m.subscribers[sub]; ok {
+	_, exists := m.subscribers[sub]
+	if exists {
 		delete(m.subscribers, sub)
-		sub.Close()
+	}
+	m.mu.Unlock()
+	if exists {
+		sub.closeWithEvent(event)
 	}
 }
 
@@ -174,12 +203,27 @@ func writeTLV(writer *bufio.Writer, value string) error {
 }
 
 func (m *Manager) writeLoop(sub *Subscriber) {
+	defer sub.Conn.Close()
 	defer func() {
 		m.Remove(sub)
 	}()
 	for {
 		select {
+		case <-sub.done:
+			if sub.terminal != nil {
+				m.writeEvent(sub, *sub.terminal)
+			}
+			return
+		default:
+		}
+		select {
 		case event := <-sub.EventCh:
+			if sub.IsClosed() {
+				if sub.terminal != nil {
+					m.writeEvent(sub, *sub.terminal)
+				}
+				return
+			}
 			if err := m.writeEvent(sub, event); err != nil {
 				// Stalled or broken subscriber: close its conn so the handler's
 				// read loop unblocks too, then exit; the deferred Remove cleans up.
@@ -187,6 +231,9 @@ func (m *Manager) writeLoop(sub *Subscriber) {
 				return
 			}
 		case <-sub.done:
+			if sub.terminal != nil {
+				m.writeEvent(sub, *sub.terminal)
+			}
 			return
 		}
 	}

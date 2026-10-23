@@ -81,6 +81,7 @@ int UpdateServerFingerprint(const char* address, int port, const char* original_
  * @brief Set the active session state with the server.
  */
 void SetServerSessionActive(int active);
+void ResumeServerConnection(void);
 
 /**
  * @brief Check if there is an active user session with the server.

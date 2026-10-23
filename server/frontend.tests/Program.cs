@@ -98,6 +98,57 @@ Check(whitelists.Count == 2 && whitelists[0].Name == "Работа:основн�
     whitelists[0].EntryCount == 3 && whitelists[0].IsActive && !whitelists[1].IsActive,
     "Whitelist names, counts or active flags lost");
 
+var clientDetails = "[{\"name\":\"Клиент:1\",\"address\":\"[::1]:1984\",\"lastActivity\":\"2026-10-22T09:10:11Z\"," +
+    "\"policy\":{\"whitelistRevision\":\"revision\",\"filtrationEnabled\":true,\"blockIpv6\":false,\"canSetIpv6Block\":true},\"whitelistCurrent\":true}," +
+    "{\"name\":\"old\",\"address\":\"10.0.0.2\",\"policy\":null,\"whitelistCurrent\":null}]";
+var clients = await WhitelistReply(name, service => service.GetClientsAsync(),
+    ["GET_CLIENTS_DETAILS"], [clientDetails]);
+Check(clients.Count == 2 && clients[0].Name == "Клиент:1" && clients[0].Address == "[::1]:1984",
+    "Client names or IPv6 addresses lost");
+var registeredUsers = await WhitelistReply(name, service => service.GetRegisteredUsersAsync(),
+    ["GET_REGISTERED_USERS"], ["[{\"name\":\"offline:клиент\",\"address\":\"[2001:db8::2]:1984\"}]"]);
+Check(registeredUsers.Count == 1 && registeredUsers[0].Name == "offline:клиент" &&
+    registeredUsers[0].Address == "[2001:db8::2]:1984" && registeredUsers[0].Policy == null && registeredUsers[0].LastActivity == null,
+    "Registry fields or unknown offline policy/activity were corrupted");
+Check((await WhitelistReply(name, service => service.GetRegisteredUsersAsync(), ["GET_REGISTERED_USERS"], ["[]"])).Count == 0,
+    "Empty registry did not remain empty");
+try
+{
+    await WhitelistReply(name, service => service.GetRegisteredUsersAsync(), ["GET_REGISTERED_USERS"], ["database error"], "ERROR");
+    throw new Exception("Failed registry query returned an empty successful list");
+}
+catch (IOException) { }
+Check(clients[0].Whitelist == "Актуален" && clients[0].FiltrationText == "Вкл" && clients[0].Ipv6BlockText == "Выкл",
+    "Incorrect client policy labels");
+Check(clients[0].Policy?.CanSetIpv6Block == true, "IPv6 control capability lost");
+Check(clients[0].LastActivity == new DateTime(2026, 10, 22, 9, 10, 11, DateTimeKind.Utc).ToLocalTime(),
+    "Last activity was not converted to local time");
+Check(clients[1].LastActivity == null && clients[1].Whitelist == "Нет данных" && clients[1].FiltrationText == "Нет данных",
+    "Older client displayed invented policy or activity");
+var changedProperties = new List<string?>();
+clients[1].PropertyChanged += (_, e) => changedProperties.Add(e.PropertyName);
+clients[1].Policy = clients[0].Policy;
+clients[1].WhitelistCurrent = false;
+clients[1].LastActivity = clients[0].LastActivity;
+Check(clients[1].Whitelist == "Устарел" && changedProperties.Contains("Whitelist") &&
+    changedProperties.Contains("FiltrationText") && changedProperties.Contains("Ipv6BlockText") && changedProperties.Contains("LastActivity"),
+    "Policy or activity changes do not update existing rows");
+clients[1].WhitelistCurrent = null;
+Check(clients[1].Whitelist == "Недоступен", "Unknown firewall revision displayed as applied");
+clients[1].Policy = new frontend.Models.ClientPolicyStatus { BlockIpv6 = true };
+Check(clients[1].Ipv6BlockText == "Вкл" && !clients[1].Policy!.CanSetIpv6Block,
+    "IPv6 state did not update or legacy client gained control capability");
+foreach (var enabled in new[] { true, false })
+    await WhitelistReply(name, async service => { await service.SetClientIpv6BlockAsync("Клиент:1", enabled); return true; },
+        ["SET_CLIENT_IPV6_BLOCK", "14", "Клиент:1", "1", enabled ? "1" : "0"], []);
+try
+{
+    await WhitelistReply(name, async service => { await service.SetClientIpv6BlockAsync("old", true); return true; },
+        ["SET_CLIENT_IPV6_BLOCK", "3", "old", "1", "1"], ["unsupported client"], "ERROR");
+    throw new Exception("IPv6 control rejection was ignored");
+}
+catch (IOException ex) { Check(ex.Message == "unsupported client", "IPv6 control rejection details lost"); }
+
 var conflicts = await WhitelistReply(name, service => service.GetWhitelistConflictsAsync(),
     ["GET_WHITELIST_CONFLICTS"],
     ["[{\"pattern\":\"google.com\",\"allowedBy\":[\"Работа\",\"Учёба\"],\"excludedBy\":[\"Исключения\"]}]"]);
@@ -138,4 +189,6 @@ try
     throw new Exception("Composition load failure ignored");
 }
 catch (IOException) { }
-Console.WriteLine("Connectivity, certificate fingerprint and whitelist pipe tests passed.");
+UserTableViewTests.Run();
+UserOverviewTests.Run();
+Console.WriteLine("Connectivity, certificate fingerprint, client policy, user overview/selection and whitelist pipe tests passed.");

@@ -346,23 +346,13 @@ public class IpcService : IDisposable
 
             try
             {
-                var (status, data) = SendCommand("GET_CLIENTS");
-                if (status == "OK")
-                {
-                    foreach (var line in data)
-                    {
-                        var parts = line.Split(':');
-                        if (parts.Length >= 2)
-                        {
-                            clients.Add(new ConnectedClient
-                            {
-                                Name = parts[0],
-                                Address = parts[1],
-                                Status = parts.Length > 2 ? parts[2] : "Active"
-                            });
-                        }
-                    }
-                }
+                var (status, data) = SendCommand("GET_CLIENTS_DETAILS");
+                if (status != "OK" || data.Count != 1) throw new IOException("Не удалось загрузить клиентов");
+                clients = JsonSerializer.Deserialize<List<ConnectedClient>>(data[0],
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+                    ?? throw new InvalidDataException("Некорректный ответ при загрузке клиентов");
+                foreach (var client in clients)
+                    client.LastActivity = client.LastActivity?.ToLocalTime();
             }
             finally
             {
@@ -375,6 +365,25 @@ public class IpcService : IDisposable
         }
 
         return clients;
+    }
+
+    public async Task<List<ConnectedClient>> GetRegisteredUsersAsync()
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) throw new IOException(_lastError);
+            try
+            {
+                var (status, data) = SendCommand("GET_REGISTERED_USERS");
+                if (status != "OK" || data.Count != 1) throw new IOException("Не удалось загрузить всех пользователей");
+                return JsonSerializer.Deserialize<List<ConnectedClient>>(data[0],
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+                    ?? throw new InvalidDataException("Некорректный список пользователей");
+            }
+            finally { Disconnect(); }
+        }
+        finally { _connectionLock.Release(); }
     }
 
     public async Task<List<PendingRegistration>> GetPendingAsync()
@@ -534,6 +543,23 @@ public class IpcService : IDisposable
         {
             _connectionLock.Release();
         }
+    }
+
+    public async Task SetClientIpv6BlockAsync(string name, bool enabled)
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) throw new IOException(_lastError);
+            try
+            {
+                var (status, _) = await Task.Run(() => SendCommand("SET_CLIENT_IPV6_BLOCK", name, enabled ? "1" : "0"));
+                if (status != "OK") throw new IOException(string.IsNullOrEmpty(_lastError)
+                    ? "Не удалось изменить блокировку IPv6" : _lastError);
+            }
+            finally { Disconnect(); }
+        }
+        finally { _connectionLock.Release(); }
     }
 
     public async Task<List<WhitelistInfo>> GetWhitelistsAsync()
