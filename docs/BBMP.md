@@ -163,6 +163,17 @@ followed by `\n`. Exception rules retain `!`. The empty whitelist has the SHA-25
 digest of an empty byte sequence. The server compares this with the revision of
 its composed active rules; downloading a whitelist alone does not acknowledge it.
 
+An administrator can request a fresh check with `SYNC_WHITELISTS`. The server
+composes the saved active lists once and publishes `WHITELIST_SYNC_REQUESTED`
+with `revision` (the SHA-256 digest). Updated clients read the firewall's current
+rules again; matching clients send a policy report without downloading anything.
+Clients with mismatched or unreadable rules invalidate their last-download cache,
+fetch the current server whitelist and replace the firewall rules. Failed fetches
+or applications retain the existing rules and retry on the local health timer.
+An empty composition is also applied when needed. Clients immediately report
+their actual policy after handling the event. Older clients ignore this event;
+deploy updated client daemons to enable manual repair.
+
 ---
 
 ### Server Frontend (`\\.\pipe\BigBrother.Server.Frontend`)
@@ -190,6 +201,7 @@ Used by the server frontend (C# WPF app) to manage the server.
 | `DELETE_WHITELIST` | `name` | none | Delete whitelist |
 | `RENAME_WHITELIST` | `oldName`, `newName` | none | Rename whitelist |
 | `SAVE_WHITELIST` | `name` + entries | none | Save/replace whitelist entries |
+| `SYNC_WHITELISTS` | none | none | Broadcast the saved composed whitelist revision for clients to check and repair differences |
 | `GET_CLIENT_UPDATE` | none | One JSON metadata value, or no data | Read the published client update |
 | `SET_CLIENT_UPDATE` | JSON metadata, or an empty string | none | Publish/withdraw an update reference through the administrator pipe only; persist before sending `CLIENT_UPDATE_CHANGED` |
 

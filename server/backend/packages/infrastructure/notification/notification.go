@@ -24,6 +24,7 @@ const (
 	ClientIpv6BlockChanged
 	ClientPolicyChanged
 	ClientDisconnected
+	WhitelistSyncRequested
 )
 
 func (e EventType) String() string {
@@ -50,6 +51,8 @@ func (e EventType) String() string {
 		return "CLIENT_POLICY_CHANGED"
 	case ClientDisconnected:
 		return "CLIENT_DISCONNECTED"
+	case WhitelistSyncRequested:
+		return "WHITELIST_SYNC_REQUESTED"
 	case FiltrationToggled:
 		return "FILTRATION_TOGGLED"
 	default:

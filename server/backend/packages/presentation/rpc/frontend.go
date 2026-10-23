@@ -76,6 +76,20 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 		}
 
 		switch cmd {
+		case "SYNC_WHITELISTS":
+			if len(args) != 0 {
+				writeErrorTLV(conn, "Expected no arguments")
+				continue
+			}
+			composition, err := whitelistapplication.Compose(h.db)
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			h.bus.Publish(notification.Event{Type: notification.WhitelistSyncRequested,
+				Data: map[string]string{"revision": whitelistapplication.Revision(composition.Entries)}})
+			writeOK(conn)
+
 		case "SET_CLIENT_IPV6_BLOCK":
 			if len(args) != 2 || (args[1] != "0" && args[1] != "1") {
 				writeErrorTLV(conn, "Expected client name and IPv6 blocking value 0 or 1")

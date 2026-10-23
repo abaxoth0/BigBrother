@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Server whitelist tab: «Синхронизировать» checks clients against the saved composed whitelist using SHA-256; only clients with differing or unavailable firewall rules download and reapply it, bypassing stale download caches and retrying failures without restarting the client backend; requires updated client and server applications
+
 - Server users filter: «Все пользователи» combines connected and offline registered clients with pending registrations, with connection state, activity/request times and name/address search
 
 - Server users tables: row and select-all checkboxes, highlighted checked rows and Ctrl/Shift selection matching the whitelist table; context-menu actions apply to eligible checked users, falling back to the current row when none are checked
@@ -43,6 +45,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Server whitelist editor: live validation rejects malformed entries, duplicate rules and directly conflicting exceptions before saving; overlapping exceptions show warnings, and imports use the same validation
 
 ### Fixed
+
+- Server whitelist downloads: return an error on database read failures so clients retain their installed rules and retry instead of applying an empty list
 
 - Client/server disconnect: close the client's event subscription and update its connection state; apply filtration connection-sync settings and pause automatic reconnect until «Подключиться» or a client daemon restart. Unexpected network failures still retry automatically, and stale subscription cleanup cannot remove a new session; requires both daemons to be updated
 

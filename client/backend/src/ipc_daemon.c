@@ -90,7 +90,9 @@ static void wl_last_set(const char* s) {
 }
 
 static void wl_last_clear(void) {
-    if (g_last_whitelist) g_last_whitelist[0] = '\0';
+    free(g_last_whitelist);
+    g_last_whitelist = NULL;
+    g_last_whitelist_cap = 0;
 }
 
 static int wl_last_equals(const char* s) {
@@ -1504,19 +1506,26 @@ static int whitelist_revision(char* rules, char revision[65]) {
     return 0;
 }
 
-static int build_policy_heartbeat(char* message, size_t capacity) {
-    int filtration = RefreshFiltrationEffective();
-    char revision[65] = {0};
+static int firewall_whitelist_revision(char revision[65]) {
+    revision[0] = '\0';
+    int result = -1;
     char* whitelist = malloc(DAEMON_MAX_MESSAGE_SIZE);
     if (whitelist) {
         if (DaemonGetWhitelist(whitelist, DAEMON_MAX_MESSAGE_SIZE) == 0) {
             if (strcmp(whitelist, "WHITELIST") == 0)
-                whitelist_revision(whitelist + strlen(whitelist), revision);
+                result = whitelist_revision(whitelist + strlen(whitelist), revision);
             else if (strncmp(whitelist, "WHITELIST\n", 10) == 0)
-                whitelist_revision(whitelist + 10, revision);
+                result = whitelist_revision(whitelist + 10, revision);
         }
         free(whitelist);
     }
+    return result;
+}
+
+static int build_policy_heartbeat(char* message, size_t capacity) {
+    int filtration = RefreshFiltrationEffective();
+    char revision[65];
+    firewall_whitelist_revision(revision);
     return snprintf(message, capacity,
         "POLICY {\"whitelistRevision\":\"%s\",\"filtrationEnabled\":%s,\"blockIpv6\":%s,\"canSetIpv6Block\":true}\n",
         revision, filtration ? "true" : "false", IsIpv6BlockEnabled() ? "true" : "false");
@@ -1643,6 +1652,20 @@ static int handle_server_event(const char* event_type, SrvLineReader* reader, co
             LOGF("[Daemon] Failed to save server-requested IPv6 blocking preference");
         else
             LOGF("[Daemon] Server set IPv6 blocking to %d", enabled);
+        return 2;
+    }
+    if (strcmp(event_type, "WHITELIST_SYNC_REQUESTED") == 0) {
+        const char* expected = NULL;
+        for (int i = 0; i < data_count; i++) {
+            if (strncmp(data[i], "revision=", 9) == 0) expected = data[i] + 9;
+        }
+        if (!expected || strlen(expected) != 64 || strspn(expected, "0123456789abcdef") != 64) return 0;
+        char revision[65];
+        if (firewall_whitelist_revision(revision) != 0 || strcmp(revision, expected) != 0) {
+            LOGF("[Daemon] Whitelist synchronization requested; refreshing mismatched or unavailable rules");
+            wl_last_clear();
+            sync_whitelist_from_server(username);
+        }
         return 2;
     }
     if (strcmp(event_type, "WHITELIST_CHANGED") == 0) {

@@ -121,9 +121,9 @@ func TestBackendHandlerGetWhitelistServing(t *testing.T) {
 	}
 
 	handler := NewBackendHandler(db, nil, nil, nil)
-	entries := handler.GetWhitelist("eve")
-	if len(entries) != 1 || entries[0].Value != "example.com" {
-		t.Fatalf("unexpected served whitelist: %+v", entries)
+	entries, err := handler.GetWhitelist("eve")
+	if err != nil || len(entries) != 1 || entries[0].Value != "example.com" {
+		t.Fatalf("unexpected served whitelist: %+v, %v", entries, err)
 	}
 
 	if err := db.CreateWhitelist("second", ""); err != nil {
@@ -135,9 +135,9 @@ func TestBackendHandlerGetWhitelistServing(t *testing.T) {
 	if err := db.SetWhitelistActive("second", true); err != nil {
 		t.Fatal(err)
 	}
-	entries = handler.GetWhitelist("eve")
-	if len(entries) != 1 || entries[0].Value != "second.org" {
-		t.Fatalf("unexpected composed whitelist: %+v", entries)
+	entries, err = handler.GetWhitelist("eve")
+	if err != nil || len(entries) != 1 || entries[0].Value != "second.org" {
+		t.Fatalf("unexpected composed whitelist: %+v, %v", entries, err)
 	}
 	if err := db.SetUserToken("eve", "token"); err != nil {
 		t.Fatal(err)
@@ -180,8 +180,8 @@ func TestBackendHandlerGetWhitelistServing(t *testing.T) {
 		t.Fatalf("unexpected empty details: %q", response)
 	}
 
-	if entries := handler.GetWhitelist("ghost"); entries != nil {
-		t.Fatalf("expected nil for unknown user, got %+v", entries)
+	if entries, err := handler.GetWhitelist("ghost"); entries != nil || err == nil {
+		t.Fatalf("expected error for unknown user, got %+v, %v", entries, err)
 	}
 }
 

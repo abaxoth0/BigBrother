@@ -562,10 +562,12 @@
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
-                                <TextBlock Text="Изменения активности не сохранены. Проверка и конфликты используют сохранённый список."
+                                <TextBlock Text="Изменения активности не сохранены. Проверка, синхронизация и конфликты используют сохранённый список."
                                            VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,10,0"
                                            Visibility="{Binding HasWhitelistActivationChanges, Converter={StaticResource BoolToVisibility}}"/>
                                 <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">
+                                    <Button Content="Синхронизировать" Style="{StaticResource ControlButton}" Command="{Binding SyncWhitelistsCommand}"
+                                            ToolTip="Проверить правила в клиентах и обновить только отличающиеся от сохранённого списка сервера"/>
                                     <Button Content="Сохранить" Style="{StaticResource ControlButton}" Command="{Binding SaveWhitelistActivationCommand}"/>
                                     <Button Content="Отмена" Style="{StaticResource ControlButton}" Command="{Binding CancelWhitelistActivationCommand}"/>
                                 </StackPanel>
