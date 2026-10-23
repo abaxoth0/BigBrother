@@ -48,6 +48,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Server whitelist validation: reject exceptions covering port 53, including ranges and exceptions without a port selector, with a line-specific error explaining that DNS traffic is always allowed
+
 - Server whitelist downloads: return an error on database read failures so clients retain their installed rules and retry instead of applying an empty list
 
 - Client/server disconnect: close the client's event subscription and update its connection state; apply filtration connection-sync settings and pause automatic reconnect until «Подключиться» or a client daemon restart. Unexpected network failures still retry automatically, and stale subscription cleanup cannot remove a new session; requires both daemons to be updated

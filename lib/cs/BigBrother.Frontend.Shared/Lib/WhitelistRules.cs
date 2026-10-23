@@ -40,6 +40,8 @@ public static class WhitelistRules
                 continue;
             }
             var rule = new WhitelistRule(i + 1, entry, pattern.ToLowerInvariant(), exception, isIp) { Ports = ports };
+            if (rule.IsException && rule.MatchesPort(53))
+                result.Issues.Add(new(i + 1, "нельзя заблокировать порт 53: DNS-трафик TCP/UDP всегда разрешён. Исключите порт 53 из правила."));
             if (seen.TryGetValue(entry, out var duplicate))
                 result.Issues.Add(new(i + 1, $"повтор правила из строки {duplicate.Line}."));
             else
