@@ -68,6 +68,16 @@ public partial class MainWindow : ChromeWindow
         e.Handled = true;
     }
 
+    private void WhitelistTable_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter || Keyboard.Modifiers != ModifierKeys.None ||
+            sender is not DataGrid grid || grid.SelectedItem is not WhitelistInfo whitelist ||
+            DataContext is not MainViewModel vm || !vm.OpenEditWhitelistCommand.CanExecute(whitelist)) return;
+
+        e.Handled = true;
+        vm.OpenEditWhitelistCommand.Execute(whitelist);
+    }
+
     private void WhitelistRow_MouseDoubleClick(object sender, MouseButtonEventArgs e)
     {
         if (e.ChangedButton != MouseButton.Left ||

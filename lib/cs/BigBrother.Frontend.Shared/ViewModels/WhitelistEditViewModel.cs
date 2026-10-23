@@ -3,17 +3,24 @@ using frontend.Validation;
 
 namespace frontend.ViewModels;
 
+public sealed class WhitelistSaveEventArgs(bool closeAfterSave) : EventArgs
+{
+    public bool CloseAfterSave { get; } = closeAfterSave;
+}
+
 public class WhitelistEditViewModel : ViewModelBase
 {
     private string _whitelistName = "";
     private string _entriesText = "";
     private string _originalName = "";
     private bool _isEditMode;
+    private bool _isSaving;
     private WhitelistAnalysis _analysis = WhitelistRules.Analyze("");
 
     public WhitelistEditViewModel()
     {
-        SaveCommand = new RelayCommand(_ => Save(), _ => CanSave);
+        SaveCommand = new RelayCommand(_ => Save(true), _ => CanSave);
+        SaveInPlaceCommand = new RelayCommand(_ => Save(false), _ => CanSave);
     }
 
     public string WhitelistName
@@ -35,7 +42,19 @@ public class WhitelistEditViewModel : ViewModelBase
         }
     }
 
-    private bool CanSave => !string.IsNullOrWhiteSpace(WhitelistName) && !_analysis.HasErrors;
+    public bool IsSaving
+    {
+        get => _isSaving;
+        set
+        {
+            if (!SetProperty(ref _isSaving, value)) return;
+            OnPropertyChanged(nameof(CanEdit));
+            (SaveCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        }
+    }
+
+    public bool CanEdit => !IsSaving;
+    private bool CanSave => !IsSaving && !string.IsNullOrWhiteSpace(WhitelistName) && !_analysis.HasErrors;
     public IReadOnlyList<WhitelistIssue> ValidationIssues => _analysis.Issues;
     public string ValidationSummary => _analysis.Issues.Count == 0
         ? $"Ошибок нет. Правил: {_analysis.Rules.Count}."
@@ -52,8 +71,9 @@ public class WhitelistEditViewModel : ViewModelBase
     public string WindowTitle => _isEditMode ? "Редактировать список" : "Создать список";
 
     public ICommand SaveCommand { get; }
+    public ICommand SaveInPlaceCommand { get; }
 
-    public event EventHandler? Saved;
+    public event EventHandler<WhitelistSaveEventArgs>? Saved;
 
     public void SetEditMode(string name, List<string> entries)
     {
@@ -79,9 +99,16 @@ public class WhitelistEditViewModel : ViewModelBase
         OnPropertyChanged(nameof(WindowTitle));
     }
 
-    private void Save()
+    public void MarkSaved(string name)
     {
-        if (CanSave) Saved?.Invoke(this, EventArgs.Empty);
+        _originalName = name;
+        _isEditMode = true;
+        OnPropertyChanged(nameof(WindowTitle));
+    }
+
+    private void Save(bool closeAfterSave)
+    {
+        if (CanSave) Saved?.Invoke(this, new WhitelistSaveEventArgs(closeAfterSave));
     }
 
     public string GetOriginalName() => _originalName;
@@ -89,6 +116,7 @@ public class WhitelistEditViewModel : ViewModelBase
 
     public List<string> GetEntries()
     {
-        return _analysis.Rules.Select(r => r.Text).ToList();
+        return _entriesText.Split('\n').Select(line => line.Trim())
+            .Where(line => line.Length > 0).ToList();
     }
 }

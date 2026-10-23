@@ -484,6 +484,48 @@ func TestFrontendValidatesAndPersistsServerPort(t *testing.T) {
 	}
 }
 
+func TestFrontendWhitelistRuleCount(t *testing.T) {
+	db := sqlite.New(filepath.Join(t.TempDir(), "rule-count.db"))
+	if err := db.Connect(); err != nil {
+		t.Fatal(err)
+	}
+	defer db.Disconnect()
+	if err := db.CreateWhitelist("ports", ""); err != nil {
+		t.Fatal(err)
+	}
+	h := NewFrontendHandler(db, nil, nil, nil)
+	for _, tc := range []struct {
+		name    string
+		entries []string
+		count   int
+	}{
+		{"empty", nil, 0},
+		{"comments", []string{"# comment", "; comment", "  # Заметка", "\t; comment", "", " \t "}, 0},
+		{"rules", []string{"portquiz.net:{8000-9000}", "portquiz.net:{2000-3000|5432}", "!portquiz.net:50"}, 3},
+		{"mixed", []string{"; comment", "portquiz.net:{8000-9000}", "  # comment", "portquiz.net:{2000-3000|5432}", "!portquiz.net:50"}, 3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := db.ReplaceWhitelistEntries(tc.entries, "ports"); err != nil {
+				t.Fatal(err)
+			}
+			value := fmt.Sprintf("ports:%d:false", tc.count)
+			want := fmt.Sprintf("OK\n%d\n%s\n\n", len(value), value)
+			if got := handlerResponse(t, h, "GET_WHITELISTS\n\n"); got != want {
+				t.Fatalf("table count: %q, want %q", got, want)
+			}
+			entries := h.GetWhitelist("ports")
+			if len(entries) != len(tc.entries) {
+				t.Fatalf("editor entry count: %d, want %d", len(entries), len(tc.entries))
+			}
+			for i, entry := range entries {
+				if entry.Value != tc.entries[i] {
+					t.Fatalf("editor entry %d: %q, want %q", i, entry.Value, tc.entries[i])
+				}
+			}
+		})
+	}
+}
+
 func TestFrontendWhitelistActivation(t *testing.T) {
 	db := sqlite.New(filepath.Join(t.TempDir(), "activation.db"))
 	if err := db.Connect(); err != nil {

@@ -581,6 +581,7 @@
                               ColumnHeaderStyle="{StaticResource GridColumnHeaderStyle}"
                               CanUserAddRows="False" CanUserDeleteRows="False"
                               SelectedItem="{Binding SelectedWhitelist}"
+                              PreviewKeyDown="WhitelistTable_PreviewKeyDown"
                               RowBackground="{StaticResource Surface}"
                               AlternatingRowBackground="{StaticResource SurfaceAlt}"
                               HorizontalGridLinesBrush="{StaticResource BorderBrush}"

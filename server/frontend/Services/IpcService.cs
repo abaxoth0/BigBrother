@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using frontend.Models;
+using frontend.Validation;
 
 namespace frontend.Services;
 
@@ -583,12 +584,17 @@ public class IpcService : IDisposable
                     var activeSeparator = line.LastIndexOf(':');
                     var countSeparator = activeSeparator > 0 ? line.LastIndexOf(':', activeSeparator - 1) : -1;
                     if (countSeparator >= 0 &&
-                        int.TryParse(line[(countSeparator + 1)..activeSeparator], out var count) &&
+                        int.TryParse(line[(countSeparator + 1)..activeSeparator], out _) &&
                         bool.TryParse(line[(activeSeparator + 1)..], out var active))
                     {
+                        var name = line[..countSeparator];
+                        var (entriesStatus, entries) = SendCommand("GET_WHITELIST", name);
+                        if (entriesStatus != "OK") throw new IOException($"Не удалось загрузить записи списка «{name}»");
                         whitelists.Add(new WhitelistInfo
                         {
-                            Name = line[..countSeparator], EntryCount = count, IsActive = active
+                            Name = name,
+                            EntryCount = WhitelistRules.Analyze(string.Join("\n", entries)).Rules.Count,
+                            IsActive = active
                         });
                     }
                     else throw new InvalidDataException("Некорректный ответ при загрузке белых списков");

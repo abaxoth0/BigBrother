@@ -14,9 +14,9 @@ public class WhitelistDialogResult
 
 public interface IWhitelistDialogService
 {
-    /// <summary>Shows the whitelist edit dialog. Returns null if cancelled.</summary>
-    Task<WhitelistDialogResult?> ShowDialogAsync(
+    Task ShowDialogAsync(
         WhitelistDialogMode mode,
+        Func<WhitelistDialogResult, Task<bool>> saveAsync,
         string? initialName = null,
         List<string>? initialEntries = null);
 }

@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"bigbrother_server_backend/packages/application/settings"
@@ -419,7 +420,12 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 				entryCount := 0
 				entries, err := h.db.GetWhitelistEntries(wl.Name)
 				if err == nil {
-					entryCount = len(entries)
+					for _, entry := range entries {
+						value := strings.TrimSpace(entry.Value)
+						if value != "" && !strings.HasPrefix(value, "#") && !strings.HasPrefix(value, ";") {
+							entryCount++
+						}
+					}
 				}
 				data = append(data, fmt.Sprintf("%s:%d:%t", wl.Name, entryCount, wl.IsActive))
 			}

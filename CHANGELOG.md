@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Server whitelist editor: 15 px entry text and line numbers, Alt+S to save without closing, and removal of the syntax hint; the Save button closes the editor only after a successful save
+
 - Whitelist rules: optional TCP/UDP destination ports, inclusive ranges and OR lists (`1.1.1.1:443|80|53|20|22`, `1.1.1.1:{0-1023|5432|2000-3000}`); omitted ports allow all ports. Supports domains, wildcards, substrings and port-specific exceptions, with validation, client display and host:port checking; requires an updated firewall and frontends
 
 - Server whitelist tab: «Синхронизировать» checks clients against the saved composed whitelist using SHA-256; only clients with differing or unavailable firewall rules download and reapply it, bypassing stale download caches and retrying failures without restarting the client backend; requires updated client and server applications
@@ -41,12 +43,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Notification testing: launching the helper without arguments sends a Client test toast; `--show [Client|Server]` and `--test [Client|Server]` select the identity; console traces and a rotating `notifications.log` report delivery stages and errors, with an error dialog for failed tests launched without a console
 
 - Client/server frontends, client/server backends and firewall: embedded their dedicated application icons from `assets/icons` into Windows executables
-- Server whitelist table: double-clicking a row opens its editor
+- Server whitelist table: double-clicking a row or pressing Enter on the selected row opens its editor
 - Server whitelist editor: full-line backgrounds mark errors in red and warnings in amber, with errors taking priority; highlights update with validation and follow scrolling without changing text colours
 - Server whitelist editor: line numbers stay aligned with entries while editing, resizing and scrolling; long rules scroll horizontally
 - Server whitelist editor: live validation rejects malformed entries, duplicate rules and directly conflicting exceptions before saving; overlapping exceptions show warnings, and imports use the same validation
 
 ### Fixed
+
+- Server whitelist table: count rules consistently with the editor, excluding comments and blank entries even when an older backend includes them in its totals
+
+- Server whitelist editor: preserve `#` and `;` comment lines after saving and reopening, and display them in grey while excluding them from rule validation
 
 - Server whitelist validation: reject exceptions covering port 53, including ranges and exceptions without a port selector, with a line-specific error explaining that DNS traffic is always allowed
 
