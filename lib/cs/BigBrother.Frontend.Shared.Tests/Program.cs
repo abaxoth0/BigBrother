@@ -47,6 +47,8 @@ static LogFileMonitor MonitorOf(object reader)
     return (LogFileMonitor)field.GetValue(reader)!;
 }
 
+WhitelistTests.Run();
+
 var scheduled = new ConcurrentQueue<Action>();
 var received = new List<int>();
 LogUpdateQueue<int>? updates = null;

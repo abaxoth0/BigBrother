@@ -100,7 +100,7 @@
             </Grid>
 
             <StackPanel Grid.Row="2" Margin="0,8,0,0">
-                <TextBlock Text="Домен, IPv4, *.домен, &quot;подстрока&quot;; ! — исключение. # и ; — комментарии."
+                <TextBlock Text="Домен, IPv4, *.домен, &quot;подстрока&quot;; ! — исключение. Порты: :443|80 или :{0-1023|5432|2000-3000}; без порта — все. # и ; — комментарии."
                            TextWrapping="Wrap"/>
                 <ScrollViewer MaxHeight="120" VerticalScrollBarVisibility="Auto" Margin="0,6,0,0">
                     <TextBlock Text="{Binding ValidationSummary}" TextWrapping="Wrap"/>

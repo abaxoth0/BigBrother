@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Whitelist rules: optional TCP/UDP destination ports, inclusive ranges and OR lists (`1.1.1.1:443|80|53|20|22`, `1.1.1.1:{0-1023|5432|2000-3000}`); omitted ports allow all ports. Supports domains, wildcards, substrings and port-specific exceptions, with validation, client display and host:port checking; requires an updated firewall and frontends
+
 - Server whitelist tab: «Синхронизировать» checks clients against the saved composed whitelist using SHA-256; only clients with differing or unavailable firewall rules download and reapply it, bypassing stale download caches and retrying failures without restarting the client backend; requires updated client and server applications
 
 - Server users filter: «Все пользователи» combines connected and offline registered clients with pending registrations, with connection state, activity/request times and name/address search
@@ -45,6 +47,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Server whitelist editor: live validation rejects malformed entries, duplicate rules and directly conflicting exceptions before saving; overlapping exceptions show warnings, and imports use the same validation
 
 ### Fixed
+
+- Server whitelist validation: reject exceptions covering port 53, including ranges and exceptions without a port selector, with a line-specific error explaining that DNS traffic is always allowed
 
 - Server whitelist downloads: return an error on database read failures so clients retain their installed rules and retry instead of applying an empty list
 

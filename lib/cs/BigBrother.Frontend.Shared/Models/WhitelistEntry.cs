@@ -12,11 +12,12 @@ public class WhitelistEntry
 {
     public string Raw { get; set; } = "";
     public string Domain { get; set; } = "";
+    public string Ports { get; set; } = "";
     public WhitelistMatchType MatchType { get; set; }
 
     public string GetPrettyDescription()
     {
-        return MatchType switch
+        var description = MatchType switch
         {
             WhitelistMatchType.Exact => $"{Domain}",
             WhitelistMatchType.Wildcard => $"{Domain} и все его поддомены",
@@ -24,6 +25,7 @@ public class WhitelistEntry
             WhitelistMatchType.Exception => $"Кроме: {Domain}",
             _ => Raw
         };
+        return Ports.Length == 0 ? description : $"{description} (порты: {Ports})";
     }
 
     public static WhitelistEntry Parse(string raw)
@@ -34,6 +36,13 @@ public class WhitelistEntry
         bool isException = raw.StartsWith('!');
         if (isException)
             domain = raw.Substring(1);
+
+        int colon = domain.IndexOf(':');
+        if (colon >= 0)
+        {
+            entry.Ports = domain[(colon + 1)..].Trim('{', '}');
+            domain = domain[..colon];
+        }
 
         if (domain.StartsWith("*."))
         {

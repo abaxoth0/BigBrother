@@ -12,14 +12,25 @@
 #include "uthash.h"
 
 #define MAX_DOMAIN_LEN 256
+#define RULE_ANY_PORT (-2)
+#define RULE_NO_PORT (-1)
 
 #define WHITELIST_INITIAL_CAPACITY 1000
 
 // Sweep expired IP allowlist entries at most this often (seconds).
 #define IP_ALLOWLIST_SWEEP_INTERVAL 60
 
-/** @brief Single whitelist entry containing a domain name (allow rules only). */
 typedef struct {
+    uint16_t first, last;
+} PortRange;
+
+/** @brief Single whitelist entry containing a host and optional ports. */
+typedef struct {
+    char* text;
+    PortRange* ports;
+    size_t port_count;
+    uint32_t ip;
+    int is_ip;
     char domain[MAX_DOMAIN_LEN];
     // Lowercased copy of `domain`, precomputed at load time so the packet/DNS
     // hot paths never re-lowercase the pattern.
@@ -34,11 +45,16 @@ typedef struct {
     size_t capacity;
 } Whitelist;
 
-/** @brief Single allowed IP entry with associated domain and TTL. */
-typedef struct {
-    uint32_t ip;                // hash key
+typedef struct CachedDomain {
     char domain[MAX_DOMAIN_LEN];
     time_t expires;
+    struct CachedDomain* next;
+} CachedDomain;
+
+/** @brief Single allowed IP entry with associated domains and TTLs. */
+typedef struct {
+    uint32_t ip;                // hash key
+    CachedDomain* domains;
     UT_hash_handle hh;          // uthash handle (must be last)
 } AllowedIp;
 
@@ -101,5 +117,9 @@ int IpAllowlistRemove(IpAllowlist* al, uint32_t ip);
  * allow rule in `wl`. Caller must hold the exclusive allowlist lock.
  */
 void IpAllowlistPurgeUnowned(IpAllowlist* al, const Whitelist* wl);
+
+int WhitelistMatches(const Whitelist* wl, const char* domain, int port);
+int WhitelistAllows(const Whitelist* wl, const Whitelist* bl, const IpAllowlist* al,
+                    const IpAllowlist* blocked, uint32_t ip, int port, time_t now);
 
 #endif

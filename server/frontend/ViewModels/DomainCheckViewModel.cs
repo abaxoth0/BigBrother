@@ -28,7 +28,7 @@ public class DomainCheckViewModel : ViewModelBase
     }
 
     public string TestResult => string.IsNullOrWhiteSpace(TestInput)
-        ? "Введите домен или IPv4 для проверки."
+        ? "Введите домен или IPv4, при необходимости с :портом."
         : WhitelistRules.Test(_analysis, TestInput, rule =>
             $"{rule.Text} — списки: {string.Join(", ", _sources[rule.Text].Select(name => $"«{name}»"))}");
 }
