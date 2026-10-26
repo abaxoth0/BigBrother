@@ -41,6 +41,7 @@ public class MainViewModel : ViewModelBase
     private int _refreshInProgress;
     private int _statusRefreshInProgress;
     private bool _openingDomainCheck;
+    private bool _openingWhitelistEditor;
 
     private string _serverStatus = "Подключение...";
     private string _uptime = "";
@@ -197,8 +198,8 @@ public class MainViewModel : ViewModelBase
             _ => IsConnected && !_syncingWhitelists && !_savingWhitelistActivation);
         OpenDomainCheckCommand = new RelayCommand(async _ => await OpenDomainCheckAsync(),
             _ => IsConnected && !_openingDomainCheck);
-        OpenCreateWhitelistCommand = new RelayCommand(async _ => await OpenCreateWhitelistAsync());
-        OpenEditWhitelistCommand = new RelayCommand(async o => await OpenEditWhitelistAsync(o as WhitelistInfo), o => o is WhitelistInfo);
+        OpenCreateWhitelistCommand = new RelayCommand(async _ => await OpenCreateWhitelistAsync(), _ => !_openingWhitelistEditor);
+        OpenEditWhitelistCommand = new RelayCommand(async o => await OpenEditWhitelistAsync(o as WhitelistInfo), o => o is WhitelistInfo && !_openingWhitelistEditor);
         ImportWhitelistsCommand = new RelayCommand(async _ => await ImportWhitelistsAsync());
         ExportWhitelistsCommand = new RelayCommand(async _ => await ExportWhitelistsAsync(), _ => Whitelists.Any(w => w.IsSelected));
         DeleteSelectedWhitelistsCommand = new RelayCommand(async o => await DeleteSelectedWhitelistsAsync(o as WhitelistInfo),
@@ -1368,19 +1369,7 @@ public class MainViewModel : ViewModelBase
         }
     }
 
-    private async Task OpenCreateWhitelistAsync()
-    {
-        var result = await _whitelistDialog.ShowDialogAsync(WhitelistDialogMode.Create);
-        if (result == null) return; // cancelled
-
-        var ok = await _ipcService.CreateWhitelistAsync(result.Name);
-        if (ok && result.Entries.Count > 0)
-        {
-            ok = await _ipcService.SaveWhitelistAsync(result.Name, result.Entries);
-        }
-        AddLog(ok ? "INFO" : "ERROR", ok ? $"Список {result.Name} создан" : $"Ошибка создания списка {result.Name}");
-        await RefreshWhitelistsAsync();
-    }
+    private Task OpenCreateWhitelistAsync() => ShowWhitelistEditorAsync();
 
     private async Task OpenEditWhitelistAsync(WhitelistInfo? whitelist)
     {
@@ -1396,19 +1385,48 @@ public class MainViewModel : ViewModelBase
             initialEntries = new List<string>();
         }
 
-        var result = await _whitelistDialog.ShowDialogAsync(WhitelistDialogMode.Edit, whitelist.Name, initialEntries);
-        if (result == null) return; // cancelled
+        await ShowWhitelistEditorAsync(whitelist.Name, initialEntries);
+    }
 
-        var ok = true;
-        if (whitelist.Name != result.Name)
+    private async Task ShowWhitelistEditorAsync(string? initialName = null, List<string>? initialEntries = null)
+    {
+        if (_openingWhitelistEditor) return;
+        _openingWhitelistEditor = true;
+        CommandManager.InvalidateRequerySuggested();
+        var savedName = initialName;
+        try
         {
-            ok = await _ipcService.RenameWhitelistAsync(whitelist.Name, result.Name);
-            if (ok) _whitelistActivation.Rename(whitelist.Name, result.Name);
-        }
+            await _whitelistDialog.ShowDialogAsync(
+                initialName == null ? WhitelistDialogMode.Create : WhitelistDialogMode.Edit,
+                async result =>
+                {
+                    var ok = true;
+                    if (savedName == null)
+                    {
+                        ok = await _ipcService.CreateWhitelistAsync(result.Name);
+                        if (ok) savedName = result.Name;
+                    }
+                    else if (savedName != result.Name)
+                    {
+                        ok = await _ipcService.RenameWhitelistAsync(savedName, result.Name);
+                        if (ok)
+                        {
+                            _whitelistActivation.Rename(savedName, result.Name);
+                            savedName = result.Name;
+                        }
+                    }
 
-        if (ok) ok = await _ipcService.SaveWhitelistAsync(result.Name, result.Entries);
-        AddLog(ok ? "INFO" : "ERROR", ok ? $"Список {result.Name} сохранен" : $"Ошибка сохранения списка {result.Name}");
-        await RefreshWhitelistsAsync();
+                    if (ok) ok = await _ipcService.SaveWhitelistAsync(result.Name, result.Entries);
+                    AddLog(ok ? "INFO" : "ERROR", ok ? $"Список {result.Name} сохранен" : $"Ошибка сохранения списка {result.Name}");
+                    await RefreshWhitelistsAsync();
+                    return ok;
+                }, initialName, initialEntries);
+        }
+        finally
+        {
+            _openingWhitelistEditor = false;
+            CommandManager.InvalidateRequerySuggested();
+        }
     }
 
     private async Task ImportWhitelistsAsync()

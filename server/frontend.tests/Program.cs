@@ -74,7 +74,8 @@ foreach (var (reply, expected) in new[]
     Check(await request == expected, "Invalid fingerprint reply accepted");
 }
 static async Task<T> WhitelistReply<T>(string name, Func<IpcService, Task<T>> action,
-    string[] expectedRequest, string[] data, string status = "OK")
+    string[] expectedRequest, string[] data, string status = "OK",
+    (string[] Request, string[] Data, string Status)[]? followupReplies = null)
 {
     using var pipe = new NamedPipeServerStream(name, PipeDirection.InOut, 1,
         PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
@@ -83,20 +84,44 @@ static async Task<T> WhitelistReply<T>(string name, Func<IpcService, Task<T>> ac
     var request = Task.Run(() => action(service));
     await pipe.WaitForConnectionAsync(timeout.Token);
     using var reader = new StreamReader(pipe, leaveOpen: true);
-    foreach (var line in expectedRequest)
-        Check(await reader.ReadLineAsync(timeout.Token) == line, "Unexpected whitelist request");
-    Check(await reader.ReadLineAsync(timeout.Token) == "", "Missing whitelist request terminator");
-    var response = status + "\n" + string.Concat(data.Select(v => $"{Encoding.UTF8.GetByteCount(v)}\n{v}\n")) + "\n";
-    await pipe.WriteAsync(Encoding.UTF8.GetBytes(response), timeout.Token);
-    await pipe.FlushAsync(timeout.Token);
+    async Task SendReply(string[] expected, string[] values, string replyStatus)
+    {
+        foreach (var line in expected)
+            Check(await reader.ReadLineAsync(timeout.Token) == line, "Unexpected whitelist request");
+        Check(await reader.ReadLineAsync(timeout.Token) == "", "Missing whitelist request terminator");
+        var response = replyStatus + "\n" + string.Concat(values.Select(v => $"{Encoding.UTF8.GetByteCount(v)}\n{v}\n")) + "\n";
+        await pipe.WriteAsync(Encoding.UTF8.GetBytes(response), timeout.Token);
+        await pipe.FlushAsync(timeout.Token);
+    }
+    await SendReply(expectedRequest, data, status);
+    foreach (var reply in followupReplies ?? [])
+        await SendReply(reply.Request, reply.Data, reply.Status);
     return await request.WaitAsync(timeout.Token);
 }
 
 var whitelists = await WhitelistReply(name, service => service.GetWhitelistsAsync(),
-    ["GET_WHITELISTS"], ["Работа:основной:3:true", "Второй:2:false"]);
+    ["GET_WHITELISTS"], ["Работа:основной:5:true", "Второй:2:false"], followupReplies:
+    [
+        (["GET_WHITELIST", Encoding.UTF8.GetByteCount("Работа:основной").ToString(), "Работа:основной"],
+            ["; test", "; comment", "portquiz.net:{8000-9000}", "portquiz.net:{2000-3000|5432}", "!portquiz.net:50"], "OK"),
+        (["GET_WHITELIST", "12", "Второй"], ["  # comment", "\t; comment"], "OK")
+    ]);
 Check(whitelists.Count == 2 && whitelists[0].Name == "Работа:основной" &&
-    whitelists[0].EntryCount == 3 && whitelists[0].IsActive && !whitelists[1].IsActive,
-    "Whitelist names, counts or active flags lost");
+    whitelists[0].EntryCount == 3 && whitelists[1].EntryCount == 0 &&
+    whitelists[0].IsActive && !whitelists[1].IsActive,
+    "Whitelist table must count parsed rules instead of the backend's raw entry totals");
+Check((await WhitelistReply(name, service => service.GetWhitelistsAsync(),
+    ["GET_WHITELISTS"], ["empty:0:false"], followupReplies:
+    [(["GET_WHITELIST", "5", "empty"], [], "OK")])).Single().EntryCount == 0,
+    "Empty whitelist must show zero rules");
+try
+{
+    await WhitelistReply(name, service => service.GetWhitelistsAsync(),
+        ["GET_WHITELISTS"], ["ports:5:false"], followupReplies:
+        [(["GET_WHITELIST", "5", "ports"], ["load failed"], "ERROR")]);
+    throw new Exception("Failed entry load accepted as a zero rule count");
+}
+catch (IOException) { }
 
 Check(await WhitelistReply(name, service => service.SyncWhitelistsAsync(), ["SYNC_WHITELISTS"], []),
     "Whitelist synchronization request failed");

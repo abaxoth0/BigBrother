@@ -12,5 +12,6 @@
     <Compile Include="../frontend/ViewModels/CheckboxSelection.cs" Link="CheckboxSelection.cs" />
     <Compile Include="../../lib/cs/BigBrother.Frontend.Shared/Models/SharedModels.cs" Link="SharedModels.cs" />
     <Compile Include="../../lib/cs/BigBrother.Frontend.Shared/Lib/LogParser.cs" Link="LogParser.cs" />
+    <Compile Include="../../lib/cs/BigBrother.Frontend.Shared/Lib/WhitelistRules.cs" Link="WhitelistRules.cs" />
   </ItemGroup>
 </Project>

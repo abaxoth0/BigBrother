@@ -13,6 +13,9 @@
         Foreground="{StaticResource TitleBarText}"
         ResizeMode="CanResize"
         WindowStyle="None">
+    <local:ChromeWindow.InputBindings>
+        <KeyBinding Key="S" Modifiers="Alt" Command="{Binding SaveInPlaceCommand}"/>
+    </local:ChromeWindow.InputBindings>
     <shell:WindowChrome.WindowChrome>
         <shell:WindowChrome CaptionHeight="42" ResizeBorderThickness="6"
                             GlassFrameThickness="0" UseAeroCaptionButtons="False"/>
@@ -60,7 +63,8 @@
             <!-- Name Input -->
             <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,10">
                 <TextBlock Text="Название: " VerticalAlignment="Center" FontWeight="Bold"/>
-                <TextBox Text="{Binding WhitelistName, UpdateSourceTrigger=PropertyChanged}" Width="300"/>
+                <TextBox Text="{Binding WhitelistName, UpdateSourceTrigger=PropertyChanged}" Width="300"
+                         IsReadOnly="{Binding IsSaving}"/>
             </StackPanel>
 
             <!-- Entries Text Area -->
@@ -84,33 +88,36 @@
                             <Canvas x:Name="LineNumberGutter" Width="32" ClipToBounds="True"
                                     IsHitTestVisible="False"/>
                         </Border>
+                        <!-- The TextBox handles editing; the overlay supplies per-line text colors. -->
                         <TextBox x:Name="EntriesEditor" Grid.Column="1" Text="{Binding EntriesText, UpdateSourceTrigger=PropertyChanged}"
+                                 IsReadOnly="{Binding IsSaving}"
                                  AcceptsReturn="True" VerticalScrollBarVisibility="Auto"
                                  HorizontalScrollBarVisibility="Auto" TextWrapping="NoWrap"
                                  VerticalContentAlignment="Top"
-                                 FontFamily="Consolas" FontSize="13" Padding="6"
+                                 FontFamily="Consolas" FontSize="15" Padding="6"
                                  Loaded="EntriesEditor_LayoutChanged" SizeChanged="EntriesEditor_LayoutChanged"
                                  TextChanged="EntriesEditor_TextChanged"
                                  ScrollViewer.ScrollChanged="EntriesEditor_ScrollChanged"
                                  Background="Transparent"
-                                 Foreground="{StaticResource TitleBarText}"
+                                 Foreground="Transparent" SelectionTextBrush="Transparent"
+                                 CaretBrush="{StaticResource TitleBarText}"
                                  BorderThickness="0"/>
+                        <Canvas x:Name="EntriesTextCanvas" Grid.Column="1"
+                                ClipToBounds="True" IsHitTestVisible="False"/>
                     </Grid>
                 </Border>
             </Grid>
 
             <StackPanel Grid.Row="2" Margin="0,8,0,0">
-                <TextBlock Text="Домен, IPv4, *.домен, &quot;подстрока&quot;; ! — исключение. Порты: :443|80 или :{0-1023|5432|2000-3000}; без порта — все. # и ; — комментарии."
-                           TextWrapping="Wrap"/>
-                <ScrollViewer MaxHeight="120" VerticalScrollBarVisibility="Auto" Margin="0,6,0,0">
+                <ScrollViewer MaxHeight="120" VerticalScrollBarVisibility="Auto">
                     <TextBlock Text="{Binding ValidationSummary}" TextWrapping="Wrap"/>
                 </ScrollViewer>
             </StackPanel>
             <!-- Buttons -->
             <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
                 <Button Content="Сохранить" Style="{StaticResource PrimaryButton}" Width="90" Height="28" Margin="0,0,5,0"
-                        Command="{Binding SaveCommand}" IsDefault="True"/>
-                <Button Content="Отмена" Width="90" Height="28" IsCancel="True"/>
+                        Command="{Binding SaveCommand}" IsDefault="True" ToolTip="Сохранить и закрыть. Alt+S — сохранить без закрытия"/>
+                <Button Content="Отмена" Width="90" Height="28" IsCancel="True" IsEnabled="{Binding CanEdit}"/>
             </StackPanel>
         </Grid>
     </Grid>

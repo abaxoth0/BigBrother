@@ -45,6 +45,11 @@ public partial class WhitelistEditWindow : ChromeWindow
         if (!EntriesEditor.IsLoaded) return;
         LineNumberGutter.Children.Clear();
         LineHighlightCanvas.Children.Clear();
+        EntriesTextCanvas.Children.Clear();
+        var scrollViewer = EntriesEditor.Template.FindName("PART_ContentHost", EntriesEditor) as ScrollViewer;
+        if (scrollViewer?.Template.FindName("PART_ScrollContentPresenter", scrollViewer) is ScrollContentPresenter viewport)
+            EntriesTextCanvas.Clip = new RectangleGeometry(viewport.TransformToAncestor(EntriesEditor)
+                .TransformBounds(new Rect(viewport.RenderSize)));
         var issuesByLine = _viewModel.ValidationIssues.GroupBy(issue => issue.Line)
             .ToDictionary(group => group.Key, group => group.Any(issue => issue.IsError));
         int first = EntriesEditor.GetFirstVisibleLineIndex();
@@ -59,6 +64,7 @@ public partial class WhitelistEditWindow : ChromeWindow
             int index = EntriesEditor.GetCharacterIndexFromLineIndex(line);
             var rect = EntriesEditor.GetRectFromCharacterIndex(index);
             if (rect.IsEmpty) continue;
+            DrawEntryLine(line, index, rect.Height);
             if (issuesByLine.TryGetValue(line + 1, out bool isError))
             {
                 var highlight = new Border
@@ -76,7 +82,7 @@ public partial class WhitelistEditWindow : ChromeWindow
                 Text = (line + 1).ToString(),
                 FontFamily = EntriesEditor.FontFamily,
                 FontSize = EntriesEditor.FontSize,
-                Foreground = EntriesEditor.Foreground,
+                Foreground = (Brush)FindResource("TitleBarText"),
                 Opacity = 0.6,
                 Width = LineNumberGutter.Width - 6,
                 TextAlignment = TextAlignment.Right,
@@ -85,6 +91,34 @@ public partial class WhitelistEditWindow : ChromeWindow
             };
             Canvas.SetTop(number, rect.Top);
             LineNumberGutter.Children.Add(number);
+        }
+    }
+
+    private void DrawEntryLine(int line, int index, double height)
+    {
+        string text = EntriesEditor.GetLineText(line).TrimEnd('\r', '\n');
+        string entry = text.TrimStart();
+        var brush = (Brush)FindResource(entry.StartsWith('#') || entry.StartsWith(';') ? "TextDim" : "TitleBarText");
+        int offset = 0;
+        foreach (string segment in text.Split('\t'))
+        {
+            if (segment.Length > 0)
+            {
+                var rect = EntriesEditor.GetRectFromCharacterIndex(index + offset);
+                var label = new TextBlock
+                {
+                    Text = segment,
+                    FontFamily = EntriesEditor.FontFamily,
+                    FontSize = EntriesEditor.FontSize,
+                    Foreground = brush,
+                    LineHeight = height,
+                    LineStackingStrategy = LineStackingStrategy.BlockLineHeight
+                };
+                Canvas.SetLeft(label, rect.Left);
+                Canvas.SetTop(label, rect.Top);
+                EntriesTextCanvas.Children.Add(label);
+            }
+            offset += segment.Length + 1;
         }
     }
 }
