@@ -54,7 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Server whitelist editor: preserve `#` and `;` comment lines after saving and reopening, and display them in grey while excluding them from rule validation
 
-- Server whitelist validation: reject exceptions covering port 53, including ranges and exceptions without a port selector, with a line-specific error explaining that DNS traffic is always allowed
+- Server whitelist validation: reject exceptions explicitly selecting port 53, including ranges, with a line-specific error explaining that DNS traffic is always allowed; accept exceptions without a port selector for domains, wildcards, substrings and IPv4 addresses
 
 - Server whitelist downloads: return an error on database read failures so clients retain their installed rules and retry instead of applying an empty list
 

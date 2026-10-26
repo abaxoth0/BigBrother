@@ -17,7 +17,8 @@ static class WhitelistTests
         {
             var analysis = WhitelistRules.Analyze(prefix + host + selector);
             Check(analysis.Rules.Single().Pattern == host, "Valid host/port combinations");
-            Check(analysis.HasErrors == (prefix == "!" && selector != ":443"), "Exceptions covering DNS are rejected");
+            Check(analysis.HasErrors == (prefix == "!" && selector.Length > 0 && selector != ":443"),
+                "Only exceptions explicitly selecting DNS ports are rejected");
         }
         for (int i = 0; i < selectors.Length; i++)
         {
@@ -35,7 +36,7 @@ static class WhitelistTests
         foreach (string rule in new[] { "https://example.com:443", "[::1]:443", "1.1.1.1/24:443", "*.1.1.1.1:443", "\"\":443" })
             Check(WhitelistRules.Analyze(rule).HasErrors, "Host validation retained");
 
-        foreach (string selector in new[] { ":53", ":80|53|443", ":{0-1023}", ":{53-54}", ":{52-53}", "" })
+        foreach (string selector in new[] { ":53", ":80|53|443", ":{0-1023}", ":{53-54}", ":{52-53}" })
         {
             var analysis = WhitelistRules.Analyze("# comment\n\n!portquiz.net" + selector);
             Check(analysis.Issues.Any(i => i.IsError && i.Line == 3 && i.Message.Contains("порт 53")),
@@ -44,6 +45,14 @@ static class WhitelistTests
         foreach (string selector in new[] { ":52", ":54", ":{0-52|54-65535}", ":80|443" })
             Check(!WhitelistRules.Analyze("!portquiz.net" + selector).HasErrors, "Exceptions excluding DNS remain valid");
         Check(!WhitelistRules.Analyze("portquiz.net:53").HasErrors, "Allowing DNS remains valid");
+
+        var exclusions = WhitelistRules.Analyze("\"google\"\n!test.com\n!*.test.org\n!\"test\"");
+        Check(!exclusions.HasErrors, "Domain, wildcard and substring exceptions need no port selector");
+        foreach (string host in new[] { "test.com", "sub.test.org", "google-test.net" })
+        {
+            Check(WhitelistRules.Test(exclusions, host).StartsWith("Исключён"), "Unqualified exceptions remain effective");
+            Check(WhitelistRules.Test(exclusions, host + ":443").StartsWith("Исключён"), "Unqualified exceptions cover selected ports");
+        }
 
         var partial = WhitelistRules.Analyze("1.1.1.1\n!1.1.1.1:443");
         Check(!partial.HasErrors && partial.Issues.Any(i => !i.IsError), "Partial exception is a warning");
