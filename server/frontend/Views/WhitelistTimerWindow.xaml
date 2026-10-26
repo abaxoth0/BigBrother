@@ -25,9 +25,11 @@
         <StackPanel Grid.Row="1" Margin="16" x:Name="EditorPanel">
             <TextBlock x:Name="WhitelistName" FontWeight="Bold" TextWrapping="Wrap" Margin="0,0,0,6"/>
             <TextBlock x:Name="CurrentTimer" Text="{Binding RemainingText, StringFormat=Текущий таймер: {0}}" Margin="0,0,0,6"/>
-            <Label Content="Начальное время (чч:мм:сс)" Target="{Binding ElementName=DurationInput}"/>
+            <Label Content="Начальное время (чч:мм:сс)" Target="{Binding ElementName=DurationInput}"
+                   Foreground="{StaticResource TitleBarText}"/>
             <TextBox x:Name="DurationInput" Text="{Binding Duration, UpdateSourceTrigger=PropertyChanged}"/>
-            <Label Content="Оставшееся время (чч:мм:сс)" Target="{Binding ElementName=RemainingInput}" Margin="0,8,0,0"/>
+            <Label Content="Оставшееся время (чч:мм:сс)" Target="{Binding ElementName=RemainingInput}" Margin="0,8,0,0"
+                   Foreground="{StaticResource TitleBarText}"/>
             <TextBox x:Name="RemainingInput" Text="{Binding Remaining, UpdateSourceTrigger=PropertyChanged}"/>
             <TextBlock Text="Таймер продолжает идти, пока открыто окно. Изменение начального времени прибавляет или вычитает разницу из текущего таймера. Изменение оставшегося времени задаёт его напрямую и не меняет начальное. Ноль завершает таймер."
                        TextWrapping="Wrap" Foreground="{StaticResource TextDim}" Margin="0,10"/>
