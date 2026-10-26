@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"sync"
+	"time"
 
 	_ "github.com/ncruces/go-sqlite3/driver"
 )
@@ -13,11 +15,16 @@ type Database struct {
 	isConnected bool
 	conn        *sql.DB
 	path        string
+	timerMu     sync.Mutex
+	timers      map[string]*whitelistTimer
+	now         func() time.Time
 }
 
 func New(path string) *Database {
 	return &Database{
-		path: path,
+		path:   path,
+		timers: make(map[string]*whitelistTimer),
+		now:    time.Now,
 	}
 }
 
@@ -52,6 +59,11 @@ func (db *Database) Connect() error {
 	if _, err := db.conn.Exec("PRAGMA busy_timeout = 5000"); err != nil {
 		db.Disconnect()
 		return fmt.Errorf("Failed to set busy timeout: %v", err)
+	}
+
+	if err := db.loadWhitelistTimers(); err != nil {
+		db.Disconnect()
+		return err
 	}
 
 	dbcommon.Log.Info("Connecting: OK", nil)
@@ -118,6 +130,13 @@ func (db *Database) initTables() error {
 		enableForeignKeysSQL,
 		createWhitelistTableSQL,
 		createWhitelistDomainTableSQL,
+		`CREATE TABLE IF NOT EXISTS whitelist_timer (
+            whitelist_id BLOB NOT NULL PRIMARY KEY REFERENCES whitelist(id) ON DELETE CASCADE,
+            duration_seconds INTEGER NOT NULL,
+            auto_delete INTEGER NOT NULL DEFAULT 0,
+            saved_remaining_ns INTEGER,
+            saved_active INTEGER NOT NULL DEFAULT 0
+        )`,
 		createUserTableSQL,
 		createSettingsTableSQL,
 	}

@@ -7,10 +7,11 @@ type WhitelistEntry struct {
 }
 
 type Whitelist struct {
-	ID       string
-	Name     string
-	ParentID string
-	IsActive bool
+	ID        string
+	Name      string
+	ParentID  string
+	IsActive  bool
+	Temporary *WhitelistTimer `json:"temporary,omitempty"`
 }
 
 type WhitelistConflict struct {
@@ -22,4 +23,10 @@ type WhitelistConflict struct {
 type WhitelistComposition struct {
 	Entries   []*WhitelistEntry   `json:"entries"`
 	Conflicts []WhitelistConflict `json:"conflicts"`
+}
+
+type WhitelistTimer struct {
+	DurationSeconds  int64   `json:"durationSeconds"`
+	RemainingSeconds float64 `json:"remainingSeconds"`
+	AutoDelete       bool    `json:"autoDelete"`
 }

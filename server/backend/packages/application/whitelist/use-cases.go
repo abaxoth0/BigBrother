@@ -13,6 +13,9 @@ type QueryHandler interface {
 
 type CommandHandler interface {
 	CreateWhitelist(name string, parentID string) error
+	CreateTemporaryWhitelist(name string, durationSeconds int64, autoDelete bool) error
+	UpdateWhitelistTimer(name string, durationSeconds int64, remainingSeconds *int64, autoDelete bool) error
+	ResetWhitelistTimers(names []string) error
 	SetWhitelistActive(name string, active bool) error
 	SetWhitelistsActive(states map[string]bool) (bool, error)
 	ChangeWhitelistName(name string, newName string) error

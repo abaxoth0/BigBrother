@@ -30,6 +30,8 @@ func (db *Database) CreateWhitelist(name string, parentID string) error {
 }
 
 func (db *Database) GetWhitelists() ([]*entity.Whitelist, error) {
+	db.timerMu.Lock()
+	defer db.timerMu.Unlock()
 	if log.DiagnosticsEnabled {
 		dbcommon.Log.Trace("Getting whitelists...", nil)
 	}
@@ -50,6 +52,7 @@ func (db *Database) GetWhitelists() ([]*entity.Whitelist, error) {
 		if parentID.Valid {
 			wl.ParentID = parentID.String
 		}
+		db.applyWhitelistTimer(wl)
 		wls = append(wls, wl)
 	}
 	if err = rows.Err(); err != nil {
@@ -66,6 +69,8 @@ func (db *Database) GetWhitelists() ([]*entity.Whitelist, error) {
 var whitelistProperties = []string{"id", "name"}
 
 func (db *Database) getWhitelistBy(property string, value string) (*entity.Whitelist, error) {
+	db.timerMu.Lock()
+	defer db.timerMu.Unlock()
 	if log.DiagnosticsEnabled {
 		dbcommon.Log.Trace("Getting whitelist \""+value+"\"...", nil)
 	}
@@ -93,6 +98,7 @@ func (db *Database) getWhitelistBy(property string, value string) (*entity.White
 		dbcommon.Log.Trace("Getting whitelist \""+value+"\": OK", nil)
 	}
 
+	db.applyWhitelistTimer(wl)
 	return wl, nil
 }
 
@@ -179,18 +185,24 @@ func (db *Database) ChangeWhitelistName(name string, newName string) error {
 }
 
 func (db *Database) DeleteWhitelist(name string) error {
-	if _, err := db.GetWhitelistByName(name); err != nil {
+	db.timerMu.Lock()
+	defer db.timerMu.Unlock()
+	var id string
+	if err := db.conn.QueryRow("SELECT id FROM whitelist WHERE name = ?", name).Scan(&id); err != nil {
 		return err
 	}
-
-	dbcommon.Log.Info("Deleting whitelist \""+name+"\"...", nil)
-
-	if _, err := db.conn.Exec("DELETE FROM whitelist WHERE name = ?", name); err != nil {
+	tx, err := db.conn.Begin()
+	if err != nil {
 		return err
 	}
-
-	dbcommon.Log.Info("Deleting whitelist \""+name+"\": OK", nil)
-
+	defer tx.Rollback()
+	if err := deleteWhitelist(tx, id); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	delete(db.timers, id)
 	return nil
 }
 
@@ -365,27 +377,21 @@ func (db *Database) ReplaceWhitelistEntries(entries []string, wlName string) err
 }
 
 func (db *Database) SetWhitelistActive(name string, active bool) error {
-	result, err := db.conn.Exec("UPDATE whitelist SET is_active = ? WHERE name = ?", active, name)
-	if err != nil {
-		return err
-	}
-	count, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if count == 0 {
-		return sql.ErrNoRows
-	}
-	return nil
+	_, err := db.SetWhitelistsActive(map[string]bool{name: active})
+	return err
 }
 
 func (db *Database) SetWhitelistsActive(states map[string]bool) (bool, error) {
+	db.timerMu.Lock()
+	defer db.timerMu.Unlock()
 	tx, err := db.conn.Begin()
 	if err != nil {
 		return false, err
 	}
 	defer tx.Rollback()
 	changed := false
+	timers := map[string]*whitelistTimer{}
+	now := db.now()
 	names := make([]string, 0, len(states))
 	for name := range states {
 		names = append(names, name)
@@ -393,20 +399,51 @@ func (db *Database) SetWhitelistsActive(states map[string]bool) (bool, error) {
 	slices.Sort(names)
 	for _, name := range names {
 		active := states[name]
+		var id string
 		var saved bool
-		if err := tx.QueryRow("SELECT is_active FROM whitelist WHERE name = ?", name).Scan(&saved); err != nil {
+		if err := tx.QueryRow("SELECT id, is_active FROM whitelist WHERE name = ?", name).Scan(&id, &saved); err != nil {
 			return false, err
 		}
-		if saved == active {
-			continue
-		}
-		if _, err := tx.Exec("UPDATE whitelist SET is_active = ? WHERE name = ?", active, name); err != nil {
-			return false, err
+		if timer, ok := db.timers[id]; ok {
+			next := *timer
+			next.remaining = timer.left(now)
+			expired := timer.active && next.remaining <= 0
+			if expired && timer.autoDelete {
+				if err := deleteWhitelist(tx, id); err != nil {
+					return false, err
+				}
+				timers[id] = nil
+				changed = true
+				continue
+			}
+			if timer.active == active && !expired {
+				continue
+			}
+			if active && next.remaining <= 0 {
+				next.remaining = next.duration
+			}
+			next.active = active
+			next.updated = now
+			timers[id] = &next
+		} else {
+			if saved == active {
+				continue
+			}
+			if _, err := tx.Exec("UPDATE whitelist SET is_active = ? WHERE name = ?", active, name); err != nil {
+				return false, err
+			}
 		}
 		changed = true
 	}
 	if err := tx.Commit(); err != nil {
 		return false, err
+	}
+	for id, timer := range timers {
+		if timer == nil {
+			delete(db.timers, id)
+		} else {
+			db.timers[id] = timer
+		}
 	}
 	return changed, nil
 }

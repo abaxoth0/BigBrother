@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Server temporary whitelists: switch between regular and temporary tables using separate active counters; backend countdowns pause/resume, expire automatically and optionally delete their lists. Edit the initial duration using a remaining-time delta, set remaining time independently, or reset timers from the context menu. A server setting saves activity and remaining time on shutdown and restores them on startup without counting downtime; otherwise temporary lists restart disabled with reset timers
+
 - Server whitelist editor: 15 px entry text and line numbers, Ctrl+S to save without closing, and removal of the syntax hint; the Save button closes the editor only after a successful save
 
 - Whitelist rules: optional TCP/UDP destination ports, inclusive ranges and OR lists (`1.1.1.1:443|80|53|20|22`, `1.1.1.1:{0-1023|5432|2000-3000}`); omitted ports allow all ports. Supports domains, wildcards, substrings and port-specific exceptions, with validation, client display and host:port checking; requires an updated firewall and frontends

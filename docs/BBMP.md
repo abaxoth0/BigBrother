@@ -195,7 +195,13 @@ Used by the server frontend (C# WPF app) to manage the server.
 | `GET_REGISTERED_USERS` | none | One JSON array of `name`/`address` objects | List all registered users, including offline users, through the administrator pipe; credentials are excluded |
 | `SET_CLIENT_IPV6_BLOCK` | `name`, `0` or `1` | none | Request a persisted IPv6 blocking preference for a connected client supporting remote control |
 | `GET_PENDING` | none | `name:addr` lines | Get pending users |
-| `GET_WHITELISTS` | none | `name:count` lines | Get all whitelists |
+| `GET_WHITELISTS` | none | `name:count:active` lines | Get all regular and temporary whitelists (legacy response) |
+| `GET_WHITELISTS_DETAILS` | none | JSON array | Get names, active flags and optional `temporary` timer metadata (`durationSeconds`, `remainingSeconds`, `autoDelete`) |
+| `CREATE_TEMPORARY_WHITELIST` | name, durationSeconds, autoDelete (0/1) | OK | Create an inactive temporary whitelist with a positive duration |
+| `UPDATE_WHITELIST_TIMER` | name, durationSeconds, remainingSeconds or `unchanged`, autoDelete (0/1) | OK | Apply the initial-duration delta to remaining time, or set remaining time explicitly; zero expires immediately |
+| `RESET_WHITELIST_TIMERS` | one or more names | OK | Reset temporary countdowns to their initial durations without changing activity |
+| `GET_SAVE_TEMPORARY_WHITELIST_STATE` | none | 0/1 | Read shutdown-state persistence preference (default 0) |
+| `SET_SAVE_TEMPORARY_WHITELIST_STATE` | enabled (0/1) | OK | Save or discard temporary activity/countdown snapshots at backend shutdown |
 | `GET_WHITELIST` | `name` | Entry values (one per line) | Get whitelist entries |
 | `CREATE_WHITELIST` | `name` | none | Create new whitelist |
 | `DELETE_WHITELIST` | `name` | none | Delete whitelist |

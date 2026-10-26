@@ -7,6 +7,8 @@ using System.Security.Cryptography;
 using System.Text.Json.Nodes;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Data;
+using System.Globalization;
 using frontend.Models;
 using frontend.Services;
 using frontend.Validation;
@@ -42,6 +44,8 @@ public class MainViewModel : ViewModelBase
     private int _statusRefreshInProgress;
     private bool _openingDomainCheck;
     private bool _openingWhitelistEditor;
+    private bool _openingTimerEditor;
+    private readonly System.Windows.Threading.DispatcherTimer _countdownTimer = new();
 
     private string _serverStatus = "Подключение...";
     private string _uptime = "";
@@ -60,8 +64,6 @@ public class MainViewModel : ViewModelBase
     private string _serverName = "";
     private string _serverPort = "1984";
     private bool _isAllSelected;
-    private ObservableCollection<WhitelistInfo> _whitelists = new();
-    private WhitelistInfo? _selectedWhitelist;
 
     private string _logSearchText = "";
     private bool _autoScroll = true;
@@ -170,6 +172,11 @@ public class MainViewModel : ViewModelBase
         ConnectedClients = new ObservableCollection<ConnectedClient>();
         PendingRegistrations = new ObservableCollection<PendingRegistration>();
         Whitelists = new ObservableCollection<WhitelistInfo>();
+        RegularWhitelists = new ListCollectionView(Whitelists) { Filter = row => row is WhitelistInfo { IsTemporary: false } };
+        TemporaryWhitelists = new ListCollectionView(Whitelists) { Filter = row => row is WhitelistInfo { IsTemporary: true } };
+        _countdownTimer.Interval = TimeSpan.FromSeconds(1);
+        _countdownTimer.Tick += (_, _) => { foreach (var row in Whitelists.Where(w => w.IsTemporary)) row.TickTimer(); };
+        _countdownTimer.Start();
 
         ApproveCommand = new RelayCommand(async o => await RunUserActionAsync(() => ApproveUserAsync(o?.ToString())),
             o => CanRunUserAction && GetPendingTargets(o?.ToString()).Count > 0);
@@ -187,9 +194,9 @@ public class MainViewModel : ViewModelBase
             o => CanSetClientIpv6Block(o as ConnectedClient));
         RefreshCommand = new RelayCommand(async _ => await RefreshAllAsync());
         DisableWhitelistsCommand = new RelayCommand(o => SetWhitelistsActive(o as WhitelistInfo, false),
-            o => (Whitelists.Any(w => w.IsSelected) || o is WhitelistInfo) && IsConnected && !_savingWhitelistActivation);
+            o => (CurrentWhitelists.Any(w => w.IsSelected) || o is WhitelistInfo) && IsConnected && !_savingWhitelistActivation);
         EnableWhitelistsCommand = new RelayCommand(o => SetWhitelistsActive(o as WhitelistInfo, true),
-            o => (Whitelists.Any(w => w.IsSelected) || o is WhitelistInfo) && IsConnected && !_savingWhitelistActivation);
+            o => (CurrentWhitelists.Any(w => w.IsSelected) || o is WhitelistInfo) && IsConnected && !_savingWhitelistActivation);
         SaveWhitelistActivationCommand = new RelayCommand(async _ => await SaveWhitelistActivationAsync(),
             _ => IsConnected && HasWhitelistActivationChanges && !_savingWhitelistActivation);
         CancelWhitelistActivationCommand = new RelayCommand(_ => CancelWhitelistActivation(),
@@ -198,12 +205,16 @@ public class MainViewModel : ViewModelBase
             _ => IsConnected && !_syncingWhitelists && !_savingWhitelistActivation);
         OpenDomainCheckCommand = new RelayCommand(async _ => await OpenDomainCheckAsync(),
             _ => IsConnected && !_openingDomainCheck);
+        EditWhitelistTimerCommand = new RelayCommand(o => OpenWhitelistTimer(o as WhitelistInfo),
+            o => o is WhitelistInfo { IsTemporary: true } && IsConnected && !_openingTimerEditor);
+        ResetWhitelistTimersCommand = new RelayCommand(async o => await ResetWhitelistTimersAsync(o as WhitelistInfo),
+            o => (CurrentWhitelists.Any(w => w.IsSelected) || o is WhitelistInfo) && IsConnected && ShowTemporaryWhitelists);
         OpenCreateWhitelistCommand = new RelayCommand(async _ => await OpenCreateWhitelistAsync(), _ => !_openingWhitelistEditor);
         OpenEditWhitelistCommand = new RelayCommand(async o => await OpenEditWhitelistAsync(o as WhitelistInfo), o => o is WhitelistInfo && !_openingWhitelistEditor);
         ImportWhitelistsCommand = new RelayCommand(async _ => await ImportWhitelistsAsync());
-        ExportWhitelistsCommand = new RelayCommand(async _ => await ExportWhitelistsAsync(), _ => Whitelists.Any(w => w.IsSelected));
+        ExportWhitelistsCommand = new RelayCommand(async _ => await ExportWhitelistsAsync(), _ => CurrentWhitelists.Any(w => w.IsSelected));
         DeleteSelectedWhitelistsCommand = new RelayCommand(async o => await DeleteSelectedWhitelistsAsync(o as WhitelistInfo),
-            o => Whitelists.Any(w => w.IsSelected) || o is WhitelistInfo);
+            o => CurrentWhitelists.Any(w => w.IsSelected) || o is WhitelistInfo);
         BrowseClientUpdateCommand = new RelayCommand(async _ => await BrowseClientUpdateAsync());
         OpenUpdateShareCommand = new RelayCommand(_ => OpenUpdateShare());
         PublishClientUpdateCommand = new RelayCommand(async _ => await PublishClientUpdateAsync(), _ => IsConnected);
@@ -226,6 +237,7 @@ public class MainViewModel : ViewModelBase
         _ = LoadServerNameAsync();
         _ = LoadServerPortAsync();
         _ = LoadWindowsNotificationsAsync();
+        _ = LoadTemporaryWhitelistSettingsAsync();
         _ = LoadCertificateFingerprintAsync();
         _ = LoadClientUpdateAsync();
         _ = LoadLogPathAsync();
@@ -276,6 +288,24 @@ public class MainViewModel : ViewModelBase
     public ObservableCollection<ConnectedClient> ConnectedClients { get; }
     public ObservableCollection<PendingRegistration> PendingRegistrations { get; }
     public ObservableCollection<WhitelistInfo> Whitelists { get; }
+    public ICollectionView RegularWhitelists { get; }
+    public ICollectionView TemporaryWhitelists { get; }
+    public IEnumerable<WhitelistInfo> CurrentWhitelists => Whitelists.Where(w => w.IsTemporary == ShowTemporaryWhitelists);
+    private int _whitelistTableIndex;
+    public int WhitelistTableIndex
+    {
+        get => _whitelistTableIndex;
+        set
+        {
+            if (!SetProperty(ref _whitelistTableIndex, value)) return;
+            OnPropertyChanged(nameof(ShowTemporaryWhitelists));
+            OnPropertyChanged(nameof(ShowRegularWhitelists));
+            UpdateAllSelectedState();
+            CommandManager.InvalidateRequerySuggested();
+        }
+    }
+    public bool ShowTemporaryWhitelists => WhitelistTableIndex == 1;
+    public bool ShowRegularWhitelists => !ShowTemporaryWhitelists;
 
     public string ServerStatus
     {
@@ -341,7 +371,9 @@ public class MainViewModel : ViewModelBase
     }
 
     public bool HasWhitelistActivationChanges => _whitelistActivation.HasChanges;
-    public string ActiveWhitelistsText => $"Активных списков: {Whitelists.Count(w => w.IsActive)}";
+    public string ActiveWhitelistsText => $"Активных списков: {Whitelists.Count(w => w.IsActive && !w.IsTemporary)}";
+
+    public string ActiveTemporaryWhitelistsText => $"Активных временных списков: {Whitelists.Count(w => w.IsActive && w.IsTemporary)}";
 
     public List<WhitelistConflict> WhitelistConflicts
     {
@@ -382,6 +414,13 @@ public class MainViewModel : ViewModelBase
         set => SetProperty(ref _hasSettingsChanges, value);
     }
 
+    private bool _saveTemporaryWhitelistState;
+    public bool SaveTemporaryWhitelistState
+    {
+        get => _saveTemporaryWhitelistState;
+        set { if (SetProperty(ref _saveTemporaryWhitelistState, value)) MarkSettingsChanged(); }
+    }
+
     private bool _windowsNotificationsEnabled = true;
     public bool WindowsNotificationsEnabled
     {
@@ -398,28 +437,12 @@ public class MainViewModel : ViewModelBase
             HasSettingsChanges = true;
     }
 
-    public WhitelistInfo? SelectedWhitelist
-    {
-        get => _selectedWhitelist;
-        set
-        {
-            if (SetProperty(ref _selectedWhitelist, value))
-            {
-                OnPropertyChanged(nameof(SelectedWhitelistName));
-                OnPropertyChanged(nameof(HasSelectedWhitelist));
-            }
-        }
-    }
-
-    public string SelectedWhitelistName => SelectedWhitelist?.Name ?? "";
-    public bool HasSelectedWhitelist => SelectedWhitelist != null;
-
     public bool IsAllSelected
     {
         get => _isAllSelected;
         set
         {
-            foreach (var wl in Whitelists)
+            foreach (var wl in CurrentWhitelists)
                 wl.IsSelected = value;
             UpdateAllSelectedState();
             CommandManager.InvalidateRequerySuggested();
@@ -489,6 +512,8 @@ public class MainViewModel : ViewModelBase
     public ICommand CancelWhitelistActivationCommand { get; }
     public ICommand SyncWhitelistsCommand { get; }
     public ICommand OpenDomainCheckCommand { get; }
+    public ICommand EditWhitelistTimerCommand { get; }
+    public ICommand ResetWhitelistTimersCommand { get; }
     public ICommand OpenCreateWhitelistCommand { get; }
     public ICommand OpenEditWhitelistCommand { get; }
     public ICommand ImportWhitelistsCommand { get; }
@@ -861,7 +886,24 @@ public class MainViewModel : ViewModelBase
             AddLog("ERROR", "Ошибка сохранения: уведомления Windows");
             return;
         }
+        try
+        {
+            await _ipcService.TemporaryWhitelistCommandAsync("SET_SAVE_TEMPORARY_WHITELIST_STATE", SaveTemporaryWhitelistState ? "1" : "0");
+        }
+        catch (Exception ex) { AddLog("ERROR", $"Ошибка сохранения временных списков: {ex.Message}"); return; }
         HasSettingsChanges = false;
+    }
+
+    private async Task LoadTemporaryWhitelistSettingsAsync()
+    {
+        try
+        {
+            var data = await _ipcService.TemporaryWhitelistCommandAsync("GET_SAVE_TEMPORARY_WHITELIST_STATE");
+            if (_disposed) return;
+            _saveTemporaryWhitelistState = data.FirstOrDefault() == "1";
+            OnPropertyChanged(nameof(SaveTemporaryWhitelistState));
+        }
+        catch (Exception ex) { if (!_disposed) AddLog("ERROR", $"Ошибка загрузки настройки временных списков: {ex.Message}"); }
     }
 
     private async Task LoadWindowsNotificationsAsync()
@@ -907,6 +949,7 @@ public class MainViewModel : ViewModelBase
                     Whitelists.Clear();
                     WhitelistConflicts = new();
                     OnPropertyChanged(nameof(ActiveWhitelistsText));
+                    OnPropertyChanged(nameof(ActiveTemporaryWhitelistsText));
                     CertificateFingerprint = "";
                 }
                 LastUpdate = DateTime.Now;
@@ -917,6 +960,7 @@ public class MainViewModel : ViewModelBase
                 _ = LoadServerNameAsync();
                 _ = LoadServerPortAsync();
                 _ = LoadWindowsNotificationsAsync();
+                _ = LoadTemporaryWhitelistSettingsAsync();
                 _ = LoadCertificateFingerprintAsync();
                 _ = LoadClientUpdateAsync();
                 _ = LoadLogPathAsync();
@@ -943,6 +987,7 @@ public class MainViewModel : ViewModelBase
                     Whitelists.Clear();
                     WhitelistConflicts = new();
                     OnPropertyChanged(nameof(ActiveWhitelistsText));
+                    OnPropertyChanged(nameof(ActiveTemporaryWhitelistsText));
                     CertificateFingerprint = "";
                     AddLog("ERROR", $"Ошибка: {ex.Message}");
                 });
@@ -1062,6 +1107,12 @@ public class MainViewModel : ViewModelBase
                     {
                         existing.EntryCount = nw.EntryCount;
                         existing.IsActive = nw.IsActive;
+                        existing.UpdateTimer(nw.Temporary == null ? null : new WhitelistTimerInfo
+                        {
+                            DurationSeconds = nw.Temporary.DurationSeconds,
+                            RemainingSeconds = nw.RemainingSeconds,
+                            AutoDelete = nw.Temporary.AutoDelete
+                        }, nw.TimerIsRunning);
                     }
                     else
                     {
@@ -1084,6 +1135,7 @@ public class MainViewModel : ViewModelBase
                     Whitelists.Clear();
                     WhitelistConflicts = new();
                     OnPropertyChanged(nameof(ActiveWhitelistsText));
+                    OnPropertyChanged(nameof(ActiveTemporaryWhitelistsText));
                     CertificateFingerprint = "";
                     return;
                 }
@@ -1243,7 +1295,7 @@ public class MainViewModel : ViewModelBase
 
     private async Task DeleteSelectedWhitelistsAsync(WhitelistInfo? whitelist)
     {
-        var selected = Whitelists.Where(w => w.IsSelected).Select(w => w.Name).ToList();
+        var selected = CurrentWhitelists.Where(w => w.IsSelected).Select(w => w.Name).ToList();
         if (selected.Count == 0 && whitelist != null) selected.Add(whitelist.Name);
         if (selected.Count == 0) return;
 
@@ -1271,6 +1323,7 @@ public class MainViewModel : ViewModelBase
     {
         OnPropertyChanged(nameof(HasWhitelistActivationChanges));
         OnPropertyChanged(nameof(ActiveWhitelistsText));
+        OnPropertyChanged(nameof(ActiveTemporaryWhitelistsText));
         OnPropertyChanged(nameof(WhitelistConflictsText));
         CommandManager.InvalidateRequerySuggested();
     }
@@ -1278,7 +1331,7 @@ public class MainViewModel : ViewModelBase
     private void SetWhitelistsActive(WhitelistInfo? whitelist, bool active)
     {
         if (!IsConnected || _savingWhitelistActivation) return;
-        var selected = Whitelists.Where(w => w.IsSelected).ToList();
+        var selected = CurrentWhitelists.Where(w => w.IsSelected).ToList();
         if (selected.Count == 0 && whitelist != null) selected.Add(whitelist);
         foreach (var row in selected) _whitelistActivation.SetActive(row, active);
         IsAllSelected = false;
@@ -1369,6 +1422,37 @@ public class MainViewModel : ViewModelBase
         }
     }
 
+    private void OpenWhitelistTimer(WhitelistInfo? whitelist)
+    {
+        if (whitelist?.Temporary == null || _openingTimerEditor) return;
+        _openingTimerEditor = true;
+        try
+        {
+            var dialog = new WhitelistTimerWindow(whitelist, async timer =>
+            {
+                await _ipcService.TemporaryWhitelistCommandAsync("UPDATE_WHITELIST_TIMER", whitelist.Name,
+                    timer.DurationSeconds.ToString(CultureInfo.InvariantCulture),
+                    timer.RemainingSeconds?.ToString(CultureInfo.InvariantCulture) ?? "unchanged", timer.AutoDelete ? "1" : "0");
+                await RefreshWhitelistsAsync();
+            }) { Owner = Application.Current.MainWindow };
+            dialog.ShowDialog();
+        }
+        finally { _openingTimerEditor = false; CommandManager.InvalidateRequerySuggested(); }
+    }
+
+    private async Task ResetWhitelistTimersAsync(WhitelistInfo? whitelist)
+    {
+        var selected = CurrentWhitelists.Where(w => w.IsSelected).ToList();
+        if (selected.Count == 0 && whitelist != null) selected.Add(whitelist);
+        if (selected.Count == 0) return;
+        try
+        {
+            await _ipcService.TemporaryWhitelistCommandAsync("RESET_WHITELIST_TIMERS", selected.Select(w => w.Name).ToArray());
+            await RefreshWhitelistsAsync();
+        }
+        catch (Exception ex) { AddLog("ERROR", $"Ошибка сброса таймера: {ex.Message}"); }
+    }
+
     private Task OpenCreateWhitelistAsync() => ShowWhitelistEditorAsync();
 
     private async Task OpenEditWhitelistAsync(WhitelistInfo? whitelist)
@@ -1394,6 +1478,7 @@ public class MainViewModel : ViewModelBase
         _openingWhitelistEditor = true;
         CommandManager.InvalidateRequerySuggested();
         var savedName = initialName;
+        var temporary = initialName == null && ShowTemporaryWhitelists;
         try
         {
             await _whitelistDialog.ShowDialogAsync(
@@ -1403,7 +1488,11 @@ public class MainViewModel : ViewModelBase
                     var ok = true;
                     if (savedName == null)
                     {
-                        ok = await _ipcService.CreateWhitelistAsync(result.Name);
+                        if (temporary)
+                        {
+                            await _ipcService.TemporaryWhitelistCommandAsync("CREATE_TEMPORARY_WHITELIST", result.Name, "900", "0");
+                        }
+                        else ok = await _ipcService.CreateWhitelistAsync(result.Name);
                         if (ok) savedName = result.Name;
                     }
                     else if (savedName != result.Name)
@@ -1440,6 +1529,7 @@ public class MainViewModel : ViewModelBase
 
         if (dialog.ShowDialog() != true) return;
 
+        var temporary = ShowTemporaryWhitelists;
         var existingNames = new HashSet<string>(Whitelists.Select(w => w.Name));
         var imported = new List<string>();
         var errors = new List<string>();
@@ -1461,7 +1551,7 @@ public class MainViewModel : ViewModelBase
                         {
                             if (currentName != null)
                             {
-                                await SaveWhitelistFromImport(currentName, currentEntries, existingNames, imported, errors);
+                                await SaveWhitelistFromImport(currentName, currentEntries, existingNames, imported, errors, temporary);
                             }
                             currentName = line.Substring("# Whitelist:".Length).Trim();
                             currentEntries = new List<string>();
@@ -1473,7 +1563,7 @@ public class MainViewModel : ViewModelBase
 
                 if (currentName != null)
                 {
-                    await SaveWhitelistFromImport(currentName, currentEntries, existingNames, imported, errors);
+                    await SaveWhitelistFromImport(currentName, currentEntries, existingNames, imported, errors, temporary);
                 }
             }
             catch (Exception ex)
@@ -1515,11 +1605,11 @@ public class MainViewModel : ViewModelBase
 
     private void UpdateAllSelectedState()
     {
-        _isAllSelected = Whitelists.Count > 0 && Whitelists.All(w => w.IsSelected);
+        _isAllSelected = CurrentWhitelists.Any() && CurrentWhitelists.All(w => w.IsSelected);
         OnPropertyChanged(nameof(IsAllSelected));
     }
 
-    private async Task SaveWhitelistFromImport(string name, List<string> entries, HashSet<string> existingNames, List<string> imported, List<string> errors)
+    private async Task SaveWhitelistFromImport(string name, List<string> entries, HashSet<string> existingNames, List<string> imported, List<string> errors, bool temporary)
     {
         try
         {
@@ -1535,7 +1625,10 @@ public class MainViewModel : ViewModelBase
                 errors.Add($"{name}: список с таким именем уже существует");
                 return;
             }
-            var ok = await _ipcService.CreateWhitelistAsync(name);
+            var ok = true;
+            if (temporary)
+                await _ipcService.TemporaryWhitelistCommandAsync("CREATE_TEMPORARY_WHITELIST", name, "900", "0");
+            else ok = await _ipcService.CreateWhitelistAsync(name);
             if (ok && entries.Count > 0)
             {
                 ok = await _ipcService.SaveWhitelistAsync(name, entries);
@@ -1556,10 +1649,10 @@ public class MainViewModel : ViewModelBase
 
     private async Task ExportWhitelistsAsync()
     {
-        var selected = Whitelists.Where(w => w.IsSelected).ToList();
+        var selected = CurrentWhitelists.Where(w => w.IsSelected).ToList();
         if (selected.Count == 0)
         {
-            selected = Whitelists.ToList();
+            selected = CurrentWhitelists.ToList();
         }
 
         if (selected.Count == 0)
@@ -1621,6 +1714,7 @@ public class MainViewModel : ViewModelBase
     {
         if (_disposed) return;
         _disposed = true;
+        _countdownTimer.Stop();
         foreach (var user in AllUsers) user.Dispose();
         _logUpdates.Dispose();
         _refreshTimer?.Stop();

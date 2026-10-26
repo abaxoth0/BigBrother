@@ -23,6 +23,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"sync"
 	"syscall"
 	"time"
 
@@ -103,8 +104,45 @@ func main() {
 		value, err := db.GetSetting("windows_notifications_enabled")
 		return value != "0", err
 	})
-	defer desktop.Close()
+
 	notifMgr := notification.NewManagerWithNotifier(desktop.Notify)
+	timerStop := make(chan struct{})
+	timerDone := make(chan struct{})
+	go func() {
+		defer close(timerDone)
+		ticker := time.NewTicker(250 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-timerStop:
+				return
+			case <-ticker.C:
+				changed, err := db.ExpireWhitelistTimers()
+				if err != nil {
+					mainLogger.Error("Temporary whitelist expiry failed", err.Error(), nil)
+				}
+				if changed {
+					notifMgr.Publish(notification.Event{Type: notification.WhitelistChanged, Data: map[string]string{}})
+				}
+			}
+		}
+	}()
+	var shutdownOnce sync.Once
+	shutdown := func() {
+		shutdownOnce.Do(func() {
+			close(timerStop)
+			<-timerDone
+			if _, err := db.ExpireWhitelistTimers(); err != nil {
+				mainLogger.Error("Temporary whitelist expiry failed", err.Error(), nil)
+			}
+			if err := db.SaveWhitelistTimerState(); err != nil {
+				mainLogger.Error("Temporary whitelist state save failed", err.Error(), nil)
+			}
+			desktop.Close()
+		})
+	}
+	defer shutdown()
+
 	connManager := connection.NewMemoryResidentConnectionManagerWithDisconnectHandler(func(user entity.User) {
 		notifMgr.Publish(notification.Event{Type: notification.UserDisconnected, Data: map[string]string{"name": user.Name, "addr": user.Addr}})
 	})
@@ -187,7 +225,7 @@ func main() {
 
 	if isService() {
 		mainLogger.Info("Starting as Windows service...", nil)
-		runService(backendAddr, frontendPipePath, discoveryListener, connManager, backendServer, frontendServer, desktop.Close)
+		runService(backendAddr, frontendPipePath, discoveryListener, connManager, backendServer, frontendServer, shutdown)
 	} else {
 		mainLogger.Info("Starting in console mode...", nil)
 		runConsole(backendAddr, frontendPipePath, discoveryListener, backendServer, frontendServer, connManager)

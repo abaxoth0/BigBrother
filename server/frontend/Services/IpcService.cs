@@ -577,27 +577,17 @@ public class IpcService : IDisposable
 
             try
             {
-                var (status, data) = SendCommand("GET_WHITELISTS");
-                if (status != "OK") throw new IOException("Не удалось загрузить белые списки");
-                foreach (var line in data)
+                var (status, data) = SendCommand("GET_WHITELISTS_DETAILS");
+                if (status != "OK" || data.Count != 1) throw new IOException("Не удалось загрузить белые списки");
+                var rows = JsonSerializer.Deserialize<List<WhitelistInfo>>(data[0],
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new();
+                foreach (var row in rows) row.UpdateTimer(row.Temporary, row.IsActive);
+                foreach (var row in rows)
                 {
-                    var activeSeparator = line.LastIndexOf(':');
-                    var countSeparator = activeSeparator > 0 ? line.LastIndexOf(':', activeSeparator - 1) : -1;
-                    if (countSeparator >= 0 &&
-                        int.TryParse(line[(countSeparator + 1)..activeSeparator], out _) &&
-                        bool.TryParse(line[(activeSeparator + 1)..], out var active))
-                    {
-                        var name = line[..countSeparator];
-                        var (entriesStatus, entries) = SendCommand("GET_WHITELIST", name);
-                        if (entriesStatus != "OK") throw new IOException($"Не удалось загрузить записи списка «{name}»");
-                        whitelists.Add(new WhitelistInfo
-                        {
-                            Name = name,
-                            EntryCount = WhitelistRules.Analyze(string.Join("\n", entries)).Rules.Count,
-                            IsActive = active
-                        });
-                    }
-                    else throw new InvalidDataException("Некорректный ответ при загрузке белых списков");
+                    var (entriesStatus, entries) = SendCommand("GET_WHITELIST", row.Name);
+                    if (entriesStatus != "OK") throw new IOException($"Не удалось загрузить записи списка «{row.Name}»");
+                    row.EntryCount = WhitelistRules.Analyze(string.Join("\n", entries)).Rules.Count;
+                    whitelists.Add(row);
                 }
             }
             finally
@@ -611,6 +601,23 @@ public class IpcService : IDisposable
         }
 
         return whitelists;
+    }
+
+    public async Task<List<string>> TemporaryWhitelistCommandAsync(string command, params string[] args)
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) throw new IOException(_lastError);
+            try
+            {
+                var (status, data) = await Task.Run(() => SendCommand(command, args));
+                if (status != "OK") throw new IOException(string.IsNullOrEmpty(_lastError) ? "Не удалось изменить временный список" : _lastError);
+                return data;
+            }
+            finally { Disconnect(); }
+        }
+        finally { _connectionLock.Release(); }
     }
 
     public async Task<List<string>> GetWhitelistEntriesAsync(string whitelistName)

@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -408,6 +409,91 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 				data = append(data, fmt.Sprintf("%s:%s:%d", user.Name, user.Addr, user.CreatedAt.Unix()))
 			}
 			writeTLVResponse(conn, data...)
+
+		case "GET_WHITELISTS_DETAILS":
+			wls, err := h.db.GetWhitelists()
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			data, err := json.Marshal(wls)
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			writeTLVResponse(conn, string(data))
+
+		case "CREATE_TEMPORARY_WHITELIST":
+			if len(args) != 3 || (args[2] != "0" && args[2] != "1") {
+				writeErrorTLV(conn, "Expected name, duration seconds and auto-delete value")
+				continue
+			}
+			duration, err := strconv.ParseInt(args[1], 10, 64)
+			if err == nil {
+				err = h.db.CreateTemporaryWhitelist(args[0], duration, args[2] == "1")
+			}
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			h.bus.Publish(notification.Event{Type: notification.WhitelistChanged, Data: map[string]string{}})
+			writeOK(conn)
+
+		case "UPDATE_WHITELIST_TIMER":
+			if len(args) != 4 || (args[3] != "0" && args[3] != "1") {
+				writeErrorTLV(conn, "Expected name, duration seconds, remaining seconds or unchanged, and auto-delete value")
+				continue
+			}
+			duration, err := strconv.ParseInt(args[1], 10, 64)
+			var remaining *int64
+			if err == nil && args[2] != "unchanged" {
+				var seconds int64
+				seconds, err = strconv.ParseInt(args[2], 10, 64)
+				remaining = &seconds
+			}
+			if err == nil {
+				err = h.db.UpdateWhitelistTimer(args[0], duration, remaining, args[3] == "1")
+			}
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			h.bus.Publish(notification.Event{Type: notification.WhitelistChanged, Data: map[string]string{}})
+			writeOK(conn)
+
+		case "RESET_WHITELIST_TIMERS":
+			if len(args) == 0 {
+				writeErrorTLV(conn, "Expected temporary whitelist names")
+				continue
+			}
+			if err := h.db.ResetWhitelistTimers(args); err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			h.bus.Publish(notification.Event{Type: notification.WhitelistChanged, Data: map[string]string{}})
+			writeOK(conn)
+
+		case "GET_SAVE_TEMPORARY_WHITELIST_STATE":
+			value, err := h.db.GetSetting("save_temporary_whitelist_state")
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			if value != "1" {
+				value = "0"
+			}
+			writeTLVResponse(conn, value)
+
+		case "SET_SAVE_TEMPORARY_WHITELIST_STATE":
+			if len(args) != 1 || (args[0] != "0" && args[0] != "1") {
+				writeErrorTLV(conn, "Expected value 0 or 1")
+				continue
+			}
+			if err := h.db.SetSetting("save_temporary_whitelist_state", args[0]); err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			writeOK(conn)
 
 		case "GET_WHITELISTS":
 			wls, err := h.GetWhitelists()
