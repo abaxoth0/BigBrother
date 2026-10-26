@@ -1,9 +1,10 @@
 package entity
 
 type WhitelistEntry struct {
-	ID      string
-	Value   string
-	Sources []string `json:"sources,omitempty"`
+	ID          string
+	WhitelistID string `json:"-"`
+	Value       string
+	Sources     []string `json:"sources,omitempty"`
 }
 
 type Whitelist struct {
@@ -15,9 +16,11 @@ type Whitelist struct {
 }
 
 type WhitelistConflict struct {
-	Pattern    string   `json:"pattern"`
-	AllowedBy  []string `json:"allowedBy"`
-	ExcludedBy []string `json:"excludedBy"`
+	Pattern          string   `json:"pattern"`
+	AllowedBy        []string `json:"allowedBy"`
+	ExcludedBy       []string `json:"excludedBy"`
+	AllowedPriority  int      `json:"allowedPriority,omitempty"`
+	ExcludedPriority int      `json:"excludedPriority,omitempty"`
 }
 
 type WhitelistComposition struct {

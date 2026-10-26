@@ -55,10 +55,25 @@ int main(void) {
     request(command, "OK\n");
     snprintf(expected, sizeof(expected), "WHITELIST\n%s\n", long_rule);
     request("GET_WHITELIST\n", expected);
+    request("SET_WHITELIST\n!\"github\"\n", "OK\n");
+    assert(IpAllowlistAdd(&g_IpBlocklist, 0x01010101, "api.github.com", 300) == 0);
+    request("SET_WHITELIST\n[10]\n*.github.com:443\n[20]!gist.github.com\n[0]!\"github\"\n", "OK\n");
+    request("GET_WHITELIST\n", "WHITELIST\n[10]*.github.com:443\n[20]!gist.github.com\n!\"github\"\n");
+    assert(g_IpBlocklist.count == 1);
+    assert(WhitelistAllows(&g_Whitelist, &g_Blacklist, &g_IpAllowlist, &g_IpBlocklist, 0x01010101, 443, time(NULL)));
+    request("SET_WHITELIST\nexample.com\n[10]\n", "ERROR\nfailed to set whitelist\n");
+    request("GET_WHITELIST\n", "WHITELIST\n[10]*.github.com:443\n[20]!gist.github.com\n!\"github\"\n");
+    request("SET_WHITELIST\n[10]*.github.com:443\n", "OK\n");
+    assert(g_IpBlocklist.count == 1);
+    assert(WhitelistAllows(&g_Whitelist, &g_Blacklist, &g_IpAllowlist, &g_IpBlocklist, 0x01010101, 443, time(NULL)));
+    request("SET_WHITELIST\n!\"github\"\n", "OK\n");
+    assert(!WhitelistAllows(&g_Whitelist, &g_Blacklist, &g_IpAllowlist, &g_IpBlocklist, 0x01010101, 443, time(NULL)));
     request("SET_WHITELIST\n", "OK\n");
     request("GET_WHITELIST\n", "WHITELIST\n");
     WhitelistFree(&g_Whitelist);
     WhitelistFree(&g_Blacklist);
+    IpAllowlistFree(&g_IpAllowlist);
+    IpAllowlistFree(&g_IpBlocklist);
     puts("IPv6 blocking and port-rule IPC tests passed");
     return 0;
 }

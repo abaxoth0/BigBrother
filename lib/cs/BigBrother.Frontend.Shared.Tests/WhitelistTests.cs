@@ -10,6 +10,7 @@ static class WhitelistTests
 
     public static void Run()
     {
+        PriorityTests.Run();
         string[] selectors = ["", ":443", ":{0-1023}", ":443|80|53|20|22", ":{0-1023|5432|2000-3000}"];
         foreach (string host in new[] { "1.1.1.1", "example.com", "*.example.com", "\"example\"" })
         foreach (string selector in selectors)

@@ -27,6 +27,7 @@ typedef struct {
 /** @brief Single whitelist entry containing a host and optional ports. */
 typedef struct {
     char* text;
+    int32_t priority;
     PortRange* ports;
     size_t port_count;
     uint32_t ip;
@@ -114,9 +115,9 @@ int IpAllowlistRemove(IpAllowlist* al, uint32_t ip);
 
 /**
  * @brief Remove allowlist entries whose learned domain no longer matches any
- * allow rule in `wl`. Caller must hold the exclusive allowlist lock.
+ * rule in `wl` or optional `other`. Caller must hold the exclusive allowlist lock.
  */
-void IpAllowlistPurgeUnowned(IpAllowlist* al, const Whitelist* wl);
+void IpAllowlistPurgeUnowned(IpAllowlist* al, const Whitelist* wl, const Whitelist* other);
 
 int WhitelistMatches(const Whitelist* wl, const char* domain, int port);
 int WhitelistAllows(const Whitelist* wl, const Whitelist* bl, const IpAllowlist* al,

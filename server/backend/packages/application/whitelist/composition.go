@@ -4,6 +4,7 @@ import (
 	"bigbrother_server_backend/packages/domain/entity"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"slices"
 	"sort"
 	"strings"
@@ -24,8 +25,10 @@ func Compose(db QueryHandler) (*entity.WhitelistComposition, error) {
 	}
 	sort.Slice(whitelists, func(i, j int) bool { return whitelists[i].Name < whitelists[j].Name })
 	type rule struct {
-		entry   *entity.WhitelistEntry
-		sources []string
+		entry    *entity.WhitelistEntry
+		sources  []string
+		priority int
+		body     string
 	}
 	rules := map[string]*rule{}
 	for _, wl := range whitelists {
@@ -36,14 +39,16 @@ func Compose(db QueryHandler) (*entity.WhitelistComposition, error) {
 		if err != nil {
 			return nil, err
 		}
+		entries, err = NormalizePriorities(entries)
+		if err != nil {
+			return nil, fmt.Errorf("whitelist %q: %w", wl.Name, err)
+		}
 		for _, entry := range entries {
-			value := strings.ToLower(strings.TrimSpace(entry.Value))
-			if value == "" || strings.HasPrefix(value, "#") || strings.HasPrefix(value, ";") {
-				continue
-			}
+			value := entry.Value
 			r, ok := rules[value]
 			if !ok {
-				r = &rule{entry: &entity.WhitelistEntry{ID: entry.ID, Value: value}}
+				priority, body, _, _ := ReadPriority(value)
+				r = &rule{entry: &entity.WhitelistEntry{ID: entry.ID, Value: value}, priority: priority, body: body}
 				rules[value] = r
 			}
 			if !slices.Contains(r.sources, wl.Name) {
@@ -59,20 +64,32 @@ func Compose(db QueryHandler) (*entity.WhitelistComposition, error) {
 	result := &entity.WhitelistComposition{
 		Entries: []*entity.WhitelistEntry{}, Conflicts: []entity.WhitelistConflict{},
 	}
+	allows, denies := map[string]*rule{}, map[string]*rule{}
 	for _, value := range values {
 		r := rules[value]
-		if strings.HasPrefix(value, "!") {
-			if _, conflict := rules[value[1:]]; conflict {
-				continue
-			}
-		} else if exception, conflict := rules["!"+value]; conflict {
-			result.Conflicts = append(result.Conflicts, entity.WhitelistConflict{
-				Pattern: value, AllowedBy: r.sources, ExcludedBy: exception.sources,
-			})
-			continue
-		}
 		r.entry.Sources = r.sources
 		result.Entries = append(result.Entries, r.entry)
+		body, target := r.body, allows
+		if strings.HasPrefix(body, "!") {
+			body, target = body[1:], denies
+		}
+		if previous, ok := target[body]; !ok || r.priority > previous.priority {
+			target[body] = r
+		}
+	}
+	patterns := make([]string, 0, len(allows))
+	for pattern := range allows {
+		patterns = append(patterns, pattern)
+	}
+	sort.Strings(patterns)
+	for _, pattern := range patterns {
+		allow := allows[pattern]
+		if deny, ok := denies[pattern]; ok {
+			result.Conflicts = append(result.Conflicts, entity.WhitelistConflict{
+				Pattern: pattern, AllowedBy: allow.sources, ExcludedBy: deny.sources,
+				AllowedPriority: allow.priority, ExcludedPriority: deny.priority,
+			})
+		}
 	}
 	return result, nil
 }

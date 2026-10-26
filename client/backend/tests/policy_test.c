@@ -93,6 +93,9 @@ int main(void) {
     char empty[] = "";
     assert(whitelist_revision(empty, revision) == 0);
     assert(strcmp(revision, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855") == 0);
+    char priority_rules[] = " [20]!GIST.github.com\n[10]GITHUB.com:443\n!github.com:443\n[10]github.com:443\n";
+    assert(whitelist_revision(priority_rules, revision) == 0);
+    assert(strcmp(revision, "1726c205c31a04702c2a8c24b174e7d683ba7ac257a564e892010cb6afbabdee") == 0);
     assert(ini_set_string("notifications", "enabled", "0") == 0);
     assert(ini_set_string("filtration", "block_ipv6", "0") == 0);
     assert(ini_set_string("filtration", "auto_disable", "0") == 0);

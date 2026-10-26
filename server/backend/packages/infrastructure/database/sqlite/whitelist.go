@@ -217,10 +217,9 @@ func (db *Database) GetWhitelistEntries(name string) ([]*entity.WhitelistEntry, 
 	}
 
 	rows, err := db.conn.Query(
-		`SELECT id, value FROM whitelist_entry WHERE whitelist_id = ?
-		UNION ALL
-		SELECT id, value FROM whitelist_entry WHERE whitelist_id = ?`,
-		wl.ID, wl.ParentID,
+		`SELECT id, value, whitelist_id FROM whitelist_entry WHERE whitelist_id = ? OR whitelist_id = ?
+        ORDER BY CASE WHEN whitelist_id = ? THEN 0 ELSE 1 END, position, rowid`,
+		wl.ID, wl.ParentID, wl.ID,
 	)
 	if err != nil {
 		return nil, err
@@ -230,7 +229,7 @@ func (db *Database) GetWhitelistEntries(name string) ([]*entity.WhitelistEntry, 
 	entries := []*entity.WhitelistEntry{}
 	for rows.Next() {
 		entry := new(entity.WhitelistEntry)
-		if err := rows.Scan(&entry.ID, &entry.Value); err != nil {
+		if err := rows.Scan(&entry.ID, &entry.Value, &entry.WhitelistID); err != nil {
 			return nil, err
 		}
 		entries = append(entries, entry)
@@ -264,8 +263,8 @@ func (db *Database) AddWhitelistEntry(value string, wlName string) error {
 	}
 
 	_, err = db.conn.Exec(
-		"INSERT INTO whitelist_entry (id, value, whitelist_id) VALUES (?, ?, ?)",
-		uuid.New(), value, wlID,
+		"INSERT INTO whitelist_entry (id, value, whitelist_id, position) SELECT ?, ?, ?, COALESCE(MAX(position), -1) + 1 FROM whitelist_entry WHERE whitelist_id = ?",
+		uuid.New(), value, wlID, wlID,
 	)
 	if err != nil {
 		return err
@@ -356,10 +355,10 @@ func (db *Database) ReplaceWhitelistEntries(entries []string, wlName string) err
 		return err
 	}
 
-	for _, value := range entries {
+	for position, value := range entries {
 		if _, err := tx.Exec(
-			"INSERT INTO whitelist_entry (id, value, whitelist_id) VALUES (?, ?, ?)",
-			uuid.New(), value, wlID,
+			"INSERT INTO whitelist_entry (id, value, whitelist_id, position) VALUES (?, ?, ?, ?)",
+			uuid.New(), value, wlID, position,
 		); err != nil {
 			return err
 		}

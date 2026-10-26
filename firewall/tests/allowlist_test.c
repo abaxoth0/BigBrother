@@ -54,7 +54,7 @@ static void ports_test(void) {
     assert(WhitelistAllows(&wl, &bl, &ips, &blocked, ip, 80, now));
 
     policy(&wl, &bl, "*.example.com:22\n!1.1.1.1:443");
-    IpAllowlistPurgeUnowned(&ips, &wl);
+    IpAllowlistPurgeUnowned(&ips, &wl, NULL);
     assert(!WhitelistAllows(&wl, &bl, &ips, &blocked, ip, 80, now));
     assert(!WhitelistAllows(&wl, &bl, &ips, &blocked, ip, 5432, now));
     assert(WhitelistAllows(&wl, &bl, &ips, &blocked, ip, 22, now));
@@ -83,8 +83,52 @@ static void ports_test(void) {
     IpAllowlistFree(&blocked);
 }
 
+static void priorities_test(void) {
+    Whitelist wl = {0}, bl = {0};
+    IpAllowlist ips = {0}, blocked = {0};
+    uint32_t ip = 0x01010101;
+    time_t now = time(NULL);
+    policy(&wl, &bl, "# priority default\n[10]\n*.github.com:443\n[0]fallback.org\n[20]!gist.github.com\n[0]!\"github\"");
+    assert(wl.count == 2 && bl.count == 2);
+    assert(wl.entries[0].priority == 10 && strcmp(wl.entries[0].text, "[10]*.github.com:443") == 0);
+    assert(wl.entries[1].priority == 0 && strcmp(wl.entries[1].text, "fallback.org") == 0);
+    assert(bl.entries[0].priority == 20 && strcmp(bl.entries[0].text, "[20]!gist.github.com") == 0);
+    assert(IpAllowlistAdd(&blocked, ip, "api.github.com", 300) == 0);
+    assert(WhitelistAllows(&wl, &bl, &ips, &blocked, ip, 443, now));
+    assert(!WhitelistAllows(&wl, &bl, &ips, &blocked, ip, 80, now));
+    assert(IpAllowlistAdd(&blocked, ip, "gist.github.com", 300) == 0);
+    assert(!WhitelistAllows(&wl, &bl, &ips, &blocked, ip, 443, now));
+    policy(&wl, &bl, "[20]*.github.com:443\n[20]!gist.github.com");
+    assert(!WhitelistAllows(&wl, &bl, &ips, &blocked, ip, 443, now));
+    policy(&wl, &bl, "[21]*.github.com:443\n[20]!gist.github.com");
+    assert(WhitelistAllows(&wl, &bl, &ips, &blocked, ip, 443, now));
+    policy(&wl, &bl, "[20]!1.1.1.1:443\n[21]*.github.com:443");
+    assert(WhitelistAllows(&wl, &bl, &ips, &blocked, ip, 443, now));
+    policy(&wl, &bl, "[20]1.1.1.1:443\n[21]!\"github\":443");
+    assert(!WhitelistAllows(&wl, &bl, &ips, &blocked, ip, 443, now));
+    policy(&wl, &bl, "[2147483647]1.1.1.1:443\n[2147483646]!1.1.1.1:443");
+    assert(WhitelistAllows(&wl, &bl, &ips, &blocked, ip, 443, now));
+    const char* invalid[] = {"[]example.com", "[-1]example.com", "[+1]example.com", "[2147483648]example.com",
+        "[99999999999999999999999]example.com", "[default 10]", "[10example.com", "[1][2]example.com", "![10]example.com",
+        "example.com\n[10]", "[10]\n[20]"};
+    for (size_t i = 0; i < sizeof(invalid) / sizeof(invalid[0]); i++) {
+        assert(WhitelistLoadFromData(&wl, &bl, invalid[i], strlen(invalid[i])) == -1);
+        assert(wl.entries[0].priority == INT32_MAX);
+    }
+    policy(&wl, &bl, "[10]\n[0]1.1.1.1:443\n[0]!1.1.1.1:443");
+    assert(!WhitelistAllows(&wl, &bl, &ips, &blocked, ip, 443, now));
+    policy(&wl, &bl, "[10]\n# empty list");
+    assert(wl.count == 0 && bl.count == 0);
+    assert(!WhitelistAllows(&wl, &bl, &ips, &blocked, ip, 443, now));
+    WhitelistFree(&wl);
+    WhitelistFree(&bl);
+    IpAllowlistFree(&ips);
+    IpAllowlistFree(&blocked);
+}
+
 int main(void) {
     ports_test();
+    priorities_test();
     Whitelist wl = {0}, bl = {0};
     IpAllowlist ips = {0};
     const char initial[] = "8.8.8.8\nexample.com\n!blocked.example.com\n";
@@ -94,13 +138,13 @@ int main(void) {
     assert(IpAllowlistAdd(&ips, 0x01010101, "example.com", 300) == 0);
 
     // Keeping a literal IP rule preserves its cache entry.
-    IpAllowlistPurgeUnowned(&ips, &wl);
+    IpAllowlistPurgeUnowned(&ips, &wl, NULL);
     assert(ips.count == 2);
 
     // A nonempty replacement must revoke a removed literal IP immediately.
     const char replacement[] = "example.com\n";
     assert(WhitelistLoadFromData(&wl, &bl, replacement, sizeof(replacement) - 1) == 0);
-    IpAllowlistPurgeUnowned(&ips, &wl);
+    IpAllowlistPurgeUnowned(&ips, &wl, NULL);
     assert(!IpAllowlistContains(&ips, 0x08080808));
     assert(IpAllowlistContains(&ips, 0x01010101));
     assert(bl.count == 0);

@@ -11,7 +11,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"time"
 
 	"bigbrother_server_backend/packages/application/settings"
@@ -506,11 +505,9 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 				entryCount := 0
 				entries, err := h.db.GetWhitelistEntries(wl.Name)
 				if err == nil {
-					for _, entry := range entries {
-						value := strings.TrimSpace(entry.Value)
-						if value != "" && !strings.HasPrefix(value, "#") && !strings.HasPrefix(value, ";") {
-							entryCount++
-						}
+					normalized, normalizeErr := whitelistapplication.NormalizePriorities(entries)
+					if normalizeErr == nil {
+						entryCount = len(normalized)
 					}
 				}
 				data = append(data, fmt.Sprintf("%s:%d:%t", wl.Name, entryCount, wl.IsActive))
@@ -723,6 +720,14 @@ func (h *FrontendHandler) ChangeWhitelistName(oldName, newName string) error {
 }
 
 func (h *FrontendHandler) SetWhitelistEntries(name string, entries []string) error {
+	rules := make([]*entity.WhitelistEntry, 0, len(entries))
+	for _, value := range entries {
+		rules = append(rules, &entity.WhitelistEntry{Value: value})
+	}
+	if _, err := whitelistapplication.NormalizePriorities(rules); err != nil {
+		return err
+	}
+
 	return h.db.ReplaceWhitelistEntries(entries, name)
 }
 

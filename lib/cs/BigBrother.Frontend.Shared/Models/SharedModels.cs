@@ -195,8 +195,11 @@ public class WhitelistConflict
     public string Pattern { get; set; } = "";
     public List<string> AllowedBy { get; set; } = new();
     public List<string> ExcludedBy { get; set; } = new();
-    public string AllowedRule => Pattern;
-    public string ExcludedRule => "!" + Pattern;
+    public int AllowedPriority { get; set; }
+    public int ExcludedPriority { get; set; }
+    public string AllowedRule => (AllowedPriority == 0 ? "" : $"[{AllowedPriority}]") + Pattern;
+    public string ExcludedRule => (ExcludedPriority == 0 ? "" : $"[{ExcludedPriority}]") + "!" + Pattern;
+    public string Resolution => AllowedPriority > ExcludedPriority ? "Разрешено" : "Исключено";
     public string AllowedSources => string.Join(", ", AllowedBy);
     public string ExcludedSources => string.Join(", ", ExcludedBy);
 }

@@ -1,4 +1,5 @@
 using System.Net;
+using System.Globalization;
 using System.Net.Sockets;
 
 namespace frontend.Validation;
@@ -6,6 +7,7 @@ namespace frontend.Validation;
 public record PortRange(int First, int Last);
 public record WhitelistRule(int Line, string Text, string Pattern, bool IsException, bool IsIp)
 {
+    public int Priority { get; init; }
     public IReadOnlyList<PortRange> Ports { get; init; } = [];
     public bool MatchesPort(int port) => Ports.Count == 0 || Ports.Any(p => port >= p.First && port <= p.Last);
 }
@@ -18,34 +20,53 @@ public class WhitelistAnalysis
 {
     public List<WhitelistRule> Rules { get; } = new();
     public List<WhitelistIssue> Issues { get; } = new();
+    public int DefaultPriority { get; set; }
     public bool HasErrors => Issues.Any(i => i.IsError);
 }
 
 public static class WhitelistRules
 {
-    public static WhitelistAnalysis Analyze(string text)
+    public static WhitelistAnalysis Analyze(string text, bool allowConflicts = false)
     {
         var result = new WhitelistAnalysis();
         var seen = new Dictionary<string, WhitelistRule>(StringComparer.OrdinalIgnoreCase);
+        bool seenContent = false;
         var lines = text.Split('\n');
         for (int i = 0; i < lines.Length; i++)
         {
             var entry = lines[i].Trim();
             if (entry.Length == 0 || entry.StartsWith('#') || entry.StartsWith(';')) continue;
-            bool exception = entry.StartsWith('!');
-            var pattern = exception ? entry[1..] : entry;
+            bool explicitPriority = entry.StartsWith('[');
+            if (!TryReadPriority(entry, out int priority, out string body))
+            {
+                result.Issues.Add(new(i + 1, "приоритет задаётся как [N], где N — целое число от 0 до 2147483647."));
+                seenContent = true;
+                continue;
+            }
+            if (explicitPriority && body.Length == 0)
+            {
+                if (seenContent) result.Issues.Add(new(i + 1, "приоритет списка можно задать только перед первым правилом, после пустых строк и комментариев."));
+                else result.DefaultPriority = priority;
+                seenContent = true;
+                continue;
+            }
+            seenContent = true;
+            if (!explicitPriority) priority = result.DefaultPriority;
+            bool exception = body.StartsWith('!');
+            var pattern = exception ? body[1..] : body;
             if (!TrySplitPorts(pattern, out pattern, out var ports) || !ValidPattern(pattern, out bool isIp))
             {
                 result.Issues.Add(new(i + 1, "ожидается домен, IPv4, *.домен или непустая подстрока в кавычках; порты: :443, :443|80 или :{0-1023|5432|2000-3000} (0–65535); IPv6, URL и CIDR не поддерживаются."));
                 continue;
             }
-            var rule = new WhitelistRule(i + 1, entry, pattern.ToLowerInvariant(), exception, isIp) { Ports = ports };
+            var rule = new WhitelistRule(i + 1, entry, pattern.ToLowerInvariant(), exception, isIp) { Ports = ports, Priority = priority };
             if (rule.IsException && rule.Ports.Count > 0 && rule.MatchesPort(53))
                 result.Issues.Add(new(i + 1, "нельзя заблокировать порт 53: DNS-трафик TCP/UDP всегда разрешён. Исключите порт 53 из правила."));
-            if (seen.TryGetValue(entry, out var duplicate))
-                result.Issues.Add(new(i + 1, $"повтор правила из строки {duplicate.Line}."));
+            var key = $"{priority}:{exception}:{rule.Pattern}:" + string.Join("|", ports.Select(p => $"{p.First}-{p.Last}"));
+            if (seen.TryGetValue(key, out var duplicate))
+                result.Issues.Add(new(i + 1, $"повтор правила из строки {duplicate.Line}.", !allowConflicts));
             else
-                seen.Add(entry, rule);
+                seen.Add(key, rule);
             result.Rules.Add(rule);
         }
 
@@ -53,12 +74,26 @@ public static class WhitelistRules
         foreach (var allow in result.Rules.Where(r => !r.IsException))
         {
             if (!PortsOverlap(exception, allow)) continue;
-            if (exception.Pattern == allow.Pattern && exception.Ports.SequenceEqual(allow.Ports))
-                result.Issues.Add(new(exception.Line, $"конфликт с разрешением в строке {allow.Line}: исключение имеет приоритет."));
-            else if (Overlaps(exception, allow))
-                result.Issues.Add(new(exception.Line, $"возможное пересечение с разрешением в строке {allow.Line}: совпавшие адреса будут исключены.", false));
+            bool exact = exception.Pattern == allow.Pattern && exception.Ports.SequenceEqual(allow.Ports);
+            if (!exact && !Overlaps(exception, allow)) continue;
+            var winner = exception.Priority >= allow.Priority ? exception : allow;
+            string outcome = winner.IsException ? "исключение" : "разрешение";
+            result.Issues.Add(new(exception.Line,
+                $"{(exact ? "пересечение" : "возможное пересечение")} с разрешением в строке {allow.Line}: {outcome} имеет приоритет ({exception.Priority} / {allow.Priority}; при равенстве побеждает исключение).",
+                exact && exception.Priority == allow.Priority && !allowConflicts));
         }
         return result;
+    }
+
+    public static bool TryReadPriority(string text, out int priority, out string body)
+    {
+        priority = 0;
+        body = text.Trim();
+        if (!body.StartsWith('[')) return true;
+        int end = body.IndexOf(']');
+        if (end <= 1 || !int.TryParse(body[1..end], NumberStyles.None, CultureInfo.InvariantCulture, out priority)) return false;
+        body = body[(end + 1)..].Trim();
+        return true;
     }
 
     private static bool TrySplitPorts(string value, out string host, out IReadOnlyList<PortRange> ports)
@@ -171,13 +206,26 @@ public static class WhitelistRules
         if (!isIp && !IsDomain(input)) return "Введите домен или IPv4 без URL и маски, с необязательным :портом.";
         if (analysis.HasErrors) return "Исправьте ошибки списка перед проверкой правил.";
         var matches = analysis.Rules.Where(r => r.IsIp == isIp && Matches(input, r.Pattern) && (!port.HasValue || r.MatchesPort(port.Value))).ToList();
-        var exceptions = matches.Where(r => r.IsException).ToList();
-        bool dependsOnPort = !port.HasValue && matches.Any(r => r.Ports.Count > 0) &&
-            !exceptions.Any(r => r.Ports.Count == 0);
-        string outcome = dependsOnPort ? "Доступ зависит от порта: укажите :порт для точной проверки" : exceptions.Count > 0 ? "Исключён (исключения имеют приоритет)" :
-            matches.Count > 0 ? "Разрешён правилами" : "Не разрешён: совпадений нет";
+        WhitelistRule? Winner(IEnumerable<WhitelistRule> rules) => rules.OrderByDescending(r => r.Priority)
+            .ThenByDescending(r => r.IsException).FirstOrDefault();
+        var winner = Winner(matches);
+        bool dependsOnPort = false;
+        if (!port.HasValue)
+        {
+            var points = new HashSet<int> { 0, -1 };
+            foreach (var range in matches.SelectMany(r => r.Ports))
+            {
+                points.Add(range.First);
+                if (range.Last < 65535) points.Add(range.Last + 1);
+            }
+            dependsOnPort = points.Select(p => Winner(matches.Where(r => r.MatchesPort(p))) is { IsException: false })
+                .Distinct().Count() > 1;
+        }
+        string outcome = dependsOnPort ? "Доступ зависит от порта: укажите :порт для точной проверки" :
+            winner is { IsException: true } ? $"Исключён (приоритет {winner.Priority}; при равенстве побеждает исключение)" :
+            winner != null ? $"Разрешён правилами (приоритет {winner.Priority})" : "Не разрешён: совпадений нет";
         return outcome + (matches.Count == 0 ? "." : ":\n" +
-            string.Join("\n", matches.Select(r => describeRule?.Invoke(r) ?? $"Строка {r.Line}: {r.Text}"))) +
+            string.Join("\n", matches.Select(r => describeRule?.Invoke(r) ?? $"Строка {r.Line}: {r.Text} — приоритет {r.Priority}"))) +
             "\nПроверяется только список. DNS-кэш и общие IP доменов могут влиять на доступ клиента.";
     }
 }

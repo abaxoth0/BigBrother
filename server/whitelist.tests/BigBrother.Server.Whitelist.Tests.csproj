@@ -6,6 +6,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="../../lib/cs/BigBrother.Frontend.Shared.Tests/PriorityTests.cs" Link="PriorityTests.cs" />
+    <Compile Include="../../lib/cs/BigBrother.Frontend.Shared/Models/WhitelistEntry.cs" Link="WhitelistEntry.cs" />
     <Compile Include="../../lib/cs/BigBrother.Frontend.Shared/Lib/WhitelistRules.cs" Link="WhitelistRules.cs" />
     <Compile Include="../../lib/cs/BigBrother.Frontend.Shared/ViewModels/WhitelistEditViewModel.cs" Link="WhitelistEditViewModel.cs" />
     <Compile Include="../frontend/ViewModels/DomainCheckViewModel.cs" Link="DomainCheckViewModel.cs" />

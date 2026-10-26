@@ -388,7 +388,7 @@ public class MainViewModel : ViewModelBase
     public string WhitelistConflictsText =>
         (HasWhitelistActivationChanges ? "Показаны конфликты сохранённого списка. " : "") +
         (WhitelistConflicts.Count == 0 ? "Конфликтов нет"
-            : $"Конфликты: {WhitelistConflicts.Count}. Обе записи каждой пары исключены из общего списка.");
+            : $"Конфликты: {WhitelistConflicts.Count}. Побеждает больший приоритет; при равенстве — исключение.");
 
     public string ServerName
     {

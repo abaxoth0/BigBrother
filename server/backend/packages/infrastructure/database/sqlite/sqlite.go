@@ -109,6 +109,7 @@ func (db *Database) initTables() error {
 		`CREATE TABLE IF NOT EXISTS whitelist_entry (
 		id 				BLOB NOT NULL PRIMARY KEY,
 		value 			TEXT NOT NULL,
+        position INTEGER NOT NULL DEFAULT 0,
 		whitelist_id	BLOB NOT NULL REFERENCES whitelist(id) ON DELETE CASCADE
 	)`
 	createUserTableSQL :=
@@ -203,6 +204,9 @@ func (db *Database) migrate() error {
 	}
 	if err := ensureColumn("whitelist", "is_active", "ALTER TABLE whitelist ADD COLUMN is_active INTEGER NOT NULL DEFAULT 0"); err != nil {
 		return fmt.Errorf("Failed to migrate whitelist table: %v", err)
+	}
+	if err := ensureColumn("whitelist_entry", "position", "ALTER TABLE whitelist_entry ADD COLUMN position INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return fmt.Errorf("Failed to migrate whitelist entry order: %v", err)
 	}
 	tx, err := db.conn.Begin()
 	if err != nil {

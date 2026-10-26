@@ -157,6 +157,10 @@ restart. A manual client disconnect also pauses reconnect; an unexpected network
 failure continues to use automatic retry. Deploy both updated daemons for this
 behavior.
 
+Whitelist source text accepts a standalone `[N]` as its first non-comment, nonempty entry to set a default priority. An inline `[N]rule` prefix overrides that default for one rule; the prefix precedes `!` for exclusions. Priorities range from 0 to 2147483647; an omitted declaration means 0. Source order and the declaration are preserved by `SAVE_WHITELIST` / `GET_WHITELIST` on the administrator pipe, and declarations are excluded from rule counts.
+
+The server resolves defaults independently for each source whitelist before composition. Client downloads and firewall readback contain only rules with effective priorities: nonzero priorities use `[N]rule`, zero priorities have no prefix, and default declarations are omitted. The firewall compares matching host/IP and destination-port rules by priority; an exclusion wins at equal priority. Exact allow/exclusion pairs remain in the composition for matching; conflict metadata includes `allowedPriority` / `excludedPriority` (omitted when zero). Priority changes are included in whitelist revisions and apply to existing DNS-to-IP associations.
+
 The revision hashes the firewall's actual rules: trim whitespace, lowercase
 ASCII, remove empty/comment lines, deduplicate, sort bytewise and hash each rule
 followed by `\n`. Exception rules retain `!`. The empty whitelist has the SHA-256

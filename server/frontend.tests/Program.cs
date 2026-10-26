@@ -123,6 +123,10 @@ try
 }
 catch (IOException) { }
 
+var defaultPriorityRows = await WhitelistReply(name, service => service.GetWhitelistsAsync(),
+    ["GET_WHITELISTS_DETAILS"], ["""[{"Name":"priority","IsActive":true}]"""],
+    followupReplies: [(["GET_WHITELIST", "8", "priority"], ["# comment", "[10]", "github.com", "[0]!gist.github.com"], "OK")]);
+Check(defaultPriorityRows.Single().EntryCount == 2, "Default priority declaration must not count as a whitelist rule");
 var temporaryRows = await WhitelistReply(name, service => service.GetWhitelistsAsync(),
     ["GET_WHITELISTS_DETAILS"],
     ["""[{"Name":"temporary","IsActive":true,"temporary":{"durationSeconds":600,"remainingSeconds":1200,"autoDelete":true}}]"""],

@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Whitelist priorities: a standalone `[N]` before the first rule sets the list default; `[N]rule` overrides it for one rule, including `[N]!rule`. Higher matching priority wins, with exclusions winning ties. Supports temporary grants over default exclusions, ports, cached IPs, editor validation, client display and conflict/checker results; requires an updated server, firewall and frontends
+
 - Server temporary whitelists: switch between regular and temporary tables using separate active counters; backend countdowns pause/resume, expire automatically and optionally delete their lists. Edit the initial duration using a remaining-time delta, set remaining time independently, or reset timers from the context menu. A server setting saves activity and remaining time on shutdown and restores them on startup without counting downtime; otherwise temporary lists restart disabled with reset timers
 
 - Server whitelist editor: 15 px entry text and line numbers, Ctrl+S to save without closing, and removal of the syntax hint; the Save button closes the editor only after a successful save
@@ -37,7 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Server whitelist tab: domain/IPv4 checker opens in a separate window and tests the composed active whitelist; removed the checker from the whitelist editor and ordered table columns as «Название», «Записей», «Активный»
 
-- Server: compose all enabled whitelists into one client whitelist, remove case-insensitive duplicates and both sides of exact allow/exception conflicts; add an «Активный» checkbox column and a resizable conflict view showing source lists; migrate the previously active whitelist automatically
+- Server: compose all enabled whitelists into one client whitelist, remove case-insensitive duplicates and show exact allow/exception conflicts; add an «Активный» checkbox column and a resizable conflict view showing source lists; migrate the previously active whitelist automatically
 
 - Server: Windows notifications for client connections, disconnections and registration requests, sent by the backend without requiring a running frontend
 - Client: Windows notifications for server connections, disconnections, filtration changes and whitelist updates, sent by the backend without requiring a running frontend

@@ -627,6 +627,7 @@
                                 <DataGridTextColumn Header="Списки" Binding="{Binding AllowedSources}" Width="*"/>
                                 <DataGridTextColumn Header="Исключение" Binding="{Binding ExcludedRule}" Width="*"/>
                                 <DataGridTextColumn Header="Списки" Binding="{Binding ExcludedSources}" Width="*"/>
+                                <DataGridTextColumn Header="Результат" Binding="{Binding Resolution}" Width="100"/>
                             </DataGrid.Columns>
                         </DataGrid>
                     </Grid>

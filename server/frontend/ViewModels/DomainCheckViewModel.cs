@@ -12,7 +12,7 @@ public class DomainCheckViewModel : ViewModelBase
     public DomainCheckViewModel(IEnumerable<ComposedWhitelistEntry> entries)
     {
         var rules = entries.ToList();
-        _analysis = WhitelistRules.Analyze(string.Join("\n", rules.Select(r => r.Value)));
+        _analysis = WhitelistRules.Analyze(string.Join("\n", rules.Select(r => r.Value)), allowConflicts: true);
         _sources = rules.ToDictionary(r => r.Value, r => r.Sources, StringComparer.OrdinalIgnoreCase);
     }
 

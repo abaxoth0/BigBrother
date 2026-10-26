@@ -136,19 +136,19 @@ func TestBackendHandlerGetWhitelistServing(t *testing.T) {
 		t.Fatal(err)
 	}
 	entries, err = handler.GetWhitelist("eve")
-	if err != nil || len(entries) != 1 || entries[0].Value != "second.org" {
+	if err != nil || len(entries) != 3 || entries[0].Value != "!example.com" || entries[1].Value != "example.com" || entries[2].Value != "second.org" {
 		t.Fatalf("unexpected composed whitelist: %+v, %v", entries, err)
 	}
 	if err := db.SetUserToken("eve", "token"); err != nil {
 		t.Fatal(err)
 	}
 	response := handlerResponse(t, handler, "GET_WHITELIST\n3\neve\n5\ntoken\n\n")
-	if response != "OK\n10\nsecond.org\n\n" {
+	if response != "OK\n12\n!example.com\n11\nexample.com\n10\nsecond.org\n\n" {
 		t.Fatalf("unexpected whitelist response: %q", response)
 	}
 
 	frontend := NewFrontendHandler(db, nil, nil, nil)
-	if response := handlerResponse(t, frontend, "GET_COMPOSED_WHITELIST\n\n"); response != "OK\n10\nsecond.org\n\n" {
+	if response := handlerResponse(t, frontend, "GET_COMPOSED_WHITELIST\n\n"); response != "OK\n12\n!example.com\n11\nexample.com\n10\nsecond.org\n\n" {
 		t.Fatalf("domain checker composition differs from client whitelist: %q", response)
 	}
 	if err := db.AddWhitelistEntry("SECOND.ORG", "default"); err != nil {
@@ -163,8 +163,8 @@ func TestBackendHandlerGetWhitelistServing(t *testing.T) {
 	if err := json.Unmarshal([]byte(lines[2]), &details); err != nil {
 		t.Fatal(err)
 	}
-	if len(details) != 1 || details[0].Value != "second.org" ||
-		strings.Join(details[0].Sources, ",") != "default,second" {
+	if len(details) != 3 || details[2].Value != "second.org" ||
+		strings.Join(details[2].Sources, ",") != "default,second" {
 		t.Fatalf("deduplicated rule sources missing: %+v", details)
 	}
 	if err := db.SetWhitelistActive("default", false); err != nil {
