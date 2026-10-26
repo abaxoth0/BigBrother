@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Server whitelist editor: 15 px entry text and line numbers, Alt+S to save without closing, and removal of the syntax hint; the Save button closes the editor only after a successful save
+- Server whitelist editor: 15 px entry text and line numbers, Ctrl+S to save without closing, and removal of the syntax hint; the Save button closes the editor only after a successful save
 
 - Whitelist rules: optional TCP/UDP destination ports, inclusive ranges and OR lists (`1.1.1.1:443|80|53|20|22`, `1.1.1.1:{0-1023|5432|2000-3000}`); omitted ports allow all ports. Supports domains, wildcards, substrings and port-specific exceptions, with validation, client display and host:port checking; requires an updated firewall and frontends
 

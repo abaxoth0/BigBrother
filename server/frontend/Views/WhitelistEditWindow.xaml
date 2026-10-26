@@ -14,7 +14,7 @@
         ResizeMode="CanResize"
         WindowStyle="None">
     <local:ChromeWindow.InputBindings>
-        <KeyBinding Key="S" Modifiers="Alt" Command="{Binding SaveInPlaceCommand}"/>
+        <KeyBinding Key="S" Modifiers="Control" Command="{Binding SaveInPlaceCommand}"/>
     </local:ChromeWindow.InputBindings>
     <shell:WindowChrome.WindowChrome>
         <shell:WindowChrome CaptionHeight="42" ResizeBorderThickness="6"
@@ -116,7 +116,7 @@
             <!-- Buttons -->
             <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
                 <Button Content="Сохранить" Style="{StaticResource PrimaryButton}" Width="90" Height="28" Margin="0,0,5,0"
-                        Command="{Binding SaveCommand}" IsDefault="True" ToolTip="Сохранить и закрыть. Alt+S — сохранить без закрытия"/>
+                        Command="{Binding SaveCommand}" IsDefault="True" ToolTip="Сохранить и закрыть. Ctrl+S — сохранить без закрытия"/>
                 <Button Content="Отмена" Width="90" Height="28" IsCancel="True" IsEnabled="{Binding CanEdit}"/>
             </StackPanel>
         </Grid>

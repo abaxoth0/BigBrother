@@ -91,7 +91,7 @@ vm.SaveCommand.Execute(null);
 Check(saves == 1, "Valid save failed");
 Check(closeRequests.SequenceEqual(new[] { true }), "Save button must request closing after a successful save");
 vm.SaveInPlaceCommand.Execute(null);
-Check(saves == 2 && !closeRequests[^1], "Alt+S must save without requesting closure");
+Check(saves == 2 && !closeRequests[^1], "Ctrl+S must save without requesting closure");
 vm.IsSaving = true;
 Check(!vm.CanEdit && !vm.SaveCommand.CanExecute(null) && !vm.SaveInPlaceCommand.CanExecute(null),
     "Pending save must prevent editing and overlapping saves");
@@ -101,7 +101,7 @@ Check(saves == 2, "Pending save accepted another request");
 vm.IsSaving = false;
 Check(vm.CanEdit && vm.SaveInPlaceCommand.CanExecute(null), "Saving cannot be retried after completion or failure");
 vm.SaveInPlaceCommand.Execute(null);
-Check(saves == 3 && !closeRequests[^1], "Repeated Alt+S must continue saving without closure");
+Check(saves == 3 && !closeRequests[^1], "Repeated Ctrl+S must continue saving without closure");
 vm.SetEditMode("existing", new() { "!" });
 Check(!vm.SaveCommand.CanExecute(null), "Existing invalid rules not validated");
 vm.SetCreateMode();
