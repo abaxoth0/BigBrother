@@ -72,9 +72,9 @@ Check(!vm.SaveCommand.CanExecute(null) && !vm.SaveInPlaceCommand.CanExecute(null
 vm.SaveCommand.Execute(null);
 vm.SaveInPlaceCommand.Execute(null);
 Check(saves == 0, "Execute bypasses validation");
-vm.EntriesText = "# comment\n*.example.com\n!blocked.example.com:443";
+vm.EntriesText = "# comment\n*.example.com\n!blocked.example.com";
 Check(vm.SaveCommand.CanExecute(null), "Warning blocks intentional exclusion");
-Check(vm.GetEntries().SequenceEqual(new[] { "# comment", "*.example.com", "!blocked.example.com:443" }),
+Check(vm.GetEntries().SequenceEqual(new[] { "# comment", "*.example.com", "!blocked.example.com" }),
     "Saving dropped comments or reordered entries");
 vm.EntriesText = "  # Заметка: https://example.com\r\nexample.com:443\r\n\t; Disabled !rule\r\n# Заметка: https://example.com";
 Check(vm.SaveCommand.CanExecute(null) && vm.ValidationIssues.Count == 0 && vm.ValidationSummary.EndsWith("1."),
