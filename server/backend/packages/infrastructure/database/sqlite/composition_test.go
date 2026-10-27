@@ -20,8 +20,8 @@ func TestWhitelistComposition(t *testing.T) {
 		{"empty", nil, nil, []string{}, nil},
 		{"union", []string{"google.com"}, []string{"github.com"}, []string{"github.com", "google.com"}, nil},
 		{"duplicates", []string{" GOOGLE.com ", "google.com", "!EXAMPLE.org"}, []string{"Google.com", "!example.org"}, []string{"!example.org", "google.com"}, nil},
-		{"conflicts", []string{"google.com", "*.example.org", "\"github\"", "8.8.8.8"}, []string{"!GOOGLE.COM", "!*.example.org", "!\"github\"", "!8.8.8.8", "google.com"}, []string{}, []string{"\"github\"", "*.example.org", "8.8.8.8", "google.com"}},
-		{"internal conflict", []string{"google.com", "!google.com"}, []string{"GOOGLE.COM", "example.org"}, []string{"example.org"}, []string{"google.com"}},
+		{"conflicts", []string{"google.com", "*.example.org", "\"github\"", "8.8.8.8"}, []string{"!GOOGLE.COM", "!*.example.org", "!\"github\"", "!8.8.8.8", "google.com"}, []string{"!\"github\"", "!*.example.org", "!8.8.8.8", "!google.com", "\"github\"", "*.example.org", "8.8.8.8", "google.com"}, []string{"\"github\"", "*.example.org", "8.8.8.8", "google.com"}},
+		{"internal conflict", []string{"google.com", "!google.com"}, []string{"GOOGLE.COM", "example.org"}, []string{"!google.com", "example.org", "google.com"}, []string{"google.com"}},
 		{"overlap", []string{"*.google.com", "\"github\""}, []string{"!mail.google.com", "!api.github.com"}, []string{"!api.github.com", "!mail.google.com", "\"github\"", "*.google.com"}, nil},
 		{"comments", []string{"# comment", "; comment", " "}, []string{"example.org"}, []string{"example.org"}, nil},
 	} {

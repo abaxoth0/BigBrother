@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Diagnostics;
 
 namespace frontend.Models;
 
@@ -144,6 +145,31 @@ public class WhitelistInfo : ISelectableRow
             }
         }
     }
+    private long _timerTimestamp;
+    private bool _timerRunning;
+    public WhitelistTimerInfo? Temporary { get; set; }
+    public bool IsTemporary => Temporary != null;
+    public bool TimerIsRunning => _timerRunning;
+    public double RemainingSeconds => Math.Max(0, (Temporary?.RemainingSeconds ?? 0) -
+        (_timerRunning ? Stopwatch.GetElapsedTime(_timerTimestamp).TotalSeconds : 0));
+    public string DurationText => FormatTimer(Temporary?.DurationSeconds ?? 0);
+    public string RemainingText => FormatTimer((long)Math.Ceiling(RemainingSeconds));
+    public string AutoDeleteText => Temporary?.AutoDelete == true ? "Да" : "Нет";
+
+    private static string FormatTimer(long seconds) => $"{seconds / 3600:00}:{seconds / 60 % 60:00}:{seconds % 60:00}";
+
+    public void UpdateTimer(WhitelistTimerInfo? timer, bool running)
+    {
+        Temporary = timer;
+        _timerRunning = timer != null && running;
+        _timerTimestamp = Stopwatch.GetTimestamp();
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(DurationText)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(AutoDeleteText)));
+        TickTimer();
+    }
+
+    public void TickTimer() => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(RemainingText)));
+
     public bool IsSelected
     {
         get => _isSelected;
@@ -169,8 +195,11 @@ public class WhitelistConflict
     public string Pattern { get; set; } = "";
     public List<string> AllowedBy { get; set; } = new();
     public List<string> ExcludedBy { get; set; } = new();
-    public string AllowedRule => Pattern;
-    public string ExcludedRule => "!" + Pattern;
+    public int AllowedPriority { get; set; }
+    public int ExcludedPriority { get; set; }
+    public string AllowedRule => (AllowedPriority == 0 ? "" : $"[{AllowedPriority}]") + Pattern;
+    public string ExcludedRule => (ExcludedPriority == 0 ? "" : $"[{ExcludedPriority}]") + "!" + Pattern;
+    public string Resolution => AllowedPriority > ExcludedPriority ? "Разрешено" : "Исключено";
     public string AllowedSources => string.Join(", ", AllowedBy);
     public string ExcludedSources => string.Join(", ", ExcludedBy);
 }
@@ -205,4 +234,11 @@ public class LogFileSource
     public string Label { get; set; } = "";
     public string FilePath { get; set; } = "";
     public Lib.LogSource Source { get; set; } = Lib.LogSource.Unknown;
+}
+
+public class WhitelistTimerInfo
+{
+    public long DurationSeconds { get; set; }
+    public double RemainingSeconds { get; set; }
+    public bool AutoDelete { get; set; }
 }

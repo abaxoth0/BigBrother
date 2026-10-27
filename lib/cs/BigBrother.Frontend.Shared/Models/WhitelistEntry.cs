@@ -1,3 +1,5 @@
+using frontend.Validation;
+
 namespace frontend.Models;
 
 public enum WhitelistMatchType
@@ -10,6 +12,7 @@ public enum WhitelistMatchType
 
 public class WhitelistEntry
 {
+    public int Priority { get; set; }
     public string Raw { get; set; } = "";
     public string Domain { get; set; } = "";
     public string Ports { get; set; } = "";
@@ -25,17 +28,20 @@ public class WhitelistEntry
             WhitelistMatchType.Exception => $"Кроме: {Domain}",
             _ => Raw
         };
-        return Ports.Length == 0 ? description : $"{description} (порты: {Ports})";
+        if (Ports.Length > 0) description += $" (порты: {Ports})";
+        return Priority == 0 ? description : $"{description} (приоритет: {Priority})";
     }
 
     public static WhitelistEntry Parse(string raw)
     {
         var entry = new WhitelistEntry { Raw = raw };
-        var domain = raw;
+        WhitelistRules.TryReadPriority(raw, out int priority, out var body);
+        entry.Priority = priority;
+        var domain = body;
 
-        bool isException = raw.StartsWith('!');
+        bool isException = body.StartsWith('!');
         if (isException)
-            domain = raw.Substring(1);
+            domain = body.Substring(1);
 
         int colon = domain.IndexOf(':');
         if (colon >= 0)

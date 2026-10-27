@@ -44,9 +44,33 @@ static int parse_port(const char** cursor, unsigned* value) {
     return 0;
 }
 
-int WhitelistAdd(Whitelist* wl, const char* text) {
-    if (!wl || !text) return -1;
+static int read_priority(const char** cursor, int32_t* priority, int* explicit_priority) {
+    const char* p = *cursor;
+    *explicit_priority = *p == '[';
+    *priority = 0;
+    if (!*explicit_priority) return 0;
+    p++;
+    if (*p < '0' || *p > '9') return -1;
+    int32_t value = 0;
+    while (*p >= '0' && *p <= '9') {
+        int digit = *p++ - '0';
+        if (value > (INT32_MAX - digit) / 10) return -1;
+        value = value * 10 + digit;
+    }
+    if (*p++ != ']') return -1;
+    while (*p == ' ' || *p == '\t') p++;
+    *cursor = p;
+    *priority = value;
+    return 0;
+}
+
+static int add_rule(Whitelist* wl, const char* body, int32_t priority) {
+    if (!wl || !body || !*body) return -1;
     WhitelistEntry entry = {0};
+    entry.priority = priority;
+    int exception = *body == '!';
+    const char* text = exception ? body + 1 : body;
+    if (strchr(text, '[') || strchr(text, ']')) return -1;
     const char* colon = strchr(text, ':');
     size_t host_len = colon ? (size_t)(colon - text) : strlen(text);
     if (!host_len || host_len >= MAX_DOMAIN_LEN) return -1;
@@ -77,14 +101,18 @@ int WhitelistAdd(Whitelist* wl, const char* text) {
         if (braces && *p++ != '}') goto invalid;
         if (*p) goto invalid;
     }
+    size_t text_size = strlen(body) + 32;
+    entry.text = malloc(text_size);
+    if (!entry.text) goto invalid;
+    if (priority) snprintf(entry.text, text_size, "[%d]%s", (int)priority, body);
+    else snprintf(entry.text, text_size, "%s", body);
     for (size_t i = 0; i < wl->count; i++) {
-        if (_stricmp(wl->entries[i].text, text) == 0) {
+        if (_stricmp(wl->entries[i].text, entry.text) == 0) {
+            free(entry.text);
             free(entry.ports);
             return 0;
         }
     }
-    entry.text = strdup(text);
-    if (!entry.text) goto invalid;
     if (grow((void**)&wl->entries, &wl->capacity, sizeof(WhitelistEntry), wl->count, 1, WHITELIST_INITIAL_CAPACITY)) {
         free(entry.text);
         goto invalid;
@@ -95,6 +123,27 @@ int WhitelistAdd(Whitelist* wl, const char* text) {
 invalid:
     free(entry.ports);
     return -1;
+}
+
+static int compare_priority(const void* left, const void* right) {
+    const WhitelistEntry* a = left;
+    const WhitelistEntry* b = right;
+    if (a->priority != b->priority) return (b->priority > a->priority) - (b->priority < a->priority);
+    return strcmp(a->text, b->text);
+}
+
+static void sort_rules(Whitelist* wl) {
+    if (wl->count > 1) qsort(wl->entries, wl->count, sizeof(*wl->entries), compare_priority);
+}
+
+int WhitelistAdd(Whitelist* wl, const char* text) {
+    if (!wl || !text) return -1;
+    int32_t priority;
+    int explicit_priority;
+    if (read_priority(&text, &priority, &explicit_priority) != 0) return -1;
+    int result = add_rule(wl, text, priority);
+    if (result == 0) sort_rules(wl);
+    return result;
 }
 
 void WhitelistClear(Whitelist* wl) {
@@ -131,24 +180,38 @@ int WhitelistMatches(const Whitelist* wl, const char* domain, int port) {
     return 0;
 }
 
-static int ip_rules_match(const Whitelist* wl, const IpAllowlist* al, uint32_t ip, int port, time_t now) {
-    for (size_t i = 0; i < wl->count; i++) {
-        if (wl->entries[i].is_ip && wl->entries[i].ip == ip && port_matches(&wl->entries[i], port)) return 1;
-    }
-    AllowedIp* entry = NULL;
-    HASH_FIND_INT(al->head, &ip, entry);
+static int rule_matches_domains(const WhitelistEntry* rule, const AllowedIp* entry, time_t now) {
     if (entry) {
-        for (CachedDomain* d = entry->domains; d; d = d->next) {
-            if (d->expires > now && WhitelistMatches(wl, d->domain, port)) return 1;
+        for (const CachedDomain* d = entry->domains; d; d = d->next) {
+            if (d->expires > now && DnsCheckDomainLower(d->domain, rule->pattern_lower)) return 1;
         }
     }
     return 0;
 }
 
+static int rule_matches_ip(const WhitelistEntry* rule, const AllowedIp* learned, const AllowedIp* blocked,
+                           uint32_t ip, int port, time_t now) {
+    if (!port_matches(rule, port)) return 0;
+    if (rule->is_ip && rule->ip == ip) return 1;
+    return rule_matches_domains(rule, learned, now) || rule_matches_domains(rule, blocked, now);
+}
+
 int WhitelistAllows(const Whitelist* wl, const Whitelist* bl, const IpAllowlist* al,
                     const IpAllowlist* blocked, uint32_t ip, int port, time_t now) {
-    if (ip_rules_match(bl, blocked, ip, port, now) || ip_rules_match(bl, al, ip, port, now)) return 0;
-    return ip_rules_match(wl, al, ip, port, now);
+    if (!wl->count) return 0;
+    AllowedIp* learned_entry = NULL;
+    AllowedIp* blocked_entry = NULL;
+    HASH_FIND_INT(al->head, &ip, learned_entry);
+    HASH_FIND_INT(blocked->head, &ip, blocked_entry);
+    size_t allow = 0, deny = 0;
+    // Merge priority-descending arrays, checking exclusions first on ties.
+    while (allow < wl->count || deny < bl->count) {
+        int excluded = deny < bl->count &&
+            (allow == wl->count || bl->entries[deny].priority >= wl->entries[allow].priority);
+        const WhitelistEntry* rule = excluded ? &bl->entries[deny++] : &wl->entries[allow++];
+        if (rule_matches_ip(rule, learned_entry, blocked_entry, ip, port, now)) return !excluded;
+    }
+    return 0;
 }
 
 int WhitelistLoadFromData(Whitelist* wl, Whitelist* bl, const char* data, size_t size) {
@@ -164,6 +227,8 @@ int WhitelistLoadFromData(Whitelist* wl, Whitelist* bl, const char* data, size_t
     // Split on newlines without strtok (strtok uses static state and races when
     // multiple IPC handlers run concurrently).
     char* line = copy;
+    int32_t default_priority = 0;
+    int seen_content = 0;
     while (line) {
         char* next = strchr(line, '\n');
         if (next) *next = '\0';
@@ -175,25 +240,36 @@ int WhitelistLoadFromData(Whitelist* wl, Whitelist* bl, const char* data, size_t
         }
 
         if (len > 0 && line[0] != '#' && line[0] != ';') {
-            int is_exception = (line[0] == '!');
-            const char* domain = is_exception ? line + 1 : line;
-            if (WhitelistAdd(is_exception ? &next_bl : &next_wl, domain) != 0) {
-                WhitelistFree(&next_wl);
-                WhitelistFree(&next_bl);
-                free(copy);
-                return -1;
+            const char* body = line;
+            int32_t priority;
+            int explicit_priority;
+            if (read_priority(&body, &priority, &explicit_priority) != 0) goto invalid;
+            if (explicit_priority && !*body) {
+                if (seen_content) goto invalid;
+                default_priority = priority;
+            } else {
+                if (!explicit_priority) priority = default_priority;
+                if (add_rule(*body == '!' ? &next_bl : &next_wl, body, priority) != 0) goto invalid;
             }
+            seen_content = 1;
         }
 
         line = next ? next + 1 : NULL;
     }
 
     free(copy);
+    sort_rules(&next_wl);
+    sort_rules(&next_bl);
     WhitelistFree(wl);
     WhitelistFree(bl);
     *wl = next_wl;
     *bl = next_bl;
     return 0;
+invalid:
+    WhitelistFree(&next_wl);
+    WhitelistFree(&next_bl);
+    free(copy);
+    return -1;
 }
 
 static void free_domains(CachedDomain* domain) {
@@ -316,14 +392,15 @@ int IpAllowlistRemove(IpAllowlist* al, uint32_t ip) {
     return 1;
 }
 
-void IpAllowlistPurgeUnowned(IpAllowlist* al, const Whitelist* wl) {
+void IpAllowlistPurgeUnowned(IpAllowlist* al, const Whitelist* wl, const Whitelist* other) {
     if (!al || !wl) return;
     AllowedIp* entry;
     AllowedIp* tmp;
     HASH_ITER(hh, al->head, entry, tmp) {
         CachedDomain** d = &entry->domains;
         while (*d) {
-            if (!WhitelistMatches(wl, (*d)->domain, RULE_ANY_PORT)) {
+            if (!WhitelistMatches(wl, (*d)->domain, RULE_ANY_PORT) &&
+                (!other || !WhitelistMatches(other, (*d)->domain, RULE_ANY_PORT))) {
                 CachedDomain* old = *d;
                 *d = old->next;
                 free(old);

@@ -10,7 +10,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"strings"
+	"strconv"
 	"time"
 
 	"bigbrother_server_backend/packages/application/settings"
@@ -409,6 +409,91 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 			}
 			writeTLVResponse(conn, data...)
 
+		case "GET_WHITELISTS_DETAILS":
+			wls, err := h.db.GetWhitelists()
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			data, err := json.Marshal(wls)
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			writeTLVResponse(conn, string(data))
+
+		case "CREATE_TEMPORARY_WHITELIST":
+			if len(args) != 3 || (args[2] != "0" && args[2] != "1") {
+				writeErrorTLV(conn, "Expected name, duration seconds and auto-delete value")
+				continue
+			}
+			duration, err := strconv.ParseInt(args[1], 10, 64)
+			if err == nil {
+				err = h.db.CreateTemporaryWhitelist(args[0], duration, args[2] == "1")
+			}
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			h.bus.Publish(notification.Event{Type: notification.WhitelistChanged, Data: map[string]string{}})
+			writeOK(conn)
+
+		case "UPDATE_WHITELIST_TIMER":
+			if len(args) != 4 || (args[3] != "0" && args[3] != "1") {
+				writeErrorTLV(conn, "Expected name, duration seconds, remaining seconds or unchanged, and auto-delete value")
+				continue
+			}
+			duration, err := strconv.ParseInt(args[1], 10, 64)
+			var remaining *int64
+			if err == nil && args[2] != "unchanged" {
+				var seconds int64
+				seconds, err = strconv.ParseInt(args[2], 10, 64)
+				remaining = &seconds
+			}
+			if err == nil {
+				err = h.db.UpdateWhitelistTimer(args[0], duration, remaining, args[3] == "1")
+			}
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			h.bus.Publish(notification.Event{Type: notification.WhitelistChanged, Data: map[string]string{}})
+			writeOK(conn)
+
+		case "RESET_WHITELIST_TIMERS":
+			if len(args) == 0 {
+				writeErrorTLV(conn, "Expected temporary whitelist names")
+				continue
+			}
+			if err := h.db.ResetWhitelistTimers(args); err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			h.bus.Publish(notification.Event{Type: notification.WhitelistChanged, Data: map[string]string{}})
+			writeOK(conn)
+
+		case "GET_SAVE_TEMPORARY_WHITELIST_STATE":
+			value, err := h.db.GetSetting("save_temporary_whitelist_state")
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			if value != "1" {
+				value = "0"
+			}
+			writeTLVResponse(conn, value)
+
+		case "SET_SAVE_TEMPORARY_WHITELIST_STATE":
+			if len(args) != 1 || (args[0] != "0" && args[0] != "1") {
+				writeErrorTLV(conn, "Expected value 0 or 1")
+				continue
+			}
+			if err := h.db.SetSetting("save_temporary_whitelist_state", args[0]); err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			writeOK(conn)
+
 		case "GET_WHITELISTS":
 			wls, err := h.GetWhitelists()
 			if err != nil {
@@ -420,11 +505,9 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 				entryCount := 0
 				entries, err := h.db.GetWhitelistEntries(wl.Name)
 				if err == nil {
-					for _, entry := range entries {
-						value := strings.TrimSpace(entry.Value)
-						if value != "" && !strings.HasPrefix(value, "#") && !strings.HasPrefix(value, ";") {
-							entryCount++
-						}
+					normalized, normalizeErr := whitelistapplication.NormalizePriorities(entries)
+					if normalizeErr == nil {
+						entryCount = len(normalized)
 					}
 				}
 				data = append(data, fmt.Sprintf("%s:%d:%t", wl.Name, entryCount, wl.IsActive))
@@ -637,6 +720,14 @@ func (h *FrontendHandler) ChangeWhitelistName(oldName, newName string) error {
 }
 
 func (h *FrontendHandler) SetWhitelistEntries(name string, entries []string) error {
+	rules := make([]*entity.WhitelistEntry, 0, len(entries))
+	for _, value := range entries {
+		rules = append(rules, &entity.WhitelistEntry{Value: value})
+	}
+	if _, err := whitelistapplication.NormalizePriorities(rules); err != nil {
+		return err
+	}
+
 	return h.db.ReplaceWhitelistEntries(entries, name)
 }
 

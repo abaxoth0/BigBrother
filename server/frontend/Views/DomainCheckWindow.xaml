@@ -38,7 +38,7 @@
                 <RowDefinition Height="*"/>
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
-            <TextBlock Text="Проверка по общему списку активных белых списков. Дубликаты и конфликтующие пары исключены."
+            <TextBlock Text="Проверка по общему списку активных белых списков. Побеждает больший приоритет, при равенстве — исключение."
                        TextWrapping="Wrap"/>
             <TextBlock Grid.Row="1" Text="{Binding RulesSummary}" Margin="0,6,0,12"/>
             <Label Grid.Row="2" Content="Домен или IPv4 (необязательно :порт):" Target="{Binding ElementName=DomainInput}" Padding="0,0,0,5"

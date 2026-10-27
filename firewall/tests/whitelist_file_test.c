@@ -37,6 +37,15 @@ int main(void) {
                             0x02020202, 443, time(NULL)));
     assert(WhitelistAllows(&g_Whitelist, &g_Blacklist, &g_IpAllowlist, &g_IpBlocklist,
                            0x02020202, 80, time(NULL)));
+    write_policy(path, "# default\n[10]\nEXAMPLE.COM:443\n[0]!example.com:443\n");
+    assert(LoadWhiteList(path) == STATUS_OK);
+    assert(g_Whitelist.count == 1 && g_Whitelist.entries[0].priority == 10);
+    assert(WhitelistAllows(&g_Whitelist, &g_Blacklist, &g_IpAllowlist, &g_IpBlocklist,
+                           0x02020202, 443, time(NULL)));
+    write_policy(path, "[0]\nEXAMPLE.COM:443\n!example.com:443\n");
+    assert(LoadWhiteList(path) == STATUS_OK);
+    assert(!WhitelistAllows(&g_Whitelist, &g_Blacklist, &g_IpAllowlist, &g_IpBlocklist,
+                            0x02020202, 443, time(NULL)));
     write_policy(path, "");
     assert(LoadWhiteList(path) == STATUS_OK);
     assert(!g_Whitelist.count && !g_Blacklist.count && !g_IpAllowlist.count);

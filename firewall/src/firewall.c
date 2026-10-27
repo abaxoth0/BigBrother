@@ -453,8 +453,8 @@ int LoadWhiteList(char* path) {
         WhitelistClear(&g_Whitelist);
         WhitelistClear(&g_Blacklist);
     }
-    IpAllowlistPurgeUnowned(&g_IpAllowlist, &g_Whitelist);
-    IpAllowlistClear(&g_IpBlocklist);
+    IpAllowlistPurgeUnowned(&g_IpAllowlist, &g_Whitelist, &g_Blacklist);
+    IpAllowlistPurgeUnowned(&g_IpBlocklist, &g_Blacklist, &g_Whitelist);
 
     LOGF("[INFO] Loaded %zu whitelisted domains, %zu exception rules, and %zu IPs",
           g_Whitelist.count, g_Blacklist.count, g_IpAllowlist.count);

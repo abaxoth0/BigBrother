@@ -157,6 +157,10 @@ restart. A manual client disconnect also pauses reconnect; an unexpected network
 failure continues to use automatic retry. Deploy both updated daemons for this
 behavior.
 
+Whitelist source text accepts a standalone `[N]` as its first non-comment, nonempty entry to set a default priority. An inline `[N]rule` prefix overrides that default for one rule; the prefix precedes `!` for exclusions. Priorities range from 0 to 2147483647; an omitted declaration means 0. Source order and the declaration are preserved by `SAVE_WHITELIST` / `GET_WHITELIST` on the administrator pipe, and declarations are excluded from rule counts.
+
+The server resolves defaults independently for each source whitelist before composition. Client downloads and firewall readback contain only rules with effective priorities: nonzero priorities use `[N]rule`, zero priorities have no prefix, and default declarations are omitted. The firewall compares matching host/IP and destination-port rules by priority; an exclusion wins at equal priority. Exact allow/exclusion pairs remain in the composition for matching; conflict metadata includes `allowedPriority` / `excludedPriority` (omitted when zero). Priority changes are included in whitelist revisions and apply to existing DNS-to-IP associations.
+
 The revision hashes the firewall's actual rules: trim whitespace, lowercase
 ASCII, remove empty/comment lines, deduplicate, sort bytewise and hash each rule
 followed by `\n`. Exception rules retain `!`. The empty whitelist has the SHA-256
@@ -195,7 +199,13 @@ Used by the server frontend (C# WPF app) to manage the server.
 | `GET_REGISTERED_USERS` | none | One JSON array of `name`/`address` objects | List all registered users, including offline users, through the administrator pipe; credentials are excluded |
 | `SET_CLIENT_IPV6_BLOCK` | `name`, `0` or `1` | none | Request a persisted IPv6 blocking preference for a connected client supporting remote control |
 | `GET_PENDING` | none | `name:addr` lines | Get pending users |
-| `GET_WHITELISTS` | none | `name:count` lines | Get all whitelists |
+| `GET_WHITELISTS` | none | `name:count:active` lines | Get all regular and temporary whitelists (legacy response) |
+| `GET_WHITELISTS_DETAILS` | none | JSON array | Get names, active flags and optional `temporary` timer metadata (`durationSeconds`, `remainingSeconds`, `autoDelete`) |
+| `CREATE_TEMPORARY_WHITELIST` | name, durationSeconds, autoDelete (0/1) | OK | Create an inactive temporary whitelist with a positive duration |
+| `UPDATE_WHITELIST_TIMER` | name, durationSeconds, remainingSeconds or `unchanged`, autoDelete (0/1) | OK | Apply the initial-duration delta to remaining time, or set remaining time explicitly; zero expires immediately |
+| `RESET_WHITELIST_TIMERS` | one or more names | OK | Reset temporary countdowns to their initial durations without changing activity |
+| `GET_SAVE_TEMPORARY_WHITELIST_STATE` | none | 0/1 | Read shutdown-state persistence preference (default 0) |
+| `SET_SAVE_TEMPORARY_WHITELIST_STATE` | enabled (0/1) | OK | Save or discard temporary activity/countdown snapshots at backend shutdown |
 | `GET_WHITELIST` | `name` | Entry values (one per line) | Get whitelist entries |
 | `CREATE_WHITELIST` | `name` | none | Create new whitelist |
 | `DELETE_WHITELIST` | `name` | none | Delete whitelist |

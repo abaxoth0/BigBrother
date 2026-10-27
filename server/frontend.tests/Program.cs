@@ -100,7 +100,7 @@ static async Task<T> WhitelistReply<T>(string name, Func<IpcService, Task<T>> ac
 }
 
 var whitelists = await WhitelistReply(name, service => service.GetWhitelistsAsync(),
-    ["GET_WHITELISTS"], ["Работа:основной:5:true", "Второй:2:false"], followupReplies:
+    ["GET_WHITELISTS_DETAILS"], ["""[{"Name":"Работа:основной","IsActive":true},{"Name":"Второй","IsActive":false}]"""], followupReplies:
     [
         (["GET_WHITELIST", Encoding.UTF8.GetByteCount("Работа:основной").ToString(), "Работа:основной"],
             ["; test", "; comment", "portquiz.net:{8000-9000}", "portquiz.net:{2000-3000|5432}", "!portquiz.net:50"], "OK"),
@@ -111,17 +111,49 @@ Check(whitelists.Count == 2 && whitelists[0].Name == "Работа:основн�
     whitelists[0].IsActive && !whitelists[1].IsActive,
     "Whitelist table must count parsed rules instead of the backend's raw entry totals");
 Check((await WhitelistReply(name, service => service.GetWhitelistsAsync(),
-    ["GET_WHITELISTS"], ["empty:0:false"], followupReplies:
+    ["GET_WHITELISTS_DETAILS"], ["""[{"Name":"empty","IsActive":false}]"""], followupReplies:
     [(["GET_WHITELIST", "5", "empty"], [], "OK")])).Single().EntryCount == 0,
     "Empty whitelist must show zero rules");
 try
 {
     await WhitelistReply(name, service => service.GetWhitelistsAsync(),
-        ["GET_WHITELISTS"], ["ports:5:false"], followupReplies:
+        ["GET_WHITELISTS_DETAILS"], ["""[{"Name":"ports","IsActive":false}]"""], followupReplies:
         [(["GET_WHITELIST", "5", "ports"], ["load failed"], "ERROR")]);
     throw new Exception("Failed entry load accepted as a zero rule count");
 }
 catch (IOException) { }
+
+var defaultPriorityRows = await WhitelistReply(name, service => service.GetWhitelistsAsync(),
+    ["GET_WHITELISTS_DETAILS"], ["""[{"Name":"priority","IsActive":true}]"""],
+    followupReplies: [(["GET_WHITELIST", "8", "priority"], ["# comment", "[10]", "github.com", "[0]!gist.github.com"], "OK")]);
+Check(defaultPriorityRows.Single().EntryCount == 2, "Default priority declaration must not count as a whitelist rule");
+var temporaryRows = await WhitelistReply(name, service => service.GetWhitelistsAsync(),
+    ["GET_WHITELISTS_DETAILS"],
+    ["""[{"Name":"temporary","IsActive":true,"temporary":{"durationSeconds":600,"remainingSeconds":1200,"autoDelete":true}}]"""],
+    followupReplies: [(["GET_WHITELIST", "9", "temporary"], ["example.com"], "OK")]);
+Check(temporaryRows.Single() is { IsTemporary: true, TimerIsRunning: true, Temporary.DurationSeconds: 600, Temporary.AutoDelete: true } &&
+    temporaryRows[0].RemainingSeconds > 1195 && temporaryRows[0].RemainingSeconds <= 1200,
+    "Temporary timer metadata or countdown above initial duration lost");
+foreach (var command in new[] {
+    (Name: "CREATE_TEMPORARY_WHITELIST", Args: new[] { "temporary", "900", "0" }),
+    (Name: "UPDATE_WHITELIST_TIMER", Args: new[] { "temporary", "1200", "unchanged", "1" }),
+    (Name: "UPDATE_WHITELIST_TIMER", Args: new[] { "temporary", "600", "1200", "0" }),
+    (Name: "RESET_WHITELIST_TIMERS", Args: new[] { "temporary" }),
+    (Name: "SET_SAVE_TEMPORARY_WHITELIST_STATE", Args: new[] { "1" })
+})
+{
+    var expected = new[] { command.Name }.Concat(command.Args.SelectMany(arg => new[] { Encoding.UTF8.GetByteCount(arg).ToString(), arg })).ToArray();
+    await WhitelistReply(name, service => service.TemporaryWhitelistCommandAsync(command.Name, command.Args), expected, []);
+}
+Check((await WhitelistReply(name, service => service.TemporaryWhitelistCommandAsync("GET_SAVE_TEMPORARY_WHITELIST_STATE"),
+    ["GET_SAVE_TEMPORARY_WHITELIST_STATE"], ["1"])).Single() == "1", "Timer persistence preference lost");
+try
+{
+    await WhitelistReply(name, service => service.TemporaryWhitelistCommandAsync("RESET_WHITELIST_TIMERS", "gone"),
+        ["RESET_WHITELIST_TIMERS", "4", "gone"], ["missing whitelist"], "ERROR");
+    throw new Exception("Timer command failure ignored");
+}
+catch (IOException ex) { Check(ex.Message == "missing whitelist", "Timer command error details lost"); }
 
 Check(await WhitelistReply(name, service => service.SyncWhitelistsAsync(), ["SYNC_WHITELISTS"], []),
     "Whitelist synchronization request failed");
@@ -200,7 +232,7 @@ Check(!await WhitelistReply(name, service => service.SetWhitelistsActiveAsync(ne
     "Activation failure ignored");
 try
 {
-    await WhitelistReply(name, service => service.GetWhitelistsAsync(), ["GET_WHITELISTS"], ["load failed"], "ERROR");
+    await WhitelistReply(name, service => service.GetWhitelistsAsync(), ["GET_WHITELISTS_DETAILS"], ["load failed"], "ERROR");
     throw new Exception("Failed whitelist load accepted as empty list");
 }
 catch (IOException) { }

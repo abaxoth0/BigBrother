@@ -57,13 +57,13 @@ static void write_whitelist(HANDLE pipe) {
 
     AcquireSRWLockShared(&g_AllowlistLock);
 
-    // Allow rules first, then exception rules (prefixed with '!').
+    // Rules include their effective priority and exception marker.
     for (size_t i = 0; i < g_Whitelist.count && pos < IPC_MAX_MESSAGE_SIZE - 1; i++) {
         n = snprintf(buffer + pos, IPC_MAX_MESSAGE_SIZE - pos, "%s\n", g_Whitelist.entries[i].text);
         if (n > 0) pos += (size_t)n;
     }
     for (size_t i = 0; i < g_Blacklist.count && pos < IPC_MAX_MESSAGE_SIZE - 1; i++) {
-        n = snprintf(buffer + pos, IPC_MAX_MESSAGE_SIZE - pos, "!%s\n", g_Blacklist.entries[i].text);
+        n = snprintf(buffer + pos, IPC_MAX_MESSAGE_SIZE - pos, "%s\n", g_Blacklist.entries[i].text);
         if (n > 0) pos += (size_t)n;
     }
 
@@ -325,12 +325,10 @@ int IpcSetWhitelist(const char* data, size_t size) {
         ReleaseSRWLockExclusive(&g_AllowlistLock);
         return -1;
     }
-    // Purge allowlist entries for domains that are no longer whitelisted, so a
-    // removed domain stops being reachable immediately instead of lingering for
-    // the TTL. Existing still-whitelisted connections keep working.
-    IpAllowlistPurgeUnowned(&g_IpAllowlist, &g_Whitelist);
-    // The blocklist is exception-derived and rebuilt by PreResolveWhitelist.
-    IpAllowlistClear(&g_IpBlocklist);
+    // Keep DNS associations while either policy still matches, so priority
+    // changes take effect without waiting for another DNS lookup.
+    IpAllowlistPurgeUnowned(&g_IpAllowlist, &g_Whitelist, &g_Blacklist);
+    IpAllowlistPurgeUnowned(&g_IpBlocklist, &g_Blacklist, &g_Whitelist);
     ReleaseSRWLockExclusive(&g_AllowlistLock);
 
     PreResolveWhitelist();

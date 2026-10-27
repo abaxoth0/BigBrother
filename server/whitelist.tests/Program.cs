@@ -212,4 +212,56 @@ selectionRows.RemoveAt(0);
 selection.HandleClick(selectionRows, selectionRows[3], false, true);
 Check(selectionRows.Count(w => w.IsSelected) == 1 && selectionRows[3].IsSelected,
     "Deleting the selection anchor broke subsequent Shift-clicks");
+var temporary = new WhitelistInfo { Name = "temporary", IsActive = true };
+temporary.UpdateTimer(new WhitelistTimerInfo { DurationSeconds = 900, RemainingSeconds = 720, AutoDelete = true }, true);
+var timerEditor = new WhitelistTimerViewModel(temporary);
+Check(timerEditor.IsValid && timerEditor.Duration == "00:15:00" && !timerEditor.RemainingChanged && timerEditor.RemainingSeconds == null && timerEditor.AutoDelete,
+    "Opening timer editor should preserve the live countdown");
+timerEditor.Duration = "00:20:00";
+Check(timerEditor.DurationSeconds == 1200 && timerEditor.RemainingSeconds == null,
+    "Changing duration must send a delta edit without overwriting the live remaining time");
+timerEditor.Remaining = "00:30:00";
+Check(timerEditor.IsValid && timerEditor.RemainingSeconds == 1800 && timerEditor.DurationSeconds == 1200,
+    "Remaining time above the configured duration must not change initial duration");
+timerEditor.Remaining = "00:00:00";
+Check(timerEditor.IsValid && timerEditor.RemainingSeconds == 0, "Zero remaining time must allow immediate expiry");
+foreach (var invalid in new[] { "", "00:60:00", "00:00:60", "-1:00:00", "00:-1:00", "1.5:00:00", "9999999999999999:00:00" })
+    Check(!WhitelistTimerViewModel.TryParse(invalid, out _), $"Invalid timer accepted: {invalid}");
+Check(WhitelistTimerViewModel.TryParse("100:00:00", out var longTime) && longTime == 360000,
+    "Timers longer than a day must be supported");
+Check(WhitelistTimerViewModel.TryParse(WhitelistTimerViewModel.Format(WhitelistTimerViewModel.MaxSeconds), out var maxTime) && maxTime == WhitelistTimerViewModel.MaxSeconds,
+    "Maximum timer duration must round-trip");
+timerEditor.Duration = "00:00:00";
+Check(!timerEditor.IsValid, "Zero initial duration accepted");
+temporary.IsActive = false;
+Check(temporary.TimerIsRunning, "Unsaved activation draft changed the backend countdown state");
+temporary.UpdateTimer(new WhitelistTimerInfo { DurationSeconds = 600, RemainingSeconds = 1200 }, false);
+Check(temporary.RemainingText == "00:20:00" && temporary.DurationText == "00:10:00" && temporary.AutoDeleteText == "Нет",
+    "Paused timer display clamped remaining time or changed the configured duration");
+vm.SetEditMode("priority", new List<string> { "# default", "[10]", "github.com", "[20]!gist.github.com", "[0]other.org" });
+Check(vm.SaveCommand.CanExecute(null) && vm.ValidationSummary.EndsWith("3.") &&
+    vm.GetEntries().SequenceEqual(new[] { "# default", "[10]", "github.com", "[20]!gist.github.com", "[0]other.org" }),
+    "Editor must preserve default placement and explicit overrides without counting the declaration");
+vm.EntriesText = "github.com\n[10]";
+Check(!vm.SaveCommand.CanExecute(null) && vm.ValidationIssues.Any(i => i.Line == 2 && i.IsError), "Late default must prevent saving with a line-specific error");
+PriorityTests.Run();
+var priorityChecker = new DomainCheckViewModel(new[] {
+    new ComposedWhitelistEntry { Value = "!github.com:443", Sources = new() { "base" } },
+    new ComposedWhitelistEntry { Value = "[10]github.com:443", Sources = new() { "temporary" } }
+});
+priorityChecker.TestInput = "github.com:443";
+Check(priorityChecker.TestResult.StartsWith("Разрешён") && priorityChecker.TestResult.Contains("temporary"),
+    "Composed priority checker must agree with the winning rule and show its source");
+var tieChecker = new DomainCheckViewModel(new[] {
+    new ComposedWhitelistEntry { Value = "github.com", Sources = new() { "allow" } },
+    new ComposedWhitelistEntry { Value = "!github.com", Sources = new() { "deny" } }
+});
+tieChecker.TestInput = "github.com:443";
+Check(tieChecker.TestResult.StartsWith("Исключён"), "Composed equal-priority conflict must remain checkable");
+var equivalentPortsChecker = new DomainCheckViewModel(new[] {
+    new ComposedWhitelistEntry { Value = "[10]github.com:443|80", Sources = new() { "first" } },
+    new ComposedWhitelistEntry { Value = "[10]github.com:{80|443}", Sources = new() { "second" } }
+});
+equivalentPortsChecker.TestInput = "github.com:443";
+Check(equivalentPortsChecker.TestResult.StartsWith("Разрешён"), "Equivalent rules from separate lists must remain checkable");
 Console.WriteLine("Whitelist validation, matching, editor, domain checker, activation draft and selection checks passed.");

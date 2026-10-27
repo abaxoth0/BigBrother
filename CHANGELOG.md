@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Firewall priority matching: sort rule arrays with `qsort` on policy load, then stop at the first matching rule while traversing priorities from highest to lowest; exclusions win ties and DNS cache lookups happen once per cache per packet
+
+- Whitelist priorities: a standalone `[N]` before the first rule sets the list default; `[N]rule` overrides it for one rule, including `[N]!rule`. Higher matching priority wins, with exclusions winning ties. Supports temporary grants over default exclusions, ports, cached IPs, editor validation, client display and conflict/checker results; requires an updated server, firewall and frontends
+
+- Server temporary whitelists: switch between regular and temporary tables using separate active counters; backend countdowns pause/resume, expire automatically and optionally delete their lists. Edit the initial duration using a remaining-time delta, set remaining time independently, or reset timers from the context menu. A server setting saves activity and remaining time on shutdown and restores them on startup without counting downtime; otherwise temporary lists restart disabled with reset timers
+
 - Server whitelist editor: 15 px entry text and line numbers, Ctrl+S to save without closing, and removal of the syntax hint; the Save button closes the editor only after a successful save
 
 - Whitelist rules: optional TCP/UDP destination ports, inclusive ranges and OR lists (`1.1.1.1:443|80|53|20|22`, `1.1.1.1:{0-1023|5432|2000-3000}`); omitted ports allow all ports. Supports domains, wildcards, substrings and port-specific exceptions, with validation, client display and host:port checking; requires an updated firewall and frontends
@@ -35,7 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Server whitelist tab: domain/IPv4 checker opens in a separate window and tests the composed active whitelist; removed the checker from the whitelist editor and ordered table columns as «Название», «Записей», «Активный»
 
-- Server: compose all enabled whitelists into one client whitelist, remove case-insensitive duplicates and both sides of exact allow/exception conflicts; add an «Активный» checkbox column and a resizable conflict view showing source lists; migrate the previously active whitelist automatically
+- Server: compose all enabled whitelists into one client whitelist, remove case-insensitive duplicates and show exact allow/exception conflicts; add an «Активный» checkbox column and a resizable conflict view showing source lists; migrate the previously active whitelist automatically
 
 - Server: Windows notifications for client connections, disconnections and registration requests, sent by the backend without requiring a running frontend
 - Client: Windows notifications for server connections, disconnections, filtration changes and whitelist updates, sent by the backend without requiring a running frontend
@@ -49,6 +55,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Server whitelist editor: live validation rejects malformed entries, duplicate rules and directly conflicting exceptions before saving; overlapping exceptions show warnings, and imports use the same validation
 
 ### Fixed
+
+- Server temporary whitelist timer: use the dark theme text colour for both time field labels
 
 - Server whitelist table: count rules consistently with the editor, excluding comments and blank entries even when an older backend includes them in its totals
 

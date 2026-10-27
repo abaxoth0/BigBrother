@@ -55,7 +55,11 @@ func (h *serviceHandler) Execute(args []string, r <-chan svc.ChangeRequest, chan
 	}
 
 	stopCh := make(chan struct{})
-	go startAndWait(h.backendAddr, h.frontendPipePath, h.discoveryListener, h.backendServer, h.frontendServer, h.connManager, stopCh)
+	stopped := make(chan struct{})
+	go func() {
+		defer close(stopped)
+		startAndWait(h.backendAddr, h.frontendPipePath, h.discoveryListener, h.backendServer, h.frontendServer, h.connManager, stopCh)
+	}()
 
 	changes <- svc.Status{State: svc.Running, Accepts: svc.AcceptStop | svc.AcceptShutdown}
 
@@ -67,6 +71,7 @@ func (h *serviceHandler) Execute(args []string, r <-chan svc.ChangeRequest, chan
 				mainLogger.Info("Service stop requested", nil)
 				changes <- svc.Status{State: svc.StopPending}
 				close(stopCh)
+				<-stopped
 				return false, 0
 			default:
 				mainLogger.Info(fmt.Sprintf("Unexpected service control request: %d", c.Cmd), nil)
