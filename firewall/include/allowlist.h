@@ -39,7 +39,7 @@ typedef struct {
     time_t added_time;
 } WhitelistEntry;
 
-/** @brief Container for whitelisted domains (allow rules). */
+/** @brief Priority-descending array of whitelist or exclusion rules. */
 typedef struct {
     WhitelistEntry* entries;
     size_t count;

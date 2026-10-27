@@ -125,12 +125,25 @@ invalid:
     return -1;
 }
 
+static int compare_priority(const void* left, const void* right) {
+    const WhitelistEntry* a = left;
+    const WhitelistEntry* b = right;
+    if (a->priority != b->priority) return (b->priority > a->priority) - (b->priority < a->priority);
+    return strcmp(a->text, b->text);
+}
+
+static void sort_rules(Whitelist* wl) {
+    if (wl->count > 1) qsort(wl->entries, wl->count, sizeof(*wl->entries), compare_priority);
+}
+
 int WhitelistAdd(Whitelist* wl, const char* text) {
     if (!wl || !text) return -1;
     int32_t priority;
     int explicit_priority;
     if (read_priority(&text, &priority, &explicit_priority) != 0) return -1;
-    return add_rule(wl, text, priority);
+    int result = add_rule(wl, text, priority);
+    if (result == 0) sort_rules(wl);
+    return result;
 }
 
 void WhitelistClear(Whitelist* wl) {
@@ -167,44 +180,38 @@ int WhitelistMatches(const Whitelist* wl, const char* domain, int port) {
     return 0;
 }
 
-static int64_t domain_priority(const Whitelist* wl, const char* domain, int port) {
-    int64_t priority = -1;
-    for (size_t i = 0; i < wl->count; i++) {
-        const WhitelistEntry* rule = &wl->entries[i];
-        if (rule->priority > priority && port_matches(rule, port) &&
-            DnsCheckDomainLower(domain, rule->pattern_lower)) priority = rule->priority;
-    }
-    return priority;
-}
-
-static int64_t ip_priority(const Whitelist* wl, const IpAllowlist* al, uint32_t ip, int port, time_t now) {
-    int64_t priority = -1;
-    for (size_t i = 0; i < wl->count; i++) {
-        const WhitelistEntry* rule = &wl->entries[i];
-        if (rule->is_ip && rule->ip == ip && port_matches(rule, port) && rule->priority > priority) priority = rule->priority;
-    }
-    AllowedIp* entry = NULL;
-    HASH_FIND_INT(al->head, &ip, entry);
+static int rule_matches_domains(const WhitelistEntry* rule, const AllowedIp* entry, time_t now) {
     if (entry) {
-        for (CachedDomain* d = entry->domains; d; d = d->next) {
-            if (d->expires <= now) continue;
-            int64_t matched = domain_priority(wl, d->domain, port);
-            if (matched > priority) priority = matched;
+        for (const CachedDomain* d = entry->domains; d; d = d->next) {
+            if (d->expires > now && DnsCheckDomainLower(d->domain, rule->pattern_lower)) return 1;
         }
     }
-    return priority;
+    return 0;
+}
+
+static int rule_matches_ip(const WhitelistEntry* rule, const AllowedIp* learned, const AllowedIp* blocked,
+                           uint32_t ip, int port, time_t now) {
+    if (!port_matches(rule, port)) return 0;
+    if (rule->is_ip && rule->ip == ip) return 1;
+    return rule_matches_domains(rule, learned, now) || rule_matches_domains(rule, blocked, now);
 }
 
 int WhitelistAllows(const Whitelist* wl, const Whitelist* bl, const IpAllowlist* al,
                     const IpAllowlist* blocked, uint32_t ip, int port, time_t now) {
-    int64_t allow = ip_priority(wl, al, ip, port, now);
-    int64_t other = ip_priority(wl, blocked, ip, port, now);
-    if (other > allow) allow = other;
-    if (allow < 0) return 0;
-    int64_t deny = ip_priority(bl, al, ip, port, now);
-    other = ip_priority(bl, blocked, ip, port, now);
-    if (other > deny) deny = other;
-    return allow > deny;
+    if (!wl->count) return 0;
+    AllowedIp* learned_entry = NULL;
+    AllowedIp* blocked_entry = NULL;
+    HASH_FIND_INT(al->head, &ip, learned_entry);
+    HASH_FIND_INT(blocked->head, &ip, blocked_entry);
+    size_t allow = 0, deny = 0;
+    // Merge priority-descending arrays, checking exclusions first on ties.
+    while (allow < wl->count || deny < bl->count) {
+        int excluded = deny < bl->count &&
+            (allow == wl->count || bl->entries[deny].priority >= wl->entries[allow].priority);
+        const WhitelistEntry* rule = excluded ? &bl->entries[deny++] : &wl->entries[allow++];
+        if (rule_matches_ip(rule, learned_entry, blocked_entry, ip, port, now)) return !excluded;
+    }
+    return 0;
 }
 
 int WhitelistLoadFromData(Whitelist* wl, Whitelist* bl, const char* data, size_t size) {
@@ -251,6 +258,8 @@ int WhitelistLoadFromData(Whitelist* wl, Whitelist* bl, const char* data, size_t
     }
 
     free(copy);
+    sort_rules(&next_wl);
+    sort_rules(&next_bl);
     WhitelistFree(wl);
     WhitelistFree(bl);
     *wl = next_wl;
