@@ -52,6 +52,7 @@ public partial class LogViewWindow : ChromeWindow
             {
                 FontFamily = new System.Windows.Media.FontFamily("Consolas"),
                 DataContext = src,
+                ItemContainerStyle = (Style)FindResource("LogRowStyle"),
                 ItemTemplate = (DataTemplate)FindResource("LogLineTemplate")
             };
             listBox.SetResourceReference(FontSizeProperty, "FontSize12");

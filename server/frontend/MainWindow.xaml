@@ -275,10 +275,7 @@
                              VirtualizingPanel.IsVirtualizing="True"
                              VirtualizingPanel.VirtualizationMode="Recycling">
                         <ListBox.ItemContainerStyle>
-                            <Style TargetType="ListBoxItem">
-                                <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-                                <Setter Property="Padding" Value="4,2"/>
-                            </Style>
+                            <StaticResource ResourceKey="LogRowStyle"/>
                         </ListBox.ItemContainerStyle>
                         <ListBox.ItemTemplate>
                             <DataTemplate>
@@ -397,7 +394,7 @@
                               HorizontalGridLinesBrush="{StaticResource BorderBrush}"
                               VerticalGridLinesBrush="{StaticResource BorderBrush}"
                               GridLinesVisibility="Horizontal" HeadersVisibility="Column"
-                              VerticalContentAlignment="Center" MinRowHeight="26">
+                              VerticalContentAlignment="Center" MinRowHeight="{DynamicResource TableRowMinHeight}">
                         <DataGrid.Columns>
                             <DataGridTemplateColumn Header=" " Width="34" CellTemplate="{StaticResource UserSelectionCellTemplate}">
                                 <DataGridTemplateColumn.HeaderTemplate>
@@ -452,7 +449,7 @@
                               HorizontalGridLinesBrush="{StaticResource BorderBrush}"
                               VerticalGridLinesBrush="{StaticResource BorderBrush}"
                               GridLinesVisibility="Horizontal" HeadersVisibility="Column"
-                              VerticalContentAlignment="Center" MinRowHeight="26">
+                              VerticalContentAlignment="Center" MinRowHeight="{DynamicResource TableRowMinHeight}">
                         <DataGrid.Columns>
                             <DataGridTemplateColumn Header=" " Width="34" CellTemplate="{StaticResource UserSelectionCellTemplate}">
                                 <DataGridTemplateColumn.HeaderTemplate>
@@ -497,7 +494,7 @@
                               HorizontalGridLinesBrush="{StaticResource BorderBrush}"
                               VerticalGridLinesBrush="{StaticResource BorderBrush}"
                               GridLinesVisibility="Horizontal" HeadersVisibility="Column"
-                              VerticalContentAlignment="Center" MinRowHeight="26">
+                              VerticalContentAlignment="Center" MinRowHeight="{DynamicResource TableRowMinHeight}">
                         <DataGrid.Columns>
                             <DataGridTemplateColumn Header=" " Width="34" CellTemplate="{StaticResource UserSelectionCellTemplate}">
                                 <DataGridTemplateColumn.HeaderTemplate>
@@ -626,7 +623,7 @@
                                   ColumnHeaderStyle="{StaticResource GridColumnHeaderStyle}"
                                   RowBackground="{StaticResource Surface}" AlternatingRowBackground="{StaticResource SurfaceAlt}"
                                   HorizontalGridLinesBrush="{StaticResource BorderBrush}"
-                                  GridLinesVisibility="Horizontal" HeadersVisibility="Column" MinRowHeight="26">
+                                  GridLinesVisibility="Horizontal" HeadersVisibility="Column" MinRowHeight="{DynamicResource TableRowMinHeight}">
                             <DataGrid.Columns>
                                 <DataGridTextColumn Header="Разрешение" Binding="{Binding AllowedRule}" Width="*"/>
                                 <DataGridTextColumn Header="Списки" Binding="{Binding AllowedSources}" Width="*"/>

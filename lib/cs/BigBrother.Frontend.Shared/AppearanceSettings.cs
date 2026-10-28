@@ -64,9 +64,14 @@ public sealed class AppearanceSettings : ViewModelBase
     private void ApplyResources()
     {
         var resources = Application.Current.Resources;
+        double scale = BaseFontSize / (double)AppearancePreferences.DefaultFontSize;
         for (int size = 10; size <= 28; size++)
             resources[$"FontSize{size}"] = size * BaseFontSize / (double)AppearancePreferences.DefaultFontSize;
         foreach (int size in new[] { 24, 26, 28, 40, 42, 46, 90, 120, 190, 220, 270 })
             resources[$"Scaled{size}"] = size * BaseFontSize / (double)AppearancePreferences.DefaultFontSize;
+        resources["TableRowMinHeight"] = 32 * scale;
+        resources["LogRowMinHeight"] = 28 * scale;
+        resources["RowPadding"] = new Thickness(4, 4 * scale, 4, 4 * scale);
+        resources["TableHeaderPadding"] = new Thickness(6, 6 * scale, 6, 6 * scale);
     }
 }

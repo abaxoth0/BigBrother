@@ -369,6 +369,12 @@
         </Style.Triggers>
     </Style>
 
+    <Style x:Key="LogRowStyle" TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
+        <Setter Property="Padding" Value="{DynamicResource RowPadding}"/>
+        <Setter Property="MinHeight" Value="{DynamicResource LogRowMinHeight}"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
+    </Style>
+
     <Style TargetType="Separator">
         <Setter Property="Background" Value="{StaticResource BorderBrush}"/>
     </Style>

@@ -12,7 +12,7 @@
               HorizontalGridLinesBrush="{StaticResource BorderBrush}"
               VerticalGridLinesBrush="{StaticResource BorderBrush}"
               GridLinesVisibility="Horizontal" HeadersVisibility="Column"
-              VerticalContentAlignment="Center" MinRowHeight="26">
+              VerticalContentAlignment="Center" MinRowHeight="{DynamicResource TableRowMinHeight}">
         <DataGrid.RowStyle>
             <Style TargetType="DataGridRow">
                 <EventSetter Event="PreviewMouseLeftButtonDown" Handler="WhitelistRow_PreviewMouseLeftButtonDown"/>

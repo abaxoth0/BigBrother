@@ -32,6 +32,10 @@
     <sys:Double x:Key="Scaled190">190</sys:Double>
     <sys:Double x:Key="Scaled220">220</sys:Double>
     <sys:Double x:Key="Scaled270">270</sys:Double>
+    <sys:Double x:Key="TableRowMinHeight">32</sys:Double>
+    <sys:Double x:Key="LogRowMinHeight">28</sys:Double>
+    <Thickness x:Key="RowPadding">4,4</Thickness>
+    <Thickness x:Key="TableHeaderPadding">6,6</Thickness>
 
     <!-- Common brushes shared by both frontends -->
     <SolidColorBrush x:Key="BorderBrush" Color="#CCCCCC"/>
