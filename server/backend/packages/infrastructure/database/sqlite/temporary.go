@@ -223,6 +223,7 @@ func deleteWhitelist(tx *sql.Tx, id string) error {
 		"UPDATE whitelist SET parent_id = NULL WHERE parent_id = ?",
 		"DELETE FROM whitelist_entry WHERE whitelist_id = ?",
 		"DELETE FROM whitelist_timer WHERE whitelist_id = ?",
+		"DELETE FROM whitelist_preset_member WHERE whitelist_id = ?",
 		"DELETE FROM whitelist WHERE id = ?",
 	} {
 		if _, err := tx.Exec(query, id); err != nil {

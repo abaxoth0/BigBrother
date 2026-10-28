@@ -130,6 +130,12 @@ func (db *Database) initTables() error {
 	queries := []string{
 		enableForeignKeysSQL,
 		createWhitelistTableSQL,
+		`CREATE TABLE IF NOT EXISTS whitelist_preset (name TEXT NOT NULL PRIMARY KEY)`,
+		`CREATE TABLE IF NOT EXISTS whitelist_preset_member (
+            preset_name TEXT NOT NULL REFERENCES whitelist_preset(name) ON DELETE CASCADE,
+            whitelist_id BLOB NOT NULL REFERENCES whitelist(id) ON DELETE CASCADE,
+            PRIMARY KEY (preset_name, whitelist_id)
+        )`,
 		createWhitelistDomainTableSQL,
 		`CREATE TABLE IF NOT EXISTS whitelist_timer (
             whitelist_id BLOB NOT NULL PRIMARY KEY REFERENCES whitelist(id) ON DELETE CASCADE,

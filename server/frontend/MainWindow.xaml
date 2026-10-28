@@ -542,6 +542,7 @@
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
                             </Grid.RowDefinitions>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto"/>
@@ -576,6 +577,7 @@
                                     <Button Content="Отмена" Style="{StaticResource ControlButton}" Command="{Binding CancelWhitelistActivationCommand}"/>
                                 </StackPanel>
                             </Grid>
+                            <views:WhitelistPresetButtons Grid.Row="2" Grid.ColumnSpan="6" Margin="6,0,6,6"/>
                         </Grid>
                     </Border>
 

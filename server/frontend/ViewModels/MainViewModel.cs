@@ -45,6 +45,7 @@ public class MainViewModel : ViewModelBase
     private bool _openingDomainCheck;
     private bool _openingWhitelistEditor;
     private bool _openingTimerEditor;
+    private bool _openingPresetEditor;
     private readonly System.Windows.Threading.DispatcherTimer _countdownTimer = new();
 
     private string _serverStatus = "Подключение...";
@@ -201,6 +202,9 @@ public class MainViewModel : ViewModelBase
             _ => IsConnected && HasWhitelistActivationChanges && !_savingWhitelistActivation);
         CancelWhitelistActivationCommand = new RelayCommand(_ => CancelWhitelistActivation(),
             _ => HasWhitelistActivationChanges && !_savingWhitelistActivation);
+        SaveWhitelistPresetCommand = new RelayCommand(async _ => await SaveWhitelistPresetAsync(), _ => CanUseWhitelistPresets);
+        LoadWhitelistPresetCommand = new RelayCommand(async preset => await LoadWhitelistPresetAsync((WhitelistPreset)preset!),
+            preset => preset is WhitelistPreset && CanUseWhitelistPresets);
         SyncWhitelistsCommand = new RelayCommand(async _ => await SyncWhitelistsAsync(),
             _ => IsConnected && !_syncingWhitelists && !_savingWhitelistActivation);
         OpenDomainCheckCommand = new RelayCommand(async _ => await OpenDomainCheckAsync(),
@@ -350,6 +354,7 @@ public class MainViewModel : ViewModelBase
             {
                 OnPropertyChanged(nameof(NotConnectedVisibility));
                 OnPropertyChanged(nameof(ConnectedVisibility));
+                OnPropertyChanged(nameof(CanUseWhitelistPresets));
                 CommandManager.InvalidateRequerySuggested();
             }
         }
@@ -371,6 +376,7 @@ public class MainViewModel : ViewModelBase
     }
 
     public bool HasWhitelistActivationChanges => _whitelistActivation.HasChanges;
+    public bool CanUseWhitelistPresets => IsConnected && !_savingWhitelistActivation && !_openingPresetEditor;
     public string ActiveWhitelistsText => $"Активных списков: {Whitelists.Count(w => w.IsActive && !w.IsTemporary)}";
 
     public string ActiveTemporaryWhitelistsText => $"Активных временных списков: {Whitelists.Count(w => w.IsActive && w.IsTemporary)}";
@@ -510,6 +516,8 @@ public class MainViewModel : ViewModelBase
     public ICommand EnableWhitelistsCommand { get; }
     public ICommand SaveWhitelistActivationCommand { get; }
     public ICommand CancelWhitelistActivationCommand { get; }
+    public ICommand SaveWhitelistPresetCommand { get; }
+    public ICommand LoadWhitelistPresetCommand { get; }
     public ICommand SyncWhitelistsCommand { get; }
     public ICommand OpenDomainCheckCommand { get; }
     public ICommand EditWhitelistTimerCommand { get; }
@@ -1322,6 +1330,7 @@ public class MainViewModel : ViewModelBase
     private void NotifyWhitelistActivationChanged()
     {
         OnPropertyChanged(nameof(HasWhitelistActivationChanges));
+        OnPropertyChanged(nameof(CanUseWhitelistPresets));
         OnPropertyChanged(nameof(ActiveWhitelistsText));
         OnPropertyChanged(nameof(ActiveTemporaryWhitelistsText));
         OnPropertyChanged(nameof(WhitelistConflictsText));
@@ -1366,6 +1375,71 @@ public class MainViewModel : ViewModelBase
             _syncingWhitelists = false;
             CommandManager.InvalidateRequerySuggested();
         }
+    }
+
+    public Task<List<WhitelistPreset>> GetWhitelistPresetsAsync() => _ipcService.GetWhitelistPresetsAsync();
+
+    public async Task DeleteWhitelistPresetAsync(string name)
+    {
+        await _ipcService.DeleteWhitelistPresetAsync(name);
+        AddLog("INFO", $"Пресет удалён: {name}");
+    }
+
+    public Task<List<string>> GetWhitelistPreviewEntriesAsync(string name) => _ipcService.GetWhitelistPreviewEntriesAsync(name);
+
+    private async Task SaveWhitelistPresetAsync()
+    {
+        if (!CanUseWhitelistPresets) return;
+        _openingPresetEditor = true;
+        NotifyWhitelistActivationChanged();
+        var selection = new WhitelistPreset
+        {
+            ActiveWhitelists = Whitelists.Where(w => w.IsActive).Select(w => w.Name)
+                .OrderBy(name => name, StringComparer.CurrentCultureIgnoreCase).ToList()
+        };
+        try
+        {
+            var presets = await GetWhitelistPresetsAsync();
+            var window = new WhitelistPresetWindow(presets, selection, async (name, replace) =>
+            {
+                await _ipcService.SaveWhitelistPresetAsync(name, replace, selection.ActiveWhitelists);
+                AddLog("INFO", $"Пресет сохранён: {name}");
+            }) { Owner = Application.Current.MainWindow };
+            window.ShowDialog();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Не удалось открыть сохранение пресета.\n{ex.Message}", "Сохранить пресет", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            _openingPresetEditor = false;
+            NotifyWhitelistActivationChanged();
+        }
+    }
+
+    private async Task LoadWhitelistPresetAsync(WhitelistPreset preset)
+    {
+        if (!CanUseWhitelistPresets) return;
+        _savingWhitelistActivation = true;
+        NotifyWhitelistActivationChanged();
+        try
+        {
+            await _ipcService.LoadWhitelistPresetAsync(preset.Name);
+            _whitelistActivation.Cancel(Whitelists);
+            Interlocked.Increment(ref _whitelistActivationRevision);
+            AddLog("INFO", $"Пресет применён: {preset.Name}");
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Не удалось загрузить пресет.\n{ex.Message}", "Загрузить пресет", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            _savingWhitelistActivation = false;
+            NotifyWhitelistActivationChanged();
+        }
+        await RefreshWhitelistsAsync();
     }
 
     private async Task SaveWhitelistActivationAsync()

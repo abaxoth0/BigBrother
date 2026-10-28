@@ -603,6 +603,39 @@ public class IpcService : IDisposable
         return whitelists;
     }
 
+    public async Task<List<WhitelistPreset>> GetWhitelistPresetsAsync()
+    {
+        var data = await WhitelistPresetCommandAsync("GET_WHITELIST_PRESETS");
+        if (data.Count != 1) throw new IOException("Не удалось загрузить пресеты");
+        return JsonSerializer.Deserialize<List<WhitelistPreset>>(data[0],
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+            ?? throw new IOException("Не удалось загрузить пресеты");
+    }
+
+    public Task SaveWhitelistPresetAsync(string name, bool replace, IEnumerable<string> activeWhitelists) =>
+        WhitelistPresetCommandAsync("SAVE_WHITELIST_PRESET", new[] { name, replace ? "1" : "0" }.Concat(activeWhitelists).ToArray());
+
+    public Task LoadWhitelistPresetAsync(string name) => WhitelistPresetCommandAsync("LOAD_WHITELIST_PRESET", name);
+    public Task DeleteWhitelistPresetAsync(string name) => WhitelistPresetCommandAsync("DELETE_WHITELIST_PRESET", name);
+    public Task<List<string>> GetWhitelistPreviewEntriesAsync(string name) => WhitelistPresetCommandAsync("GET_WHITELIST", name);
+
+    private async Task<List<string>> WhitelistPresetCommandAsync(string command, params string[] args)
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) throw new IOException(_lastError);
+            try
+            {
+                var (status, data) = await Task.Run(() => SendCommand(command, args));
+                if (status != "OK") throw new IOException(string.IsNullOrEmpty(_lastError) ? "Не удалось выполнить действие с пресетом" : _lastError);
+                return data;
+            }
+            finally { Disconnect(); }
+        }
+        finally { _connectionLock.Release(); }
+    }
+
     public async Task<List<string>> TemporaryWhitelistCommandAsync(string command, params string[] args)
     {
         await _connectionLock.WaitAsync();
