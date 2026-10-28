@@ -181,6 +181,45 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 			}
 			writeTLVResponse(conn, string(data))
 
+		case "GET_WHITELIST_PRESETS":
+			presets, err := h.db.GetWhitelistPresets()
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			data, err := json.Marshal(presets)
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			writeTLVResponse(conn, string(data))
+
+		case "SAVE_WHITELIST_PRESET":
+			if len(args) < 2 || (args[1] != "0" && args[1] != "1") {
+				writeErrorTLV(conn, "Expected preset name, replace value 0 or 1 and active whitelist names")
+				continue
+			}
+			if err := h.db.SaveWhitelistPreset(args[0], args[2:], args[1] == "1"); err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			writeOK(conn)
+
+		case "LOAD_WHITELIST_PRESET":
+			if len(args) != 1 {
+				writeErrorTLV(conn, "Expected preset name")
+				continue
+			}
+			changed, err := h.db.LoadWhitelistPreset(args[0])
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			if changed {
+				h.bus.Publish(notification.Event{Type: notification.WhitelistChanged, Data: map[string]string{}})
+			}
+			writeOK(conn)
+
 		case "SET_WHITELISTS_ACTIVE":
 			if len(args) == 0 || len(args)%2 != 0 {
 				writeErrorTLV(conn, "Expected whitelist name and active value pairs")

@@ -15,6 +15,11 @@ type Whitelist struct {
 	Temporary *WhitelistTimer `json:"temporary,omitempty"`
 }
 
+type WhitelistPreset struct {
+	Name             string   `json:"name"`
+	ActiveWhitelists []string `json:"activeWhitelists"`
+}
+
 type WhitelistConflict struct {
 	Pattern          string   `json:"pattern"`
 	AllowedBy        []string `json:"allowedBy"`

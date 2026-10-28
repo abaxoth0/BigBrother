@@ -381,6 +381,10 @@ func (db *Database) SetWhitelistActive(name string, active bool) error {
 }
 
 func (db *Database) SetWhitelistsActive(states map[string]bool) (bool, error) {
+	return db.changeWhitelistActivation(func(*sql.Tx) (map[string]bool, error) { return states, nil })
+}
+
+func (db *Database) changeWhitelistActivation(resolve func(*sql.Tx) (map[string]bool, error)) (bool, error) {
 	db.timerMu.Lock()
 	defer db.timerMu.Unlock()
 	tx, err := db.conn.Begin()
@@ -388,6 +392,10 @@ func (db *Database) SetWhitelistsActive(states map[string]bool) (bool, error) {
 		return false, err
 	}
 	defer tx.Rollback()
+	states, err := resolve(tx)
+	if err != nil {
+		return false, err
+	}
 	changed := false
 	timers := map[string]*whitelistTimer{}
 	now := db.now()

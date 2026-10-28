@@ -1,0 +1,41 @@
+<local:ChromeWindow x:Class="frontend.Views.WhitelistPresetWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:frontend;assembly=BigBrother.Frontend.Shared"
+        xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
+        Title="Сохранить пресет" Width="520" SizeToContent="Height" ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner" WindowStyle="None"
+        Background="{StaticResource WindowBackground}" Foreground="{StaticResource TitleBarText}">
+    <shell:WindowChrome.WindowChrome>
+        <shell:WindowChrome CaptionHeight="42" ResizeBorderThickness="0" GlassFrameThickness="0" UseAeroCaptionButtons="False"/>
+    </shell:WindowChrome.WindowChrome>
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <Border Background="{StaticResource TitleBarBackground}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1">
+            <Grid>
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <TextBlock Text="Сохранить пресет" VerticalAlignment="Center" Margin="14,0" FontWeight="SemiBold"/>
+                <Button Grid.Column="1" Content="&#x2715;" Style="{StaticResource TitleBarButton}" Tag="Close"
+                        shell:WindowChrome.IsHitTestVisibleInChrome="True" Click="CloseButton_Click"/>
+            </Grid>
+        </Border>
+        <StackPanel Grid.Row="1" Margin="16" x:Name="EditorPanel">
+            <Label Content="Название пресета" Target="{Binding ElementName=PresetName}" Foreground="{StaticResource TitleBarText}"/>
+            <ComboBox x:Name="PresetName" IsEditable="True"/>
+            <TextBlock Text="Активные списки из обеих таблиц (с учётом несохранённых изменений):" TextWrapping="Wrap" Margin="0,12,0,6"/>
+            <ScrollViewer MaxHeight="240" VerticalScrollBarVisibility="Auto">
+                <TextBlock x:Name="Preview" TextWrapping="Wrap"/>
+            </ScrollViewer>
+            <TextBlock Text="Пресет сохраняет выбор списков. При загрузке остальные списки выключаются; таймеры временных списков продолжаются с оставшегося времени."
+                       TextWrapping="Wrap" Foreground="{StaticResource TextDim}" Margin="0,12,0,0"/>
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
+                <Button Content="Сохранить" Click="Save_Click" IsDefault="True"
+                        Style="{StaticResource PrimaryButton}" MinWidth="95" Margin="0,0,8,0"/>
+                <Button Content="Отмена" IsCancel="True" MinWidth="95"/>
+            </StackPanel>
+        </StackPanel>
+    </Grid>
+</local:ChromeWindow>

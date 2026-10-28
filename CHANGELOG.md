@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Server whitelist presets: save the current regular and temporary activation selection, preview every active list and apply a preset in two clicks; persist presets across restarts, follow whitelist renames and confirm replacement of existing presets
+
 - Firewall priority matching: sort rule arrays with `qsort` on policy load, then stop at the first matching rule while traversing priorities from highest to lowest; exclusions win ties and DNS cache lookups happen once per cache per packet
 
 - Whitelist priorities: a standalone `[N]` before the first rule sets the list default; `[N]rule` overrides it for one rule, including `[N]!rule`. Higher matching priority wins, with exclusions winning ties. Supports temporary grants over default exclusions, ports, cached IPs, editor validation, client display and conflict/checker results; requires an updated server, firewall and frontends
