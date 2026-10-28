@@ -15,6 +15,12 @@ internal static partial class Program
     {
         var window = new ChromeProbe { Width = 800, Height = 500 };
         var panel = new StackPanel();
+        var appearance = new AppearanceEditor();
+        var slider = (Slider)appearance.FindName("FontSizeSlider");
+        Check(slider.Minimum == 10 && slider.Maximum == 28,
+            "The appearance control must load with valid double slider bounds");
+        Check(AppearanceSettings.Current.BaseFontSize == 14,
+            "Loading the appearance control must preserve the base size");
         var body = new TextBlock { Text = "Body" };
         var heading = new TextBlock { Text = "Heading" };
         heading.SetResourceReference(TextBlock.FontSizeProperty, "FontSize22");
@@ -25,6 +31,7 @@ internal static partial class Program
         panel.Children.Add(heading);
         panel.Children.Add(editor);
         panel.Children.Add(maximize);
+        panel.Children.Add(appearance);
         window.Content = panel;
         try
         {
@@ -33,6 +40,7 @@ internal static partial class Program
             {
                 AppearanceSettings.Current.BaseFontSize = size;
                 window.UpdateLayout();
+                Check(slider.Value == size, "The appearance slider must reflect the chosen base size");
                 Check(Math.Abs(body.FontSize - size) < 0.001, "Body text must inherit the chosen base size");
                 Check(Math.Abs(heading.FontSize / body.FontSize - 22.0 / 14) < 0.001,
                     "Heading proportions must survive live size changes");
@@ -40,6 +48,10 @@ internal static partial class Program
                     "Editor text must scale with the body");
                 Check(editor.DesiredSize.Height >= editor.FontSize, "Input controls must fit scaled text");
             }
+            slider.SetCurrentValue(Slider.ValueProperty, 16.0);
+            window.UpdateLayout();
+            Check(AppearanceSettings.Current.BaseFontSize == 16 && body.FontSize == 16,
+                "Changing the slider must update the base size and rendered text");
             window.ToggleMaximize();
             window.UpdateLayout();
             Check(window.WindowState == WindowState.Maximized && (string)maximize.ToolTip == "Восстановить",

@@ -60,6 +60,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Client/server frontends: prevent a startup XAML error in the appearance editor by supplying font slider limits as doubles
+
 - Client/server frontends: disable all navigation except Main while the local backend is unavailable and return to Main on disconnect; refresh client status when its backend event connection closes
 
 - Server preset preview: align whitelist rules at the top of the text area

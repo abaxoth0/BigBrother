@@ -13,6 +13,9 @@ public sealed class AppearanceSettings : ViewModelBase
     private string? _path;
     private string _status = "";
 
+    public static double MinimumFontSize => AppearancePreferences.MinimumFontSize;
+    public static double MaximumFontSize => AppearancePreferences.MaximumFontSize;
+
     public int BaseFontSize
     {
         get => _preferences.BaseFontSize;

@@ -1,8 +1,7 @@
 <UserControl x:Class="frontend.AppearanceEditor"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:local="clr-namespace:frontend"
-             xmlns:services="clr-namespace:frontend.Services">
+             xmlns:local="clr-namespace:frontend">
     <GroupBox Header="Внешний вид" Margin="0,0,0,10" Padding="10"
               DataContext="{x:Static local:AppearanceSettings.Current}">
         <StackPanel>
@@ -10,8 +9,9 @@
             <DockPanel Margin="0,8,0,0">
                 <TextBlock DockPanel.Dock="Right" Text="{Binding BaseFontSize, StringFormat={}{0} px}"
                            MinWidth="60" TextAlignment="Right" VerticalAlignment="Center"/>
-                <Slider Minimum="{x:Static services:AppearancePreferences.MinimumFontSize}"
-                        Maximum="{x:Static services:AppearancePreferences.MaximumFontSize}"
+                <Slider x:Name="FontSizeSlider"
+                        Minimum="{x:Static local:AppearanceSettings.MinimumFontSize}"
+                        Maximum="{x:Static local:AppearanceSettings.MaximumFontSize}"
                         Value="{Binding BaseFontSize, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                         TickFrequency="1" IsSnapToTickEnabled="True" SmallChange="1" LargeChange="2"
                         AutomationProperties.Name="Базовый размер шрифта"/>
