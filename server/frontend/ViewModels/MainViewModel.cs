@@ -1378,6 +1378,13 @@ public class MainViewModel : ViewModelBase
     }
 
     public Task<List<WhitelistPreset>> GetWhitelistPresetsAsync() => _ipcService.GetWhitelistPresetsAsync();
+
+    public async Task DeleteWhitelistPresetAsync(string name)
+    {
+        await _ipcService.DeleteWhitelistPresetAsync(name);
+        AddLog("INFO", $"Пресет удалён: {name}");
+    }
+
     public Task<List<string>> GetWhitelistPreviewEntriesAsync(string name) => _ipcService.GetWhitelistPreviewEntriesAsync(name);
 
     private async Task SaveWhitelistPresetAsync()

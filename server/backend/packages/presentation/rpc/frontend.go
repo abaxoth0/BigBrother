@@ -205,6 +205,17 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 			}
 			writeOK(conn)
 
+		case "DELETE_WHITELIST_PRESET":
+			if len(args) != 1 {
+				writeErrorTLV(conn, "Expected preset name")
+				continue
+			}
+			if err := h.db.DeleteWhitelistPreset(args[0]); err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			writeOK(conn)
+
 		case "LOAD_WHITELIST_PRESET":
 			if len(args) != 1 {
 				writeErrorTLV(conn, "Expected preset name")

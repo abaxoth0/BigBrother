@@ -17,6 +17,12 @@ static class WhitelistPresetTests
         menu.SearchText = "  рАбОтА ";
         menu.SetPresets(Enumerable.Range(0, 150).Select(i => new WhitelistPreset { Name = $"Preset {i:000}" }).Append(large));
         Check(menu.VisiblePresets.SequenceEqual(new[] { large }) && menu.Status == "", "Preset name search failed with many presets");
+        menu.RemovePreset(large.Name);
+        Check(menu.SearchText == "  рАбОтА " && menu.VisiblePresets.Count == 0 && menu.Status == "Пресеты не найдены.",
+            "Deleting a preset reset the search or left a stale visible entry");
+        menu.SearchText = "";
+        Check(menu.VisiblePresets.Count == 150, "Deleting a preset removed unrelated presets");
+        menu.SetPresets(menu.VisiblePresets.Append(large));
         menu.SearchText = "WL";
         Check(menu.VisiblePresets.Count == 0 && menu.Status == "Пресеты не найдены.", "Preset search incorrectly searched whitelist names");
         menu.SearchText = "";

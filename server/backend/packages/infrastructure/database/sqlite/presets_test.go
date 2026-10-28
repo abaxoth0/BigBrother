@@ -150,3 +150,50 @@ func TestWhitelistPresetsPreserveTimers(t *testing.T) {
 		t.Fatalf("expired list retained in preview: %+v", presets)
 	}
 }
+
+func TestDeleteWhitelistPreset(t *testing.T) {
+	db, advance := timerDatabase(t)
+	mustTimer(t, db.CreateWhitelist("regular", ""))
+	mustTimer(t, db.CreateTemporaryWhitelist("temporary", 900, false))
+	mustTimer(t, db.SaveWhitelistPreset("delete", []string{"regular", "temporary"}, false))
+	mustTimer(t, db.SaveWhitelistPreset("keep", []string{"regular"}, false))
+	_, err := db.LoadWhitelistPreset("delete")
+	mustTimer(t, err)
+	advance(time.Minute)
+	mustTimer(t, db.DeleteWhitelistPreset("delete"))
+	mustTimer(t, db.DeleteWhitelistPreset("delete"))
+	checkPresetStates(t, db, "regular", "temporary")
+	timerRow(t, db, "temporary", true, 900, 840)
+	if _, err := db.LoadWhitelistPreset("delete"); err == nil {
+		t.Fatal("deleted preset can still be loaded")
+	}
+	var members int
+	mustTimer(t, db.conn.QueryRow("SELECT COUNT(*) FROM whitelist_preset_member WHERE preset_name = ?", "delete").Scan(&members))
+	if members != 0 {
+		t.Fatal("deleted preset retained memberships")
+	}
+	presets, err := db.GetWhitelistPresets()
+	mustTimer(t, err)
+	want := []entity.WhitelistPreset{{Name: "keep", ActiveWhitelists: []string{"regular"}}}
+	if !reflect.DeepEqual(presets, want) {
+		t.Fatalf("deletion affected another preset: %+v", presets)
+	}
+	_, err = db.conn.Exec(`CREATE TRIGGER fail_preset_delete BEFORE DELETE ON whitelist_preset
+        BEGIN SELECT RAISE(ABORT, 'write failure'); END`)
+	mustTimer(t, err)
+	if err := db.DeleteWhitelistPreset("keep"); err == nil {
+		t.Fatal("preset deletion failure hidden")
+	}
+	presets, err = db.GetWhitelistPresets()
+	mustTimer(t, err)
+	if !reflect.DeepEqual(presets, want) {
+		t.Fatalf("failed deletion removed memberships: %+v", presets)
+	}
+	mustTimer(t, db.Disconnect())
+	mustTimer(t, db.Connect())
+	presets, err = db.GetWhitelistPresets()
+	mustTimer(t, err)
+	if !reflect.DeepEqual(presets, want) {
+		t.Fatalf("deleted preset returned after restart: %+v", presets)
+	}
+}

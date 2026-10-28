@@ -36,6 +36,31 @@ public partial class WhitelistPresetButtons : UserControl
 
     private void Preset_Click(object sender, RoutedEventArgs e) => PresetPopup.IsOpen = false;
 
+    private async void Delete_Click(object sender, RoutedEventArgs e)
+    {
+        if (_loading || sender is not Button { DataContext: WhitelistPreset preset } ||
+            DataContext is not MainViewModel vm || !vm.CanUseWhitelistPresets) return;
+        _loading = true;
+        PresetPopup.IsOpen = false;
+        var owner = Window.GetWindow(this);
+        try
+        {
+            if (MessageBox.Show(owner, $"Удалить пресет «{preset.Name}»?", "Удаление пресета",
+                MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) != MessageBoxResult.Yes) return;
+            await vm.DeleteWhitelistPresetAsync(preset.Name);
+            _menu.RemovePreset(preset.Name);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(owner, $"Не удалось удалить пресет.\n{ex.Message}", "Удаление пресета", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            _loading = false;
+            if (IsVisible && vm.CanUseWhitelistPresets) PresetPopup.IsOpen = true;
+        }
+    }
+
     private void Preview_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not Button { DataContext: WhitelistPreset preset } || DataContext is not MainViewModel vm) return;

@@ -21,6 +21,7 @@ type CommandHandler interface {
 	SetWhitelistsActive(states map[string]bool) (bool, error)
 	SaveWhitelistPreset(name string, activeWhitelists []string, replace bool) error
 	LoadWhitelistPreset(name string) (bool, error)
+	DeleteWhitelistPreset(name string) error
 	ChangeWhitelistName(name string, newName string) error
 	DeleteWhitelist(name string) error
 

@@ -40,6 +40,12 @@ public class WhitelistPresetMenuViewModel : ViewModelBase
         NotifyResults();
     }
 
+    public void RemovePreset(string name)
+    {
+        _presets.RemoveAll(preset => preset.Name == name);
+        NotifyResults();
+    }
+
     public void SetError(string error)
     {
         _isLoading = false;

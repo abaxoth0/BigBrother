@@ -81,6 +81,8 @@ func TestFrontendWhitelistPresets(t *testing.T) {
 		presetRequest("LOAD_WHITELIST_PRESET"),
 		presetRequest("LOAD_WHITELIST_PRESET", "missing"),
 		presetRequest("LOAD_WHITELIST_PRESET", "Работа", "extra"),
+		presetRequest("DELETE_WHITELIST_PRESET"),
+		presetRequest("DELETE_WHITELIST_PRESET", "Работа", "extra"),
 	} {
 		if response := handlerResponse(t, h, request); !strings.HasPrefix(response, "ERROR\n") {
 			t.Fatalf("invalid preset request accepted: %q", response)
@@ -95,12 +97,27 @@ func TestFrontendWhitelistPresets(t *testing.T) {
 	if response := handlerResponse(t, h, presetRequest("GET_WHITELIST", "first")); response != "OK\n\n" {
 		t.Fatalf("empty preview whitelist: %q", response)
 	}
+	for i := 0; i < 2; i++ {
+		if response := handlerResponse(t, h, presetRequest("DELETE_WHITELIST_PRESET", "Работа")); response != "OK\n\n" {
+			t.Fatalf("delete response: %q", response)
+		}
+	}
+	if response := handlerResponse(t, h, presetRequest("GET_WHITELIST_PRESETS")); !strings.Contains(response, "\n[]\n") {
+		t.Fatalf("deleted preset retained in menu: %q", response)
+	}
+	if response := handlerResponse(t, h, presetRequest("LOAD_WHITELIST_PRESET", "Работа")); !strings.HasPrefix(response, "ERROR\n") {
+		t.Fatalf("deleted preset can be loaded: %q", response)
+	}
+	if events != 1 {
+		t.Fatal("preset deletion published policy change")
+	}
 	h = NewFrontendHandler(failedPresetDB{db}, nil, nil, bus)
 	for _, request := range []string{
 		presetRequest("GET_WHITELIST_PRESETS"),
 		presetRequest("SAVE_WHITELIST_PRESET", "test", "0"),
 		presetRequest("LOAD_WHITELIST_PRESET", "Работа"),
 		presetRequest("GET_WHITELIST", "first"),
+		presetRequest("DELETE_WHITELIST_PRESET", "Работа"),
 	} {
 		if response := handlerResponse(t, h, request); !strings.HasPrefix(response, "ERROR\n") {
 			t.Fatalf("database failure hidden: %q", response)
@@ -123,6 +140,10 @@ func (failedPresetDB) SaveWhitelistPreset(string, []string, bool) error {
 
 func (failedPresetDB) LoadWhitelistPreset(string) (bool, error) {
 	return false, errors.New("preset load failed")
+}
+
+func (failedPresetDB) DeleteWhitelistPreset(string) error {
+	return errors.New("preset delete failed")
 }
 
 func (failedPresetDB) GetWhitelistEntries(string) ([]*entity.WhitelistEntry, error) {

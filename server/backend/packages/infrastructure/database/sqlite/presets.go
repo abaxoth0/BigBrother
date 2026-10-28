@@ -67,6 +67,23 @@ func (db *Database) SaveWhitelistPreset(name string, activeWhitelists []string, 
 	return tx.Commit()
 }
 
+func (db *Database) DeleteWhitelistPreset(name string) error {
+	db.timerMu.Lock()
+	defer db.timerMu.Unlock()
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec("DELETE FROM whitelist_preset_member WHERE preset_name = ?", name); err != nil {
+		return err
+	}
+	if _, err := tx.Exec("DELETE FROM whitelist_preset WHERE name = ?", name); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 func (db *Database) LoadWhitelistPreset(name string) (bool, error) {
 	return db.changeWhitelistActivation(func(tx *sql.Tx) (map[string]bool, error) {
 		var preset string
