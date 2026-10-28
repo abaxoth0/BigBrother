@@ -1,6 +1,10 @@
 <UserControl x:Class="frontend.Views.WhitelistPresetButtons"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:frontend.ViewModels">
+    <UserControl.Resources>
+        <vm:WhitelistPresetMenuViewModel x:Key="PresetMenu"/>
+    </UserControl.Resources>
     <StackPanel Orientation="Horizontal">
         <Button Content="Сохранить пресет" Command="{Binding SaveWhitelistPresetCommand}" Margin="2" Padding="10,5"
                 ToolTip="Сохранить текущий выбор активных списков, включая несохранённые изменения"/>
@@ -8,27 +12,34 @@
                 IsEnabled="{Binding CanUseWhitelistPresets}" ToolTip="Посмотреть активные списки пресета и применить его одним нажатием"/>
         <Popup x:Name="PresetPopup" PlacementTarget="{Binding ElementName=LoadButton}" Placement="Bottom" StaysOpen="False" AllowsTransparency="True">
             <Border Background="{StaticResource Surface}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
-                    CornerRadius="4" Width="480" Padding="10">
+                    CornerRadius="4" Width="480" Padding="10" DataContext="{StaticResource PresetMenu}">
                 <StackPanel>
                     <TextBlock Text="Выберите пресет — он применится сразу." Foreground="{StaticResource TitleBarText}" FontWeight="Bold" TextWrapping="Wrap"/>
                     <TextBlock Text="Списки вне пресета будут выключены. Несохранённый выбор будет заменён." Foreground="{StaticResource TextDim}" TextWrapping="Wrap" Margin="0,4,0,8"/>
-                    <TextBlock x:Name="Status" Foreground="{StaticResource TextDim}" TextWrapping="Wrap"/>
-                    <ScrollViewer MaxHeight="350" VerticalScrollBarVisibility="Auto">
-                        <ItemsControl x:Name="Presets">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <Button HorizontalContentAlignment="Stretch" Margin="0,3" Padding="10,8" Click="Preset_Click"
-                                            Command="{Binding DataContext.LoadWhitelistPresetCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}">
+                    <Label Content="Поиск по названию пресета" Target="{Binding ElementName=PresetSearch}" Foreground="{StaticResource TitleBarText}" Padding="0,0,0,4"/>
+                    <TextBox x:Name="PresetSearch" Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"/>
+                    <TextBlock Text="{Binding Status}" Foreground="{StaticResource TextDim}" TextWrapping="Wrap"/>
+                    <ListBox ItemsSource="{Binding VisiblePresets}" MaxHeight="350" BorderThickness="0"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Auto"
+                             VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Margin="0,2">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                    <Button HorizontalContentAlignment="Stretch" Padding="10,6" Click="Preset_Click"
+                                            Command="{Binding DataContext.LoadPresetCommand, RelativeSource={RelativeSource AncestorType=ListBox}}" CommandParameter="{Binding}"
+                                            ToolTip="Применить пресет">
                                         <StackPanel>
-                                            <TextBlock Text="{Binding Name}" FontWeight="Bold" TextWrapping="Wrap"/>
-                                            <TextBlock Text="Активные списки:" Margin="0,4,0,2"/>
-                                            <TextBlock Text="{Binding Preview}" TextWrapping="Wrap"/>
+                                            <TextBlock Text="{Binding Name}" FontWeight="Bold" TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock Text="{Binding WhitelistCountText}" Margin="0,2,0,0"/>
                                         </StackPanel>
                                     </Button>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-                    </ScrollViewer>
+                                    <Button Grid.Column="1" Content="Просмотр" Click="Preview_Click" Margin="6,0,0,0" Padding="10,6"
+                                            ToolTip="Посмотреть списки и их правила"/>
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
                 </StackPanel>
             </Border>
         </Popup>

@@ -89,11 +89,18 @@ func TestFrontendWhitelistPresets(t *testing.T) {
 	if events != 1 {
 		t.Fatal("invalid request published policy change")
 	}
+	if response := handlerResponse(t, h, presetRequest("GET_WHITELIST", "missing")); !strings.HasPrefix(response, "ERROR\n") {
+		t.Fatalf("missing preview whitelist returned as empty: %q", response)
+	}
+	if response := handlerResponse(t, h, presetRequest("GET_WHITELIST", "first")); response != "OK\n\n" {
+		t.Fatalf("empty preview whitelist: %q", response)
+	}
 	h = NewFrontendHandler(failedPresetDB{db}, nil, nil, bus)
 	for _, request := range []string{
 		presetRequest("GET_WHITELIST_PRESETS"),
 		presetRequest("SAVE_WHITELIST_PRESET", "test", "0"),
 		presetRequest("LOAD_WHITELIST_PRESET", "Работа"),
+		presetRequest("GET_WHITELIST", "first"),
 	} {
 		if response := handlerResponse(t, h, request); !strings.HasPrefix(response, "ERROR\n") {
 			t.Fatalf("database failure hidden: %q", response)
@@ -116,4 +123,8 @@ func (failedPresetDB) SaveWhitelistPreset(string, []string, bool) error {
 
 func (failedPresetDB) LoadWhitelistPreset(string) (bool, error) {
 	return false, errors.New("preset load failed")
+}
+
+func (failedPresetDB) GetWhitelistEntries(string) ([]*entity.WhitelistEntry, error) {
+	return nil, errors.New("whitelist read failed")
 }

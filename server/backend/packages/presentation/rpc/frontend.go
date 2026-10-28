@@ -558,7 +558,11 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 				writeErrorTLV(conn, "Missing whitelist name")
 				continue
 			}
-			wl := h.GetWhitelist(args[0])
+			wl, err := h.db.GetWhitelistEntries(args[0])
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
 			var data []string
 			for _, entry := range wl {
 				data = append(data, entry.Value)

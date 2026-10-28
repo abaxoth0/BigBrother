@@ -13,6 +13,9 @@
     <Compile Include="../frontend/ViewModels/DomainCheckViewModel.cs" Link="DomainCheckViewModel.cs" />
     <Compile Include="../frontend/ViewModels/WhitelistActivationDraft.cs" Link="WhitelistActivationDraft.cs" />
     <Compile Include="../frontend/ViewModels/WhitelistTimerViewModel.cs" Link="WhitelistTimerViewModel.cs" />
+    <Compile Include="../frontend/ViewModels/WhitelistPresetMenuViewModel.cs" Link="WhitelistPresetMenuViewModel.cs" />
+    <Compile Include="../frontend/ViewModels/WhitelistPresetPreviewViewModel.cs" Link="WhitelistPresetPreviewViewModel.cs" />
+    <Compile Include="../frontend/Models/WhitelistPreset.cs" Link="WhitelistPreset.cs" />
     <Compile Include="../frontend/ViewModels/WhitelistSelection.cs" Link="WhitelistSelection.cs" />
     <Compile Include="../frontend/ViewModels/CheckboxSelection.cs" Link="CheckboxSelection.cs" />
     <Compile Include="../../lib/cs/BigBrother.Frontend.Shared/Models/SharedModels.cs" Link="SharedModels.cs" />

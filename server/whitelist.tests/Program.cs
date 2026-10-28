@@ -264,4 +264,5 @@ var equivalentPortsChecker = new DomainCheckViewModel(new[] {
 });
 equivalentPortsChecker.TestInput = "github.com:443";
 Check(equivalentPortsChecker.TestResult.StartsWith("Разрешён"), "Equivalent rules from separate lists must remain checkable");
-Console.WriteLine("Whitelist validation, matching, editor, domain checker, activation draft and selection checks passed.");
+await WhitelistPresetTests.RunAsync();
+Console.WriteLine("Whitelist validation, matching, editor, domain checker, activation draft, selection and preset checks passed.");

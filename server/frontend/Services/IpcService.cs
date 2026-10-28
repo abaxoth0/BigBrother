@@ -616,6 +616,7 @@ public class IpcService : IDisposable
         WhitelistPresetCommandAsync("SAVE_WHITELIST_PRESET", new[] { name, replace ? "1" : "0" }.Concat(activeWhitelists).ToArray());
 
     public Task LoadWhitelistPresetAsync(string name) => WhitelistPresetCommandAsync("LOAD_WHITELIST_PRESET", name);
+    public Task<List<string>> GetWhitelistPreviewEntriesAsync(string name) => WhitelistPresetCommandAsync("GET_WHITELIST", name);
 
     private async Task<List<string>> WhitelistPresetCommandAsync(string command, params string[] args)
     {

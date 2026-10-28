@@ -1378,6 +1378,7 @@ public class MainViewModel : ViewModelBase
     }
 
     public Task<List<WhitelistPreset>> GetWhitelistPresetsAsync() => _ipcService.GetWhitelistPresetsAsync();
+    public Task<List<string>> GetWhitelistPreviewEntriesAsync(string name) => _ipcService.GetWhitelistPreviewEntriesAsync(name);
 
     private async Task SaveWhitelistPresetAsync()
     {
