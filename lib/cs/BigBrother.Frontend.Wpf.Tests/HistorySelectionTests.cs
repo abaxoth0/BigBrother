@@ -23,6 +23,7 @@ internal static partial class Program
         LogViewWindow? window = null;
         try
         {
+            TestAppearance();
             var timestamp = new DateTimeOffset(2026, 10, 20, 13, 14, 15, TimeSpan.Zero);
             string path = Path.Combine(directory, "history.binlog");
             using (var output = File.Create(path))

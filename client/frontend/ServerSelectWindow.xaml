@@ -10,7 +10,7 @@
         ResizeMode="CanResizeWithGrip"
         WindowStyle="None">
     <shell:WindowChrome.WindowChrome>
-        <shell:WindowChrome CaptionHeight="42" ResizeBorderThickness="6"
+        <shell:WindowChrome CaptionHeight="{DynamicResource Scaled42}" ResizeBorderThickness="6"
                             GlassFrameThickness="0" UseAeroCaptionButtons="False"/>
     </shell:WindowChrome.WindowChrome>
     <Grid>
@@ -30,13 +30,16 @@
                 </Grid.ColumnDefinitions>
 
                 <TextBlock Grid.Column="0" Text="Выбор сервера" Foreground="{StaticResource TitleBarText}"
-                           FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" Margin="14,0,0,0"/>
+                           FontSize="{DynamicResource FontSize13}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="14,0,0,0"/>
 
                 <StackPanel Grid.Column="2" Orientation="Horizontal">
                     <Button Content="&#x2013;"
                             Style="{StaticResource TitleBarButton}"
                             shell:WindowChrome.IsHitTestVisibleInChrome="True"
                             Click="MinimizeButton_Click"/>
+                    <Button Style="{StaticResource MaximizeRestoreButton}"
+                            shell:WindowChrome.IsHitTestVisibleInChrome="True"
+                            Click="MaximizeRestoreButton_Click"/>
                     <Button Content="&#x2715;"
                             Style="{StaticResource TitleBarButton}"
                             Tag="Close"

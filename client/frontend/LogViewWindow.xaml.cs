@@ -51,10 +51,10 @@ public partial class LogViewWindow : ChromeWindow
             var listBox = new System.Windows.Controls.ListBox
             {
                 FontFamily = new System.Windows.Media.FontFamily("Consolas"),
-                FontSize = 12,
                 DataContext = src,
                 ItemTemplate = (DataTemplate)FindResource("LogLineTemplate")
             };
+            listBox.SetResourceReference(FontSizeProperty, "FontSize12");
             LogSelectionCopy.Enable<Lib.LogEntry>(listBox, entry => LogEntryFormatter.Format(entry, src.Label),
                 error => _vm.StatusText = error);
             listBox.SetValue(VirtualizingPanel.IsVirtualizingProperty, true);

@@ -40,6 +40,9 @@
                                           TextElement.Foreground="{TemplateBinding Foreground}"/>
                     </Border>
                     <ControlTemplate.Triggers>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="Bg" Property="Opacity" Value="0.4"/>
+                        </Trigger>
                         <Trigger Property="IsMouseOver" Value="True">
                             <Setter TargetName="Bg" Property="Background" Value="{StaticResource SurfaceAlt}"/>
                         </Trigger>
@@ -71,6 +74,7 @@
 
     <!-- Dark context menu -->
     <Style TargetType="ContextMenu">
+        <Setter Property="FontSize" Value="{DynamicResource FontSize14}"/>
         <Setter Property="Background" Value="{StaticResource Surface}"/>
         <Setter Property="Foreground" Value="{StaticResource TitleBarText}"/>
         <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
@@ -95,7 +99,7 @@
         <Setter Property="Foreground" Value="{StaticResource TitleBarText}"/>
         <Setter Property="Background" Value="Transparent"/>
         <Setter Property="Padding" Value="10,5"/>
-        <Setter Property="FontSize" Value="13"/>
+        <Setter Property="FontSize" Value="{DynamicResource FontSize13}"/>
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="MenuItem">

@@ -8,7 +8,7 @@
         Background="{StaticResource WindowBackground}" Foreground="{StaticResource TitleBarText}"
         ResizeMode="CanResize" WindowStyle="None">
     <shell:WindowChrome.WindowChrome>
-        <shell:WindowChrome CaptionHeight="42" ResizeBorderThickness="6"
+        <shell:WindowChrome CaptionHeight="{DynamicResource Scaled42}" ResizeBorderThickness="6"
                             GlassFrameThickness="0" UseAeroCaptionButtons="False"/>
     </shell:WindowChrome.WindowChrome>
     <Grid>
@@ -23,10 +23,14 @@
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <TextBlock Text="Проверка домена" FontSize="13" FontWeight="SemiBold"
+                <TextBlock Text="Проверка домена" FontSize="{DynamicResource FontSize13}" FontWeight="SemiBold"
                            VerticalAlignment="Center" Margin="14,0,0,0"/>
-                <Button Grid.Column="1" Content="&#x2715;" Style="{StaticResource TitleBarButton}" Tag="Close"
-                        shell:WindowChrome.IsHitTestVisibleInChrome="True" Click="CloseButton_Click"/>
+                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                    <Button Style="{StaticResource MaximizeRestoreButton}"
+                            shell:WindowChrome.IsHitTestVisibleInChrome="True" Click="MaximizeRestoreButton_Click"/>
+                    <Button Content="&#x2715;" Style="{StaticResource TitleBarButton}" Tag="Close"
+                            shell:WindowChrome.IsHitTestVisibleInChrome="True" Click="CloseButton_Click"/>
+                </StackPanel>
             </Grid>
         </Border>
         <Grid Grid.Row="1" Margin="14" FocusManager.FocusedElement="{Binding ElementName=DomainInput}">
@@ -47,7 +51,7 @@
             <ScrollViewer Grid.Row="4" VerticalScrollBarVisibility="Auto" Margin="0,10,0,0">
                 <TextBlock Text="{Binding TestResult}" TextWrapping="Wrap"/>
             </ScrollViewer>
-            <Button Grid.Row="5" Content="Закрыть" IsCancel="True" Width="90" Height="28"
+            <Button Grid.Row="5" Content="Закрыть" IsCancel="True" MinWidth="{DynamicResource Scaled90}" MinHeight="{DynamicResource Scaled28}"
                     HorizontalAlignment="Right" Margin="0,12,0,0"/>
         </Grid>
     </Grid>

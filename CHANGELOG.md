@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Client/server frontends: appearance settings with a persistent 10–28 px base font size (14 px by default), proportional text sizes throughout the interface and live updates; maximize/restore buttons in resizable window title bars
+
 - Server whitelist presets: save the current regular and temporary activation selection and apply a preset in two clicks; search presets by name, show compact whitelist counts and open a searchable preview with each list's current saved rules; persist presets across restarts, follow whitelist renames and confirm replacement or deletion of existing presets
 
 - Firewall priority matching: sort rule arrays with `qsort` on policy load, then stop at the first matching rule while traversing priorities from highest to lowest; exclusions win ties and DNS cache lookups happen once per cache per packet
@@ -57,6 +59,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Server whitelist editor: live validation rejects malformed entries, duplicate rules and directly conflicting exceptions before saving; overlapping exceptions show warnings, and imports use the same validation
 
 ### Fixed
+
+- Client/server frontends: disable all navigation except Main while the local backend is unavailable and return to Main on disconnect; refresh client status when its backend event connection closes
 
 - Server preset preview: align whitelist rules at the top of the text area
 

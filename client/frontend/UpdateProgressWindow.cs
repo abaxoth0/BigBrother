@@ -11,6 +11,7 @@ public sealed class UpdateProgressWindow : Window
 
     public UpdateProgressWindow()
     {
+        SetResourceReference(FontSizeProperty, "FontSize14");
         Title = "Обновление BigBrother";
         Width = 500;
         SizeToContent = SizeToContent.Height;

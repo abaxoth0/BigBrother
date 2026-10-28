@@ -14,6 +14,7 @@ public sealed class NetworkShareWindow : Window
 
     public NetworkShareWindow(string current)
     {
+        SetResourceReference(FontSizeProperty, "FontSize14");
         Title = "Общая папка обновлений";
         SetResourceReference(BackgroundProperty, "WindowBackground");
         SetResourceReference(ForegroundProperty, "TitleBarText");

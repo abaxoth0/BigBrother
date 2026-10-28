@@ -198,7 +198,7 @@
         <Setter Property="Foreground" Value="{StaticResource TitleBarText}"/>
         <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
         <Setter Property="Padding" Value="6,3"/>
-        <Setter Property="Height" Value="26"/>
+        <Setter Property="MinHeight" Value="{DynamicResource Scaled26}"/>
         <Setter Property="VerticalContentAlignment" Value="Center"/>
         <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
         <Setter Property="Template">
@@ -300,6 +300,7 @@
     </Style>
 
     <Style x:Key="LogContextMenuStyle" TargetType="ContextMenu">
+        <Setter Property="FontSize" Value="{DynamicResource FontSize14}"/>
         <Setter Property="Background" Value="{StaticResource SurfaceAlt}"/>
         <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
         <Setter Property="Foreground" Value="{StaticResource TitleBarText}"/>
@@ -513,16 +514,16 @@
         </Setter>
     </Style>
 
-    <!-- Standard caption button (minimize/close) for custom title bars -->
+    <!-- Standard caption button for custom title bars -->
     <Style x:Key="TitleBarButton" TargetType="Button">
-        <Setter Property="Width" Value="46"/>
-        <Setter Property="Height" Value="40"/>
+        <Setter Property="Width" Value="{DynamicResource Scaled46}"/>
+        <Setter Property="Height" Value="{DynamicResource Scaled40}"/>
         <Setter Property="Padding" Value="0"/>
         <Setter Property="Margin" Value="0"/>
         <Setter Property="Background" Value="Transparent"/>
         <Setter Property="Foreground" Value="{StaticResource TitleBarText}"/>
         <Setter Property="BorderThickness" Value="0"/>
-        <Setter Property="FontSize" Value="16"/>
+        <Setter Property="FontSize" Value="{DynamicResource FontSize16}"/>
         <Setter Property="VerticalContentAlignment" Value="Center"/>
         <Setter Property="HorizontalContentAlignment" Value="Center"/>
         <Setter Property="Template">
@@ -550,6 +551,19 @@
                 </ControlTemplate>
             </Setter.Value>
         </Setter>
+    </Style>
+
+    <Style x:Key="MaximizeRestoreButton" TargetType="Button" BasedOn="{StaticResource TitleBarButton}">
+        <Setter Property="Content" Value="&#x25A1;"/>
+        <Setter Property="ToolTip" Value="Развернуть"/>
+        <Setter Property="AutomationProperties.Name" Value="Развернуть"/>
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding WindowState, RelativeSource={RelativeSource AncestorType=Window}}" Value="Maximized">
+                <Setter Property="Content" Value="&#x2750;"/>
+                <Setter Property="ToolTip" Value="Восстановить"/>
+                <Setter Property="AutomationProperties.Name" Value="Восстановить"/>
+            </DataTrigger>
+        </Style.Triggers>
     </Style>
 
 </ResourceDictionary>

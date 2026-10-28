@@ -46,6 +46,7 @@ public class IpcService : IDisposable
     {
         while (!ct.IsCancellationRequested)
         {
+            bool subscribed = false;
             try
             {
                 using var pipe = new NamedPipeClientStream(".", _pipeName, PipeDirection.InOut);
@@ -69,6 +70,7 @@ public class IpcService : IDisposable
                 await reader.ReadLineAsync(ct).ConfigureAwait(false);
 
                 // Subscribed — signal UI to refresh once (covers reconnects)
+                subscribed = true;
                 StateChanged?.Invoke();
 
                 while (!ct.IsCancellationRequested)
@@ -94,6 +96,10 @@ public class IpcService : IDisposable
             catch (Exception)
             {
                 // pipe unavailable — retry after delay
+            }
+            finally
+            {
+                if (subscribed && !ct.IsCancellationRequested) StateChanged?.Invoke();
             }
 
             if (!ct.IsCancellationRequested)

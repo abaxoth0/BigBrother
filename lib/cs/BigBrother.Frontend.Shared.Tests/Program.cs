@@ -48,6 +48,7 @@ static LogFileMonitor MonitorOf(object reader)
 }
 
 WhitelistTests.Run();
+AppearanceTests.Run();
 
 var scheduled = new ConcurrentQueue<Action>();
 var received = new List<int>();

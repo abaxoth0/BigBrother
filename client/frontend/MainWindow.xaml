@@ -16,7 +16,7 @@
         WindowStartupLocation="CenterScreen"
         WindowStyle="None">
     <shell:WindowChrome.WindowChrome>
-        <shell:WindowChrome CaptionHeight="42" ResizeBorderThickness="6"
+        <shell:WindowChrome CaptionHeight="{DynamicResource Scaled42}" ResizeBorderThickness="6"
                             GlassFrameThickness="0" UseAeroCaptionButtons="False"/>
     </shell:WindowChrome.WindowChrome>
 
@@ -38,7 +38,7 @@
         <Style x:Key="SmallButton" TargetType="Button" BasedOn="{StaticResource ControlButton}">
             <Setter Property="MinWidth" Value="0"/>
             <Setter Property="Padding" Value="8,4"/>
-            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontSize" Value="{DynamicResource FontSize12}"/>
         </Style>
 
         <!-- Level filter pill -->
@@ -46,7 +46,7 @@
             <Setter Property="Margin" Value="2"/>
             <Setter Property="Padding" Value="8,4"/>
             <Setter Property="MinWidth" Value="0"/>
-            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontSize" Value="{DynamicResource FontSize12}"/>
             <Setter Property="Background" Value="{StaticResource SurfaceAlt}"/>
             <Setter Property="Foreground" Value="{StaticResource TitleBarText}"/>
             <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
@@ -99,6 +99,9 @@
                                               TextElement.Foreground="{TemplateBinding Foreground}"/>
                         </Border>
                         <ControlTemplate.Triggers>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Bg" Property="Opacity" Value="0.4"/>
+                            </Trigger>
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter TargetName="Bg" Property="Background" Value="{StaticResource SurfaceAlt}"/>
                             </Trigger>
@@ -134,13 +137,16 @@
                 </Grid.ColumnDefinitions>
 
                 <TextBlock Grid.Column="0" Text="{Binding Title, RelativeSource={RelativeSource AncestorType=Window}}" Foreground="{StaticResource TitleBarText}"
-                           FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" Margin="14,0,0,0"/>
+                           FontSize="{DynamicResource FontSize13}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="14,0,0,0"/>
 
                 <StackPanel Grid.Column="2" Orientation="Horizontal">
                     <Button Content="&#x2013;"
                             Style="{StaticResource TitleBarButton}"
                             shell:WindowChrome.IsHitTestVisibleInChrome="True"
                             Click="MinimizeButton_Click"/>
+                    <Button Style="{StaticResource MaximizeRestoreButton}"
+                            shell:WindowChrome.IsHitTestVisibleInChrome="True"
+                            Click="MaximizeRestoreButton_Click"/>
                     <Button Content="&#x2715;"
                             Style="{StaticResource TitleBarButton}"
                             Tag="Close"
@@ -154,7 +160,7 @@
         <Grid Grid.Row="1" Margin="5">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="190"/>
+                <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
 
             <!-- Content area -->
@@ -198,7 +204,7 @@
                         </Border.Style>
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Text="{Binding OverallHealthText}" FontWeight="Bold" Foreground="White"
-                                       VerticalAlignment="Center" FontSize="15"/>
+                                       VerticalAlignment="Center" FontSize="{DynamicResource FontSize15}"/>
                         </StackPanel>
                     </Border>
 
@@ -228,7 +234,7 @@
                             <TextBlock Grid.Column="0" Text="ЛОГИ" FontWeight="Bold"
                                        VerticalAlignment="Center" Margin="10,5"/>
 
-                            <TextBox Grid.Column="1" Height="26" Margin="10,5,5,5"
+                            <TextBox Grid.Column="1" MinHeight="{DynamicResource Scaled26}" Margin="10,5,5,5"
                                      VerticalContentAlignment="Center"
                                      ToolTip="Поиск по тексту или уровню">
                                 <TextBox.Style>
@@ -275,7 +281,7 @@
                         <ListBox Grid.Row="2" x:Name="LogsListBox"
                                  Background="{StaticResource LogBackground}"
                                  ItemsSource="{Binding FilteredLogs}"
-                                 FontFamily="Consolas" FontSize="12"
+                                 FontFamily="Consolas" FontSize="{DynamicResource FontSize12}"
                                  BorderBrush="{StaticResource BorderBrush}"
                                  VirtualizingPanel.IsVirtualizing="True"
                                  VirtualizingPanel.VirtualizationMode="Recycling">
@@ -317,7 +323,7 @@
                                                     </Style.Triggers>
                                                 </Style>
                                             </Border.Style>
-                                            <TextBlock Text="{Binding Level}" FontSize="10" FontWeight="Bold" Foreground="White"/>
+                                            <TextBlock Text="{Binding Level}" FontSize="{DynamicResource FontSize10}" FontWeight="Bold" Foreground="White"/>
                                         </Border>
                                         <TextBlock Grid.Column="2" Text="{Binding Message}"
                                                    TextWrapping="Wrap">
@@ -510,7 +516,7 @@
                     <Grid Grid.Row="1">
                         <ListBox ItemsSource="{Binding FilteredWhitelist}"
                                  BorderBrush="{StaticResource BorderBrush}"
-                                 FontFamily="Segoe UI" FontSize="13"
+                                 FontFamily="Segoe UI" FontSize="{DynamicResource FontSize13}"
                                  ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                                  Visibility="{Binding ShowPrettyWhitelist, Converter={StaticResource BoolToVisibility}}">
                             <ListBox.ItemContainerStyle>
@@ -536,7 +542,7 @@
                                  TextWrapping="Wrap"
                                  VerticalScrollBarVisibility="Auto"
                                  VerticalContentAlignment="Top"
-                                 FontFamily="Consolas" FontSize="14"
+                                 FontFamily="Consolas" FontSize="{DynamicResource FontSize14}"
                                  Background="{StaticResource LogBackground}"
                                  Foreground="{StaticResource LogInfo}"
                                  Padding="10"
@@ -544,7 +550,7 @@
 
                         <TextBlock Text="Белый список пуст. Нет активных правил."
                                    Foreground="{StaticResource TextDim}"
-                                   FontSize="14" TextWrapping="Wrap" TextAlignment="Center" Margin="20"
+                                   FontSize="{DynamicResource FontSize14}" TextWrapping="Wrap" TextAlignment="Center" Margin="20"
                                    HorizontalAlignment="Center" VerticalAlignment="Center"
                                    IsHitTestVisible="False"
                                    Visibility="{Binding IsWhitelistEmpty, Converter={StaticResource BoolToVisibility}}"/>
@@ -564,7 +570,7 @@
                     </Grid.Style>
                     <ScrollViewer VerticalScrollBarVisibility="Auto">
                         <StackPanel Margin="16" DataContext="{Binding Updates}">
-                            <TextBlock Text="Обновления" FontSize="22" FontWeight="SemiBold" Margin="0,0,0,18"/>
+                            <TextBlock Text="Обновления" FontSize="{DynamicResource FontSize22}" FontWeight="SemiBold" Margin="0,0,0,18"/>
                             <TextBlock Margin="0,0,0,6">
                                 <Run Text="Установленная версия: "/><Run Text="{Binding InstalledVersion, Mode=OneWay}"/>
                             </TextBlock>
@@ -579,13 +585,13 @@
                             <ProgressBar IsIndeterminate="True" Height="6" Margin="0,0,0,12"
                                          Visibility="{Binding Busy, Converter={StaticResource BoolToVisibility}}"/>
                             <TextBlock Text="{Binding Status}" TextWrapping="Wrap" Margin="0,0,0,18"/>
-                            <TextBlock Text="{Binding NotesTitle}" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                            <TextBlock Text="{Binding NotesTitle}" FontSize="{DynamicResource FontSize17}" FontWeight="SemiBold" Margin="0,0,0,8"/>
                             <TextBlock Text="{Binding NotesHint}" TextWrapping="Wrap" Foreground="{StaticResource TextDim}"/>
                             <ItemsControl ItemsSource="{Binding Sections}">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
                                         <StackPanel Margin="0,6,0,12">
-                                            <TextBlock Text="{Binding Title}" FontSize="15" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                                            <TextBlock Text="{Binding Title}" FontSize="{DynamicResource FontSize15}" FontWeight="SemiBold" Margin="0,0,0,6"/>
                                             <ItemsControl ItemsSource="{Binding Items}">
                                                 <ItemsControl.ItemTemplate>
                                                     <DataTemplate>
@@ -618,25 +624,26 @@
                     </Grid.Style>
                     <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="10">
+                        <local:AppearanceEditor/>
                         <StackPanel Visibility="{Binding SettingsAvailable, Converter={StaticResource BoolToVisibility}}">
                             <GroupBox Header="Сервер" Margin="0,0,0,10" Padding="10">
                                 <StackPanel>
                                     <StackPanel Orientation="Horizontal" Margin="0,5">
-                                        <TextBlock Text="Адрес сервера:" Width="120" VerticalAlignment="Center"/>
+                                        <TextBlock Text="Адрес сервера:" Width="{DynamicResource Scaled120}" VerticalAlignment="Center"/>
                                         <TextBox Text="{Binding ServerAddress, UpdateSourceTrigger=PropertyChanged}" Width="200" Margin="5,0"/>
                                     </StackPanel>
                                     <StackPanel Orientation="Horizontal" Margin="0,5">
-                                        <TextBlock Text="Пользователь:" Width="120" VerticalAlignment="Center"/>
+                                        <TextBlock Text="Пользователь:" Width="{DynamicResource Scaled120}" VerticalAlignment="Center"/>
                                         <TextBox Text="{Binding Username, UpdateSourceTrigger=PropertyChanged}" Width="200" Margin="5,0"/>
                                         <Button Content="Зарегистрироваться" Style="{StaticResource PrimaryButton}" Command="{Binding RegisterCommand}" IsEnabled="{Binding CanRegister}" Padding="8,2" Margin="5,0,0,0"/>
                                     </StackPanel>
                                     <StackPanel Orientation="Horizontal" Margin="0,5">
-                                        <TextBlock Text="Порт:" Width="120" VerticalAlignment="Center"/>
+                                        <TextBlock Text="Порт:" Width="{DynamicResource Scaled120}" VerticalAlignment="Center"/>
                                         <TextBox Text="{Binding ServerPort, UpdateSourceTrigger=PropertyChanged}" Width="100" Margin="5,0"/>
                                     </StackPanel>
                                     <Separator Margin="0,10"/>
                                     <StackPanel Orientation="Horizontal" Margin="0,5">
-                                        <TextBlock Text="Сервер:" Width="120" VerticalAlignment="Center"/>
+                                        <TextBlock Text="Сервер:" Width="{DynamicResource Scaled120}" VerticalAlignment="Center"/>
                                         <TextBlock Text="{Binding ServerName}" VerticalAlignment="Center" Margin="5,0"/>
                                         <TextBlock Text="(" VerticalAlignment="Center"/>
                                         <TextBlock Text="{Binding ServerAddress}" VerticalAlignment="Center" Foreground="Gray"/>
@@ -651,7 +658,7 @@
                                     <CheckBox IsChecked="{Binding FallbackWhitelistEnabled}"
                                               Content="Использовать локальный список при отключении синхронизации"
                                               Margin="0,5"/>
-                                    <TextBlock TextWrapping="Wrap" Foreground="Gray" FontSize="11" Margin="20,0,0,0">
+                                    <TextBlock TextWrapping="Wrap" Foreground="Gray" FontSize="{DynamicResource FontSize11}" Margin="20,0,0,0">
                                         <Run Text="При включении используется список из файла whitelist.txt, когда сервер не предоставляет список."/>
                                         <LineBreak/>
                                         <Run Text="При выключении весь трафик блокируется, если сервер не передал список разрешённых доменов."/>
@@ -664,7 +671,7 @@
                                     <CheckBox IsChecked="{Binding DiscoveryEnabled}"
                                               Content="Автоматическое обнаружение сервера в сети"
                                               Margin="0,5"/>
-                                    <TextBlock TextWrapping="Wrap" Foreground="Gray" FontSize="11" Margin="20,0,0,0">
+                                    <TextBlock TextWrapping="Wrap" Foreground="Gray" FontSize="{DynamicResource FontSize11}" Margin="20,0,0,0">
                                         <Run Text="Отключите, если сервер использует статический IP. При отключении используйте ручной ввод адреса сервера."/>
                                     </TextBlock>
                                 </StackPanel>
@@ -676,14 +683,14 @@
                                               Content="Автоматическое определение сети"
                                               Margin="0,5"/>
                                     <StackPanel Orientation="Horizontal" Margin="0,5">
-                                        <TextBlock Text="Шлюз:" Width="120" VerticalAlignment="Center"/>
+                                        <TextBlock Text="Шлюз:" Width="{DynamicResource Scaled120}" VerticalAlignment="Center"/>
                                         <TextBox Text="{Binding NetworkGateway, UpdateSourceTrigger=PropertyChanged}" Width="200" Margin="5,0" IsEnabled="{Binding NetworkManualMode}"/>
                                     </StackPanel>
                                     <StackPanel Orientation="Horizontal" Margin="0,5">
-                                        <TextBlock Text="Маска подсети:" Width="120" VerticalAlignment="Center"/>
+                                        <TextBlock Text="Маска подсети:" Width="{DynamicResource Scaled120}" VerticalAlignment="Center"/>
                                         <TextBox Text="{Binding NetworkMask, UpdateSourceTrigger=PropertyChanged}" Width="200" Margin="5,0" IsEnabled="{Binding NetworkManualMode}"/>
                                     </StackPanel>
-                                    <TextBlock TextWrapping="Wrap" Foreground="Gray" FontSize="11" Margin="20,0,0,0"
+                                    <TextBlock TextWrapping="Wrap" Foreground="Gray" FontSize="{DynamicResource FontSize11}" Margin="20,0,0,0"
                                                Visibility="{Binding NetworkAuto, Converter={StaticResource BoolToVisibility}}">
                                         <Run Text="Автоматический режим. Отключите, чтобы задать шлюз и маску вручную."/>
                                     </TextBlock>
@@ -719,13 +726,13 @@
                                     <CheckBox IsChecked="{Binding FiltrationAutoDisable}"
                                               Content="Синхронизировать фильтрацию с подключением к серверу"
                                               Margin="0,5"/>
-                                    <TextBlock TextWrapping="Wrap" Foreground="Gray" FontSize="11" Margin="20,0,0,0">
+                                    <TextBlock TextWrapping="Wrap" Foreground="Gray" FontSize="{DynamicResource FontSize11}" Margin="20,0,0,0">
                                         <Run Text="Когда включено, фильтрация работает только при подключении к серверу: при потере связи она автоматически отключается, а при восстановлении — включается. Если фильтрация отключена вручную кнопкой «Вкл/Выкл», она останется отключённой, пока вы не включите её снова."/>
                                     </TextBlock>
                                     <CheckBox IsChecked="{Binding Ipv6BlockEnabled}"
                                               Content="Блокировать исходящий IPv6 при включённой фильтрации"
                                               Margin="0,10,0,5"/>
-                                    <TextBlock TextWrapping="Wrap" Foreground="Gray" FontSize="11" Margin="20,0,0,0"
+                                    <TextBlock TextWrapping="Wrap" Foreground="Gray" FontSize="{DynamicResource FontSize11}" Margin="20,0,0,0"
                                                Text="Включено по умолчанию. Отключите для доступа к ресурсам по IPv6. При отключении IPv6-трафик проходит без проверки по белому списку; фильтрация IPv4 продолжает работать."/>
                                 </StackPanel>
                             </GroupBox>
@@ -741,7 +748,7 @@
 
                         <StackPanel Visibility="{Binding SettingsAvailable, Converter={StaticResource InverseBoolToVisibility}}">
                             <TextBlock Text="Нет соединения с Клиентом. Настройки не доступны."
-                                       Foreground="Gray" FontSize="14" Margin="20"
+                                       Foreground="Gray" FontSize="{DynamicResource FontSize14}" Margin="20"
                                        HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </StackPanel>
                     </StackPanel>
@@ -750,7 +757,7 @@
             </Grid>
 
             <!-- Side Navigation -->
-            <Border Grid.Column="1" Background="{StaticResource SurfaceAlt}"
+            <Border Grid.Column="1" MinWidth="{DynamicResource Scaled190}" Background="{StaticResource SurfaceAlt}"
                     BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="4">
                 <Grid Margin="8,10">
                     <Grid.RowDefinitions>
@@ -759,22 +766,22 @@
                     </Grid.RowDefinitions>
                     <StackPanel VerticalAlignment="Top">
                         <TextBlock Text="Меню" FontWeight="Bold" Foreground="{StaticResource TextDim}"
-                                   FontSize="11" Margin="6,0,0,8"/>
+                                   FontSize="{DynamicResource FontSize11}" Margin="6,0,0,8"/>
 
                         <RadioButton Content="Главная" GroupName="Nav"
                                      Style="{StaticResource NavItem}"
                                      IsChecked="{Binding SelectedSection, Converter={StaticResource EnumToBool}, ConverterParameter=Main}"/>
-                        <RadioButton Content="Белый список" GroupName="Nav"
+                        <RadioButton Content="Белый список" GroupName="Nav" IsEnabled="{Binding BackendConnected}"
                                      Style="{StaticResource NavItem}"
                                      IsChecked="{Binding SelectedSection, Converter={StaticResource EnumToBool}, ConverterParameter=Whitelist}"/>
-                        <RadioButton Content="Обновления" GroupName="Nav"
+                        <RadioButton Content="Обновления" GroupName="Nav" IsEnabled="{Binding BackendConnected}"
                                      Style="{StaticResource NavItem}"
                                      IsChecked="{Binding SelectedSection, Converter={StaticResource EnumToBool}, ConverterParameter=Updates}"/>
-                        <RadioButton Content="Настройки" GroupName="Nav"
+                        <RadioButton Content="Настройки" GroupName="Nav" IsEnabled="{Binding BackendConnected}"
                                      Style="{StaticResource NavItem}"
                                      IsChecked="{Binding SelectedSection, Converter={StaticResource EnumToBool}, ConverterParameter=Settings}"/>
                     </StackPanel>
-                    <TextBlock Grid.Row="1" Foreground="{StaticResource TextDim}" FontSize="11" Margin="6,12,6,0" TextAlignment="Center">
+                    <TextBlock Grid.Row="1" Foreground="{StaticResource TextDim}" FontSize="{DynamicResource FontSize11}" Margin="6,12,6,0" TextAlignment="Center">
                         <Run Text="Версия "/><Run Text="{x:Static local:BuildVersion.Current}"/>
                     </TextBlock>
                 </Grid>
