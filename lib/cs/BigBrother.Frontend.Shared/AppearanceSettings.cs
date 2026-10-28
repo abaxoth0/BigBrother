@@ -13,8 +13,8 @@ public sealed class AppearanceSettings : ViewModelBase
     private string? _path;
     private string _status = "";
 
-    public static double MinimumFontSize => AppearancePreferences.MinimumFontSize;
-    public static double MaximumFontSize => AppearancePreferences.MaximumFontSize;
+    public bool CanDecreaseFontSize => BaseFontSize > AppearancePreferences.MinimumFontSize;
+    public bool CanIncreaseFontSize => BaseFontSize < AppearancePreferences.MaximumFontSize;
 
     public int BaseFontSize
     {
@@ -26,6 +26,8 @@ public sealed class AppearanceSettings : ViewModelBase
             _preferences.BaseFontSize = value;
             ApplyResources();
             OnPropertyChanged();
+            OnPropertyChanged(nameof(CanDecreaseFontSize));
+            OnPropertyChanged(nameof(CanIncreaseFontSize));
             Save();
         }
     }

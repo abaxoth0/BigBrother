@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Client/server frontends: appearance settings with a persistent 10–28 px base font size (14 px by default), proportional text sizes throughout the interface and live updates; maximize/restore buttons in resizable window title bars
+- Client/server frontends: appearance settings with a persistent 10–28 px base font size (14 px by default), a compact numeric input with −/+ buttons and keyboard controls, proportional text sizes throughout the interface and live updates; maximize/restore buttons in resizable window title bars
 
 - Server whitelist presets: save the current regular and temporary activation selection and apply a preset in two clicks; search presets by name, show compact whitelist counts and open a searchable preview with each list's current saved rules; persist presets across restarts, follow whitelist renames and confirm replacement or deletion of existing presets
 

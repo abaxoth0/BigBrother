@@ -16,9 +16,9 @@ internal static partial class Program
         var window = new ChromeProbe { Width = 800, Height = 500 };
         var panel = new StackPanel();
         var appearance = new AppearanceEditor();
-        var slider = (Slider)appearance.FindName("FontSizeSlider");
-        Check(slider.Minimum == 10 && slider.Maximum == 28,
-            "The appearance control must load with valid double slider bounds");
+        var input = (TextBox)appearance.FindName("FontSizeInput");
+        var decrease = (Button)appearance.FindName("DecreaseFontSizeButton");
+        var increase = (Button)appearance.FindName("IncreaseFontSizeButton");
         Check(AppearanceSettings.Current.BaseFontSize == 14,
             "Loading the appearance control must preserve the base size");
         var body = new TextBlock { Text = "Body" };
@@ -40,7 +40,9 @@ internal static partial class Program
             {
                 AppearanceSettings.Current.BaseFontSize = size;
                 window.UpdateLayout();
-                Check(slider.Value == size, "The appearance slider must reflect the chosen base size");
+                Check(input.Text == size.ToString(), "The font size input must reflect the chosen base size");
+                Check(decrease.IsEnabled == (size > 10) && increase.IsEnabled == (size < 28),
+                    "The step buttons must disable at their respective bounds");
                 Check(Math.Abs(body.FontSize - size) < 0.001, "Body text must inherit the chosen base size");
                 Check(Math.Abs(heading.FontSize / body.FontSize - 22.0 / 14) < 0.001,
                     "Heading proportions must survive live size changes");
@@ -48,10 +50,24 @@ internal static partial class Program
                     "Editor text must scale with the body");
                 Check(editor.DesiredSize.Height >= editor.FontSize, "Input controls must fit scaled text");
             }
-            slider.SetCurrentValue(Slider.ValueProperty, 16.0);
+            input.SetCurrentValue(TextBox.TextProperty, "16");
+            input.RaiseEvent(new RoutedEventArgs(UIElement.LostFocusEvent));
             window.UpdateLayout();
             Check(AppearanceSettings.Current.BaseFontSize == 16 && body.FontSize == 16,
-                "Changing the slider must update the base size and rendered text");
+                "Committing a typed size must update the base size and rendered text");
+            increase.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Check(AppearanceSettings.Current.BaseFontSize == 17 && input.Text == "17",
+                "The plus button must increase the font size by one");
+            decrease.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Check(AppearanceSettings.Current.BaseFontSize == 16 && input.Text == "16",
+                "The minus button must decrease the font size by one");
+            foreach (var (text, expected) in new[] { ("invalid", 16), ("99", 28), ("", 28), ("1", 10) })
+            {
+                input.SetCurrentValue(TextBox.TextProperty, text);
+                input.RaiseEvent(new RoutedEventArgs(UIElement.LostFocusEvent));
+                Check(AppearanceSettings.Current.BaseFontSize == expected && input.Text == expected.ToString(),
+                    "Typed sizes must respect limits and restore the current size for invalid input");
+            }
             window.ToggleMaximize();
             window.UpdateLayout();
             Check(window.WindowState == WindowState.Maximized && (string)maximize.ToolTip == "Восстановить",

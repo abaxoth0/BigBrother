@@ -6,16 +6,21 @@
               DataContext="{x:Static local:AppearanceSettings.Current}">
         <StackPanel>
             <TextBlock Text="Базовый размер шрифта"/>
-            <DockPanel Margin="0,8,0,0">
-                <TextBlock DockPanel.Dock="Right" Text="{Binding BaseFontSize, StringFormat={}{0} px}"
-                           MinWidth="60" TextAlignment="Right" VerticalAlignment="Center"/>
-                <Slider x:Name="FontSizeSlider"
-                        Minimum="{x:Static local:AppearanceSettings.MinimumFontSize}"
-                        Maximum="{x:Static local:AppearanceSettings.MaximumFontSize}"
-                        Value="{Binding BaseFontSize, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                        TickFrequency="1" IsSnapToTickEnabled="True" SmallChange="1" LargeChange="2"
-                        AutomationProperties.Name="Базовый размер шрифта"/>
-            </DockPanel>
+            <WrapPanel Margin="0,8,0,0">
+                <Button x:Name="DecreaseFontSizeButton" Content="−" Click="Decrease_Click"
+                        IsEnabled="{Binding CanDecreaseFontSize}" MinWidth="{DynamicResource Scaled40}" Padding="10,4"
+                        AutomationProperties.Name="Уменьшить размер шрифта"/>
+                <TextBox x:Name="FontSizeInput" Margin="6,0" Width="{DynamicResource Scaled46}"
+                         Text="{Binding BaseFontSize, Mode=TwoWay, UpdateSourceTrigger=Explicit}"
+                         TextAlignment="Center" VerticalContentAlignment="Center" Padding="8,4"
+                         LostFocus="FontSizeInput_LostFocus" PreviewKeyDown="FontSizeInput_PreviewKeyDown"
+                         ToolTip="От 10 до 28 px. Enter — применить, ↑/↓ — изменить размер."
+                         AutomationProperties.Name="Базовый размер шрифта"/>
+                <Button x:Name="IncreaseFontSizeButton" Content="+" Click="Increase_Click"
+                        IsEnabled="{Binding CanIncreaseFontSize}" MinWidth="{DynamicResource Scaled40}" Padding="10,4"
+                        AutomationProperties.Name="Увеличить размер шрифта"/>
+                <TextBlock Text="px" VerticalAlignment="Center" Margin="8,0,0,0"/>
+            </WrapPanel>
             <TextBlock Text="От 10 до 28 px. Все размеры текста меняются пропорционально. Изменения применяются сразу."
                        TextWrapping="Wrap" Foreground="{DynamicResource TextDim}" Margin="0,8,0,0"/>
             <WrapPanel Margin="0,8,0,0">
