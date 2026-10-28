@@ -58,6 +58,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Server preset preview: align whitelist rules at the top of the text area
+
 - Server temporary whitelist timer: use the dark theme text colour for both time field labels
 
 - Server whitelist table: count rules consistently with the editor, excluding comments and blank entries even when an older backend includes them in its totals
