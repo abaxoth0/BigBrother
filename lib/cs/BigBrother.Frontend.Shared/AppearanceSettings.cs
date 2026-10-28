@@ -70,7 +70,8 @@ public sealed class AppearanceSettings : ViewModelBase
         foreach (int size in new[] { 24, 26, 28, 40, 42, 46, 90, 120, 190, 220, 270 })
             resources[$"Scaled{size}"] = size * BaseFontSize / (double)AppearancePreferences.DefaultFontSize;
         resources["TableRowMinHeight"] = 32 * scale;
-        resources["LogRowMinHeight"] = 28 * scale;
+        resources["LogRowMinHeight"] = 22 * scale;
+        resources["LogRowPadding"] = new Thickness(4, 2 * scale, 4, 2 * scale);
         resources["RowPadding"] = new Thickness(4, 4 * scale, 4, 4 * scale);
         resources["TableHeaderPadding"] = new Thickness(6, 6 * scale, 6, 6 * scale);
     }

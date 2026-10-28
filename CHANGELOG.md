@@ -60,7 +60,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Client/server tables and logs: increase row spacing and scale minimum heights and vertical padding with the base font size, including table headers and log history
+- Client/server tables and logs: scale minimum heights and vertical padding with the base font size, using taller table rows and compact log rows; includes table headers and log history
 
 - Client/server frontends: prevent a startup XAML error in the appearance editor by supplying font slider limits as doubles
 
