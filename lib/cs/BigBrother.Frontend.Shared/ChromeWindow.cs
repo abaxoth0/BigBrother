@@ -2,6 +2,7 @@ using System;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
+using System.Windows.Shell;
 
 namespace frontend;
 
@@ -26,6 +27,8 @@ public class ChromeWindow : Window
 
     private void OnSourceInitialized(object? sender, EventArgs e)
     {
+        if (WindowChrome.GetWindowChrome(this) is { } chrome)
+            chrome.CornerRadius = new CornerRadius(0);
         _hwndSource = HwndSource.FromHwnd(new WindowInteropHelper(this).Handle);
         _hwndSource?.AddHook(WndProc);
     }

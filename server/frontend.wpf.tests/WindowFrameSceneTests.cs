@@ -23,7 +23,8 @@ internal static partial class Program
             WindowChrome.SetWindowChrome(this, new WindowChrome
             {
                 CaptionHeight = 42, ResizeBorderThickness = new Thickness(6),
-                GlassFrameThickness = new Thickness(0), UseAeroCaptionButtons = false
+                GlassFrameThickness = new Thickness(0), UseAeroCaptionButtons = false,
+                CornerRadius = new CornerRadius(8)
             });
         }
     }
@@ -34,6 +35,8 @@ internal static partial class Program
         var dialog = new WhitelistPresetWindow(Array.Empty<WhitelistPreset>(),
             new WhitelistPreset { ActiveWhitelists = new() { "common", "yandex" } },
             (_, _) => Task.CompletedTask);
+        var domain = new DomainCheckWindow(Array.Empty<ComposedWhitelistEntry>());
+        WindowChrome.GetWindowChrome(domain).CornerRadius = new CornerRadius(8);
         int previousText = AppearanceSettings.Current.TextFontSize;
         int previousInterface = AppearanceSettings.Current.InterfaceFontSize;
         try
@@ -43,10 +46,14 @@ internal static partial class Program
             owner.Show();
             dialog.Owner = owner;
             dialog.Show();
+            domain.Owner = owner;
+            domain.Show();
             FlushLayout(owner);
             FlushLayout(dialog);
+            FlushLayout(domain);
             CheckWindowFrame(owner);
             CheckWindowFrame(dialog);
+            CheckWindowFrame(domain);
             Check(dialog.ResizeMode == ResizeMode.NoResize && dialog.SizeToContent == SizeToContent.Height,
                 "Adding a frame must preserve the preset dialog's sizing behaviour");
             owner.Width += 80;
@@ -55,6 +62,10 @@ internal static partial class Program
             FlushLayout(owner);
             CheckWindowFrame(owner);
             CheckWindowFrame(dialog);
+            domain.Width += 80;
+            domain.Height += 60;
+            FlushLayout(domain);
+            CheckWindowFrame(domain);
             dialog.Activate();
             FlushLayout(dialog);
             CheckWindowFrame(dialog);
@@ -76,11 +87,16 @@ internal static partial class Program
                 encoder.Frames.Add(BitmapFrame.Create(bitmap));
                 using var file = File.Create(path);
                 encoder.Save(file);
+                var domainEncoder = new PngBitmapEncoder();
+                domainEncoder.Frames.Add(BitmapFrame.Create(RenderWindowFrame(domain)));
+                using var domainFile = File.Create(Path.ChangeExtension(path, "domain.png"));
+                domainEncoder.Save(domainFile);
             }
-            Console.WriteLine("PASS: visible window borders on all edges, overlapping preset dialog, focus changes and resizing");
+            Console.WriteLine("PASS: visible borders and unclipped native corners, preset/domain dialogs, focus changes and resizing");
         }
         finally
         {
+            domain.Close();
             dialog.Close();
             owner.Close();
             AppearanceSettings.Current.TextFontSize = previousText;

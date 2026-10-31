@@ -1,4 +1,6 @@
+using System.Runtime.InteropServices;
 using System.Windows;
+using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 
@@ -26,11 +28,14 @@ internal static partial class Program
         var background = ((SolidColorBrush)window.Background).Color;
         double contrast = (Luminance(frame) + 0.05) / (Luminance(background) + 0.05);
         Check(contrast >= 1.5, "Window outlines must stand out against the dark background");
+        CheckWindowCornerRegion(window);
         var bitmap = RenderWindowFrame(window);
         foreach (var (x, y) in new[]
         {
             (bitmap.PixelWidth / 2, 0), (bitmap.PixelWidth / 2, bitmap.PixelHeight - 1),
-            (0, bitmap.PixelHeight / 2), (bitmap.PixelWidth - 1, bitmap.PixelHeight / 2)
+            (0, bitmap.PixelHeight / 2), (bitmap.PixelWidth - 1, bitmap.PixelHeight / 2),
+            (0, 0), (bitmap.PixelWidth - 1, 0),
+            (0, bitmap.PixelHeight - 1), (bitmap.PixelWidth - 1, bitmap.PixelHeight - 1)
         })
         {
             var pixel = new byte[4];
@@ -41,6 +46,51 @@ internal static partial class Program
                 $"on {VisualTreeHelper.GetChild(window, 0).GetType().Name} ({bitmap.PixelWidth} x {bitmap.PixelHeight})");
         }
     }
+
+    private static void CheckWindowCornerRegion(Window window)
+    {
+        var handle = new WindowInteropHelper(window).Handle;
+        Check(GetWindowRect(handle, out var bounds), "The native window bounds must be available");
+        var region = CreateRectRgn(0, 0, 0, 0);
+        try
+        {
+            Check(region != IntPtr.Zero && GetWindowRgn(handle, region) != 0,
+                "Custom chrome must have an explicit window region");
+            foreach (var (x, y) in new[]
+            {
+                (0, 0), (bounds.Right - bounds.Left - 1, 0),
+                (0, bounds.Bottom - bounds.Top - 1),
+                (bounds.Right - bounds.Left - 1, bounds.Bottom - bounds.Top - 1)
+            })
+                Check(PtInRegion(region, x, y),
+                    $"{window.GetType().Name}: native rounding must not clip the border at ({x}, {y})");
+        }
+        finally
+        {
+            if (region != IntPtr.Zero) DeleteObject(region);
+        }
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct WindowFrameRect { public int Left, Top, Right, Bottom; }
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetWindowRect(IntPtr window, out WindowFrameRect bounds);
+
+    [DllImport("user32.dll")]
+    private static extern int GetWindowRgn(IntPtr window, IntPtr region);
+
+    [DllImport("gdi32.dll")]
+    private static extern IntPtr CreateRectRgn(int left, int top, int right, int bottom);
+
+    [DllImport("gdi32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool PtInRegion(IntPtr region, int x, int y);
+
+    [DllImport("gdi32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool DeleteObject(IntPtr handle);
 
     private static double Luminance(Color colour)
     {

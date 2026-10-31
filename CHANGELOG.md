@@ -64,7 +64,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Client/server custom windows: add a contrasting grey outline so overlapping windows and dialogs are easier to distinguish
+- Client/server custom windows: add a contrasting grey outline with matching square corners so overlapping windows and dialogs are easier to distinguish
 
 - Client/server frontends: disable all navigation except Main while the local backend is unavailable and return to Main on disconnect; refresh client status when its backend event connection closes
 

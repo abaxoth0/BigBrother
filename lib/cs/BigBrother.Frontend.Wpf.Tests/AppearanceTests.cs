@@ -19,7 +19,8 @@ internal static partial class Program
         WindowChrome.SetWindowChrome(window, new WindowChrome
         {
             CaptionHeight = 42, ResizeBorderThickness = new Thickness(6),
-            GlassFrameThickness = new Thickness(0), UseAeroCaptionButtons = false
+            GlassFrameThickness = new Thickness(0), UseAeroCaptionButtons = false,
+            CornerRadius = new CornerRadius(8)
         });
         var panel = new StackPanel();
         var appearance = new AppearanceEditor();
