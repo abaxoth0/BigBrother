@@ -10,11 +10,12 @@
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         mc:Ignorable="d"
         Title="BigBrother Сервер"
-        Height="700" Width="1100"
+        Height="910" Width="1430"
         MinHeight="560" MinWidth="900"
         Background="{StaticResource WindowBackground}"
         Foreground="{StaticResource TitleBarText}"
         WindowStartupLocation="CenterScreen"
+        WindowState="Maximized"
         WindowStyle="None">
     <shell:WindowChrome.WindowChrome>
         <shell:WindowChrome CaptionHeight="{DynamicResource Scaled42}" ResizeBorderThickness="6"

@@ -9,11 +9,12 @@
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         mc:Ignorable="d"
         Title="BigBrother"
-        Height="700" Width="1200"
+        Height="910" Width="1560"
         MinHeight="500" MinWidth="950"
         Background="{StaticResource WindowBackground}"
         Foreground="{StaticResource TitleBarText}"
         WindowStartupLocation="CenterScreen"
+        WindowState="Maximized"
         WindowStyle="None">
     <shell:WindowChrome.WindowChrome>
         <shell:WindowChrome CaptionHeight="{DynamicResource Scaled42}" ResizeBorderThickness="6"
