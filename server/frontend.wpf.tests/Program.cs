@@ -6,7 +6,7 @@ using System.Windows.Threading;
 using frontend;
 using frontend.Views;
 
-internal static class Program
+internal static partial class Program
 {
     [STAThread]
     private static void Main()
@@ -65,6 +65,7 @@ internal static class Program
                       header != null && Math.Abs(header.MinHeight - ui * 32.0 / 14) < 0.001,
                     "Table content and header heights must scale independently");
             }
+            TestWhitelistToolbar();
             Console.WriteLine("PASS: server whitelist editor startup, live text/interface scaling, line numbers and table styles");
         }
         finally

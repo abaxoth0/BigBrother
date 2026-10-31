@@ -537,54 +537,19 @@
                         <RowDefinition Height="180" MinHeight="90"/>
                     </Grid.RowDefinitions>
 
-                    <Border Grid.Row="0" Background="{StaticResource HeaderBackground}" CornerRadius="4" Margin="0,0,0,5">
-                        <Grid>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="Auto"/>
-                            </Grid.RowDefinitions>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <ComboBox Grid.Column="0" SelectedIndex="{Binding WhitelistTableIndex}" Margin="10,6" MinWidth="{DynamicResource Scaled270}"
-                                      VerticalAlignment="Center" FontWeight="Bold">
-                                <ComboBoxItem Content="{Binding ActiveWhitelistsText}"/>
-                                <ComboBoxItem Content="{Binding ActiveTemporaryWhitelistsText}"/>
-                            </ComboBox>
-                            <Button Grid.Column="5" Content="Проверка домена" Style="{StaticResource ControlButton}"
-                                    Command="{Binding OpenDomainCheckCommand}"/>
-                            <Button Grid.Column="2" Content="Импорт" Style="{StaticResource ControlButton}" Command="{Binding ImportWhitelistsCommand}"/>
-                            <Button Grid.Column="3" Content="Экспорт" Style="{StaticResource ControlButton}" Command="{Binding ExportWhitelistsCommand}"/>
-                            <Button Grid.Column="4" Content="Создать" Style="{StaticResource ControlButton}" Command="{Binding OpenCreateWhitelistCommand}"/>
-                            <Grid Grid.Row="1" Grid.ColumnSpan="6" Margin="10,2,6,6">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Text="Изменения активности не сохранены. Проверка, синхронизация и конфликты используют сохранённый список."
-                                           VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,10,0"
-                                           Visibility="{Binding HasWhitelistActivationChanges, Converter={StaticResource BoolToVisibility}}"/>
-                                <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">
-                                    <Button Content="Синхронизировать" Style="{StaticResource ControlButton}" Command="{Binding SyncWhitelistsCommand}"
-                                            ToolTip="Проверить правила в клиентах и обновить только отличающиеся от сохранённого списка сервера"/>
-                                    <Button Content="Сохранить" Style="{StaticResource ControlButton}" Command="{Binding SaveWhitelistActivationCommand}"/>
-                                    <Button Content="Отмена" Style="{StaticResource ControlButton}" Command="{Binding CancelWhitelistActivationCommand}"/>
-                                </StackPanel>
-                            </Grid>
-                            <views:WhitelistPresetButtons Grid.Row="2" Grid.ColumnSpan="6" Margin="6,0,6,6"/>
-                        </Grid>
-                    </Border>
+                    <views:WhitelistToolbar Grid.Row="0" Margin="0,0,0,5"/>
 
-                    <views:WhitelistTable Grid.Row="1" ItemsSource="{Binding RegularWhitelists}"
-                                          Visibility="{Binding ShowRegularWhitelists, Converter={StaticResource BoolToVisibility}}"/>
-                    <views:WhitelistTable Grid.Row="1" ItemsSource="{Binding TemporaryWhitelists}" IsTemporary="True"
-                                          Visibility="{Binding ShowTemporaryWhitelists, Converter={StaticResource BoolToVisibility}}"/>
+                    <Grid Grid.Row="1">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <views:WhitelistTable ItemsSource="{Binding RegularWhitelists}"
+                                              Visibility="{Binding ShowRegularWhitelists, Converter={StaticResource BoolToVisibility}}"/>
+                        <views:WhitelistTable ItemsSource="{Binding TemporaryWhitelists}" IsTemporary="True"
+                                              Visibility="{Binding ShowTemporaryWhitelists, Converter={StaticResource BoolToVisibility}}"/>
+                        <views:WhitelistActivationBar Grid.Row="1"/>
+                    </Grid>
                     <GridSplitter Grid.Row="2" Height="5" HorizontalAlignment="Stretch" ResizeDirection="Rows">
                         <GridSplitter.Style>
                             <Style TargetType="GridSplitter">

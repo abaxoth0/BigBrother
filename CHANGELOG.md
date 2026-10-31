@@ -58,11 +58,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Server whitelist editor: line numbers stay aligned with entries while editing, resizing and scrolling; long rules scroll horizontally
 - Server whitelist editor: live validation rejects malformed entries, duplicate rules and directly conflicting exceptions before saving; overlapping exceptions show warnings, and imports use the same validation
 
+### Changed
+
+- Server whitelist tab: group list management, presets and tools in a wrapping toolbar; show Save/Cancel below the table only while activation changes are pending
+
 ### Fixed
-
-- Client/server tables and logs: scale content row heights and vertical padding with text size and table headers with interface size, using taller table rows and compact log rows; includes log history
-
-- Client/server frontends: prevent a startup XAML error in the appearance editor by supplying font slider limits as doubles
 
 - Client/server frontends: disable all navigation except Main while the local backend is unavailable and return to Main on disconnect; refresh client status when its backend event connection closes
 
