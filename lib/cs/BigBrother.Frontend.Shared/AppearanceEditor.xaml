@@ -5,23 +5,43 @@
     <GroupBox Header="Внешний вид" Margin="0,0,0,10" Padding="10"
               DataContext="{x:Static local:AppearanceSettings.Current}">
         <StackPanel>
-            <TextBlock Text="Базовый размер шрифта"/>
+            <TextBlock Text="Размер текста"/>
+            <TextBlock Text="Логи, правила белых списков, таблицы и поля ввода." TextWrapping="Wrap" Foreground="{DynamicResource TextDim}" Margin="0,4,0,0"/>
             <WrapPanel Margin="0,8,0,0">
-                <Button x:Name="DecreaseFontSizeButton" Content="−" Click="Decrease_Click"
-                        IsEnabled="{Binding CanDecreaseFontSize}" MinWidth="{DynamicResource Scaled40}" Padding="10,4"
-                        AutomationProperties.Name="Уменьшить размер шрифта"/>
-                <TextBox x:Name="FontSizeInput" Margin="6,0" Width="{DynamicResource Scaled46}"
-                         Text="{Binding BaseFontSize, Mode=TwoWay, UpdateSourceTrigger=Explicit}"
+                <Button x:Name="DecreaseTextFontSizeButton" Content="−" Click="DecreaseText_Click"
+                        IsEnabled="{Binding CanDecreaseTextFontSize}" MinWidth="{DynamicResource Scaled40}" Padding="10,4"
+                        AutomationProperties.Name="Уменьшить: размер текста"/>
+                <TextBox x:Name="TextFontSizeInput" Margin="6,0" Width="{DynamicResource Scaled46}"
+                         Text="{Binding TextFontSize, Mode=TwoWay, UpdateSourceTrigger=Explicit}"
+                         FontSize="{DynamicResource FontSize14}"
                          TextAlignment="Center" VerticalContentAlignment="Center" Padding="8,4"
                          LostFocus="FontSizeInput_LostFocus" PreviewKeyDown="FontSizeInput_PreviewKeyDown"
                          ToolTip="От 10 до 28 px. Enter — применить, ↑/↓ — изменить размер."
-                         AutomationProperties.Name="Базовый размер шрифта"/>
-                <Button x:Name="IncreaseFontSizeButton" Content="+" Click="Increase_Click"
-                        IsEnabled="{Binding CanIncreaseFontSize}" MinWidth="{DynamicResource Scaled40}" Padding="10,4"
-                        AutomationProperties.Name="Увеличить размер шрифта"/>
+                         AutomationProperties.Name="Размер текста"/>
+                <Button x:Name="IncreaseTextFontSizeButton" Content="+" Click="IncreaseText_Click"
+                        IsEnabled="{Binding CanIncreaseTextFontSize}" MinWidth="{DynamicResource Scaled40}" Padding="10,4"
+                        AutomationProperties.Name="Увеличить: размер текста"/>
                 <TextBlock Text="px" VerticalAlignment="Center" Margin="8,0,0,0"/>
             </WrapPanel>
-            <TextBlock Text="От 10 до 28 px. Все размеры текста меняются пропорционально. Изменения применяются сразу."
+            <TextBlock Text="Размер интерфейса" Margin="0,12,0,0"/>
+            <TextBlock Text="Подписи, кнопки, меню и заголовки." TextWrapping="Wrap" Foreground="{DynamicResource TextDim}" Margin="0,4,0,0"/>
+            <WrapPanel Margin="0,8,0,0">
+                <Button x:Name="DecreaseInterfaceFontSizeButton" Content="−" Click="DecreaseInterface_Click"
+                        IsEnabled="{Binding CanDecreaseInterfaceFontSize}" MinWidth="{DynamicResource Scaled40}" Padding="10,4"
+                        AutomationProperties.Name="Уменьшить: размер интерфейса"/>
+                <TextBox x:Name="InterfaceFontSizeInput" Margin="6,0" Width="{DynamicResource Scaled46}"
+                         Text="{Binding InterfaceFontSize, Mode=TwoWay, UpdateSourceTrigger=Explicit}"
+                         FontSize="{DynamicResource FontSize14}"
+                         TextAlignment="Center" VerticalContentAlignment="Center" Padding="8,4"
+                         LostFocus="FontSizeInput_LostFocus" PreviewKeyDown="FontSizeInput_PreviewKeyDown"
+                         ToolTip="От 10 до 28 px. Enter — применить, ↑/↓ — изменить размер."
+                         AutomationProperties.Name="Размер интерфейса"/>
+                <Button x:Name="IncreaseInterfaceFontSizeButton" Content="+" Click="IncreaseInterface_Click"
+                        IsEnabled="{Binding CanIncreaseInterfaceFontSize}" MinWidth="{DynamicResource Scaled40}" Padding="10,4"
+                        AutomationProperties.Name="Увеличить: размер интерфейса"/>
+                <TextBlock Text="px" VerticalAlignment="Center" Margin="8,0,0,0"/>
+            </WrapPanel>
+            <TextBlock Text="От 10 до 28 px. Размеры текста в каждой группе меняются пропорционально. Изменения сохраняются автоматически."
                        TextWrapping="Wrap" Foreground="{DynamicResource TextDim}" Margin="0,8,0,0"/>
             <WrapPanel Margin="0,8,0,0">
                 <Button Content="По умолчанию (14 px)" Click="Reset_Click" Margin="0,0,8,0"/>

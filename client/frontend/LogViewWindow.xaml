@@ -79,7 +79,7 @@
             </Setter>
         </Style>
         <DataTemplate x:Key="LogLineTemplate">
-            <TextBlock FontSize="{DynamicResource FontSize12}">
+            <TextBlock FontSize="{DynamicResource TextFontSize12}">
                 <TextBlock.Text>
                     <MultiBinding StringFormat="[{0:yyyy-MM-dd HH:mm:ss}] {1}">
                         <Binding Path="LocalTimestamp"/>

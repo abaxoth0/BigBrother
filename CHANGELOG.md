@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Client/server frontends: appearance settings with a persistent 10–28 px base font size (14 px by default), a compact numeric input with −/+ buttons and keyboard controls, proportional text sizes throughout the interface and live updates; maximize/restore buttons in resizable window title bars
+- Client/server frontends: separate persistent text and interface font sizes (10–28 px, 14 px by default), with compact numeric inputs, −/+ buttons and keyboard controls. Text size scales logs, whitelist entries, table contents and editable fields; interface size scales labels, buttons, menus and headers. Both apply immediately, and the previous base size initializes both settings; maximize/restore buttons in resizable window title bars
 
 - Server whitelist presets: save the current regular and temporary activation selection and apply a preset in two clicks; search presets by name, show compact whitelist counts and open a searchable preview with each list's current saved rules; persist presets across restarts, follow whitelist renames and confirm replacement or deletion of existing presets
 
@@ -60,7 +60,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Client/server tables and logs: scale minimum heights and vertical padding with the base font size, using taller table rows and compact log rows; includes table headers and log history
+- Client/server tables and logs: scale content row heights and vertical padding with text size and table headers with interface size, using taller table rows and compact log rows; includes log history
 
 - Client/server frontends: prevent a startup XAML error in the appearance editor by supplying font slider limits as doubles
 

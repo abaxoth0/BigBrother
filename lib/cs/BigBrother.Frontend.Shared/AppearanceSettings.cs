@@ -13,23 +13,49 @@ public sealed class AppearanceSettings : ViewModelBase
     private string? _path;
     private string _status = "";
 
-    public bool CanDecreaseFontSize => BaseFontSize > AppearancePreferences.MinimumFontSize;
-    public bool CanIncreaseFontSize => BaseFontSize < AppearancePreferences.MaximumFontSize;
+    public bool CanDecreaseTextFontSize => TextFontSize > AppearancePreferences.MinimumFontSize;
+    public bool CanIncreaseTextFontSize => TextFontSize < AppearancePreferences.MaximumFontSize;
+    public bool CanDecreaseInterfaceFontSize => InterfaceFontSize > AppearancePreferences.MinimumFontSize;
+    public bool CanIncreaseInterfaceFontSize => InterfaceFontSize < AppearancePreferences.MaximumFontSize;
 
-    public int BaseFontSize
+    public int TextFontSize
     {
-        get => _preferences.BaseFontSize;
+        get => _preferences.TextFontSize;
         set
         {
             value = Math.Clamp(value, AppearancePreferences.MinimumFontSize, AppearancePreferences.MaximumFontSize);
-            if (_preferences.BaseFontSize == value) return;
-            _preferences.BaseFontSize = value;
-            ApplyResources();
-            OnPropertyChanged();
-            OnPropertyChanged(nameof(CanDecreaseFontSize));
-            OnPropertyChanged(nameof(CanIncreaseFontSize));
-            Save();
+            if (_preferences.TextFontSize == value) return;
+            _preferences.TextFontSize = value;
+            SizeChanged(nameof(TextFontSize));
         }
+    }
+
+    public int InterfaceFontSize
+    {
+        get => _preferences.InterfaceFontSize;
+        set
+        {
+            value = Math.Clamp(value, AppearancePreferences.MinimumFontSize, AppearancePreferences.MaximumFontSize);
+            if (_preferences.InterfaceFontSize == value) return;
+            _preferences.InterfaceFontSize = value;
+            SizeChanged(nameof(InterfaceFontSize));
+        }
+    }
+
+    private void SizeChanged(string property)
+    {
+        ApplyResources();
+        OnPropertyChanged(property);
+        NotifyLimitsChanged();
+        Save();
+    }
+
+    private void NotifyLimitsChanged()
+    {
+        OnPropertyChanged(nameof(CanDecreaseTextFontSize));
+        OnPropertyChanged(nameof(CanIncreaseTextFontSize));
+        OnPropertyChanged(nameof(CanDecreaseInterfaceFontSize));
+        OnPropertyChanged(nameof(CanIncreaseInterfaceFontSize));
     }
 
     public string Status
@@ -44,7 +70,9 @@ public sealed class AppearanceSettings : ViewModelBase
             "BigBrother", application, "appearance.json");
         _preferences = AppearancePreferences.Load(_path);
         ApplyResources();
-        OnPropertyChanged(nameof(BaseFontSize));
+        OnPropertyChanged(nameof(TextFontSize));
+        OnPropertyChanged(nameof(InterfaceFontSize));
+        NotifyLimitsChanged();
     }
 
     public void Save()
@@ -53,26 +81,31 @@ public sealed class AppearanceSettings : ViewModelBase
         try
         {
             _preferences.Save(_path);
-            Status = "Размер шрифта сохранён.";
+            Status = "Размеры шрифтов сохранены.";
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            Status = "Не удалось сохранить размер шрифта: " + ex.Message;
+            Status = "Не удалось сохранить размеры шрифтов: " + ex.Message;
         }
     }
 
     private void ApplyResources()
     {
         var resources = Application.Current.Resources;
-        double scale = BaseFontSize / (double)AppearancePreferences.DefaultFontSize;
+        double textScale = TextFontSize / (double)AppearancePreferences.DefaultFontSize;
+        double interfaceScale = InterfaceFontSize / (double)AppearancePreferences.DefaultFontSize;
         for (int size = 10; size <= 28; size++)
-            resources[$"FontSize{size}"] = size * BaseFontSize / (double)AppearancePreferences.DefaultFontSize;
+        {
+            resources[$"FontSize{size}"] = size * InterfaceFontSize / (double)AppearancePreferences.DefaultFontSize;
+            resources[$"TextFontSize{size}"] = size * TextFontSize / (double)AppearancePreferences.DefaultFontSize;
+        }
         foreach (int size in new[] { 24, 26, 28, 40, 42, 46, 90, 120, 190, 220, 270 })
-            resources[$"Scaled{size}"] = size * BaseFontSize / (double)AppearancePreferences.DefaultFontSize;
-        resources["TableRowMinHeight"] = 32 * scale;
-        resources["LogRowMinHeight"] = 22 * scale;
-        resources["LogRowPadding"] = new Thickness(4, 2 * scale, 4, 2 * scale);
-        resources["RowPadding"] = new Thickness(4, 4 * scale, 4, 4 * scale);
-        resources["TableHeaderPadding"] = new Thickness(6, 6 * scale, 6, 6 * scale);
+            resources[$"Scaled{size}"] = size * InterfaceFontSize / (double)AppearancePreferences.DefaultFontSize;
+        resources["TableRowMinHeight"] = 32 * textScale;
+        resources["TableHeaderMinHeight"] = 32 * interfaceScale;
+        resources["LogRowMinHeight"] = 22 * textScale;
+        resources["LogRowPadding"] = new Thickness(4, 2 * textScale, 4, 2 * textScale);
+        resources["RowPadding"] = new Thickness(4, 4 * textScale, 4, 4 * textScale);
+        resources["TableHeaderPadding"] = new Thickness(6, 6 * interfaceScale, 6, 6 * interfaceScale);
     }
 }

@@ -243,7 +243,7 @@
                             <StackPanel Grid.Row="0" Grid.Column="0" Orientation="Horizontal" Margin="8,4" VerticalAlignment="Center">
                                 <TextBlock Text="ЛОГИ" FontWeight="Bold" Margin="0,0,10,0" VerticalAlignment="Center"/>
                                 <TextBox Text="{Binding LogSearchText, UpdateSourceTrigger=PropertyChanged}" Width="200"
-                                         MinHeight="{DynamicResource Scaled24}" FontSize="{DynamicResource FontSize12}" VerticalContentAlignment="Center"
+                                         MinHeight="{DynamicResource Scaled24}" FontSize="{DynamicResource TextFontSize12}" VerticalContentAlignment="Center"
                                          ToolTip="Поиск по тексту, уровню или источнику"/>
                                 <CheckBox Content="Авто-скролл" IsChecked="{Binding AutoScroll}" Margin="10,0,0,0" VerticalAlignment="Center"/>
                                 <Button Content="К последнему" Style="{StaticResource SmallButton}" Margin="6,0,0,0"
@@ -270,7 +270,7 @@
                     <!-- Log entries list -->
                     <ListBox Grid.Row="2" x:Name="ServerLogListBox" ItemsSource="{Binding FilteredServerLogs}"
                              Background="{StaticResource LogBackground}"
-                             FontFamily="Consolas" FontSize="{DynamicResource FontSize12}"
+                             FontFamily="Consolas" FontSize="{DynamicResource TextFontSize12}"
                              BorderBrush="{StaticResource BorderBrush}"
                              VirtualizingPanel.IsVirtualizing="True"
                              VirtualizingPanel.VirtualizationMode="Recycling">
@@ -309,7 +309,7 @@
                                                 </Style.Triggers>
                                             </Style>
                                         </Border.Style>
-                                        <TextBlock Text="{Binding Level}" FontSize="{DynamicResource FontSize10}" FontWeight="Bold" Foreground="White"/>
+                                        <TextBlock Text="{Binding Level}" FontSize="{DynamicResource TextFontSize10}" FontWeight="Bold" Foreground="White"/>
                                     </Border>
                                     <TextBlock Grid.Column="2" Text="{Binding Message}" TextWrapping="Wrap">
                                         <TextBlock.Style>

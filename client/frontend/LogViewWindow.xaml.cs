@@ -55,7 +55,7 @@ public partial class LogViewWindow : ChromeWindow
                 ItemContainerStyle = (Style)FindResource("LogRowStyle"),
                 ItemTemplate = (DataTemplate)FindResource("LogLineTemplate")
             };
-            listBox.SetResourceReference(FontSizeProperty, "FontSize12");
+            listBox.SetResourceReference(FontSizeProperty, "TextFontSize12");
             LogSelectionCopy.Enable<Lib.LogEntry>(listBox, entry => LogEntryFormatter.Format(entry, src.Label),
                 error => _vm.StatusText = error);
             listBox.SetValue(VirtualizingPanel.IsVirtualizingProperty, true);

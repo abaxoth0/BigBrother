@@ -9,18 +9,34 @@ public sealed class AppearancePreferences
     public const int MinimumFontSize = 10;
     public const int MaximumFontSize = 28;
 
-    private int _baseFontSize = DefaultFontSize;
-    public int BaseFontSize
+    private int _textFontSize = DefaultFontSize;
+    private int _interfaceFontSize = DefaultFontSize;
+
+    public int TextFontSize
     {
-        get => _baseFontSize;
-        set => _baseFontSize = Math.Clamp(value, MinimumFontSize, MaximumFontSize);
+        get => _textFontSize;
+        set => _textFontSize = Math.Clamp(value, MinimumFontSize, MaximumFontSize);
+    }
+
+    public int InterfaceFontSize
+    {
+        get => _interfaceFontSize;
+        set => _interfaceFontSize = Math.Clamp(value, MinimumFontSize, MaximumFontSize);
     }
 
     public static AppearancePreferences Load(string path)
     {
         try
         {
-            var preferences = JsonSerializer.Deserialize<AppearancePreferences>(File.ReadAllText(path)) ?? new();
+            using var document = JsonDocument.Parse(File.ReadAllText(path));
+            var preferences = document.Deserialize<AppearancePreferences>() ?? new();
+            var root = document.RootElement;
+            if (root.ValueKind == JsonValueKind.Object && root.TryGetProperty("BaseFontSize", out var legacy) &&
+                legacy.ValueKind == JsonValueKind.Number && legacy.TryGetInt32(out int size))
+            {
+                if (!root.TryGetProperty(nameof(TextFontSize), out _)) preferences.TextFontSize = size;
+                if (!root.TryGetProperty(nameof(InterfaceFontSize), out _)) preferences.InterfaceFontSize = size;
+            }
             return preferences;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)

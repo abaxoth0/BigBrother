@@ -1,3 +1,4 @@
+using System.Text.Json;
 using frontend.Services;
 
 static class AppearanceTests
@@ -9,31 +10,60 @@ static class AppearanceTests
         try
         {
             var path = Path.Combine(directory, "client", "appearance.json");
-            Check(AppearancePreferences.Load(path).BaseFontSize == 14, "Missing settings use the default size");
-            foreach (int size in new[] { 10, 14, 16, 20, 28, int.MinValue, int.MaxValue })
+            CheckSizes(AppearancePreferences.Load(path), 14, 14, "Missing settings use both defaults");
+            foreach (int text in new[] { 10, 14, 16, 20, 28, int.MinValue, int.MaxValue })
+            foreach (int ui in new[] { 10, 14, 20, 28, int.MinValue, int.MaxValue })
             {
-                new AppearancePreferences { BaseFontSize = size }.Save(path);
-                Check(AppearancePreferences.Load(path).BaseFontSize == Math.Clamp(size, 10, 28),
-                    "Saved font sizes survive restarts and stay within bounds");
+                new AppearancePreferences { TextFontSize = text, InterfaceFontSize = ui }.Save(path);
+                CheckSizes(AppearancePreferences.Load(path), Math.Clamp(text, 10, 28), Math.Clamp(ui, 10, 28),
+                    "Both sizes must persist independently within their bounds");
                 Check(Directory.GetFiles(Path.GetDirectoryName(path)!).Length == 1, "No temporary files remain");
             }
+            var preferences = AppearancePreferences.Load(path);
+            preferences.TextFontSize = 16;
+            Check(preferences.InterfaceFontSize == 28, "Changing text size must preserve interface size");
+            preferences.InterfaceFontSize = 20;
+            Check(preferences.TextFontSize == 16, "Changing interface size must preserve text size");
+            preferences.Save(path);
             var serverPath = Path.Combine(directory, "server", "appearance.json");
-            new AppearancePreferences { BaseFontSize = 16 }.Save(serverPath);
-            Check(AppearancePreferences.Load(path).BaseFontSize == 28 &&
-                  AppearancePreferences.Load(serverPath).BaseFontSize == 16, "Frontend preferences stay independent");
-            foreach (string json in new[] { "{", "null", "[]", "{\"BaseFontSize\":\"large\"}", "{}" })
+            new AppearancePreferences { TextFontSize = 22, InterfaceFontSize = 12 }.Save(serverPath);
+            CheckSizes(AppearancePreferences.Load(path), 16, 20, "Client preferences survive a server save");
+            CheckSizes(AppearancePreferences.Load(serverPath), 22, 12, "Server preferences stay independent");
+            foreach (string json in new[] { "{", "null", "[]", "{\"TextFontSize\":\"large\"}",
+                         "{\"InterfaceFontSize\":\"large\"}", "{}" })
             {
                 File.WriteAllText(path, json);
-                Check(AppearancePreferences.Load(path).BaseFontSize == 14, "Malformed settings fall back to the default");
+                CheckSizes(AppearancePreferences.Load(path), 14, 14, "Malformed settings fall back to defaults");
             }
-            File.WriteAllText(path, "{\"BaseFontSize\":20,\"FutureStyle\":true}");
-            Check(AppearancePreferences.Load(path).BaseFontSize == 20, "Future style settings are tolerated");
-            File.WriteAllText(path, "{\"BaseFontSize\":999}");
-            Check(AppearancePreferences.Load(path).BaseFontSize == 28, "Loaded values are bounded");
-            Console.WriteLine("PASS: appearance persistence, bounds, corrupt settings and separate frontend preferences");
+            foreach (var (json, text, ui) in new[]
+            {
+                ("{\"BaseFontSize\":20}", 20, 20),
+                ("{\"BaseFontSize\":999}", 28, 28),
+                ("{\"BaseFontSize\":1}", 10, 10),
+                ("{\"TextFontSize\":16,\"BaseFontSize\":20}", 16, 20),
+                ("{\"BaseFontSize\":20,\"InterfaceFontSize\":14}", 20, 14),
+                ("{\"InterfaceFontSize\":10,\"BaseFontSize\":22,\"TextFontSize\":28}", 28, 10),
+                ("{\"TextFontSize\":18,\"FutureStyle\":true}", 18, 14),
+                ("{\"InterfaceFontSize\":16}", 14, 16),
+                ("{\"TextFontSize\":999,\"InterfaceFontSize\":1}", 28, 10),
+                ("{\"BaseFontSize\":\"large\",\"TextFontSize\":18}", 18, 14)
+            })
+            {
+                File.WriteAllText(path, json);
+                var loaded = AppearancePreferences.Load(path);
+                CheckSizes(loaded, text, ui, "Legacy migration and explicit settings precedence: " + json);
+                loaded.Save(path);
+                CheckSizes(AppearancePreferences.Load(path), text, ui, "Migration must survive a second load");
+                using var saved = JsonDocument.Parse(File.ReadAllText(path));
+                Check(!saved.RootElement.TryGetProperty("BaseFontSize", out _), "Saves must use only the split sizes");
+            }
+            Console.WriteLine("PASS: independent text/interface sizes, bounds, legacy migration, corrupt settings and frontend persistence");
         }
         finally { Directory.Delete(directory, true); }
     }
+
+    private static void CheckSizes(AppearancePreferences preferences, int text, int ui, string message) =>
+        Check(preferences.TextFontSize == text && preferences.InterfaceFontSize == ui, message);
 
     private static void Check(bool condition, string message)
     {

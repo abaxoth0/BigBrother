@@ -49,7 +49,7 @@
                    Foreground="{StaticResource TitleBarText}" Background="Transparent"/>
             <TextBox Grid.Row="3" x:Name="DomainInput" Text="{Binding TestInput, UpdateSourceTrigger=PropertyChanged}"/>
             <ScrollViewer Grid.Row="4" VerticalScrollBarVisibility="Auto" Margin="0,10,0,0">
-                <TextBlock Text="{Binding TestResult}" TextWrapping="Wrap"/>
+                <TextBlock FontSize="{DynamicResource TextFontSize14}" Text="{Binding TestResult}" TextWrapping="Wrap"/>
             </ScrollViewer>
             <Button Grid.Row="5" Content="Закрыть" IsCancel="True" MinWidth="{DynamicResource Scaled90}" MinHeight="{DynamicResource Scaled28}"
                     HorizontalAlignment="Right" Margin="0,12,0,0"/>

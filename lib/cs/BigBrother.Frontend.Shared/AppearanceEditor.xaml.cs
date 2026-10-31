@@ -9,41 +9,47 @@ public partial class AppearanceEditor : UserControl
 {
     public AppearanceEditor() => InitializeComponent();
 
-    private void CommitFontSize()
+    private void CommitFontSize(TextBox input)
     {
-        if (int.TryParse(FontSizeInput.Text, out int size))
-            AppearanceSettings.Current.BaseFontSize = size;
-        FontSizeInput.GetBindingExpression(TextBox.TextProperty)?.UpdateTarget();
+        if (int.TryParse(input.Text, out int size))
+        {
+            if (input == TextFontSizeInput) AppearanceSettings.Current.TextFontSize = size;
+            else AppearanceSettings.Current.InterfaceFontSize = size;
+        }
+        input.GetBindingExpression(TextBox.TextProperty)?.UpdateTarget();
     }
 
-    private void ChangeFontSize(int delta)
+    private void ChangeFontSize(TextBox input, int delta)
     {
-        CommitFontSize();
-        AppearanceSettings.Current.BaseFontSize += delta;
+        CommitFontSize(input);
+        if (input == TextFontSizeInput) AppearanceSettings.Current.TextFontSize += delta;
+        else AppearanceSettings.Current.InterfaceFontSize += delta;
     }
 
-    private void Decrease_Click(object sender, RoutedEventArgs e) => ChangeFontSize(-1);
+    private void DecreaseText_Click(object sender, RoutedEventArgs e) => ChangeFontSize(TextFontSizeInput, -1);
+    private void IncreaseText_Click(object sender, RoutedEventArgs e) => ChangeFontSize(TextFontSizeInput, 1);
+    private void DecreaseInterface_Click(object sender, RoutedEventArgs e) => ChangeFontSize(InterfaceFontSizeInput, -1);
+    private void IncreaseInterface_Click(object sender, RoutedEventArgs e) => ChangeFontSize(InterfaceFontSizeInput, 1);
 
-    private void Increase_Click(object sender, RoutedEventArgs e) => ChangeFontSize(1);
-
-    private void FontSizeInput_LostFocus(object sender, RoutedEventArgs e) => CommitFontSize();
+    private void FontSizeInput_LostFocus(object sender, RoutedEventArgs e) => CommitFontSize((TextBox)sender);
 
     private void FontSizeInput_PreviewKeyDown(object sender, KeyEventArgs e)
     {
+        var input = (TextBox)sender;
         switch (e.Key)
         {
             case Key.Enter:
-                CommitFontSize();
-                FontSizeInput.SelectAll();
+                CommitFontSize(input);
+                input.SelectAll();
                 break;
             case Key.Escape:
-                FontSizeInput.GetBindingExpression(TextBox.TextProperty)?.UpdateTarget();
+                input.GetBindingExpression(TextBox.TextProperty)?.UpdateTarget();
                 break;
             case Key.Up:
-                ChangeFontSize(1);
+                ChangeFontSize(input, 1);
                 break;
             case Key.Down:
-                ChangeFontSize(-1);
+                ChangeFontSize(input, -1);
                 break;
             default:
                 return;
@@ -51,12 +57,18 @@ public partial class AppearanceEditor : UserControl
         e.Handled = true;
     }
 
-    private void Reset_Click(object sender, RoutedEventArgs e) =>
-        AppearanceSettings.Current.BaseFontSize = AppearancePreferences.DefaultFontSize;
+    private void Reset_Click(object sender, RoutedEventArgs e)
+    {
+        AppearanceSettings.Current.TextFontSize = AppearancePreferences.DefaultFontSize;
+        AppearanceSettings.Current.InterfaceFontSize = AppearancePreferences.DefaultFontSize;
+        TextFontSizeInput.GetBindingExpression(TextBox.TextProperty)?.UpdateTarget();
+        InterfaceFontSizeInput.GetBindingExpression(TextBox.TextProperty)?.UpdateTarget();
+    }
 
     private void Save_Click(object sender, RoutedEventArgs e)
     {
-        CommitFontSize();
+        CommitFontSize(TextFontSizeInput);
+        CommitFontSize(InterfaceFontSizeInput);
         AppearanceSettings.Current.Save();
     }
 }

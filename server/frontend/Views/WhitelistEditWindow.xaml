@@ -97,7 +97,7 @@
                                  AcceptsReturn="True" VerticalScrollBarVisibility="Auto"
                                  HorizontalScrollBarVisibility="Auto" TextWrapping="NoWrap"
                                  VerticalContentAlignment="Top"
-                                 FontFamily="Consolas" FontSize="{DynamicResource FontSize15}" Padding="6"
+                                 FontFamily="Consolas" FontSize="{DynamicResource TextFontSize15}" Padding="6"
                                  Loaded="EntriesEditor_LayoutChanged" SizeChanged="EntriesEditor_LayoutChanged"
                                  TextChanged="EntriesEditor_TextChanged"
                                  ScrollViewer.ScrollChanged="EntriesEditor_ScrollChanged"
@@ -113,7 +113,7 @@
 
             <StackPanel Grid.Row="2" Margin="0,8,0,0">
                 <ScrollViewer MaxHeight="120" VerticalScrollBarVisibility="Auto">
-                    <TextBlock Text="{Binding ValidationSummary}" TextWrapping="Wrap"/>
+                    <TextBlock FontSize="{DynamicResource TextFontSize14}" Text="{Binding ValidationSummary}" TextWrapping="Wrap"/>
                 </ScrollViewer>
             </StackPanel>
             <!-- Buttons -->

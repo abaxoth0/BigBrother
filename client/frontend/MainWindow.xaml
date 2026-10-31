@@ -281,7 +281,7 @@
                         <ListBox Grid.Row="2" x:Name="LogsListBox"
                                  Background="{StaticResource LogBackground}"
                                  ItemsSource="{Binding FilteredLogs}"
-                                 FontFamily="Consolas" FontSize="{DynamicResource FontSize12}"
+                                 FontFamily="Consolas" FontSize="{DynamicResource TextFontSize12}"
                                  BorderBrush="{StaticResource BorderBrush}"
                                  VirtualizingPanel.IsVirtualizing="True"
                                  VirtualizingPanel.VirtualizationMode="Recycling">
@@ -319,7 +319,7 @@
                                                     </Style.Triggers>
                                                 </Style>
                                             </Border.Style>
-                                            <TextBlock Text="{Binding Level}" FontSize="{DynamicResource FontSize10}" FontWeight="Bold" Foreground="White"/>
+                                            <TextBlock Text="{Binding Level}" FontSize="{DynamicResource TextFontSize10}" FontWeight="Bold" Foreground="White"/>
                                         </Border>
                                         <TextBlock Grid.Column="2" Text="{Binding Message}"
                                                    TextWrapping="Wrap">
@@ -512,7 +512,7 @@
                     <Grid Grid.Row="1">
                         <ListBox ItemsSource="{Binding FilteredWhitelist}"
                                  BorderBrush="{StaticResource BorderBrush}"
-                                 FontFamily="Segoe UI" FontSize="{DynamicResource FontSize13}"
+                                 FontFamily="Segoe UI" FontSize="{DynamicResource TextFontSize13}"
                                  ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                                  Visibility="{Binding ShowPrettyWhitelist, Converter={StaticResource BoolToVisibility}}">
                             <ListBox.ItemContainerStyle>
@@ -538,7 +538,7 @@
                                  TextWrapping="Wrap"
                                  VerticalScrollBarVisibility="Auto"
                                  VerticalContentAlignment="Top"
-                                 FontFamily="Consolas" FontSize="{DynamicResource FontSize14}"
+                                 FontFamily="Consolas" FontSize="{DynamicResource TextFontSize14}"
                                  Background="{StaticResource LogBackground}"
                                  Foreground="{StaticResource LogInfo}"
                                  Padding="10"
