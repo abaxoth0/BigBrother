@@ -54,6 +54,16 @@ internal static partial class Program
     [STAThread]
     private static void Main()
     {
+        try { Run(); }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(ex);
+            Environment.ExitCode = 1;
+        }
+    }
+
+    private static void Run()
+    {
         var dispatcher = Dispatcher.CurrentDispatcher;
         SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(dispatcher));
         var batches = new List<List<int>>();

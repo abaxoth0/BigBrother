@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Shell;
 using frontend;
 using frontend.ViewModels;
 
@@ -13,7 +14,13 @@ internal static partial class Program
 
     private static void TestAppearance()
     {
-        var window = new ChromeProbe { Width = 800, Height = 500 };
+        var window = new ChromeProbe { Width = 800, Height = 500, WindowStyle = WindowStyle.None };
+        window.SetResourceReference(Control.BackgroundProperty, "WindowBackground");
+        WindowChrome.SetWindowChrome(window, new WindowChrome
+        {
+            CaptionHeight = 42, ResizeBorderThickness = new Thickness(6),
+            GlassFrameThickness = new Thickness(0), UseAeroCaptionButtons = false
+        });
         var panel = new StackPanel();
         var appearance = new AppearanceEditor();
         Check(AppearanceSettings.Current.TextFontSize == 14 && AppearanceSettings.Current.InterfaceFontSize == 14,
@@ -36,6 +43,7 @@ internal static partial class Program
         try
         {
             window.Show();
+            CheckWindowFrame(window);
             foreach (int size in new[] { 10, 14, 16, 20, 28 })
             {
                 AppearanceSettings.Current.TextFontSize = size;
@@ -81,6 +89,7 @@ internal static partial class Program
             window.UpdateLayout();
             Check(window.WindowState == WindowState.Normal && (string)maximize.ToolTip == "Развернуть",
                 "Restore must return to the original window state");
+            CheckWindowFrame(window);
             window.ResizeMode = ResizeMode.NoResize;
             window.ToggleMaximize();
             Check(window.WindowState == WindowState.Normal, "Fixed dialogs must not maximize");

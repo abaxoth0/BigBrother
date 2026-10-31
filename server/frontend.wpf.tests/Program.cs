@@ -11,6 +11,16 @@ internal static partial class Program
     [STAThread]
     private static void Main()
     {
+        try { Run(); }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(ex);
+            Environment.ExitCode = 1;
+        }
+    }
+
+    private static void Run()
+    {
         var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
         foreach (string theme in new[] { "Theme.xaml", "ThemeDark.xaml", "ServerAccent.xaml" })
             app.Resources.MergedDictionaries.Add(new ResourceDictionary
@@ -65,6 +75,7 @@ internal static partial class Program
                       header != null && Math.Abs(header.MinHeight - ui * 32.0 / 14) < 0.001,
                     "Table content and header heights must scale independently");
             }
+            TestWindowFrames();
             TestWhitelistToolbar();
             Console.WriteLine("PASS: server whitelist editor startup, live text/interface scaling, line numbers and table styles");
         }

@@ -8,6 +8,7 @@
 
     <!-- Window / chrome surfaces -->
     <SolidColorBrush x:Key="WindowBackground" Color="#141518"/>
+    <SolidColorBrush x:Key="WindowBorderBrush" Color="#3A3F47"/>
     <SolidColorBrush x:Key="Surface" Color="#1B1D21"/>
     <SolidColorBrush x:Key="SurfaceAlt" Color="#23262B"/>
     <SolidColorBrush x:Key="InputBackground" Color="#0F1012"/>

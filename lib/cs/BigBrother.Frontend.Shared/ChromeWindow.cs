@@ -18,6 +18,9 @@ public class ChromeWindow : Window
     protected ChromeWindow()
     {
         SetResourceReference(FontSizeProperty, "FontSize14");
+        SetResourceReference(BorderBrushProperty, "WindowBorderBrush");
+        BorderThickness = new Thickness(1);
+        SnapsToDevicePixels = true;
         SourceInitialized += OnSourceInitialized;
     }
 

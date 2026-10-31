@@ -9,5 +9,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../frontend/BigBrother Server.csproj" />
+    <Compile Include="../../lib/cs/BigBrother.Frontend.Wpf.Tests/WindowFrameTests.cs" Link="WindowFrameTests.cs" />
   </ItemGroup>
 </Project>
