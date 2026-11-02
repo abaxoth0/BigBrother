@@ -24,8 +24,13 @@
     <Border Background="{StaticResource HeaderBackground}" CornerRadius="4" Padding="8,8,0,2">
         <StackPanel>
             <ComboBox x:Name="ListTypeSelector" SelectedIndex="{Binding WhitelistTableIndex}"
-                      MaxWidth="{DynamicResource Scaled270}" HorizontalAlignment="Left"
-                      Margin="2,0,8,10" FontWeight="Bold" AutomationProperties.Name="Тип белых списков">
+                      HorizontalAlignment="Left"
+                      Padding="12,7" Margin="2,0,8,10" FontWeight="Bold" AutomationProperties.Name="Тип белых списков">
+                <ComboBox.ItemContainerStyle>
+                    <Style TargetType="ComboBoxItem" BasedOn="{StaticResource {x:Type ComboBoxItem}}">
+                        <Setter Property="Padding" Value="12,7"/>
+                    </Style>
+                </ComboBox.ItemContainerStyle>
                 <ComboBoxItem Content="{Binding ActiveWhitelistsText}"/>
                 <ComboBoxItem Content="{Binding ActiveTemporaryWhitelistsText}"/>
             </ComboBox>
