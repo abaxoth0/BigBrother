@@ -60,6 +60,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Client/server Settings: open with a category overview and show only the selected category's sections; add back navigation, preserve drafts across categories and retain existing save, certificate and update actions
+
 - Client/server main windows: start maximized within the monitor work area; increase restored dimensions by 30% to 1560×910 for the client and 1430×910 for the server
 
 - Server whitelist tab: group list management, presets and tools in a wrapping toolbar; show Save/Cancel below the table only while activation changes are pending

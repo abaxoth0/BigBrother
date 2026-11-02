@@ -5,6 +5,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:frontend;assembly=BigBrother.Frontend.Shared"
         xmlns:vm="clr-namespace:frontend.ViewModels"
+        xmlns:views="clr-namespace:frontend.Views"
         xmlns:conv="clr-namespace:frontend.Converters;assembly=BigBrother.Frontend.Shared"
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         mc:Ignorable="d"
@@ -619,137 +620,7 @@
                             </Style.Triggers>
                         </Style>
                     </Grid.Style>
-                    <ScrollViewer VerticalScrollBarVisibility="Auto">
-                    <StackPanel Margin="10">
-                        <local:AppearanceEditor/>
-                        <StackPanel Visibility="{Binding SettingsAvailable, Converter={StaticResource BoolToVisibility}}">
-                            <GroupBox Header="Сервер" Margin="0,0,0,10" Padding="10">
-                                <StackPanel>
-                                    <StackPanel Orientation="Horizontal" Margin="0,5">
-                                        <TextBlock Text="Адрес сервера:" Width="{DynamicResource Scaled120}" VerticalAlignment="Center"/>
-                                        <TextBox Text="{Binding ServerAddress, UpdateSourceTrigger=PropertyChanged}" Width="200" Margin="5,0"/>
-                                    </StackPanel>
-                                    <StackPanel Orientation="Horizontal" Margin="0,5">
-                                        <TextBlock Text="Пользователь:" Width="{DynamicResource Scaled120}" VerticalAlignment="Center"/>
-                                        <TextBox Text="{Binding Username, UpdateSourceTrigger=PropertyChanged}" Width="200" Margin="5,0"/>
-                                        <Button Content="Зарегистрироваться" Style="{StaticResource PrimaryButton}" Command="{Binding RegisterCommand}" IsEnabled="{Binding CanRegister}" Padding="8,2" Margin="5,0,0,0"/>
-                                    </StackPanel>
-                                    <StackPanel Orientation="Horizontal" Margin="0,5">
-                                        <TextBlock Text="Порт:" Width="{DynamicResource Scaled120}" VerticalAlignment="Center"/>
-                                        <TextBox Text="{Binding ServerPort, UpdateSourceTrigger=PropertyChanged}" Width="100" Margin="5,0"/>
-                                    </StackPanel>
-                                    <Separator Margin="0,10"/>
-                                    <StackPanel Orientation="Horizontal" Margin="0,5">
-                                        <TextBlock Text="Сервер:" Width="{DynamicResource Scaled120}" VerticalAlignment="Center"/>
-                                        <TextBlock Text="{Binding ServerName}" VerticalAlignment="Center" Margin="5,0"/>
-                                        <TextBlock Text="(" VerticalAlignment="Center"/>
-                                        <TextBlock Text="{Binding ServerAddress}" VerticalAlignment="Center" Foreground="Gray"/>
-                                        <TextBlock Text=")" VerticalAlignment="Center"/>
-                                        <Button Content="Сменить" Command="{Binding ChangeServerCommand}" Padding="8,2" Margin="10,0,0,0"/>
-                                    </StackPanel>
-                                </StackPanel>
-                            </GroupBox>
-
-                            <GroupBox Header="Белый список" Margin="0,0,0,10" Padding="10">
-                                <StackPanel>
-                                    <CheckBox IsChecked="{Binding FallbackWhitelistEnabled}"
-                                              Content="Использовать локальный список при отключении синхронизации"
-                                              Margin="0,5"/>
-                                    <TextBlock TextWrapping="Wrap" Foreground="Gray" FontSize="{DynamicResource FontSize11}" Margin="20,0,0,0">
-                                        <Run Text="При включении используется список из файла whitelist.txt, когда сервер не предоставляет список."/>
-                                        <LineBreak/>
-                                        <Run Text="При выключении весь трафик блокируется, если сервер не передал список разрешённых доменов."/>
-                                    </TextBlock>
-                                </StackPanel>
-                            </GroupBox>
-
-                            <GroupBox Header="Обнаружение сервера" Margin="0,0,0,10" Padding="10">
-                                <StackPanel>
-                                    <CheckBox IsChecked="{Binding DiscoveryEnabled}"
-                                              Content="Автоматическое обнаружение сервера в сети"
-                                              Margin="0,5"/>
-                                    <TextBlock TextWrapping="Wrap" Foreground="Gray" FontSize="{DynamicResource FontSize11}" Margin="20,0,0,0">
-                                        <Run Text="Отключите, если сервер использует статический IP. При отключении используйте ручной ввод адреса сервера."/>
-                                    </TextBlock>
-                                </StackPanel>
-                            </GroupBox>
-
-                            <GroupBox Header="Сеть" Margin="0,0,0,10" Padding="10">
-                                <StackPanel>
-                                    <CheckBox IsChecked="{Binding NetworkAuto}"
-                                              Content="Автоматическое определение сети"
-                                              Margin="0,5"/>
-                                    <StackPanel Orientation="Horizontal" Margin="0,5">
-                                        <TextBlock Text="Шлюз:" Width="{DynamicResource Scaled120}" VerticalAlignment="Center"/>
-                                        <TextBox Text="{Binding NetworkGateway, UpdateSourceTrigger=PropertyChanged}" Width="200" Margin="5,0" IsEnabled="{Binding NetworkManualMode}"/>
-                                    </StackPanel>
-                                    <StackPanel Orientation="Horizontal" Margin="0,5">
-                                        <TextBlock Text="Маска подсети:" Width="{DynamicResource Scaled120}" VerticalAlignment="Center"/>
-                                        <TextBox Text="{Binding NetworkMask, UpdateSourceTrigger=PropertyChanged}" Width="200" Margin="5,0" IsEnabled="{Binding NetworkManualMode}"/>
-                                    </StackPanel>
-                                    <TextBlock TextWrapping="Wrap" Foreground="Gray" FontSize="{DynamicResource FontSize11}" Margin="20,0,0,0"
-                                               Visibility="{Binding NetworkAuto, Converter={StaticResource BoolToVisibility}}">
-                                        <Run Text="Автоматический режим. Отключите, чтобы задать шлюз и маску вручную."/>
-                                    </TextBlock>
-                                </StackPanel>
-                            </GroupBox>
-
-                            <GroupBox Header="Сертификат сервера" Margin="0,0,0,10" Padding="10">
-                                <StackPanel>
-                                    <TextBlock Text="Сначала сохраните изменения адреса и порта сервера."
-                                               TextWrapping="Wrap" Foreground="Gray" Margin="0,0,0,8"/>
-                                    <Button Content="Проверить сертификат" Command="{Binding InspectCertificateCommand}"
-                                            HorizontalAlignment="Left"/>
-                                    <TextBlock Text="{Binding CertificateEndpoint}" Margin="0,8,0,0"/>
-                                    <TextBlock Text="Сохранённый отпечаток SHA-256" Margin="0,8,0,4"/>
-                                    <TextBox Text="{Binding PinnedCertificateFingerprint, Mode=OneWay}" IsReadOnly="True"
-                                             FontFamily="Consolas" TextWrapping="Wrap"/>
-                                    <TextBlock Text="Полученный отпечаток SHA-256" Margin="0,8,0,4"/>
-                                    <TextBox Text="{Binding ObservedCertificateFingerprint, Mode=OneWay}" IsReadOnly="True"
-                                             FontFamily="Consolas" TextWrapping="Wrap"/>
-                                    <TextBlock Text="Проверенный отпечаток из настроек сервера" Margin="0,8,0,4"/>
-                                    <TextBox Text="{Binding VerifiedCertificateFingerprint, UpdateSourceTrigger=PropertyChanged}"
-                                             FontFamily="Consolas" TextWrapping="Wrap"/>
-                                    <TextBlock Text="Получите отпечаток в настройках серверного приложения или по другому доверенному каналу. Вставьте его сюда и убедитесь, что он совпадает с полученным сертификатом. Проверка сертификата сама по себе не меняет доверие."
-                                               TextWrapping="Wrap" Foreground="Gray" Margin="0,8,0,8"/>
-                                    <Button Content="Применить проверенный отпечаток" Style="{StaticResource PrimaryButton}"
-                                            Command="{Binding ApplyCertificateFingerprintCommand}" HorizontalAlignment="Left"/>
-                                    <TextBlock Text="{Binding CertificateStatus}" TextWrapping="Wrap" Margin="0,8,0,0"/>
-                                </StackPanel>
-                            </GroupBox>
-
-                            <GroupBox Header="Фильтрация" Margin="0,0,0,10" Padding="10">
-                                <StackPanel>
-                                    <CheckBox IsChecked="{Binding FiltrationAutoDisable}"
-                                              Content="Синхронизировать фильтрацию с подключением к серверу"
-                                              Margin="0,5"/>
-                                    <TextBlock TextWrapping="Wrap" Foreground="Gray" FontSize="{DynamicResource FontSize11}" Margin="20,0,0,0">
-                                        <Run Text="Когда включено, фильтрация работает только при подключении к серверу: при потере связи она автоматически отключается, а при восстановлении — включается. Если фильтрация отключена вручную кнопкой «Вкл/Выкл», она останется отключённой, пока вы не включите её снова."/>
-                                    </TextBlock>
-                                    <CheckBox IsChecked="{Binding Ipv6BlockEnabled}"
-                                              Content="Блокировать исходящий IPv6 при включённой фильтрации"
-                                              Margin="0,10,0,5"/>
-                                    <TextBlock TextWrapping="Wrap" Foreground="Gray" FontSize="{DynamicResource FontSize11}" Margin="20,0,0,0"
-                                               Text="Включено по умолчанию. Отключите для доступа к ресурсам по IPv6. При отключении IPv6-трафик проходит без проверки по белому списку; фильтрация IPv4 продолжает работать."/>
-                                </StackPanel>
-                            </GroupBox>
-
-                            <GroupBox Header="Уведомления" Margin="0,0,0,10" Padding="10">
-                                <CheckBox IsChecked="{Binding WindowsNotificationsEnabled}"
-                                          Content="Показывать уведомления Windows" Margin="0,5"/>
-                            </GroupBox>
-
-                            <Button Content="Сохранить настройки" Style="{StaticResource PrimaryButton}" Command="{Binding SaveSettingsCommand}" IsEnabled="{Binding HasSettingsChanges}"
-                                    HorizontalAlignment="Right" MinWidth="150" Padding="10,6" Margin="0,10"/>
-                        </StackPanel>
-
-                        <StackPanel Visibility="{Binding SettingsAvailable, Converter={StaticResource InverseBoolToVisibility}}">
-                            <TextBlock Text="Нет соединения с Клиентом. Настройки не доступны."
-                                       Foreground="Gray" FontSize="{DynamicResource FontSize14}" Margin="20"
-                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        </StackPanel>
-                    </StackPanel>
-                </ScrollViewer>
+                    <views:SettingsView/>
                 </Grid>
             </Grid>
 
