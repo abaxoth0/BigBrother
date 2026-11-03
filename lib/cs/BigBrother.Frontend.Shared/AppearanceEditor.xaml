@@ -41,13 +41,11 @@
                         AutomationProperties.Name="Увеличить: размер интерфейса"/>
                 <TextBlock Text="px" VerticalAlignment="Center" Margin="8,0,0,0"/>
             </WrapPanel>
-            <TextBlock Text="От 10 до 28 px. Размеры текста в каждой группе меняются пропорционально. Изменения сохраняются автоматически."
+            <TextBlock Text="От 10 до 28 px. Размеры текста в каждой группе меняются пропорционально. Изменения применяются сразу; для сохранения нажмите «Сохранить настройки»."
                        TextWrapping="Wrap" Foreground="{DynamicResource TextDim}" Margin="0,8,0,0"/>
             <WrapPanel Margin="0,8,0,0">
                 <Button Content="По умолчанию (14 px)" Click="Reset_Click" Margin="0,0,8,0"/>
-                <Button Content="Сохранить" Click="Save_Click"/>
             </WrapPanel>
-            <TextBlock Text="{Binding Status}" TextWrapping="Wrap" Margin="0,8,0,0"/>
         </StackPanel>
     </GroupBox>
 </UserControl>

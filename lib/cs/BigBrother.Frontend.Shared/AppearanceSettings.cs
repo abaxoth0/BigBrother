@@ -12,6 +12,10 @@ public sealed class AppearanceSettings : ViewModelBase
     private AppearancePreferences _preferences = new();
     private string? _path;
     private string _status = "";
+    private int _savedTextFontSize = AppearancePreferences.DefaultFontSize;
+    private int _savedInterfaceFontSize = AppearancePreferences.DefaultFontSize;
+
+    public bool HasChanges => TextFontSize != _savedTextFontSize || InterfaceFontSize != _savedInterfaceFontSize;
 
     public bool CanDecreaseTextFontSize => TextFontSize > AppearancePreferences.MinimumFontSize;
     public bool CanIncreaseTextFontSize => TextFontSize < AppearancePreferences.MaximumFontSize;
@@ -47,7 +51,8 @@ public sealed class AppearanceSettings : ViewModelBase
         ApplyResources();
         OnPropertyChanged(property);
         NotifyLimitsChanged();
-        Save();
+        Status = "";
+        OnPropertyChanged(nameof(HasChanges));
     }
 
     private void NotifyLimitsChanged()
@@ -69,10 +74,14 @@ public sealed class AppearanceSettings : ViewModelBase
         _path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "BigBrother", application, "appearance.json");
         _preferences = AppearancePreferences.Load(_path);
+        _savedTextFontSize = TextFontSize;
+        _savedInterfaceFontSize = InterfaceFontSize;
+        Status = "";
         ApplyResources();
         OnPropertyChanged(nameof(TextFontSize));
         OnPropertyChanged(nameof(InterfaceFontSize));
         NotifyLimitsChanged();
+        OnPropertyChanged(nameof(HasChanges));
     }
 
     public void Save()
@@ -81,6 +90,9 @@ public sealed class AppearanceSettings : ViewModelBase
         try
         {
             _preferences.Save(_path);
+            _savedTextFontSize = TextFontSize;
+            _savedInterfaceFontSize = InterfaceFontSize;
+            OnPropertyChanged(nameof(HasChanges));
             Status = "Размеры шрифтов сохранены.";
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)

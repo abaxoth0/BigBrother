@@ -9,6 +9,10 @@ public partial class AppearanceEditor : UserControl
 {
     public AppearanceEditor() => InitializeComponent();
 
+    public bool HasUncommittedChanges =>
+        TextFontSizeInput.Text != AppearanceSettings.Current.TextFontSize.ToString() ||
+        InterfaceFontSizeInput.Text != AppearanceSettings.Current.InterfaceFontSize.ToString();
+
     private void CommitFontSize(TextBox input)
     {
         if (int.TryParse(input.Text, out int size))
@@ -65,10 +69,9 @@ public partial class AppearanceEditor : UserControl
         InterfaceFontSizeInput.GetBindingExpression(TextBox.TextProperty)?.UpdateTarget();
     }
 
-    private void Save_Click(object sender, RoutedEventArgs e)
+    public void CommitPendingChanges()
     {
         CommitFontSize(TextFontSizeInput);
         CommitFontSize(InterfaceFontSizeInput);
-        AppearanceSettings.Current.Save();
     }
 }

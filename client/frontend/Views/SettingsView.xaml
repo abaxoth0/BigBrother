@@ -9,7 +9,7 @@
     </UserControl.Resources>
     <local:SettingsBrowser x:Name="Settings" Margin="10" SaveCommand="{Binding SaveSettingsCommand}"
                            HasChanges="{Binding HasSettingsChanges}" BackendAvailable="{Binding SettingsAvailable}">
-        <local:SettingsCategory Title="Фильтрация" Description="Фильтрация и локальный белый список" ShowSaveButton="True">
+        <local:SettingsCategory Title="Фильтрация" Description="Фильтрация и локальный белый список">
             <StackPanel>
                 <StackPanel Visibility="{Binding SettingsAvailable, Converter={StaticResource BoolToVisibility}}">
                     <GroupBox Header="Фильтрация" Margin="0,0,0,10" Padding="10">
@@ -45,7 +45,7 @@
                            Foreground="{DynamicResource TextDim}" TextWrapping="Wrap" Margin="0,10"/>
             </StackPanel>
         </local:SettingsCategory>
-        <local:SettingsCategory Title="Сервер" Description="Подключение, обнаружение и сертификат сервера" ShowSaveButton="True">
+        <local:SettingsCategory Title="Сервер" Description="Подключение, обнаружение и сертификат сервера">
             <StackPanel>
                 <StackPanel Visibility="{Binding SettingsAvailable, Converter={StaticResource BoolToVisibility}}">
                     <GroupBox Header="Сервер" Margin="0,0,0,10" Padding="10">
@@ -113,7 +113,7 @@
                            Foreground="{DynamicResource TextDim}" TextWrapping="Wrap" Margin="0,10"/>
             </StackPanel>
         </local:SettingsCategory>
-        <local:SettingsCategory Title="Сеть" Description="Автоматическое определение сети, шлюз и маска" ShowSaveButton="True">
+        <local:SettingsCategory Title="Сеть" Description="Автоматическое определение сети, шлюз и маска">
             <StackPanel>
                 <StackPanel Visibility="{Binding SettingsAvailable, Converter={StaticResource BoolToVisibility}}">
                     <GroupBox Header="Сеть" Margin="0,0,0,10" Padding="10">
@@ -141,10 +141,10 @@
                            Foreground="{DynamicResource TextDim}" TextWrapping="Wrap" Margin="0,10"/>
             </StackPanel>
         </local:SettingsCategory>
-        <local:SettingsCategory Title="Внешний вид" Description="Размер текста и интерфейса" ShowSaveButton="False">
+        <local:SettingsCategory Title="Внешний вид" Description="Размер текста и интерфейса">
             <local:AppearanceEditor/>
         </local:SettingsCategory>
-        <local:SettingsCategory Title="Прочее" Description="Уведомления Windows" ShowSaveButton="True">
+        <local:SettingsCategory Title="Прочее" Description="Уведомления Windows">
             <StackPanel>
                 <StackPanel Visibility="{Binding SettingsAvailable, Converter={StaticResource BoolToVisibility}}">
                     <GroupBox Header="Уведомления" Margin="0,0,0,10" Padding="10">

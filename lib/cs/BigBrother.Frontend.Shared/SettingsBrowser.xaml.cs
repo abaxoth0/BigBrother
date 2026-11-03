@@ -1,8 +1,10 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Markup;
+using frontend.ViewModels;
 
 namespace frontend;
 
@@ -10,12 +12,14 @@ namespace frontend;
 public partial class SettingsBrowser : UserControl
 {
     public static readonly DependencyProperty SaveCommandProperty = DependencyProperty.Register(
-        nameof(SaveCommand), typeof(ICommand), typeof(SettingsBrowser));
+        nameof(SaveCommand), typeof(ICommand), typeof(SettingsBrowser),
+        new PropertyMetadata(null, (d, _) => ((SettingsBrowser)d).UpdateSaveState()));
     public static readonly DependencyProperty HasChangesProperty = DependencyProperty.Register(
         nameof(HasChanges), typeof(bool), typeof(SettingsBrowser),
-        new PropertyMetadata(false, (d, _) => ((SettingsBrowser)d).UpdatePendingHint()));
+        new PropertyMetadata(false, (d, _) => ((SettingsBrowser)d).UpdateSaveState()));
     public static readonly DependencyProperty BackendAvailableProperty = DependencyProperty.Register(
-        nameof(BackendAvailable), typeof(bool), typeof(SettingsBrowser), new PropertyMetadata(true));
+        nameof(BackendAvailable), typeof(bool), typeof(SettingsBrowser),
+        new PropertyMetadata(true, (d, _) => ((SettingsBrowser)d).UpdateSaveState()));
 
     public ICommand? SaveCommand
     {
@@ -36,15 +40,28 @@ public partial class SettingsBrowser : UserControl
     }
 
     public ObservableCollection<SettingsCategory> Categories { get; } = new();
+    public ICommand SaveAllCommand { get; }
     public SettingsCategory? SelectedCategory { get; private set; }
     private Button? _categoryButton;
+    private IEnumerable<AppearanceEditor> AppearanceEditors => Categories.Select(category => category.Content).OfType<AppearanceEditor>();
+    private bool HasPendingChanges => HasChanges || AppearanceSettings.Current.HasChanges ||
+                                      AppearanceEditors.Any(editor => editor.HasUncommittedChanges);
 
     public SettingsBrowser()
     {
+        SaveAllCommand = new RelayCommand(_ => SaveAllSettings(), _ => CanSaveSettings());
         InitializeComponent();
         CategoryList.ItemsSource = Categories;
         Categories.CollectionChanged += (_, _) => RebuildCategories();
         IsVisibleChanged += (_, _) => { if (IsVisible) ShowOverview(); };
+        Loaded += (_, _) =>
+        {
+            AppearanceSettings.Current.PropertyChanged += AppearanceChanged;
+            UpdateSaveState();
+        };
+        Unloaded += (_, _) => AppearanceSettings.Current.PropertyChanged -= AppearanceChanged;
+        AddHandler(System.Windows.Controls.Primitives.TextBoxBase.TextChangedEvent,
+            new TextChangedEventHandler((_, _) => UpdateSaveState()));
         KeyDown += (_, e) =>
         {
             if (e.Key == Key.Escape && SelectedCategory != null)
@@ -80,7 +97,6 @@ public partial class SettingsBrowser : UserControl
         BackButton.Visibility = Visibility.Visible;
         OverviewHint.Visibility = Visibility.Collapsed;
         PageTitle.Text = SelectedCategory.Title;
-        SaveFooter.Visibility = SelectedCategory.ShowSaveButton ? Visibility.Visible : Visibility.Collapsed;
         PageScroll.ScrollToTop();
         BackButton.Focus();
     }
@@ -94,15 +110,32 @@ public partial class SettingsBrowser : UserControl
         CategoryHost.Visibility = Visibility.Collapsed;
         BackButton.Visibility = Visibility.Collapsed;
         OverviewHint.Visibility = Visibility.Visible;
-        SaveFooter.Visibility = Visibility.Collapsed;
         PageTitle.Text = "Настройки";
         PageScroll.ScrollToTop();
         _categoryButton?.Focus();
     }
 
-    private void UpdatePendingHint()
+    private bool CanSaveSettings() => HasPendingChanges &&
+        (!HasChanges || BackendAvailable && SaveCommand?.CanExecute(null) == true);
+
+    private void SaveAllSettings()
+    {
+        if (!CanSaveSettings()) return;
+        foreach (var editor in AppearanceEditors) editor.CommitPendingChanges();
+        if (HasChanges) SaveCommand?.Execute(null);
+        if (AppearanceSettings.Current.HasChanges) AppearanceSettings.Current.Save();
+        UpdateSaveState();
+    }
+
+    private void AppearanceChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(AppearanceSettings.HasChanges)) UpdateSaveState();
+    }
+
+    private void UpdateSaveState()
     {
         if (PendingHint != null)
-            PendingHint.Visibility = HasChanges ? Visibility.Visible : Visibility.Collapsed;
+            PendingHint.Visibility = HasPendingChanges ? Visibility.Visible : Visibility.Collapsed;
+        CommandManager.InvalidateRequerySuggested();
     }
 }
