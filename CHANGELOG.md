@@ -70,6 +70,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Firewall: return an inbound NXDOMAIN response for Firefox's DoH canary and consume the original query, with valid lengths/checksums and no spoofing while filtration is disabled. Applies to automatic/default DoH only; Firefox Max Protection requires DoH to be disabled or changed to Default Protection
+
 - Client/server custom windows: add a contrasting grey outline with matching square corners so overlapping restored windows and dialogs are easier to distinguish; hide the outline while maximized and restore it on returning to floating mode
 
 - Client/server frontends: disable all navigation except Main while the local backend is unavailable and return to Main on disconnect; refresh client status when its backend event connection closes
