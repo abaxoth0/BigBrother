@@ -71,6 +71,25 @@ internal static partial class Program
         }
     }
 
+    private static void CheckMaximizedWindowFrame(Window window)
+    {
+        Check(window.WindowState == WindowState.Maximized && window.BorderThickness == new Thickness(0),
+            "Maximized windows must not reserve space for an outer border");
+        var frame = ((SolidColorBrush)window.BorderBrush).Color;
+        var bitmap = RenderWindowFrame(window);
+        foreach (var (x, y) in new[]
+        {
+            (bitmap.PixelWidth / 2, 0), (bitmap.PixelWidth / 2, bitmap.PixelHeight - 1),
+            (0, bitmap.PixelHeight / 2), (bitmap.PixelWidth - 1, bitmap.PixelHeight / 2)
+        })
+        {
+            var pixel = new byte[4];
+            bitmap.CopyPixels(new Int32Rect(x, y, 1, 1), pixel, 4, 0);
+            Check(pixel[0] != frame.B || pixel[1] != frame.G || pixel[2] != frame.R,
+                "The outer frame must not be rendered while a window is maximized");
+        }
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     private struct WindowFrameRect { public int Left, Top, Right, Bottom; }
 

@@ -86,6 +86,7 @@ internal static partial class Program
             window.UpdateLayout();
             Check(window.WindowState == WindowState.Maximized && (string)maximize.ToolTip == "Восстановить",
                 "Maximize must update the restore action");
+            CheckMaximizedWindowFrame(window);
             window.ToggleMaximize();
             window.UpdateLayout();
             Check(window.WindowState == WindowState.Normal && (string)maximize.ToolTip == "Развернуть",

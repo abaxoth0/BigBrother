@@ -32,6 +32,7 @@ internal static partial class Program
     private static void TestWindowFrames()
     {
         var owner = new FrameOwnerWindow();
+        var maximized = new FrameOwnerWindow { WindowState = WindowState.Maximized };
         var dialog = new WhitelistPresetWindow(Array.Empty<WhitelistPreset>(),
             new WhitelistPreset { ActiveWhitelists = new() { "common", "yandex" } },
             (_, _) => Task.CompletedTask);
@@ -53,6 +54,23 @@ internal static partial class Program
             FlushLayout(domain);
             CheckWindowFrame(owner);
             CheckWindowFrame(dialog);
+
+            maximized.Show();
+            FlushLayout(maximized);
+            CheckMaximizedWindowFrame(maximized);
+            maximized.WindowState = WindowState.Normal;
+            FlushLayout(maximized);
+            CheckWindowFrame(maximized);
+            maximized.WindowState = WindowState.Maximized;
+            FlushLayout(maximized);
+            CheckMaximizedWindowFrame(maximized);
+            maximized.WindowState = WindowState.Minimized;
+            maximized.WindowState = WindowState.Maximized;
+            FlushLayout(maximized);
+            CheckMaximizedWindowFrame(maximized);
+            maximized.WindowState = WindowState.Normal;
+            FlushLayout(maximized);
+            CheckWindowFrame(maximized);
             CheckWindowFrame(domain);
             Check(dialog.ResizeMode == ResizeMode.NoResize && dialog.SizeToContent == SizeToContent.Height,
                 "Adding a frame must preserve the preset dialog's sizing behaviour");
@@ -92,10 +110,11 @@ internal static partial class Program
                 using var domainFile = File.Create(Path.ChangeExtension(path, "domain.png"));
                 domainEncoder.Save(domainFile);
             }
-            Console.WriteLine("PASS: visible borders and unclipped native corners, preset/domain dialogs, focus changes and resizing");
+            Console.WriteLine("PASS: restored window borders, borderless maximized startup, minimize/maximize/restore, dialogs and resizing");
         }
         finally
         {
+            maximized.Close();
             domain.Close();
             dialog.Close();
             owner.Close();

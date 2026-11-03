@@ -27,11 +27,21 @@ public class ChromeWindow : Window
 
     private void OnSourceInitialized(object? sender, EventArgs e)
     {
+        UpdateWindowBorder();
         if (WindowChrome.GetWindowChrome(this) is { } chrome)
             chrome.CornerRadius = new CornerRadius(0);
         _hwndSource = HwndSource.FromHwnd(new WindowInteropHelper(this).Handle);
         _hwndSource?.AddHook(WndProc);
     }
+
+    protected override void OnStateChanged(EventArgs e)
+    {
+        UpdateWindowBorder();
+        base.OnStateChanged(e);
+    }
+
+    private void UpdateWindowBorder() =>
+        BorderThickness = WindowState == WindowState.Maximized ? new Thickness(0) : new Thickness(1);
 
     private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
