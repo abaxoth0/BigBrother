@@ -7,15 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [2.1.1] - 03-11-2026
+
 ### Added
 
-- Client/server frontends: separate persistent text and interface font sizes (10–28 px, 14 px by default), with compact numeric inputs, −/+ buttons and keyboard controls. Text size scales logs, whitelist entries, table contents and editable fields, including table/log row heights with compact log padding; interface size scales labels, buttons, menus and headers. Both preview immediately and use the common settings Save action; the previous base size initializes both settings; maximize/restore buttons in resizable window title bars
+- Client/server frontends: separate persistent text and interface font sizes (10–28 px, 14 px by default), with compact numeric inputs, −/+ buttons and keyboard controls. Text size scales logs, whitelist entries, table contents and editable fields, including table/log row heights with compact log padding; interface size scales labels, buttons, menus and headers. Both preview immediately and use the common settings Save action; maximize/restore buttons in resizable window title bars
 
 - Server whitelist presets: save the current regular and temporary activation selection and apply a preset in two clicks; search presets by name, show compact whitelist counts and open a searchable preview with each list's current saved rules; persist presets across restarts, follow whitelist renames and confirm replacement or deletion of existing presets
 
-- Firewall priority matching: sort rule arrays with `qsort` on policy load, then stop at the first matching rule while traversing priorities from highest to lowest; exclusions win ties and DNS cache lookups happen once per cache per packet
-
-- Whitelist priorities: a standalone `[N]` before the first rule sets the list default; `[N]rule` overrides it for one rule, including `[N]!rule`. Higher matching priority wins, with exclusions winning ties. Supports temporary grants over default exclusions, ports, cached IPs, editor validation, client display and conflict/checker results; requires an updated server, firewall and frontends
+- Whitelist priorities: a standalone `[N]` before the first rule sets the list default; `[N]rule` overrides it for one rule, including `[N]!rule`. Higher matching priority wins, with exclusions winning ties. Supports temporary grants over default exclusions, ports, cached IPs, editor validation, client display and conflict/checker results. Firewall matching sorts rules on load and stops at the first match, with one lookup per DNS cache per packet; requires an updated server, firewall and frontends
 
 - Server temporary whitelists: switch between regular and temporary tables using separate active counters; backend countdowns pause/resume, expire automatically and optionally delete their lists. Edit the initial duration using a remaining-time delta, set remaining time independently, or reset timers from the context menu. A server setting saves activity and remaining time on shutdown and restores them on startup without counting downtime; otherwise temporary lists restart disabled with reset timers
 
@@ -27,9 +27,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Server users filter: «Все пользователи» combines connected and offline registered clients with pending registrations, with connection state, activity/request times and name/address search
 
-- Server users tables: row and select-all checkboxes, highlighted checked rows and Ctrl/Shift selection matching the whitelist table; context-menu actions apply to eligible checked users, falling back to the current row when none are checked
+- Server users tables: row and select-all checkboxes, highlighted checked rows and Ctrl/Shift selection matching the whitelist table; context-menu actions apply to eligible checked users, falling back to the current row when none are checked; preserve selection, keyboard focus and open context menus during refreshes, including connection changes in «Все пользователи»
 
-- Server users context menu: separate Enable and Disable IPv6 blocking actions, ordered Enable first; persist the chosen preference on each checked client and confirm its reported state, with remote-control capability checks
+- Server users context menu: separate Enable and Disable IPv6 blocking actions, ordered Enable first; persist the chosen preference on each checked client and confirm its reported state, with remote-control capability checks; refresh the client settings checkbox without overwriting unsaved edits or applying stale reads
 
 - Server clients table: show whether the firewall has applied the current composed whitelist, its effective filtration state and the client's IPv6 blocking preference; authenticated policy heartbeats report actual firewall rules, with explicit unavailable/unknown states
 
@@ -43,9 +43,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Server whitelist tab: stage activation changes locally with «Сохранить» and «Отмена»; save all changed flags in one transaction and send clients a single refresh event; retain drafts across refreshes and failed saves
 
-- Server whitelist tab: domain/IPv4 checker opens in a separate window and tests the composed active whitelist; removed the checker from the whitelist editor and ordered table columns as «Название», «Записей», «Активный»
+- Server whitelist tab: domain/IPv4 checker opens in a separate window, tests the composed active whitelist and shows all source whitelist names for each matching rule, including deduplicated rules; removed the checker from the whitelist editor and ordered table columns as «Название», «Записей», «Активный»
 
-- Server: compose all enabled whitelists into one client whitelist, remove case-insensitive duplicates and show exact allow/exception conflicts; add an «Активный» checkbox column and a resizable conflict view showing source lists; migrate the previously active whitelist automatically
+- Server: compose all enabled whitelists into one client whitelist, remove case-insensitive duplicates and show exact allow/exception conflicts; add an «Активный» checkbox column and a resizable themed conflict view showing source lists; migrate the previously active whitelist automatically
 
 - Server: Windows notifications for client connections, disconnections and registration requests, sent by the backend without requiring a running frontend
 - Client: Windows notifications for server connections, disconnections, filtration changes and whitelist updates, sent by the backend without requiring a running frontend
@@ -68,6 +68,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Server whitelist tab: group list management, presets and tools in a wrapping toolbar; show Save/Cancel below the table only while activation changes are pending
 
+- Server whitelist context menu: replace the activation toggle with separate Enable and Disable actions, ordered Enable first; apply the chosen state to checked lists, or the current row when none are checked, while retaining staged Save/Cancel behavior
+
+- Server connected-users table: remove the redundant connection status column; «Все пользователи» retains a state column to distinguish connected, offline and pending users
+
+- Server whitelist table: highlight all checked rows with the teal selection background and cyan text
+
+- Server whitelist table: context-menu Delete applies to all checked lists and replaces the toolbar Delete button; Delete and activation actions clear checkboxes; Ctrl-click toggles a checkbox and Shift-click selects a range in the current table order
+
+- Server whitelist table: show green «Да» / red «Нет» activation labels
+
+- Build scripts require a Debug or Release configuration; native and Go builds select matching compiler settings, keep mode-specific objects separate and reject installer payloads built in another mode
+- Release builds compile out debug/trace logging in daemons, the notification helper and server frontend while retaining normal operational logs; Debug builds enable diagnostics
+
+- Client/server installers offer Manual (on demand) or Automatic service startup, default to Automatic for the firewall and Manual for the server, and leave services stopped after installation and upgrades
+- Build scripts and Makefiles use all available CPU cores, compile C/C++ and mbedTLS sources in parallel, and enable parallel installer compression
+- Native, Go, Visual Studio and installer builds read the common version from `VERSION`; installers reject application payloads with mismatched versions
+- Installer builds accept an optional changelog path instead of a version argument; release notes use the matching version heading or fall back to `Unreleased`
+
+- Installer: replaced NSIS with separate Inno Setup client/server installers; Wine compiler installation and installer-only build scripts support custom payload/output directories, publishing now builds installers through Wine
+
+- Client installer: installs the frontend in the `GUI` subdirectory and points the desktop shortcut there, matching the server layout
+- Server status bar: connected users now appear before pending registrations in the labels and counters
+- Server tables: centered cell content and column headers horizontally and vertically, including whitelist selection checkboxes
+- Server tables: removed the default blue focus outline around individual cells
+- Security: explicit Windows ACLs restrict client identity/config and server database/TLS storage to SYSTEM/Administrators, with protected inheritance and Administrators ownership; existing permissions are repaired and installers secure storage before service startup
+- Server: active database and TLS identity migrate into a private `data` directory, preserving committed WAL data and certificate identity; restricted originals are retained for recovery
+- Security: verified certificate rotation — server settings expose the running certificate fingerprint; client settings load the saved fingerprint from local config when opened, including after GUI restart or while the server is offline, and report empty values or read failures. Certificate inspection preserves the saved pin without changing trust or sending credentials; accepting a separately verified fingerprint rechecks the peer and saved endpoint/pin
+- Server frontend: cyan primary accents (`#04D9FF`) with contained Save buttons, selected navigation items and log filters using black text; dark teal (`#083B47`) selection/highlight backgrounds, light cyan (`#70E8FA`) accent labels, cyan focused input borders, and distinct cyan DEBUG and darker teal TRACE (`#4096A6`) log text and level badges
+- Client: filtration connection-sync (was "auto-disable on server disconnect") — filtration now stays off whenever the server connection is down for any reason (including a manual "Отключиться") and re-enables on reconnect, while a user's manual OFF is preserved until explicitly re-enabled; the effective state is re-applied on every status report; the option is enabled by default and the settings checkbox/help text were reworded to match
+- Security: TLS over the client<=>server TCP channel — the server uses a self-signed EC certificate (generated on first run) and the listener requires TLS1.2+; the client uses vendored mbedTLS with server-certificate fingerprint pinning (trust-on-first-use)
+- Security: per-user token authentication — `CONNECT`/`SUBSCRIBE`/`DISCONNECT`/`REFRESH`/`GET_WHITELIST` require a per-user token (constant-time check); `REGISTER` stays open for onboarding
+- Security: automatic token delivery — the client generates a persistent ECDSA-P256 identity key, shares its public key at registration (bound at approval and refreshed on re-approval), then signs a single-use server challenge to receive its token over TLS; the token is cached in memory with best-effort persistence to `config.ini`, so CONNECT/SUBSCRIBE use it immediately without manual configuration
+- Server: per-user `token` and `sign_public` columns (auto-migrated), `GET_TOKEN_CHALLENGE`/`GET_TOKEN` commands with ECDSA-P256 signature verification
+- Security: restricted local IPC — the server frontend pipe, client backend pipe and firewall pipe now allow only SYSTEM/Administrators/Owner (were Everyone / default), and the client backend pipe only talks to the client GUI process (by executable name)
+- Security: added `check_ipc_access.py` (and a `.bat` launcher) to probe the named pipes and verify the restrictions
+- Security: resilience limits — TCP listener caps concurrent connections (default 256) and rate-limits connections per source IP; the event bus caps push subscribers (128); discovery replies are rate-limited per source
+- Security: tokens are never broadcast — approval events no longer carry the token (the client obtains it via the signed `GET_TOKEN` challenge); documented TLS/rotation hygiene in `docs/BBMP.md`/`docs/TODO.md`
+
 ### Fixed
 
 - Firewall: return an inbound NXDOMAIN response for Firefox's DoH canary and consume the original query, with valid lengths/checksums and no spoofing while filtration is disabled. Applies to automatic/default DoH only; highlight required browser DNS setup at the start of the user guide and in installation instructions, including Firefox Increased/Max Protection, forced DoH when selecting a Chromium provider, and Windows browser compatibility limits
@@ -76,23 +114,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Client/server frontends: disable all navigation except Main while the local backend is unavailable and return to Main on disconnect; refresh client status when its backend event connection closes
 
-- Server preset preview: align whitelist rules at the top of the text area
-
-- Server temporary whitelist timer: use the dark theme text colour for both time field labels
-
 - Server whitelist table: count rules consistently with the editor, excluding comments and blank entries even when an older backend includes them in its totals
 
 - Server whitelist editor: preserve `#` and `;` comment lines after saving and reopening, and display them in grey while excluding them from rule validation
 
-- Server whitelist validation: reject exceptions explicitly selecting port 53, including ranges, with a line-specific error explaining that DNS traffic is always allowed; accept exceptions without a port selector for domains, wildcards, substrings and IPv4 addresses
+- Server whitelist validation: accept exceptions without a port selector for domains, wildcards, substrings and IPv4 addresses; continue rejecting exceptions explicitly selecting port 53, including ranges, with a line-specific error explaining that DNS traffic is always allowed
 
 - Server whitelist downloads: return an error on database read failures so clients retain their installed rules and retry instead of applying an empty list
 
 - Client/server disconnect: close the client's event subscription and update its connection state; apply filtration connection-sync settings and pause automatic reconnect until «Подключиться» or a client daemon restart. Unexpected network failures still retry automatically, and stale subscription cleanup cannot remove a new session; requires both daemons to be updated
-
-- Client settings: refresh the IPv6 blocking checkbox after server changes, on status refreshes and when opening settings; preserve unsaved checkbox edits and ignore stale reads after editing or saving
-
-- Server users tables: preserve checked rows, row selection, keyboard focus and open context menus during refreshes, including connection changes in «Все пользователи»
 
 - Server clients table: populate «Последняя активность» from client connections and heartbeats, display local date/time and refresh every ten seconds
 
@@ -118,9 +148,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Client log viewer: use dark tabs and content borders, fully rounded headers, gold selection and visible hover/keyboard-focus states
 - Frontend buttons: honor content alignment so «К последнему» stays centered in the log toolbar
 
-- Server frontend: skip whitelist/conflict refreshes while the backend is unavailable and use dark theme colors for the whitelist conflict divider, including hover, focus and drag states
-
-- Server domain checker: use readable theme colors for the domain/IPv4 label and show all source whitelist names for each matching rule, including deduplicated rules
+- Server frontend: skip whitelist/conflict refreshes while the backend is unavailable
 
 - Server discovery: rate limits now share a budget across UDP source ports from the same IP, with bounded source tracking; replies advertise the running TCP port instead of a pending saved value
 - Server deployment: startup synchronizes program-scoped Windows Firewall rules with the effective TCP port, removes the legacy default-port rule, and limits UDP discovery to local subnets on Private/Domain profiles; firewall setup failures prevent startup and uninstall removes both current and legacy rules
@@ -129,8 +157,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Client backend: new identity keys are private from creation, and unreadable/corrupt existing keys are no longer silently regenerated
 - Client backend: fixed INI updates writing keys into later sections (e.g. `fingerprint` and `token` under `[network]`), which made saved credentials appear missing after restart; updates now stay within the requested section and preserve same-named keys in other sections
 - Client backend: automatically repairs valid, unambiguous misplaced credentials into `[server] fingerprint` and `[client] token` when read; existing values, including explicit empty values, remain authoritative, and malformed/conflicting misplaced values do not silently enable first-use certificate trust
-- Client frontend: reopening Settings retries saved fingerprint retrieval and reports an empty config value or daemon error explicitly instead of silently leaving the field blank
-- Client frontend: saved certificate fingerprint loads from local config when settings open, including after GUI restart or while the server is offline; failed inspection no longer clears the displayed saved pin
 - Client/server: token rotation now recovers automatically through the registered signing key after explicit authentication rejection, with bounded retries and stale-cache invalidation; active subscriptions revalidate on heartbeat and the server GUI no longer requests manual token entry
 - Client backend: failed atomic config replacement preserves the original file and reports failure, allowing replacement credentials to remain usable in memory
 - Server frontend: backend connectivity and settings availability now follow pipe responses independently of Windows service state; bounded asynchronous health checks detect unavailable/stalled backends and refresh data on reconnect
@@ -142,50 +168,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Firewall: IPC whitelist replacement preserves the current rules on allocation failure and reports the failure instead of installing a partial list
 - Client frontend: no more delayed old logs on startup — the firewall/client daemons now rotate a pre-existing log file on start, so each session writes to a fresh log and the frontend never replays a previous session's entries in batches
 - Client: filtration status now reports "Выкл" while the firewall is not running (default no longer "Вкл"), and re-aligns the firewall state on the next status report when it comes back
-
-### Changed
-
-- Server whitelist context menu: replace the activation toggle with separate Enable and Disable actions, ordered Enable first; apply the chosen state to checked lists, or the current row when none are checked, while retaining staged Save/Cancel behavior
-
-- Server connected-users table: remove the redundant connection status column; «Все пользователи» retains a state column to distinguish connected, offline and pending users
-
-- Server whitelist table: highlight all checked rows with the teal selection background and cyan text
-
-- Server whitelist table: context-menu Delete applies to all checked lists and replaces the toolbar Delete button; Delete and activation actions clear checkboxes; Ctrl-click toggles a checkbox and Shift-click selects a range in the current table order
-
-- Server whitelist table: show green «Да» / red «Нет» activation labels
-
-- Build scripts require a Debug or Release configuration; native and Go builds select matching compiler settings, keep mode-specific objects separate and reject installer payloads built in another mode
-- Release builds compile out debug/trace logging in daemons, the notification helper and server frontend while retaining normal operational logs; Debug builds enable diagnostics
-
-- Client/server installers offer Manual (on demand) or Automatic service startup, default to Automatic for the firewall and Manual for the server, and leave services stopped after installation and upgrades
-- Build scripts and Makefiles use all available CPU cores, compile C/C++ and mbedTLS sources in parallel, and enable parallel installer compression
-- Native, Go, Visual Studio and installer builds read the common version from `VERSION`; installers reject application payloads with mismatched versions
-- Installer builds accept an optional changelog path instead of a version argument; release notes use the matching version heading or fall back to `Unreleased`
-
-- Notification helper: moved the app to the top-level `notifications` directory with `include`, `src`, `resources` and `tests` subdirectories, keeping its shared C interface in `common/notify.h`; updated build and client integration paths
-
-- Installer: replaced NSIS with separate Inno Setup client/server installers; Wine compiler installation and installer-only build scripts support custom payload/output directories, publishing now builds installers through Wine
-
-- Client installer: installs the frontend in the `GUI` subdirectory and points the desktop shortcut there, matching the server layout
-- Server status bar: connected users now appear before pending registrations in the labels and counters
-- Server tables: centered cell content and column headers horizontally and vertically, including whitelist selection checkboxes
-- Server tables: removed the default blue focus outline around individual cells
-- Server whitelist editor: removed the highlighting legend label to reduce clutter
-- Security: explicit Windows ACLs restrict client identity/config and server database/TLS storage to SYSTEM/Administrators, with protected inheritance and Administrators ownership; existing permissions are repaired and installers secure storage before service startup
-- Server: active database and TLS identity migrate into a private `data` directory, preserving committed WAL data and certificate identity; restricted originals are retained for recovery
-- Security: verified certificate rotation — server settings expose the running certificate fingerprint; client settings inspect certificates without changing trust or sending credentials and accept a separately verified fingerprint only after rechecking the peer and saved endpoint/pin
-- Server frontend: cyan primary accents (`#04D9FF`) with contained Save buttons, selected navigation items and log filters using black text; dark teal (`#083B47`) selection/highlight backgrounds, light cyan (`#70E8FA`) accent labels, cyan focused input borders, and distinct cyan DEBUG and darker teal TRACE (`#4096A6`) log text and level badges
-- Client: filtration connection-sync (was "auto-disable on server disconnect") — filtration now stays off whenever the server connection is down for any reason (including a manual "Отключиться") and re-enables on reconnect, while a user's manual OFF is preserved until explicitly re-enabled; the effective state is re-applied on every status report; the option is enabled by default and the settings checkbox/help text were reworded to match
-- Security: TLS over the client<=>server TCP channel — the server uses a self-signed EC certificate (generated on first run) and the listener requires TLS1.2+; the client uses vendored mbedTLS with server-certificate fingerprint pinning (trust-on-first-use)
-- Security: per-user token authentication — `CONNECT`/`SUBSCRIBE`/`DISCONNECT`/`REFRESH`/`GET_WHITELIST` require a per-user token (constant-time check); `REGISTER` stays open for onboarding
-- Security: automatic token delivery — the client generates a persistent ECDSA-P256 identity key, shares its public key at registration (bound at approval and refreshed on re-approval), then signs a single-use server challenge to receive its token over TLS; no manual configuration needed
-- Security: the client caches the fetched token in memory (with best-effort persistence to `config.ini`) so CONNECT/SUBSCRIBE use it immediately; the manual "Токен сервера" settings field was removed
-- Server: per-user `token` and `sign_public` columns (auto-migrated), `GET_TOKEN_CHALLENGE`/`GET_TOKEN` commands with ECDSA-P256 signature verification
-- Security: restricted local IPC — the server frontend pipe, client backend pipe and firewall pipe now allow only SYSTEM/Administrators/Owner (were Everyone / default), and the client backend pipe only talks to the client GUI process (by executable name)
-- Security: added `check_ipc_access.py` (and a `.bat` launcher) to probe the named pipes and verify the restrictions
-- Security: resilience limits — TCP listener caps concurrent connections (default 256) and rate-limits connections per source IP; the event bus caps push subscribers (128); discovery replies are rate-limited per source
-- Security: tokens are never broadcast — approval events no longer carry the token (the client obtains it via the signed `GET_TOKEN` challenge); documented TLS/rotation hygiene in `docs/BBMP.md`/`docs/TODO.md`
 
 ### Security
 
