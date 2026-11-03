@@ -5,7 +5,7 @@ using frontend.Services;
 
 namespace frontend.Views;
 
-public sealed class NetworkShareWindow : Window
+public sealed class NetworkShareWindow : DialogWindow
 {
     private readonly ComboBox _path = new() { IsEditable = true, MinWidth = 450 };
     private readonly TextBlock _status = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 10, 0, 0) };
@@ -31,13 +31,13 @@ public sealed class NetworkShareWindow : Window
         catch (IOException) { }
         var panel = new StackPanel { Margin = new Thickness(20) };
         panel.Children.Add(new TextBlock {
-            Text = @"Введите \\сервер\общая_папка или выберите сохранённую сетевую папку. При необходимости Windows запросит учётные данные.",
+            Text = @"Введите \\сервер\общая_папка или выберите сохранённую сетевую папку. При необходимости введите учётные данные для подключения.",
             TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 10)
         });
         panel.Children.Add(_path);
         panel.Children.Add(_status);
         panel.Children.Add(_open);
-        Content = panel;
+        DialogContent = panel;
         _open.Click += async (_, _) => await OpenAsync();
     }
 

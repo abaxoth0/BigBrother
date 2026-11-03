@@ -32,7 +32,7 @@ public class WhitelistDialogService : IWhitelistDialogService
             {
                 if (!await saveAsync(result))
                 {
-                    MessageBox.Show(dialog, "Не удалось сохранить список. Повторите попытку.",
+                    MessageDialog.Show(dialog, "Не удалось сохранить список. Повторите попытку.",
                         "Сохранение списка", MessageBoxButton.OK, MessageBoxImage.Error);
                     return;
                 }
@@ -42,7 +42,7 @@ public class WhitelistDialogService : IWhitelistDialogService
             }
             catch (Exception ex)
             {
-                MessageBox.Show(dialog, $"Не удалось сохранить список.\n{ex.Message}",
+                MessageDialog.Show(dialog, $"Не удалось сохранить список.\n{ex.Message}",
                     "Сохранение списка", MessageBoxButton.OK, MessageBoxImage.Error);
             }
             finally

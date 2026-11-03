@@ -102,11 +102,11 @@ public partial class LogViewWindow : ChromeWindow
                     writer.WriteLine(LogEntryFormatter.Format(log, label));
                 }
             }
-            System.Windows.MessageBox.Show($"Логи сохранены: {dialog.FileName}", "Успех", MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageDialog.Show($"Логи сохранены: {dialog.FileName}", "Успех", MessageBoxButton.OK, MessageBoxImage.Information);
         }
         catch (Exception ex)
         {
-            System.Windows.MessageBox.Show($"Ошибка экспорта: {ex.Message}", "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
+            MessageDialog.Show($"Ошибка экспорта: {ex.Message}", "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 }

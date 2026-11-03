@@ -3,7 +3,7 @@ using System.Windows.Controls;
 
 namespace frontend;
 
-public sealed class UpdateProgressWindow : Window
+public sealed class UpdateProgressWindow : DialogWindow
 {
     private readonly TextBlock _status = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 12, 0, 12) };
     private readonly System.Windows.Controls.ProgressBar _progress = new() { IsIndeterminate = true, Height = 8 };
@@ -12,6 +12,7 @@ public sealed class UpdateProgressWindow : Window
     public UpdateProgressWindow()
     {
         SetResourceReference(FontSizeProperty, "FontSize14");
+        ShowInTaskbar = true;
         Title = "Обновление BigBrother";
         Width = 500;
         SizeToContent = SizeToContent.Height;
@@ -20,7 +21,8 @@ public sealed class UpdateProgressWindow : Window
         var panel = new StackPanel { Margin = new Thickness(24) };
         panel.Children.Add(_status);
         panel.Children.Add(_progress);
-        Content = panel;
+        DialogContent = panel;
+        CloseButton.IsEnabled = false;
         Closing += (_, e) => e.Cancel = !_finished;
     }
 
@@ -29,11 +31,12 @@ public sealed class UpdateProgressWindow : Window
     public void Finish(string text)
     {
         _finished = true;
+        CloseButton.IsEnabled = true;
         Report(text);
         _progress.Visibility = Visibility.Collapsed;
         var button = new System.Windows.Controls.Button { Content = "Закрыть", HorizontalAlignment = System.Windows.HorizontalAlignment.Right, Margin = new Thickness(0, 12, 0, 0), Padding = new Thickness(16, 6, 16, 6) };
         button.Click += (_, _) => Close();
-        ((StackPanel)Content).Children.Add(button);
+        ((StackPanel)DialogContent).Children.Add(button);
     }
 
     public void Dismiss() { _finished = true; Close(); }

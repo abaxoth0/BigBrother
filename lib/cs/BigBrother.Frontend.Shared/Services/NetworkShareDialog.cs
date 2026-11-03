@@ -1,5 +1,4 @@
 using System.Windows;
-using System.Windows.Interop;
 
 namespace frontend.Services;
 
@@ -7,9 +6,12 @@ public static class NetworkShareDialog
 {
     public static async Task ConnectAsync(string share)
     {
-        await Application.Current.Dispatcher.InvokeAsync(() => {
-            var owner = Application.Current.Windows.OfType<Window>().FirstOrDefault(w => w.IsActive) ?? Application.Current.MainWindow;
-            NetworkShareAccess.Connect(share, owner == null ? IntPtr.Zero : new WindowInteropHelper(owner).Handle);
+        await Application.Current.Dispatcher.InvokeAsync(() =>
+        {
+            var dialog = new NetworkCredentialWindow(share) { Owner = DialogWindow.FindOwner() };
+            if (dialog.Owner == null) dialog.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+            if (dialog.ShowDialog() != true)
+                throw new OperationCanceledException("Подключение к общей папке отменено.");
         });
     }
 }

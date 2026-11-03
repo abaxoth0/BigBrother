@@ -800,7 +800,7 @@ public class MainViewModel : ViewModelBase, IDisposable
         var name = Username?.Trim() ?? "";
         if (string.IsNullOrEmpty(name))
         {
-            System.Windows.MessageBox.Show("Укажите имя пользователя в поле «Пользователь» и нажмите «Сохранить».", "Регистрация",
+            MessageDialog.Show("Укажите имя пользователя в поле «Пользователь» и нажмите «Сохранить».", "Регистрация",
                 System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Warning);
             AddLog("ERROR", "Укажите имя пользователя в настройках");
             return;
@@ -813,12 +813,12 @@ public class MainViewModel : ViewModelBase, IDisposable
             AddLog(ok ? "INFO" : "ERROR", ok ? $"Запрос на регистрацию отправлен: {name}" : "Ошибка регистрации");
             if (ok)
             {
-                System.Windows.MessageBox.Show("Запрос на регистрацию принят. Ожидайте подтверждения.",
+                MessageDialog.Show("Запрос на регистрацию принят. Ожидайте подтверждения.",
                     "Регистрация", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
             }
             else
             {
-                System.Windows.MessageBox.Show("Ошибка регистрации.",
+                MessageDialog.Show("Ошибка регистрации.",
                     "Регистрация", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
             }
         }
@@ -1200,7 +1200,7 @@ public class MainViewModel : ViewModelBase, IDisposable
 
         if (string.IsNullOrEmpty(clientLog) && string.IsNullOrEmpty(firewallLog))
         {
-            System.Windows.MessageBox.Show("Нет доступных логов", "Ошибка", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageDialog.Show("Нет доступных логов", "Ошибка", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
 

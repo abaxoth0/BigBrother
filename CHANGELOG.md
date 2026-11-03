@@ -35,7 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Client/server settings: disable Windows notifications independently; preferences persist across restarts and apply immediately after saving, including while frontends are closed
 
-- Server settings to publish and withdraw client update packages from an existing network share, with file selection, UNC paths and Windows credential prompts when required
+- Server settings to publish and withdraw client update packages from an existing network share, with file selection, UNC paths and credential prompts when required
 - Client «Обновления» tab with explicit update checks, installed and available versions, release notes and manual installation with progress
 - Self-contained client update executables and companion `.manifest.json` files containing package identity and release notes parsed from CHANGELOG.md
 - Installation backups, rollback on failure and recovery after an interrupted update
@@ -59,6 +59,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Server whitelist editor: live validation rejects malformed entries, duplicate rules and directly conflicting exceptions before saving; overlapping exceptions show warnings, and imports use the same validation
 
 ### Changed
+
+- Client/server frontends: replace default Windows dialogs with custom dialogs matching each application's theme and font settings, including message boxes, network credential prompts, update progress and network-share selection. Messages support text selection, copying, scrolling and keyboard confirmation/cancellation. Only open/save file dialogs retain the standard Windows UI
 
 - Client/server Settings: open with a category overview and show only the selected category's sections; preserve drafts across back navigation and use one common Save button in the overview and every category, including font-size changes; retain certificate and update actions
 

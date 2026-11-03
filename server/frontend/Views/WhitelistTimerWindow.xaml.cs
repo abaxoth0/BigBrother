@@ -34,7 +34,7 @@ public partial class WhitelistTimerWindow : ChromeWindow
         }
         catch (Exception ex)
         {
-            MessageBox.Show(this, $"Не удалось сохранить таймер.\n{ex.Message}", "Таймер", MessageBoxButton.OK, MessageBoxImage.Error);
+            MessageDialog.Show(this, $"Не удалось сохранить таймер.\n{ex.Message}", "Таймер", MessageBoxButton.OK, MessageBoxImage.Error);
         }
         finally { _saving = false; EditorPanel.IsEnabled = true; }
     }
