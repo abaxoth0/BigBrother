@@ -1,5 +1,3 @@
-//go:build windows
-
 package discovery
 
 import (
@@ -32,14 +30,18 @@ type Listener struct {
 	doneCh   chan struct{}
 	stopOnce sync.Once
 	logger   discLogger
+
+	limiter    responseLimiter
+	serverPort int
 }
 
-func New(db database.DBInstance) *Listener {
+func New(db database.DBInstance, serverPort int) *Listener {
 	return &Listener{
-		db:     db,
-		stopCh: make(chan struct{}),
-		doneCh: make(chan struct{}),
-		logger: logger.NewSource("DISCOVERY", log.DefaultLogger),
+		db:         db,
+		stopCh:     make(chan struct{}),
+		doneCh:     make(chan struct{}),
+		logger:     logger.NewSource("DISCOVERY", log.DefaultLogger),
+		serverPort: serverPort,
 	}
 }
 
@@ -124,18 +126,19 @@ func (l *Listener) serve() {
 
 			msg := strings.TrimSpace(string(buf[:n]))
 			if msg == DiscoveryMagic || strings.HasPrefix(msg, DiscoveryMagic+"\n") {
+				if !l.limiter.allow(rAddr, time.Now()) {
+					continue // rate-limited reply to this source
+				}
 				serverName, _ := l.db.GetSetting("server_name")
 				if serverName == "" {
 					serverName = settingsapplication.DefaultServerName
 				}
-				serverPort, _ := l.db.GetSetting("server_port")
-				if serverPort == "" {
-					serverPort = "1984"
-				}
 				localIP := l.getLocalIP()
-				response := fmt.Sprintf("%s\n%s\n%s\n%s\n", ResponseMagic, serverName, localIP, serverPort)
+				response := fmt.Sprintf("%s\n%s\n%s\n%d\n", ResponseMagic, serverName, localIP, l.serverPort)
 				l.conn.WriteToUDP([]byte(response), rAddr)
-				l.logger.Debug(fmt.Sprintf("Discovery response sent to %s: name=%s ip=%s port=%s", rAddr.String(), serverName, localIP, serverPort), nil)
+				if log.DiagnosticsEnabled {
+					l.logger.Debug(fmt.Sprintf("Discovery response sent to %s: name=%s ip=%s port=%d", rAddr.String(), serverName, localIP, l.serverPort), nil)
+				}
 			}
 		}
 	}

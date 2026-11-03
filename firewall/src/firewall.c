@@ -22,6 +22,7 @@
 #include "../include/dns.h"
 #include "../include/ipc.h"
 #include "../../common/log/log.h"
+#include "../../common/version.h"
 
 SERVICE_STATUS g_ServiceStatus = {0};
 SERVICE_STATUS_HANDLE g_StatusHandle = NULL;
@@ -38,6 +39,7 @@ IpAllowlist g_IpAllowlist = {0};
 IpAllowlist g_IpBlocklist = {0};
 SRWLOCK g_AllowlistLock = SRWLOCK_INIT;
 volatile int g_FiltrationEnabled = 1;
+volatile LONG g_BlockIpv6 = 1;
 
 StringView g_FilterExpr = {0};
 
@@ -82,7 +84,11 @@ static void init_logging(void) {
 
     char log_path[LOG_PATH_MAX];
     snprintf(log_path, sizeof(log_path), "%s\\firewall.binlog", logs_dir);
-    
+
+    // Rotate any pre-existing log before the logger starts, so this session
+    // always writes to a fresh file (avoids replaying old entries on the client).
+    log_rotate_file(log_path);
+
     // Set log path in global context
     extern LoggerContext* g_logger;
     if (g_logger) {
@@ -151,7 +157,8 @@ static void load_config(const char* path) {
             char* close = strchr(p, ']');
             if (!close) continue;
             *close = '\0';
-            section_matched = (_stricmp(p + 1, "server") == 0 || _stricmp(p + 1, "daemon") == 0);
+            section_matched = (_stricmp(p + 1, "filtration") == 0) ? 2 :
+                (_stricmp(p + 1, "server") == 0 || _stricmp(p + 1, "daemon") == 0);
             continue;
         }
 
@@ -163,6 +170,13 @@ static void load_config(const char* path) {
         char* key = p;
         char* value = eq + 1;
         while (*value == ' ' || *value == '\t') value++;
+
+        if (section_matched == 2) {
+            if (strcmp(key, "block_ipv6") == 0) {
+                InterlockedExchange(&g_BlockIpv6, strcmp(value, "0") != 0);
+            }
+            continue;
+        }
 
         if (strcmp(key, "address") == 0 && section_matched) {
             // [server] address
@@ -405,11 +419,6 @@ int LoadWhiteList(char* path) {
     if (!path) path = g_WhitelistPath;
     LOGF("[INFO] Reading whitelist at: %s", path);
 
-    WhitelistInit(&g_Whitelist);
-    WhitelistInit(&g_Blacklist);
-    IpAllowlistInit(&g_IpAllowlist);
-    IpAllowlistInit(&g_IpBlocklist);
-
     FILE *f = fopen(path, "r");
     if (!f) {
         // Create empty whitelist file so service doesn't fail on missing file
@@ -421,36 +430,32 @@ int LoadWhiteList(char* path) {
         } else {
             LOGF("[WARN] Could not create whitelist file: %s, continuing with empty whitelist", path);
         }
+        WhitelistClear(&g_Whitelist);
+        WhitelistClear(&g_Blacklist);
+        IpAllowlistClear(&g_IpAllowlist);
+        IpAllowlistClear(&g_IpBlocklist);
         return STATUS_OK;
     }
 
-    char line[256];
-    while (fgets(line, sizeof(line), f)) {
-        // Trim leading whitespace
-        char* p = line;
-        while (*p == ' ' || *p == '\t' || *p == '\r') p++;
-
-        // Trim trailing whitespace and newline
-        size_t len = strlen(p);
-        while (len > 0 && (p[len-1] == '\n' || p[len-1] == '\r' || p[len-1] == ' ' || p[len-1] == '\t')) {
-            p[--len] = '\0';
-        }
-
-        if (p[0] == '#' || p[0] == ';' || p[0] == '\0') continue;
-
-        struct in_addr addr;
-        if (inet_pton(AF_INET, p, &addr) == 1) {
-            IpAllowlistAdd(&g_IpAllowlist, ntohl(addr.s_addr), p, 0);
-            LOGF("[INFO] Added IP to allowlist: %s", p);
-
-        } else {
-            int is_exception = (p[0] == '!');
-            const char* domain = is_exception ? p + 1 : p;
-            WhitelistAdd(is_exception ? &g_Blacklist : &g_Whitelist, domain);
-        }
-    }
-
+    if (fseek(f, 0, SEEK_END) != 0) { fclose(f); return STATUS_FAILED_TO_READ_WHITELIST; }
+    long length = ftell(f);
+    if (length < 0 || fseek(f, 0, SEEK_SET) != 0) { fclose(f); return STATUS_FAILED_TO_READ_WHITELIST; }
+    char* data = malloc((size_t)length + 1);
+    if (!data) { fclose(f); return STATUS_FAILED_TO_READ_WHITELIST; }
+    size_t size = fread(data, 1, (size_t)length, f);
+    int failed = ferror(f);
     fclose(f);
+    data[size] = '\0';
+    int loaded = failed ? -1 : size ? WhitelistLoadFromData(&g_Whitelist, &g_Blacklist, data, size) : 0;
+    free(data);
+    if (loaded != 0) return STATUS_FAILED_TO_READ_WHITELIST;
+    if (!size) {
+        WhitelistClear(&g_Whitelist);
+        WhitelistClear(&g_Blacklist);
+    }
+    IpAllowlistPurgeUnowned(&g_IpAllowlist, &g_Whitelist, &g_Blacklist);
+    IpAllowlistPurgeUnowned(&g_IpBlocklist, &g_Blacklist, &g_Whitelist);
+
     LOGF("[INFO] Loaded %zu whitelisted domains, %zu exception rules, and %zu IPs",
           g_Whitelist.count, g_Blacklist.count, g_IpAllowlist.count);
 
@@ -524,7 +529,7 @@ static int should_log_block(uint32_t dest_ip) {
     return 1;
 }
 
-#define WINDIVERT_FILTER "ip"
+#define WINDIVERT_FILTER "ip or ipv6"
 #define PACKET_QUEUE_TIMEOUT 500 // ms
 
 /**
@@ -545,13 +550,24 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
 
     if (handle == INVALID_HANDLE_VALUE) {
         LOGE("Failed to open WinDivert handle. Error code: %lu", GetLastError());
+        free(packet);
         return STATUS_UNSPECIFIED_ERROR;
     }
 
     if (!WinDivertSetParam(handle, WINDIVERT_PARAM_QUEUE_TIME, PACKET_QUEUE_TIMEOUT)) {
         LOGE("Failed to set packet queue timeout. Error code: %lu", GetLastError());
+        WinDivertClose(handle);
+        free(packet);
         return STATUS_UNSPECIFIED_ERROR;
     }
+
+    HANDLE recv_event = CreateEvent(NULL, TRUE, FALSE, NULL);
+    if (!recv_event) {
+        WinDivertClose(handle);
+        free(packet);
+        return STATUS_UNSPECIFIED_ERROR;
+    }
+    HANDLE recv_waits[] = {g_ServiceStopEvent, recv_event};
 
     PWINDIVERT_IPHDR ip_hdr = NULL;
     PWINDIVERT_TCPHDR tcp_hdr = NULL;
@@ -562,7 +578,7 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
     void* payload_ptr = NULL;
     UINT payload_len = 0;
 
-    OutputDebugString("Firewall started");
+    DLOGF("Firewall started");
 
     // Backoff counter: if WinDivertRecv keeps failing (e.g. driver detach), avoid
     // busy-spinning at 100% CPU.
@@ -574,7 +590,26 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
             Sleep(1000);
             continue;
         }
-        if (!WinDivertRecv(handle, packet, PACKET_SIZE, &recv_len, &addr)) {
+        OVERLAPPED recv_io = {0};
+        recv_io.hEvent = recv_event;
+        ResetEvent(recv_event);
+        UINT addr_len = sizeof(addr);
+        BOOL received = WinDivertRecvEx(handle, packet, PACKET_SIZE, &recv_len,
+                                       0, &addr, &addr_len, &recv_io);
+        if (!received && GetLastError() == ERROR_IO_PENDING) {
+            DWORD wait_result = WaitForMultipleObjects(2, recv_waits, FALSE, INFINITE);
+            if (wait_result != WAIT_OBJECT_0 + 1) {
+                // Drain cancellation before releasing the packet and OVERLAPPED.
+                CancelIoEx(handle, &recv_io);
+                DWORD transferred;
+                GetOverlappedResult(handle, &recv_io, &transferred, TRUE);
+                break;
+            }
+            DWORD transferred;
+            received = GetOverlappedResult(handle, &recv_io, &transferred, FALSE);
+            if (received) recv_len = transferred;
+        }
+        if (!received) {
             recv_failures++;
             if (recv_failures > 1 && recv_failures % 100 == 1) {
                 LOGE("WinDivertRecv failed %d consecutive times (last error: %lu)",
@@ -603,6 +638,15 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
             (void*)&payload_ptr, &payload_len,
             NULL, NULL
         );
+
+        if (addr.IPv6) {
+            // IPv6 passes without whitelist checks when the client opts out.
+            if (!g_FiltrationEnabled || !addr.Outbound ||
+                !InterlockedCompareExchange(&g_BlockIpv6, 0, 0)) {
+                SendPacket(handle, packet, recv_len, &addr);
+            }
+            continue;
+        }
 
         if (!ok || ip_hdr == NULL) {
             SendPacket(handle, packet, recv_len, &addr);
@@ -645,96 +689,38 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
                     goto filtering;
                 }
 
-                // Spoof DoH canary domains: respond with 127.0.0.1 to tell
-                // browsers (Chrome/Edge) that this network provides DNS,
-                // causing them to disable DoH and fall back to standard DNS.
-                if (!dns.is_response) {
-                    static const char* canary_domains[] = {"use-application-dns.net"};
-                    int is_canary = 0;
-                    for (size_t c = 0; c < sizeof(canary_domains)/sizeof(canary_domains[0]); c++) {
-                        if (DnsCheckDomainLower(dns.question.domain, canary_domains[c])) {
-                            is_canary = 1;
-                            break;
-                        }
+                if (g_FiltrationEnabled && addr.Outbound &&
+                    ntohs(udp_hdr->DstPort) == 53 && !dns.is_response &&
+                    dns.header.question_count == 1 && dns.question.qclass == 1 &&
+                    strcmp(dns.question.domain, "use-application-dns.net") == 0) {
+                    size_t q_end = DnsGetQuestionEnd(dns_data, dns_len);
+                    if (q_end == 0) goto filtering;
+
+                    // Firefox's automatic DoH mode requires a negative canary result.
+                    DnsHeader* response = (DnsHeader*)dns_data;
+                    response->flags = htons(0x8083 | (dns.header.flags & 0x0100));
+                    response->answer_count = 0;
+                    response->authority_count = 0;
+                    response->additional_count = 0;
+
+                    UINT32 tmp_ip = ip_hdr->SrcAddr;
+                    ip_hdr->SrcAddr = ip_hdr->DstAddr;
+                    ip_hdr->DstAddr = tmp_ip;
+                    UINT16 tmp_port = udp_hdr->SrcPort;
+                    udp_hdr->SrcPort = udp_hdr->DstPort;
+                    udp_hdr->DstPort = tmp_port;
+
+                    udp_hdr->Length = htons((UINT16)(sizeof(*udp_hdr) + q_end));
+                    UINT new_len = (UINT)(dns_data - (uint8_t*)packet + q_end);
+                    ip_hdr->Length = htons((UINT16)new_len);
+                    WINDIVERT_ADDRESS response_addr = addr;
+                    response_addr.Outbound = 0;
+                    if (WinDivertHelperCalcChecksums(packet, new_len, &response_addr, 0) &&
+                        SendPacket(handle, packet, new_len, &response_addr)) {
+                        DLOGF("[DNS-SPOOF] NXDOMAIN for %s", dns.question.domain);
                     }
-                    if (is_canary) {
-                        // Build spoofed response by cloning and modifying the query packet
-                        char* spoof = malloc(recv_len + 64);
-                        if (spoof) {
-                            memcpy(spoof, packet, recv_len);
-                            WINDIVERT_IPHDR* sip = NULL;
-                            WINDIVERT_UDPHDR* sudp = NULL;
-                            UINT spoof_payload_len = 0;
-                            void* spoof_payload = NULL;
-
-                            WinDivertHelperParsePacket(spoof, recv_len, &sip, NULL, NULL, NULL, NULL,
-                                                        NULL, &sudp, &spoof_payload, &spoof_payload_len, NULL, NULL);
-
-                            if (sip && sudp && spoof_payload && spoof_payload_len >= 12) {
-                                // Swap IP addresses
-                                UINT32 tmp_ip = sip->SrcAddr;
-                                sip->SrcAddr = sip->DstAddr;
-                                sip->DstAddr = tmp_ip;
-
-                                // Swap UDP ports
-                                UINT16 tmp_port = sudp->SrcPort;
-                                sudp->SrcPort = sudp->DstPort;
-                                sudp->DstPort = tmp_port;
-
-                                uint8_t* dns_out = (uint8_t*)spoof_payload;
-                                // Keep transaction ID (bytes 0-1) from the query.
-                                // Set flags: response=1, opcode=0, AA=0, TC=0, RD=1, RA=1, Z=0, rcode=0
-                                // 0x8180 = 1000 0001 1000 0000
-                                dns_out[2] = 0x81;
-                                dns_out[3] = 0x80;
-                                // Questions: 1 (keep original), Answers: 1, Authority: 0, Additional: 0
-                                dns_out[4] = 0x00; dns_out[5] = 0x01;
-                                dns_out[6] = 0x00; dns_out[7] = 0x01;
-                                dns_out[8] = 0x00; dns_out[9] = 0x00;
-                                dns_out[10] = 0x00; dns_out[11] = 0x00;
-
-                                // Find the end of the question section so we can append
-                                // the answer AFTER it (the 0xC00C pointer references the
-                                // question name at offset 12, which must stay intact).
-                                size_t q_end = DnsGetQuestionEnd(spoof_payload, spoof_payload_len);
-                                if (q_end == 0 || q_end + 16 > spoof_payload_len + 64) {
-                                    free(spoof);
-                                    goto filtering;
-                                }
-
-                                // Answer record (16 bytes): name ptr 0xC00C, TYPE A, CLASS IN, TTL 300, RDATA 127.0.0.1
-                                dns_out[q_end + 0] = 0xC0; dns_out[q_end + 1] = 0x0C;
-                                dns_out[q_end + 2] = 0x00; dns_out[q_end + 3] = 0x01; // TYPE A
-                                dns_out[q_end + 4] = 0x00; dns_out[q_end + 5] = 0x01; // CLASS IN
-                                dns_out[q_end + 6] = 0x00; dns_out[q_end + 7] = 0x00; // TTL 300
-                                dns_out[q_end + 8] = 0x01; dns_out[q_end + 9] = 0x2C;
-                                dns_out[q_end + 10] = 0x00; dns_out[q_end + 11] = 0x04; // RDLEN = 4
-                                dns_out[q_end + 12] = 0x7F; dns_out[q_end + 13] = 0x00; // 127.0.0.1
-                                dns_out[q_end + 14] = 0x00; dns_out[q_end + 15] = 0x01;
-
-                                // New DNS payload length = question end + 16-byte answer.
-                                UINT new_dns_len = (UINT)(q_end + 16);
-
-                                // Fix UDP total length (8-byte header + payload).
-                                sudp->Length = htons((UINT16)(8 + new_dns_len));
-
-                                // Fix IP total length (IP header + UDP header + payload).
-                                UINT new_ip_len = (UINT)((uint8_t*)sudp - (uint8_t*)sip) +
-                                                  (UINT)sizeof(WINDIVERT_UDPHDR) + new_dns_len;
-                                sip->Length = htons((UINT16)new_ip_len);
-
-                                UINT new_len = (UINT)((uint8_t*)dns_out - (uint8_t*)spoof) + new_dns_len;
-                                WinDivertHelperCalcChecksums(spoof, new_len, NULL, 0);
-
-                                // Inject spoofed response
-                                SendPacket(handle, spoof, new_len, &addr);
-                                DLOGF("[DNS-SPOOF] Spoofed A record for %s -> 127.0.0.1",
-                                      dns.question.domain);
-                            }
-                            free(spoof);
-                        }
-                        goto filtering;
-                    }
+                    DnsFree(&dns);
+                    continue;
                 }
 
                 // Only process DNS responses (not queries) with answer records
@@ -763,19 +749,17 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
                     }
                 }
 
-                // Only whitelisted domains may enter the allowlist. If the domain
-                // matches an exception rule, its IPs go to the blocklist so they
-                // stay blocked even when shared with an allowed domain.
-                if (g_FiltrationEnabled && domain_whitelisted && !domain_excepted) {
+                // Keep both associations: an exception may cover only some ports.
+                if (g_FiltrationEnabled && domain_whitelisted) {
                     for (uint32_t i = 0; i < dns.answer_count; i++) {
                         for (uint32_t j = 0; j < dns.answers[i].ip_count; j++) {
                             IpAllowlistAdd(&g_IpAllowlist, dns.answers[i].ips[j], dns.question.domain, dns.answers[i].ttl);
                         }
                     }
-                } else if (domain_excepted) {
+                }
+                if (domain_excepted) {
                     for (uint32_t i = 0; i < dns.answer_count; i++) {
                         for (uint32_t j = 0; j < dns.answers[i].ip_count; j++) {
-                            IpAllowlistRemove(&g_IpAllowlist, dns.answers[i].ips[j]);
                             IpAllowlistAdd(&g_IpBlocklist, dns.answers[i].ips[j], dns.question.domain, IP_BLOCKLIST_TTL);
                         }
                     }
@@ -826,38 +810,15 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
                 continue;
             }
 
-            // Copy domain to local buffer to avoid dangling pointer if IPC thread
-            // modifies the allowlist between GetDomain and the whitelist iteration.
             char domain_buf[MAX_DOMAIN_LEN] = {0};
-            int allowed = 0;
+            int port = tcp_hdr ? ntohs(tcp_hdr->DstPort) : udp_hdr ? ntohs(udp_hdr->DstPort) : RULE_NO_PORT;
             time_t now = time(NULL);
             AcquireSRWLockShared(&g_AllowlistLock);
-
-            // Blocklist wins: an IP learned from an excepted domain is blocked
-            // even if the same IP is also in the allowlist (shared CDN IP).
-            if (IpAllowlistLookup(&g_IpBlocklist, dest_ip, now)) {
-                allowed = 0;
-            } else {
-                // Single lookup: reuse the cached current time instead of the
-                // three separate time() calls the old helpers made.
-                AllowedIp* entry = IpAllowlistLookup(&g_IpAllowlist, dest_ip, now);
-                allowed = entry != NULL;
-
-                // Exception rules win: even an allowlisted IP must be blocked when
-                // its learned domain matches an exception (e.g. the exception was
-                // added after the IP was resolved, so its IPs are still in the
-                // allowlist but not yet in the blocklist).
-                if (allowed && entry->domain[0]) {
-                    strncpy(domain_buf, entry->domain, sizeof(domain_buf) - 1);
-                    // Lowercase once; the blacklist patterns are pre-lowercased.
-                    ToLowerInplace(domain_buf);
-                    for (size_t w = 0; w < g_Blacklist.count; w++) {
-                        if (DnsCheckDomainLower(domain_buf, g_Blacklist.entries[w].pattern_lower)) {
-                            allowed = 0;
-                            break;
-                        }
-                    }
-                }
+            int allowed = WhitelistAllows(&g_Whitelist, &g_Blacklist, &g_IpAllowlist,
+                                          &g_IpBlocklist, dest_ip, port, now);
+            if (!allowed) {
+                const char* learned = IpAllowlistGetDomain(&g_IpAllowlist, dest_ip);
+                if (learned) strncpy(domain_buf, learned, sizeof(domain_buf) - 1);
             }
             ReleaseSRWLockShared(&g_AllowlistLock);
 
@@ -889,6 +850,7 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
         SendPacket(handle, packet, recv_len, &addr);
     }
 
+    CloseHandle(recv_event);
     free(packet);
     WinDivertClose(handle);
 
@@ -903,15 +865,13 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
  * @param[in] CtrlCode Control code from service manager.
  */
 void WINAPI ServiceControlHandler(DWORD CtrlCode) {
-    char buf[128];
-    snprintf(buf, sizeof(buf), "[ServiceControlHandler] Received control: %lu", CtrlCode);
-    OutputDebugString(buf);
+    DLOGF("[ServiceControlHandler] Received control: %lu", CtrlCode);
 
     switch (CtrlCode) {
         case SERVICE_CONTROL_STOP:
-            OutputDebugString("[ServiceControlHandler] STOP received");
+            DLOGF("[ServiceControlHandler] STOP received");
             if (g_ServiceStatus.dwCurrentState != SERVICE_RUNNING) {
-                OutputDebugString("[ServiceControlHandler] Not running, ignoring");
+                DLOGF("[ServiceControlHandler] Not running, ignoring");
                 break;
             }
 
@@ -920,13 +880,12 @@ void WINAPI ServiceControlHandler(DWORD CtrlCode) {
             g_ServiceStatus.dwWaitHint = 2000;
             SetServiceStatus(g_StatusHandle, &g_ServiceStatus);
 
-            OutputDebugString("[ServiceControlHandler] Setting stop event");
+            DLOGF("[ServiceControlHandler] Setting stop event");
             SetEvent(g_ServiceStopEvent);
-            OutputDebugString("[ServiceControlHandler] Stop event set");
+            DLOGF("[ServiceControlHandler] Stop event set");
             break;
         default:
-            snprintf(buf, sizeof(buf), "[ServiceControlHandler] Unknown control: %lu", CtrlCode);
-            OutputDebugString(buf);
+            DLOGF("[ServiceControlHandler] Unknown control: %lu", CtrlCode);
             break;
     }
 }
@@ -944,14 +903,14 @@ void WINAPI ServiceControlHandler(DWORD CtrlCode) {
  * @param[in] argv Argument vector.
  */
 void WINAPI ServiceMain(DWORD argc, LPTSTR *argv) {
-    OutputDebugString("[ServiceMain] Starting");
+    DLOGF("[ServiceMain] Starting");
     g_StatusHandle = RegisterServiceCtrlHandler(SERVICE_NAME, ServiceControlHandler);
     if (!g_StatusHandle) {
-        OutputDebugString("[ServiceMain] RegisterServiceCtrlHandler failed");
+        DLOGF("[ServiceMain] RegisterServiceCtrlHandler failed");
         return;
     }
 
-    OutputDebugString("[ServiceMain] Handler registered");
+    DLOGF("[ServiceMain] Handler registered");
     g_ServiceStatus.dwServiceType = SERVICE_WIN32_OWN_PROCESS;
     g_ServiceStatus.dwCurrentState = SERVICE_START_PENDING;
     g_ServiceStatus.dwControlsAccepted = SERVICE_ACCEPT_STOP;
@@ -961,10 +920,10 @@ void WINAPI ServiceMain(DWORD argc, LPTSTR *argv) {
     g_ServiceStatus.dwWaitHint = 5000;
     UpdateServiceStatus();
 
-    OutputDebugString("[ServiceMain] Creating stop event");
+    DLOGF("[ServiceMain] Creating stop event");
     g_ServiceStopEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
     if (!g_ServiceStopEvent) {
-        OutputDebugString("[ServiceMain] CreateEvent failed");
+        DLOGF("[ServiceMain] CreateEvent failed");
         g_ServiceStatus.dwCurrentState = SERVICE_STOPPED;
         UpdateServiceStatus();
         return;
@@ -972,7 +931,7 @@ void WINAPI ServiceMain(DWORD argc, LPTSTR *argv) {
 
     load_config(g_ConfigPath);
 
-    OutputDebugString("[ServiceMain] Starting IPC");
+    DLOGF("[ServiceMain] Starting IPC");
     IpcStart(g_ServiceStopEvent);
 
     g_ClientStopEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
@@ -985,10 +944,10 @@ void WINAPI ServiceMain(DWORD argc, LPTSTR *argv) {
         LOGF("[ServiceMain] Client monitor thread started");
     }
 
-    OutputDebugString("[ServiceMain] Creating worker thread");
+    DLOGF("[ServiceMain] Creating worker thread");
     HANDLE hThread = CreateThread(NULL, 0, FirewallServiceThread, NULL, 0, NULL);
     if (!hThread) {
-        OutputDebugString("[ServiceMain] CreateThread failed");
+        DLOGF("[ServiceMain] CreateThread failed");
         if (monitor_thread) CloseHandle(monitor_thread);
         CloseHandle(g_ServiceStopEvent);
         g_ServiceStatus.dwCurrentState = SERVICE_STOPPED;
@@ -996,12 +955,12 @@ void WINAPI ServiceMain(DWORD argc, LPTSTR *argv) {
         return;
     }
 
-    OutputDebugString("[ServiceMain] Setting RUNNING state");
+    DLOGF("[ServiceMain] Setting RUNNING state");
     g_ServiceStatus.dwCurrentState = SERVICE_RUNNING;
     g_ServiceStatus.dwCheckPoint = 0;
     g_ServiceStatus.dwWaitHint = 0;
     UpdateServiceStatus();
-    OutputDebugString("[ServiceMain] Running");
+    DLOGF("[ServiceMain] Running");
 
     // Wait for the firewall thread to exit (stop event set by SCM), then stop the
     // client backend and join the monitor thread BEFORE closing shared event handles.
@@ -1027,11 +986,15 @@ void WINAPI ServiceMain(DWORD argc, LPTSTR *argv) {
  * @return Exit code.
  */
 int main(int argc, char** argv) {
+    if (argc == 2 && strcmp(argv[1], "--version") == 0) {
+        printf("BigBrother Firewall %s\n", BB_VERSION);
+        return 0;
+    }
     init_paths();
     log_init_async(LOG_BUFFER_SIZE);
     init_logging();
     
-    LOGF("[Firewall] Started");
+    LOGF("[Firewall] Started, version %s", BB_VERSION);
     
     LoadWhiteList(NULL);
     PreResolveWhitelist();

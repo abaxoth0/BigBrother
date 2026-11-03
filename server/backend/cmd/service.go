@@ -19,7 +19,7 @@ func isService() bool {
 	return isSvc
 }
 
-func runService(backendAddr, frontendPipePath string, discoveryListener *discovery.Listener, connManager *connection.MemoryResidentConnectionManager, backendServer, frontendServer *rpc.Server) {
+func runService(backendAddr, frontendPipePath string, discoveryListener *discovery.Listener, connManager *connection.MemoryResidentConnectionManager, backendServer, frontendServer *rpc.Server, stopNotifications func()) {
 	handler := &serviceHandler{
 		backendAddr:       backendAddr,
 		frontendPipePath:  frontendPipePath,
@@ -27,6 +27,7 @@ func runService(backendAddr, frontendPipePath string, discoveryListener *discove
 		connManager:       connManager,
 		backendServer:     backendServer,
 		frontendServer:    frontendServer,
+		stopNotifications: stopNotifications,
 	}
 	if err := svc.Run(serviceName, handler); err != nil {
 		mainLogger.Fatal("Service run failed", err.Error(), nil)
@@ -40,13 +41,25 @@ type serviceHandler struct {
 	connManager       *connection.MemoryResidentConnectionManager
 	backendServer     *rpc.Server
 	frontendServer    *rpc.Server
+	stopNotifications func()
 }
 
 func (h *serviceHandler) Execute(args []string, r <-chan svc.ChangeRequest, changes chan<- svc.Status) (svcSpecificEC bool, exitCode uint32) {
-	changes <- svc.Status{State: svc.StartPending}
+	if h.stopNotifications != nil {
+		defer h.stopNotifications()
+	}
+	changes <- svc.Status{State: svc.StartPending, WaitHint: 45000}
+	if err := configureFirewall(h.backendAddr); err != nil {
+		mainLogger.Error("Firewall setup failed", err.Error(), nil)
+		return true, 1
+	}
 
 	stopCh := make(chan struct{})
-	go startAndWait(h.backendAddr, h.frontendPipePath, h.discoveryListener, h.backendServer, h.frontendServer, h.connManager, stopCh)
+	stopped := make(chan struct{})
+	go func() {
+		defer close(stopped)
+		startAndWait(h.backendAddr, h.frontendPipePath, h.discoveryListener, h.backendServer, h.frontendServer, h.connManager, stopCh)
+	}()
 
 	changes <- svc.Status{State: svc.Running, Accepts: svc.AcceptStop | svc.AcceptShutdown}
 
@@ -58,6 +71,7 @@ func (h *serviceHandler) Execute(args []string, r <-chan svc.ChangeRequest, chan
 				mainLogger.Info("Service stop requested", nil)
 				changes <- svc.Status{State: svc.StopPending}
 				close(stopCh)
+				<-stopped
 				return false, 0
 			default:
 				mainLogger.Info(fmt.Sprintf("Unexpected service control request: %d", c.Cmd), nil)

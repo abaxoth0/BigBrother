@@ -6,11 +6,13 @@
 #include "../include/ipc_client.h"
 #include "../include/ipc_daemon.h"
 #include "../include/net_client.h"
+#include "../../../common/pipe_security.h"
 #include "../../../common/log/log.h"
 #include <windows.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <wchar.h>
 
 #define CLIENT_PIPE_NAME "\\\\.\\pipe\\BigBrother.Client.Backend"
 #define CLIENT_PIPE_BUFFER_SIZE 4096
@@ -264,9 +266,39 @@ error:
     return -1;
 }
 
+// The only clients allowed on the frontend pipe are instances of the client
+// GUI executable ("BigBrother Client.exe"). Compare by file name (case
+// insensitive) so the GUI can run from any directory during development.
+static int peer_is_client_gui(HANDLE pipe) {
+    ULONG pid = 0;
+    if (!GetNamedPipeClientProcessId(pipe, &pid) || pid == 0) return 0;
+
+    HANDLE proc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+    if (!proc) return 0;
+
+    wchar_t path[MAX_PATH];
+    DWORD sz = MAX_PATH;
+    BOOL ok = QueryFullProcessImageNameW(proc, 0, path, &sz);
+    CloseHandle(proc);
+    if (!ok) return 0;
+
+    // Extract the file name component.
+    size_t len = wcslen(path);
+    size_t cut = len;
+    while (cut > 0 && path[cut - 1] != L'\\' && path[cut - 1] != L'/') cut--;
+    const wchar_t* name = path + cut;
+    return _wcsicmp(name, L"BigBrother Client.exe") == 0;
+}
+
 DWORD WINAPI client_handler(LPVOID param) {
     HANDLE pipe = (HANDLE)param;
     char buffer[CLIENT_PIPE_BUFFER_SIZE];
+
+    // Reject unknown peer processes (defense-in-depth on top of the DACL).
+    if (!peer_is_client_gui(pipe)) {
+        CloseHandle(pipe);
+        return 1;
+    }
 
     // Read TLV request
     char** args = NULL;
@@ -279,7 +311,19 @@ DWORD WINAPI client_handler(LPVOID param) {
     }
 
     // Parse command
-    if (strcmp(buffer, "GET_STATUS") == 0) {
+    if (strcmp(buffer, "GET_CLIENT_UPDATE") == 0) {
+        size_t capacity = 128 * 1024;
+        char* response = calloc(1, capacity);
+        if (!response || arg_count != 0 || ServerGetUpdate(response, capacity) != 0) {
+            write_error_tlv(pipe, "could not fetch client update");
+        } else if (!response[0]) {
+            write_ok(pipe);
+        } else {
+            const char* data[] = {response};
+            write_response_tlv(pipe, "OK", data, 1);
+        }
+        free(response);
+    } else if (strcmp(buffer, "GET_STATUS") == 0) {
         int daemon_ok = (PingDaemon() == 0);
         int server_ok = IsServerSessionActive();
 
@@ -297,9 +341,9 @@ DWORD WINAPI client_handler(LPVOID param) {
         snprintf(rev_str, sizeof(rev_str), "%u", g_whitelist_revision);
 
         char filt_str[8];
-        int filt_val = DaemonGetFiltration();
+        int filt_val = RefreshFiltrationEffective();
         snprintf(filt_str, sizeof(filt_str), "%d", filt_val);
-        LOGF("[IPC] GET_STATUS: filtration=%d (from DaemonGetFiltration)", filt_val);
+        LOGF("[IPC] GET_STATUS: filtration=%d (effective)", filt_val);
 
         const char* data[9] = {
             client_name[0] ? client_name : "unknown",
@@ -325,7 +369,10 @@ DWORD WINAPI client_handler(LPVOID param) {
             // Parse firewall response: "WHITELIST\ndomain1\ndomain2\n..."
             // Skip "WHITELIST" header line
             char* line = strchr(whitelist_buf, '\n');
-            if (!line) {
+            if (strcmp(whitelist_buf, "WHITELIST") == 0) {
+                free(whitelist_buf);
+                write_ok(pipe);
+            } else if (!line || strncmp(whitelist_buf, "WHITELIST\n", 10) != 0) {
                 free(whitelist_buf);
                 write_error_tlv(pipe, "invalid whitelist format");
             } else {
@@ -397,6 +444,7 @@ DWORD WINAPI client_handler(LPVOID param) {
         if (LoadUserName(username, sizeof(username)) != 0) {
             write_error_tlv(pipe, "no saved username");
         } else {
+            ResumeServerConnection();
             int r = ServerConnect(username);
             if (r == 0) {
                 write_ok(pipe);
@@ -481,9 +529,23 @@ DWORD WINAPI client_handler(LPVOID param) {
             write_response_tlv(pipe, "OK", data, 1); // empty string = not set
         }
 
+    } else if (strcmp(buffer, "SET_TOKEN") == 0) {
+        if (arg_count < 1 || !args[0]) {
+            write_error_tlv(pipe, "missing token");
+        } else {
+            ini_set_string("client", "token", args[0]);
+            write_ok(pipe);
+        }
+
+    } else if (strcmp(buffer, "GET_TOKEN") == 0) {
+        char buf[256] = {0};
+        ini_get_string("client", "token", buf, sizeof(buf));
+        const char* data[1] = {buf};
+        write_response_tlv(pipe, "OK", data, 1);
+
     } else if (strcmp(buffer, "GET_FILTRATION") == 0) {
         char val[8];
-        int enabled = IsFiltrationEnabled();
+        int enabled = RefreshFiltrationEffective();
         snprintf(val, sizeof(val), "%d", enabled);
         const char* data[1] = {val};
         write_response_tlv(pipe, "OK", data, 1);
@@ -498,6 +560,34 @@ DWORD WINAPI client_handler(LPVOID param) {
             } else {
                 write_error_tlv(pipe, "failed to set filtration");
             }
+        }
+
+    } else if (strcmp(buffer, "GET_WINDOWS_NOTIFICATIONS") == 0) {
+        const char* data[] = {IsWindowsNotificationsEnabled() ? "1" : "0"};
+        write_response_tlv(pipe, "OK", data, 1);
+
+    } else if (strcmp(buffer, "SET_WINDOWS_NOTIFICATIONS") == 0) {
+        if (arg_count != 1 || !args[0] ||
+            (strcmp(args[0], "0") != 0 && strcmp(args[0], "1") != 0)) {
+            write_error_tlv(pipe, "expected value 0 or 1");
+        } else if (SetWindowsNotificationsEnabled(args[0][0] == '1') != 0) {
+            write_error_tlv(pipe, "failed to save Windows notification preference");
+        } else {
+            write_ok(pipe);
+        }
+
+    } else if (strcmp(buffer, "GET_IPV6_BLOCK") == 0) {
+        const char* data[] = {IsIpv6BlockEnabled() ? "1" : "0"};
+        write_response_tlv(pipe, "OK", data, 1);
+
+    } else if (strcmp(buffer, "SET_IPV6_BLOCK") == 0) {
+        if (arg_count != 1 || !args[0] ||
+            (strcmp(args[0], "0") != 0 && strcmp(args[0], "1") != 0)) {
+            write_error_tlv(pipe, "expected value 0 or 1");
+        } else if (SetIpv6BlockEnabled(args[0][0] == '1') != 0) {
+            write_error_tlv(pipe, "failed to save IPv6 blocking preference");
+        } else {
+            write_ok(pipe);
         }
 
     } else if (strcmp(buffer, "GET_FILTRATION_AUTO_DISABLE") == 0) {
@@ -651,6 +741,37 @@ DWORD WINAPI client_handler(LPVOID param) {
         const char* data[1] = {buf};
         write_response_tlv(pipe, "OK", data, 1);
 
+    } else if (strcmp(buffer, "GET_SAVED_SERVER_FINGERPRINT") == 0) {
+        char pinned[65] = {0};
+        ini_get_string("server", "fingerprint", pinned, sizeof(pinned));
+        const char* data[] = {pinned};
+        write_response_tlv(pipe, "OK", data, 1);
+
+    } else if (strcmp(buffer, "INSPECT_SERVER_CERTIFICATE") == 0) {
+        char address[64], pinned[65], observed[65], port_value[16];
+        int port;
+        if (InspectServerCertificate(address, &port, pinned, observed) != 0) {
+            write_error_tlv(pipe, "failed to inspect server certificate; saved trust is unchanged");
+        } else {
+            snprintf(port_value, sizeof(port_value), "%d", port);
+            const char* data[] = {address, port_value, pinned, observed};
+            write_response_tlv(pipe, "OK", data, 4);
+        }
+
+    } else if (strcmp(buffer, "UPDATE_SERVER_FINGERPRINT") == 0) {
+        if (arg_count != 4 || !args[0] || !args[1] || !args[2] || !args[3]) {
+            write_error_tlv(pipe, "missing endpoint, original pin or verified fingerprint");
+        } else {
+            char* end;
+            long port = strtol(args[1], &end, 10);
+            if (*end || end == args[1] || port < 1 || port > 65535 ||
+                UpdateServerFingerprint(args[0], (int)port, args[2], args[3]) != 0) {
+                write_error_tlv(pipe, "certificate or settings changed, verification failed, or pin could not be saved; inspect again");
+            } else {
+                write_ok(pipe);
+            }
+        }
+
     } else if (strcmp(buffer, "SET_SERVER_NAME") == 0) {
         if (arg_count < 1 || !args[0] || strlen(args[0]) == 0) {
             write_error_tlv(pipe, "missing server name");
@@ -766,6 +887,11 @@ DWORD WINAPI client_server_thread(LPVOID param) {
 
     g_shutdown_event = CreateEvent(NULL, TRUE, FALSE, NULL);
 
+    // Restrict the pipe to SYSTEM + Administrators + Owner so local processes
+    // can't drive the client daemon through its frontend pipe.
+    SECURITY_ATTRIBUTES sec_attrs;
+    int have_sec = (bb_restrict_pipe_security(&sec_attrs) == 0);
+
     while (1) {
         HANDLE pipe = CreateNamedPipe(
             CLIENT_PIPE_NAME,
@@ -775,7 +901,7 @@ DWORD WINAPI client_server_thread(LPVOID param) {
             CLIENT_PIPE_BUFFER_SIZE,
             CLIENT_PIPE_BUFFER_SIZE,
             0,
-            NULL
+            have_sec ? &sec_attrs : NULL
         );
 
         if (pipe == INVALID_HANDLE_VALUE) {
@@ -808,6 +934,9 @@ DWORD WINAPI client_server_thread(LPVOID param) {
         Sleep(100);
     }
 
+    if (have_sec) {
+        LocalFree(sec_attrs.lpSecurityDescriptor);
+    }
     return 0;
 }
 

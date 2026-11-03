@@ -3,6 +3,7 @@
 package rpc
 
 import (
+	"crypto/tls"
 	"fmt"
 	"net"
 	"strings"
@@ -23,7 +24,17 @@ type ServerConfig struct {
 	InputBufferSize    int32
 	OutputBufferSize   int32
 	SecurityDescriptor string
+	// TLSConfig enables TLS on the TCP listener (ignored for pipes).
+	TLSConfig *tls.Config
+	// MaxConnections caps concurrent active connections (0 = default 256).
+	MaxConnections int
+	// Per-IP connection rate limiting for TCP listeners
+	// (0 = default 10/s with burst 20). Ignored for pipes.
+	RatePerSec float64
+	RateBurst  int
 }
+
+// ipLimiter and hostOf live in ratelimit.go (platform-neutral, unit-tested).
 
 type Handler interface {
 	handle(conn net.Conn)
@@ -42,6 +53,9 @@ type Server struct {
 
 	conns   map[net.Conn]struct{}
 	connsMu sync.Mutex
+
+	maxConns int
+	limiter  *ipLimiter
 }
 
 func NewServer(name string, handler Handler, config *ServerConfig) *Server {
@@ -54,14 +68,39 @@ func NewServer(name string, handler Handler, config *ServerConfig) *Server {
 	if config == nil {
 		log.Panic("Failed to create \""+name+"\" server", "Missing server config", nil)
 	}
+
 	return &Server{
-		name:    name,
-		config:  config,
-		handler: handler,
-		doneCh:  make(chan struct{}),
-		stopCh:  make(chan struct{}),
-		conns:   make(map[net.Conn]struct{}),
+		name:     name,
+		config:   config,
+		handler:  handler,
+		doneCh:   make(chan struct{}),
+		stopCh:   make(chan struct{}),
+		conns:    make(map[net.Conn]struct{}),
+		maxConns: configMaxConns(config),
+		limiter:  configLimiter(config),
 	}
+}
+
+func configMaxConns(config *ServerConfig) int {
+	if config.MaxConnections > 0 {
+		return config.MaxConnections
+	}
+	return 256
+}
+
+func configLimiter(config *ServerConfig) *ipLimiter {
+	if config.Network != NetworkTCP {
+		return nil
+	}
+	rate := config.RatePerSec
+	burst := config.RateBurst
+	if rate <= 0 {
+		rate = 10
+	}
+	if burst <= 0 {
+		burst = 20
+	}
+	return newIPLimiter(rate, burst)
 }
 
 func (s *Server) setListener(l net.Listener) {
@@ -86,6 +125,12 @@ func (s *Server) untrackConn(c net.Conn) {
 	s.connsMu.Lock()
 	defer s.connsMu.Unlock()
 	delete(s.conns, c)
+}
+
+func (s *Server) connCount() int {
+	s.connsMu.Lock()
+	defer s.connsMu.Unlock()
+	return len(s.conns)
 }
 
 // closeConns closes every active connection so blocked handler goroutines
@@ -119,6 +164,9 @@ func (s *Server) Start(addr string) error {
 
 	case NetworkTCP:
 		listener, err = net.Listen("tcp", addr)
+		if err == nil && s.config.TLSConfig != nil {
+			listener = tls.NewListener(listener, s.config.TLSConfig)
+		}
 
 	default:
 		return fmt.Errorf("unsupported network: %s", network)
@@ -156,6 +204,20 @@ func (s *Server) Start(addr string) error {
 				log.Error(s.name+" server: accept error", err.Error(), nil)
 				continue
 			}
+		}
+
+		// Reject connections over the per-IP rate / connection cap.
+		if s.limiter != nil {
+			if !s.limiter.allow(hostOf(conn.RemoteAddr())) {
+				log.Info(s.name+" server: rate-limited connection from "+hostOf(conn.RemoteAddr()), nil)
+				conn.Close()
+				continue
+			}
+		}
+		if s.connCount() >= s.maxConns {
+			log.Info(s.name+" server: connection cap reached, rejecting", nil)
+			conn.Close()
+			continue
 		}
 
 		wg.Add(1)

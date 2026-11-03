@@ -9,11 +9,18 @@
 
 #include "../include/ipc_daemon.h"
 #include "../include/ipc_client.h"
+#include "../include/tls_client.h"
+#include "../include/client_key.h"
+#include "../include/certificate_pin.h"
 #include "../../../common/log/log.h"
+#include "../../../common/file_security.h"
+#include "notify.h"
 #include <windows.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <ctype.h>
+#include <mbedtls/sha256.h>
 
 #define DAEMON_PIPE_PREFIX "\\\\.\\pipe\\"
 #define CONFIG_INI_PATH "config\\config.ini"
@@ -21,33 +28,48 @@
 
 #define SRV_HEARTBEAT_INTERVAL_MS 10000
 #define SRV_LOCAL_DAEMON_CHECK_MS 10000
+#define SERVER_INVALID_TOKEN (-2)
 
 // Serializes config.ini access since handlers run on multiple threads
 // and ini_set_string rewrites the file (non-atomic without the lock).
 static CRITICAL_SECTION g_config_lock;
-static int g_config_lock_initialized = 0;
+static INIT_ONCE g_config_once = INIT_ONCE_STATIC_INIT;
+static volatile LONG g_certificate_revision = 0;
+
+static BOOL CALLBACK initialize_config_lock(PINIT_ONCE once, PVOID param, PVOID* context) {
+    (void)once; (void)param; (void)context;
+    InitializeCriticalSection(&g_config_lock);
+    return TRUE;
+}
 
 static void config_lock_init(void) {
-    if (!g_config_lock_initialized) {
-        InitializeCriticalSection(&g_config_lock);
-        g_config_lock_initialized = 1;
-    }
+    InitOnceExecuteOnce(&g_config_once, initialize_config_lock, NULL, NULL);
 }
 
 static int ini_get_string_locked(const char* section, const char* key, char* out, size_t out_size);
 static int ini_set_string_locked(const char* section, const char* key, const char* value);
 
 static char g_server_ip[64] = {0};
-static int g_server_session_active = 0;
+static volatile LONG g_server_session_active = 0;
+static volatile LONG g_server_connection_paused = 0;
+static volatile LONG g_server_connection_revision = 0;
 static int g_registration_tried = 0;
 static int g_fallback_whitelist_enabled = 1;
+// Desired filtration state (set explicitly by the user via the "Вкл/Выкл"
+// button, or by the server). The effective state applied to the firewall also
+// depends on the server connection when connection-sync is enabled.
+static int g_filtration_requested = 1;
+// Effective filtration state last pushed to the firewall.
 static int g_filtration_enabled = 1;
+
+static int apply_filtration_sync(void);
 
 // Last whitelist pushed to the firewall (heap-allocated, grows on demand so a
 // large server whitelist is not truncated at a fixed size).
 static char* g_last_whitelist = NULL;
 static size_t g_last_whitelist_cap = 0;
 static int g_blocked_all_pushed = 0;
+static int g_whitelist_sync_pending = 1;
 
 static int wl_last_reserve(size_t need) {
     if (need + 1 <= g_last_whitelist_cap) return 0;
@@ -68,22 +90,58 @@ static void wl_last_set(const char* s) {
 }
 
 static void wl_last_clear(void) {
-    if (g_last_whitelist) g_last_whitelist[0] = '\0';
+    free(g_last_whitelist);
+    g_last_whitelist = NULL;
+    g_last_whitelist_cap = 0;
 }
 
 static int wl_last_equals(const char* s) {
     return g_last_whitelist && strcmp(g_last_whitelist, s) == 0;
 }
 
+int IsWindowsNotificationsEnabled(void) {
+    char value[8] = {0};
+    return !ini_get_string("notifications", "enabled", value, sizeof(value)) || strcmp(value, "0") != 0;
+}
+
+int SetWindowsNotificationsEnabled(int enabled) {
+    return ini_set_string("notifications", "enabled", enabled ? "1" : "0");
+}
+
+static int notify_windows(const char* title, const char* message) {
+    return IsWindowsNotificationsEnabled() ? bb_notify(title, message) : 0;
+}
+
 void SetServerSessionActive(int active) {
-    if (g_server_session_active != active) {
-        g_server_session_active = active;
+    active = active ? 1 : 0;
+    if (active && InterlockedCompareExchange(&g_server_connection_paused, 0, 0)) active = 0;
+    if (InterlockedExchange(&g_server_session_active, active) != active) {
+        if (notify_windows("Соединение с сервером", active ? "Подключено к серверу" : "Соединение с сервером потеряно") != 0)
+            LOGF("[Notifications] Could not launch connection notification");
         NotifyStateChanged();
+        // Sync filtration with the connection state so both connected and
+        // disconnected transitions (manual or unexpected) take effect.
+        apply_filtration_sync();
     }
 }
 
 int IsServerSessionActive(void) {
     return g_server_session_active;
+}
+
+void ResumeServerConnection(void) {
+    InterlockedIncrement(&g_server_connection_revision);
+    InterlockedExchange(&g_server_connection_paused, 0);
+}
+
+static int is_server_connection_paused(void) {
+    return InterlockedCompareExchange(&g_server_connection_paused, 0, 0) != 0;
+}
+
+static void pause_server_connection(void) {
+    InterlockedExchange(&g_server_connection_paused, 1);
+    InterlockedIncrement(&g_server_connection_revision);
+    SetServerSessionActive(0);
 }
 
 void SetFallbackWhitelistEnabled(int enabled) {
@@ -107,6 +165,31 @@ static void build_ini_path(char* buffer, size_t size) {
     get_exe_path(buffer, size);
     size_t len = strlen(buffer);
     snprintf(buffer + len, size - len, "\\" CONFIG_INI_PATH);
+}
+
+int PrepareClientSecretPermissions(void) {
+    char directory[MAX_PATH], config[MAX_PATH], key[MAX_PATH];
+    get_exe_path(directory, sizeof(directory));
+    size_t length = strlen(directory);
+    while (length && directory[length - 1] == '\\') directory[--length] = '\0';
+    if (length <= 3) return -1;
+    DWORD attributes = GetFileAttributesA(directory);
+    if (attributes == INVALID_FILE_ATTRIBUTES || !(attributes & FILE_ATTRIBUTE_DIRECTORY) ||
+        (attributes & FILE_ATTRIBUTE_REPARSE_POINT)) return -1;
+    for (const char** name = (const char*[]){"WINDIR", "PROGRAMFILES", "PROGRAMDATA", "USERPROFILE", NULL}; *name; name++) {
+        char root[MAX_PATH];
+        if (GetEnvironmentVariableA(*name, root, sizeof(root)) && _stricmp(root, directory) == 0) return -1;
+    }
+    snprintf(key, sizeof(key), "%s\\client_sigkey.key", directory);
+    DWORD key_attributes = GetFileAttributesA(key);
+    if (key_attributes == INVALID_FILE_ATTRIBUTES) {
+        DWORD error = GetLastError();
+        if (error != ERROR_FILE_NOT_FOUND && error != ERROR_PATH_NOT_FOUND) return -1;
+    } else if (bb_file_acl(key, 0, 0) != 0) return -1;
+    snprintf(config, sizeof(config), "%s\\config", directory);
+    if (!CreateDirectoryA(config, NULL) && GetLastError() != ERROR_ALREADY_EXISTS) return -1;
+    if (bb_private_tree(config) != 0) return -1;
+    return bb_file_acl(directory, 1, 1);
 }
 
 static char* trim_ws(char* s) {
@@ -185,7 +268,45 @@ static int ini_get_string_locked(const char* section, const char* key, char* out
     }
 
     fclose(f);
-    return 0;
+    int credential = (_stricmp(section, "server") == 0 && _stricmp(key, "fingerprint") == 0) ||
+        (_stricmp(section, "client") == 0 && _stricmp(key, "token") == 0);
+    if (!credential) return 0;
+
+    // Old builds could append credentials to the final unrelated section.
+    // Recover one unambiguous, valid value before normal TLS can fall back to TOFU.
+    f = fopen(ini_path, "r");
+    if (!f) return 0;
+    char recovered[65] = {0};
+    size_t expected = _stricmp(key, "fingerprint") == 0 ? 64 : 48;
+    int conflict = 0, invalid = 0;
+    while (fgets(line, sizeof(line), f)) {
+        char* p = trim_ws(line);
+        if (*p == ';' || *p == '#' || *p == '[') continue;
+        char* eq = strchr(p, '=');
+        if (!eq) continue;
+        *eq = '\0';
+        if (_stricmp(trim_ws(p), key) != 0) continue;
+        char* value = trim_ws(eq + 1);
+        if (strlen(value) != expected) { invalid = 1; continue; }
+        int valid = 1;
+        for (size_t i = 0; i < expected; i++)
+            if (!isxdigit((unsigned char)value[i])) valid = 0;
+        if (!valid) { invalid = 1; continue; }
+        int same = _stricmp(key, "fingerprint") == 0
+            ? _stricmp(recovered, value) == 0 : strcmp(recovered, value) == 0;
+        if (recovered[0] && !same) conflict = 1;
+        else snprintf(recovered, sizeof(recovered), "%s", value);
+    }
+    fclose(f);
+    if (conflict || invalid) {
+        // Preserve rejection instead of silently trusting a new certificate.
+        snprintf(out, out_size, "%s", conflict ? "AMBIGUOUS_MISPLACED_CREDENTIAL" : "INVALID_MISPLACED_CREDENTIAL");
+        return 1;
+    }
+    if (!recovered[0]) return 0;
+    snprintf(out, out_size, "%s", recovered);
+    ini_set_string_locked(section, key, recovered);
+    return 1;
 }
 
 // Write or update a string value in config.ini.
@@ -236,6 +357,9 @@ static int ini_set_string_locked(const char* section, const char* key, const cha
     int section_idx = -1;
     int key_idx = -1;
     int last_in_section = -1;
+    int in_section = 0;
+    int repair_credential = (_stricmp(section, "server") == 0 && _stricmp(key, "fingerprint") == 0) ||
+        (_stricmp(section, "client") == 0 && _stricmp(key, "token") == 0);
 
     for (int i = 0; i < line_count; i++) {
         char tmp[INI_LINE_MAX];
@@ -248,25 +372,24 @@ static int ini_set_string_locked(const char* section, const char* key, const cha
             char* end = strchr(p, ']');
             if (!end) continue;
             *end = '\0';
-            if (_stricmp(p + 1, section) == 0) {
+            in_section = (_stricmp(p + 1, section) == 0);
+            if (in_section) {
                 section_idx = i;
-            } else if (section_idx >= 0 && last_in_section < 0) {
-                last_in_section = i - 1;
+                last_in_section = i;
             }
             continue;
         }
 
-        if (section_idx >= 0) {
-            char* eq = strchr(p, '=');
-            if (eq) {
-                *eq = '\0';
-                char* k = trim_ws(p);
-                if (_stricmp(k, key) == 0) {
-                    key_idx = i;
-                }
+        char* eq = strchr(p, '=');
+        if (eq) {
+            *eq = '\0';
+            char* k = trim_ws(p);
+            if (_stricmp(k, key) == 0) {
+                if (in_section) key_idx = i;
+                else if (repair_credential) lines[i][0] = '\0';
             }
-            last_in_section = i;
         }
+        if (in_section) last_in_section = i;
     }
 
     char new_line[INI_LINE_MAX];
@@ -301,6 +424,8 @@ static int ini_set_string_locked(const char* section, const char* key, const cha
         for (int i = 0; i < line_count; i++) {
             fputs(lines[i], out);
             if (i == last_in_section) {
+                size_t n = strlen(lines[i]);
+                if (n && lines[i][n - 1] != '\n') fputc('\n', out);
                 fputs(new_line, out);
             }
         }
@@ -314,25 +439,25 @@ static int ini_set_string_locked(const char* section, const char* key, const cha
 
     fclose(out);
 
-    // Replace original atomically (no window where the file is missing).
+    // Preserve the original on a failed atomic replacement. Callers must know
+    // persistence failed so an in-memory replacement remains authoritative.
+    int result = 0;
     if (!MoveFileEx(tmp_path, ini_path, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
-        // Fallback: remove + rename (best effort)
-        remove(ini_path);
-        rename(tmp_path, ini_path);
+        DeleteFile(tmp_path);
+        result = -1;
     }
-
     for (int i = 0; i < line_count; i++) free(lines[i]);
     free(lines);
-    return 0;
+    return result;
 }
 
 void load_server_ip(void) {
     char buf[64] = {0};
     if (ini_get_string("server", "address", buf, sizeof(buf)) && buf[0]) {
         strncpy(g_server_ip, buf, sizeof(g_server_ip) - 1);
-        printf("[DEBUG] load_server_ip: loaded IP = '%s'\n", g_server_ip);
+        DLOGF("load_server_ip: loaded IP = '%s'", g_server_ip);
     } else {
-        printf("[DEBUG] load_server_ip: no config or empty\n");
+        DLOGF("load_server_ip: no config or empty");
     }
 }
 
@@ -346,8 +471,11 @@ int HasServerIp(void) {
 
 void SetServerIp(const char* ip) {
     if (ip) {
-        strncpy(g_server_ip, ip, sizeof(g_server_ip) - 1);
-        ini_set_string("server", "address", ip);
+        config_lock_init();
+        EnterCriticalSection(&g_config_lock);
+        snprintf(g_server_ip, sizeof(g_server_ip), "%s", ip);
+        ini_set_string_locked("server", "address", ip);
+        LeaveCriticalSection(&g_config_lock);
     }
 }
 
@@ -451,7 +579,7 @@ static int send_command_tlv(const char* command, const char** args, size_t arg_c
         if (total >= buffer_size - 1) break;
     }
 
-    if (!ok && total == 0) {
+    if (!ok) {
         CloseHandle(pipe);
         return -1;
     }
@@ -476,11 +604,21 @@ int DaemonGetWhitelist(char* out_buffer, size_t buffer_size) {
 
 int DaemonSetWhitelist(const char* data, size_t size, char* out_buffer, size_t buffer_size) {
     const char* args[1] = {data};
-    return send_command_tlv("SET_WHITELIST", args, 1, out_buffer, buffer_size);
+    int result = send_command_tlv("SET_WHITELIST", args, 1, out_buffer, buffer_size);
+    if (result == 0 && strcmp(out_buffer, "OK") == 0 &&
+        notify_windows("Белый список", "Белый список обновлён") != 0)
+        LOGF("[Notifications] Could not launch whitelist notification");
+    if (result == 0 && strcmp(out_buffer, "OK") != 0) return -1;
+    return result;
 }
 
 int DaemonReloadWhitelist(char* out_buffer, size_t buffer_size) {
-    return send_command_tlv("RELOAD", NULL, 0, out_buffer, buffer_size);
+    int result = send_command_tlv("RELOAD", NULL, 0, out_buffer, buffer_size);
+    if (result == 0 && strcmp(out_buffer, "OK") == 0 &&
+        notify_windows("Белый список", "Белый список перезагружен") != 0)
+        LOGF("[Notifications] Could not launch whitelist notification");
+    if (result == 0 && strcmp(out_buffer, "OK") != 0) return -1;
+    return result;
 }
 
 int PingDaemon(void) {
@@ -492,53 +630,149 @@ int DaemonGetLogPath(char* out_buffer, size_t buffer_size) {
     return send_command_tlv("GET_LOG_PATH", NULL, 0, out_buffer, buffer_size);
 }
 
+static volatile LONG g_notification_filtration = -1;
+
+static void notify_filtration(int enabled) {
+    LONG previous = InterlockedExchange(&g_notification_filtration, enabled);
+    if (previous != -1 && previous != enabled &&
+        notify_windows("Фильтрация", enabled ? "Фильтрация включена" : "Фильтрация выключена") != 0)
+        LOGF("[Notifications] Could not launch filtration notification");
+}
+
 int DaemonGetFiltration(void) {
     char buf[16] = {0};
     if (send_command_tlv("GET_FILTRATION", NULL, 0, buf, sizeof(buf)) == 0) {
         g_filtration_enabled = (buf[0] == '1');
+    } else {
+        // Firewall is not running — nothing is being filtered, report as off.
+        g_filtration_enabled = 0;
     }
+    notify_filtration(g_filtration_enabled);
     return g_filtration_enabled;
 }
 
-int DaemonSetFiltration(int enabled) {
-    const char* args[1] = {enabled ? "1" : "0"};
+// Push the already-gated effective state to the firewall and cache it.
+static int daemon_set_filtration_effective(int effective) {
+    const char* args[1] = {effective ? "1" : "0"};
     char buf[16] = {0};
-    if (send_command_tlv("SET_FILTRATION", args, 1, buf, sizeof(buf)) == 0) {
-        g_filtration_enabled = enabled;
+    if (send_command_tlv("SET_FILTRATION", args, 1, buf, sizeof(buf)) == 0 && strcmp(buf, "OK") == 0) {
+        g_filtration_enabled = effective;
+        notify_filtration(effective);
         NotifyStateChanged();
         return 0;
     }
     return -1;
 }
 
+int DaemonSetFiltration(int enabled) {
+    int desired = enabled ? 1 : 0;
+    int rc = 0;
+    if (desired != g_filtration_requested) {
+        g_filtration_requested = desired;
+        rc = apply_filtration_sync();
+    }
+    // Always refresh the GUI so it shows the true (possibly connection-gated)
+    // state even when the request itself cannot take effect yet.
+    NotifyStateChanged();
+    return rc;
+}
+
 int IsFiltrationEnabled(void) {
     return g_filtration_enabled;
+}
+
+int IsIpv6BlockEnabled(void) {
+    char buf[8] = {0};
+    if (ini_get_string("filtration", "block_ipv6", buf, sizeof(buf)) && buf[0])
+        return strcmp(buf, "0") != 0;
+    return 1;
+}
+
+static SRWLOCK g_ipv6_sync_lock = SRWLOCK_INIT;
+
+static int sync_ipv6_block_locked(void) {
+    int desired = IsIpv6BlockEnabled();
+    char buf[32] = {0};
+    if (send_command_tlv("GET_IPV6_BLOCK", NULL, 0, buf, sizeof(buf)) != 0)
+        return -1;
+    if (strcmp(buf, desired ? "1" : "0") == 0) return 0;
+    const char* args[] = {desired ? "1" : "0"};
+    if (send_command_tlv("SET_IPV6_BLOCK", args, 1, buf, sizeof(buf)) != 0)
+        return -1;
+    return strcmp(buf, "OK") == 0 ? 0 : -1;
+}
+
+static int sync_ipv6_block(void) {
+    AcquireSRWLockExclusive(&g_ipv6_sync_lock);
+    int result = sync_ipv6_block_locked();
+    ReleaseSRWLockExclusive(&g_ipv6_sync_lock);
+    return result;
+}
+
+int SetIpv6BlockEnabled(int enabled) {
+    AcquireSRWLockExclusive(&g_ipv6_sync_lock);
+    if (ini_set_string("filtration", "block_ipv6", enabled ? "1" : "0") != 0) {
+        ReleaseSRWLockExclusive(&g_ipv6_sync_lock);
+        return -1;
+    }
+    // Persist even while the firewall is stopped; startup/status restores it.
+    int synced = sync_ipv6_block_locked();
+    ReleaseSRWLockExclusive(&g_ipv6_sync_lock);
+    if (synced != 0)
+        LOGF("[Daemon] IPv6 blocking preference saved; firewall sync pending");
+    NotifyStateChanged();
+    return 0;
 }
 
 int IsFiltrationAutoDisableEnabled(void) {
     char buf[8] = {0};
     if (ini_get_string("filtration", "auto_disable", buf, sizeof(buf)) && buf[0])
         return buf[0] == '1';
-    return 0;
+    return 1; // enabled by default
 }
 
 void SetFiltrationAutoDisableEnabled(int enabled) {
     ini_set_string("filtration", "auto_disable", enabled ? "1" : "0");
+    apply_filtration_sync();
 }
 
-static void apply_auto_disable(void) {
-    if (IsFiltrationAutoDisableEnabled() && IsFiltrationEnabled()) {
-        LOGF("[Daemon] Auto-disable: disabling filtration (server disconnected)");
-        DaemonSetFiltration(0);
+// Recompute the effective filtration state. With connection-sync enabled,
+// filtration is only effective while connected to the server; the user's
+// explicit choice (g_filtration_requested) is never overridden.
+static int apply_filtration_sync(void) {
+    int effective = (IsFiltrationAutoDisableEnabled() && !IsServerSessionActive())
+                        ? 0 : g_filtration_requested;
+    if (effective != g_filtration_enabled) {
+        LOGF("[Daemon] Filtration sync: requested=%d connected=%d -> effective=%d",
+             g_filtration_requested, IsServerSessionActive(), effective);
+        return daemon_set_filtration_effective(effective);
     }
+    return 0;
 }
 
-static void apply_auto_enable(void) {
-    if (IsFiltrationAutoDisableEnabled() && !IsFiltrationEnabled()) {
-        LOGF("[Daemon] Auto-disable: enabling filtration (server connected)");
-        DaemonSetFiltration(1);
+// Public wrapper used by the IPC layer when reporting status: recomputes the
+// connection-gated effective state (pushing it to the firewall if it changed),
+// re-reads the firewall, and re-aligns it if it drifted (e.g. the firewall
+// restarted with its default state). Returns the effective state to report —
+// always 0 when the firewall is not running.
+int RefreshFiltrationEffective(void) {
+    sync_ipv6_block();
+    apply_filtration_sync();
+    int actual = DaemonGetFiltration();
+    int effective = (IsFiltrationAutoDisableEnabled() && !IsServerSessionActive())
+                        ? 0 : g_filtration_requested;
+    if (actual != effective) {
+        if (daemon_set_filtration_effective(effective) == 0) {
+            return effective;
+        }
+        g_filtration_enabled = 0; // push failed -> firewall unreachable
+        return 0;
     }
+    return actual;
 }
+
+static int tls_connect_socket(SOCKET sock, bb_tls_t* tls);
+static void get_client_token(char* buf, size_t size);
 
 static int send_to_server_tlv(const char* command, const char** args, size_t arg_count,
                               char* out_buffer, size_t buffer_size) {
@@ -546,6 +780,8 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
         printf("[send_to_server] Error: invalid parameters or empty server IP\n");
         return -1;
     }
+
+    out_buffer[0] = '\0';
 
     // Ensure Winsock is initialized
     WSADATA wsa;
@@ -566,8 +802,7 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
 
     // TCP socket
     SOCKET sock = INVALID_SOCKET;
-    // The subscribe loop calls this repeatedly; keep the worst-case blocking
-    // time bounded (3 x 200ms = 600ms) instead of stalling on 10 x 500ms.
+    // Keep the worst-case blocking time bounded instead of stalling.
     int retries = 3;
 
     while (retries > 0 && sock == INVALID_SOCKET) {
@@ -600,7 +835,17 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
         return -1;
     }
 
-    printf("[send_to_server] Connected, sending command...\n");
+    bb_tls_t tls;
+    if (tls_connect_socket(sock, &tls) != 0) {
+        printf("[send_to_server] TLS handshake or fingerprint verification failed "
+               "(is the server running the TLS build?)\n");
+        LOGF("[Daemon] TLS connect to server failed (see client log for details)");
+        closesocket(sock);
+        WSACleanup();
+        return -1;
+    }
+
+    printf("[send_to_server] Connected via TLS, sending command...\n");
     fflush(stdout);
 
     // Build TLV request
@@ -616,6 +861,7 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
 
     char* send_buf = malloc(total_size);
     if (!send_buf) {
+        bb_tls_free(&tls);
         closesocket(sock);
         WSACleanup();
         return -1;
@@ -639,10 +885,11 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
     }
     *sp++ = '\n';
 
-    int sent = send(sock, send_buf, (int)(sp - send_buf), 0);
+    int sent = bb_tls_write(&tls, send_buf, (size_t)(sp - send_buf));
     free(send_buf);
     if (sent <= 0) {
-        printf("[send_to_server] send() failed: %lu\n", (unsigned long)WSAGetLastError());
+        printf("[send_to_server] send() failed\n");
+        bb_tls_free(&tls);
         closesocket(sock);
         WSACleanup();
         return -1;
@@ -654,7 +901,7 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
     size_t status_remaining = sizeof(status_buf) - 1;
     while (status_remaining > 0) {
         char c;
-        int n = recv(sock, &c, 1, 0);
+        int n = bb_tls_read(&tls, &c, 1);
         if (n <= 0) break;
         if (c == '\n') break;
         *status_out++ = c;
@@ -677,7 +924,7 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
             char* lp = len_line;
             while (1) {
                 char c;
-                int n = recv(sock, &c, 1, 0);
+                int n = bb_tls_read(&tls, &c, 1);
                 if (n <= 0) break;
                 if (c == '\n') break;
                 *lp++ = c;
@@ -698,56 +945,294 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
             }
             first = 0;
 
-        // Read value
-        int count = 0;
-        while (count < expected_len && remaining > 0) {
-            char c;
-            int n = recv(sock, &c, 1, 0);
-            if (n <= 0) break;
-            *out++ = c;
-            count++;
-            remaining--;
-        }
-        *out = '\0';
-
-        // Consume trailing newline after TLV value
-        {
-            char nl;
-            int n = recv(sock, &nl, 1, 0);
-            if (n == 1 && nl == '\r') {
-                recv(sock, &nl, 1, 0); // consume \n after \r
+            // Read value
+            int count = 0;
+            while (count < expected_len && remaining > 0) {
+                char c;
+                int n = bb_tls_read(&tls, &c, 1);
+                if (n <= 0) break;
+                *out++ = c;
+                count++;
+                remaining--;
             }
-        }
+            *out = '\0';
+
+            // Consume trailing newline after TLV value
+            {
+                char nl;
+                int n = bb_tls_read(&tls, &nl, 1);
+                if (n == 1 && nl == '\r') {
+                    bb_tls_read(&tls, &nl, 1); // consume \n after \r
+                }
+            }
         }
         result = 0;
     } else if (strcmp(status_buf, "ERROR") == 0) {
         char len_line[32] = {0};
-        char* lp = len_line;
-        while (1) {
+        size_t len_pos = 0;
+        int complete_length = 0;
+        while (len_pos < sizeof(len_line) - 1) {
             char c;
-            int n = recv(sock, &c, 1, 0);
-            if (n <= 0) break;
-            if (c == '\n') break;
-            *lp++ = c;
+            if (bb_tls_read(&tls, &c, 1) != 1) break;
+            if (c == '\n') { complete_length = 1; break; }
+            len_line[len_pos++] = c;
         }
-
-        if (strlen(len_line) > 0) {
-            int expected_len = atoi(len_line);
-            if (expected_len > 0 && expected_len < (int)buffer_size) {
-                int bytes_read = 0;
-                while (bytes_read < expected_len) {
-                    int n = recv(sock, out_buffer + bytes_read, expected_len - bytes_read, 0);
-                    if (n <= 0) break;
-                    bytes_read += n;
-                }
-                out_buffer[bytes_read] = '\0';
+        char* end;
+        long expected_len = strtol(len_line, &end, 10);
+        if (complete_length && end != len_line && *end == '\0' &&
+            expected_len > 0 && (size_t)expected_len < buffer_size) {
+            size_t got = 0;
+            while (got < (size_t)expected_len) {
+                int n = bb_tls_read(&tls, out_buffer + got, (size_t)expected_len - got);
+                if (n <= 0) break;
+                got += (size_t)n;
+            }
+            out_buffer[got] = '\0';
+            char nl = 0;
+            if (got == (size_t)expected_len && bb_tls_read(&tls, &nl, 1) == 1 &&
+                nl == '\n' && strcmp(out_buffer, "invalid token") == 0) {
+                result = SERVER_INVALID_TOKEN;
             }
         }
-        result = -1;
     }
 
+    bb_tls_free(&tls);
     closesocket(sock);
     WSACleanup();
+    return result;
+}
+
+// Protect both caches; rejected persisted credentials stay ignored even if a
+// config write fails, so they cannot override a replacement held in memory.
+static char g_client_token[256] = {0};
+static int g_ignore_persisted_token = 0;
+static SRWLOCK g_token_lock = SRWLOCK_INIT;
+static SRWLOCK g_token_fetch_lock = SRWLOCK_INIT;
+static ULONGLONG g_next_token_fetch = 0;
+
+static void get_client_token_locked(char* buf, size_t size) {
+    buf[0] = '\0';
+    if (g_ignore_persisted_token ||
+        !ini_get_string("client", "token", buf, size) || buf[0] == '\0') {
+        snprintf(buf, size, "%s", g_client_token);
+    }
+}
+
+static void get_client_token(char* buf, size_t size) {
+    AcquireSRWLockExclusive(&g_token_lock);
+    get_client_token_locked(buf, size);
+    ReleaseSRWLockExclusive(&g_token_lock);
+}
+
+static void set_client_token(const char* token) {
+    AcquireSRWLockExclusive(&g_token_lock);
+    snprintf(g_client_token, sizeof(g_client_token), "%s", token);
+    g_ignore_persisted_token = ini_set_string("client", "token", token) != 0;
+    ReleaseSRWLockExclusive(&g_token_lock);
+}
+
+static void invalidate_client_token(const char* rejected) {
+    AcquireSRWLockExclusive(&g_token_lock);
+    char current[256];
+    get_client_token_locked(current, sizeof(current));
+    // A late rejection of an older request must not discard a newer token.
+    if (strcmp(current, rejected) == 0) {
+        g_client_token[0] = '\0';
+        g_ignore_persisted_token = 1;
+        ini_set_string("client", "token", "");
+    }
+    ReleaseSRWLockExclusive(&g_token_lock);
+}
+
+#ifdef BB_TOKEN_TEST
+static int token_request(const char*, const char**, size_t, char*, size_t);
+#else
+#define token_request send_to_server_tlv
+#endif
+
+static void certificate_state_locked(char address[64], int* port, char pinned[65]) {
+    snprintf(address, 64, "%s", g_server_ip);
+    char value[16] = {0};
+    ini_get_string_locked("server", "port", value, sizeof(value));
+    *port = value[0] ? atoi(value) : 1984;
+    if (*port < 1 || *port > 65535) *port = 1984;
+    pinned[0] = '\0';
+    ini_get_string_locked("server", "fingerprint", pinned, 65);
+}
+
+#ifdef BB_CERTIFICATE_TEST
+static int certificate_probe(const char*, int, const char*, char[65]);
+#else
+#define certificate_probe bb_probe_certificate
+#endif
+
+int InspectServerCertificate(char address[64], int* port, char pinned[65], char observed[65]) {
+    config_lock_init();
+    EnterCriticalSection(&g_config_lock);
+    certificate_state_locked(address, port, pinned);
+    LeaveCriticalSection(&g_config_lock);
+    return certificate_probe(address, *port, "", observed);
+}
+
+static int certificate_state_matches(const char* address, int port, const char* pin) {
+    char current_address[64], current_pin[65];
+    int current_port;
+    certificate_state_locked(current_address, &current_port, current_pin);
+    return strcmp(address, current_address) == 0 && port == current_port &&
+           _stricmp(pin, current_pin) == 0;
+}
+
+int UpdateServerFingerprint(const char* address, int port, const char* original_pin,
+                            const char* verified_fingerprint) {
+    char verified[65], observed[65];
+    if (!address || !original_pin ||
+        bb_normalize_fingerprint(verified_fingerprint, verified) != 0) return -1;
+    config_lock_init();
+    EnterCriticalSection(&g_config_lock);
+    int unchanged = certificate_state_matches(address, port, original_pin);
+    LeaveCriticalSection(&g_config_lock);
+    if (!unchanged || certificate_probe(address, port, verified, observed) != 0 ||
+        _stricmp(verified, observed) != 0) return -1;
+    EnterCriticalSection(&g_config_lock);
+    int result = -1;
+    if (certificate_state_matches(address, port, original_pin)) {
+        result = ini_set_string_locked("server", "fingerprint", verified);
+        if (result == 0) InterlockedIncrement(&g_certificate_revision);
+    }
+    LeaveCriticalSection(&g_config_lock);
+    return result;
+}
+
+// Inspection never calls this helper: only normal connections may establish
+// initial trust. Recheck the current pin before accepting concurrent changes.
+static int tls_connect_socket(SOCKET sock, bb_tls_t* tls) {
+    char pinned[65] = {0}, got[65] = {0};
+    ini_get_string("server", "fingerprint", pinned, sizeof(pinned));
+    if (bb_tls_init(tls) != 0) return -1;
+    if (bb_tls_connect(tls, sock, pinned, got, sizeof(got)) != 0) {
+        bb_tls_free(tls);
+        return -1;
+    }
+    config_lock_init();
+    EnterCriticalSection(&g_config_lock);
+    char current[65] = {0};
+    ini_get_string_locked("server", "fingerprint", current, sizeof(current));
+    int accepted = current[0] ? _stricmp(current, got) == 0 :
+        ini_set_string_locked("server", "fingerprint", got) == 0;
+    LeaveCriticalSection(&g_config_lock);
+    if (!accepted) { bb_tls_free(tls); return -1; }
+    return 0;
+}
+
+// Path of the client's persistent ECDSA identity key (beside the executable).
+static const char* sig_key_path(void) {
+    static char p[MAX_PATH] = {0};
+    if (p[0] == '\0') {
+        char exe[MAX_PATH];
+        get_exe_path(exe, sizeof(exe));
+        snprintf(p, sizeof(p), "%s\\client_sigkey.key", exe);
+    }
+    return p;
+}
+
+// Ensures the identity key exists and fills out with its uncompressed P-256
+// public point as hex (130 chars). Returns 0 on success.
+static int client_identity_pub_hex(char* out, size_t cap) {
+    mbedtls_pk_context pk;
+    if (client_key_ensure(sig_key_path(), &pk) != 0) {
+        LOGF("[Daemon] Failed to create/load client identity key");
+        return -1;
+    }
+    int r = client_key_public_point_hex(&pk, out, cap);
+    if (r != 0) LOGF("[Daemon] Failed to export client identity public key");
+    mbedtls_pk_free(&pk);
+    return r;
+}
+
+// Fetches the per-user token automatically when the client has no token yet.
+// Flow: GET_TOKEN_CHALLENGE -> sign(username||nonce) -> GET_TOKEN -> save.
+// Before approval the server refuses (user not found / key not registered),
+// which is fine — REGISTER already carried the public key; we retry each loop.
+static int fetch_token_if_needed(const char* username) {
+    if (!username || username[0] == '\0') return -1;
+    AcquireSRWLockExclusive(&g_token_fetch_lock);
+    char token[256];
+    get_client_token(token, sizeof(token));
+    if (token[0]) {
+        ReleaseSRWLockExclusive(&g_token_fetch_lock);
+        return 0;
+    }
+    if (GetTickCount64() < g_next_token_fetch) {
+        ReleaseSRWLockExclusive(&g_token_fetch_lock);
+        return -1;
+    }
+    g_next_token_fetch = GetTickCount64() + 5000;
+    int result = -1;
+    mbedtls_pk_context pk;
+    if (client_key_ensure(sig_key_path(), &pk) != 0) {
+        LOGF("[Daemon] Token fetch: cannot ensure identity key");
+        ReleaseSRWLockExclusive(&g_token_fetch_lock);
+        return -1;
+    }
+    const char* chal_args[] = {username};
+    char nonce[256] = {0};
+    if (token_request("GET_TOKEN_CHALLENGE", chal_args, 1, nonce, sizeof(nonce)) != 0 || !nonce[0])
+        goto done;
+    char msg[384], sighex[300];
+    int len = snprintf(msg, sizeof(msg), "%s%s", username, nonce);
+    if (len < 0 || (size_t)len >= sizeof(msg) ||
+        client_key_sign(&pk, (const unsigned char*)msg, (size_t)len, sighex, sizeof(sighex)) != 0)
+        goto done;
+    const char* tok_args[] = {username, nonce, sighex};
+    char response[128] = {0};
+    if (token_request("GET_TOKEN", tok_args, 3, response, sizeof(response)) != 0 ||
+        !response[0] || strcmp(response, "NOT_SET") == 0)
+        goto done;
+    set_client_token(response);
+    g_next_token_fetch = 0;
+    result = 0;
+    LOGF("[Daemon] Token received from server automatically");
+done:
+    mbedtls_pk_free(&pk);
+    ReleaseSRWLockExclusive(&g_token_fetch_lock);
+    return result;
+}
+
+static int send_authenticated_request(const char* command, const char* username,
+                                      const char** args, size_t count, size_t token_index,
+                                      char* response, size_t capacity) {
+    char token[256];
+    const char* original_token = args[token_index];
+    get_client_token(token, sizeof(token));
+    args[token_index] = token;
+    int result = token_request(command, args, count, response, capacity);
+    args[token_index] = original_token;
+    if (result != SERVER_INVALID_TOKEN) return result;
+    invalidate_client_token(token);
+    if (fetch_token_if_needed(username) != 0) return -1;
+    get_client_token(token, sizeof(token));
+    args[token_index] = token;
+    result = token_request(command, args, count, response, capacity);
+    args[token_index] = original_token;
+    if (result == SERVER_INVALID_TOKEN) {
+        invalidate_client_token(token);
+        AcquireSRWLockExclusive(&g_token_fetch_lock);
+        g_next_token_fetch = GetTickCount64() + 5000;
+        ReleaseSRWLockExclusive(&g_token_fetch_lock);
+    }
+    return result; // At most one signed fetch and one retry per request.
+}
+
+int ServerGetUpdate(char* output, size_t size) {
+    char username[128] = {0}, token[256] = {0};
+    if (LoadUserName(username, sizeof(username)) != 0 || !username[0]) return -1;
+    get_client_token(token, sizeof(token));
+    const char* args[] = { username, token };
+    int result = send_authenticated_request("GET_CLIENT_UPDATE_DETAILS", username, args, 2, 1, output, size);
+    if (result != 0 && strstr(output, "unknown command") != NULL) {
+        output[0] = '\0';
+        return send_authenticated_request("GET_CLIENT_UPDATE", username, args, 2, 1, output, size);
+    }
     return result;
 }
 
@@ -756,33 +1241,40 @@ int ServerRegister(const char* name) {
 
     char local_ip[64] = {0};
     GetLocalIp(g_server_ip, local_ip, sizeof(local_ip));
-    const char* args[2] = {name, local_ip};
+
+    // Client identity public key (ECDSA P-256 point, hex), bound server-side at
+    // approval and later used to authorize automatic token delivery.
+    char sigpub[160] = {0};
+    client_identity_pub_hex(sigpub, sizeof(sigpub));
+
+    const char* args[3] = {name, local_ip, sigpub};
+    size_t arg_count = local_ip[0] ? 3 : (sigpub[0] ? 2 : 1);
     char response[256];
     memset(response, 0, sizeof(response));
 
-    printf("[DEBUG] ServerRegister: local_ip='%s', calling send_to_server...\n", local_ip);
-    fflush(stdout);
+    DLOGF("ServerRegister: local_ip='%s', pub='%s', sending to server...", local_ip, sigpub);
 
-    int result = send_to_server_tlv("REGISTER", args, local_ip[0] ? 2 : 1, response, sizeof(response));
+    int result = send_to_server_tlv("REGISTER", args, arg_count, response, sizeof(response));
 
-    printf("[DEBUG] ServerRegister: send_to_server done, result=%d\n", result);
-    fflush(stdout);
+    DLOGF("ServerRegister: send_to_server done, result=%d", result);
 
     if (result == 0) {
-        printf("[DEBUG] ServerRegister: response='%s'\n", response);
-        fflush(stdout);
+        DLOGF("ServerRegister: response='%s'", response);
     }
 
     return result;
 }
 
 int ServerConnect(const char* name) {
-    if (!name) return -1;
+    if (!name || is_server_connection_paused()) return -1;
     char local_ip[64] = {0};
     GetLocalIp(g_server_ip, local_ip, sizeof(local_ip));
-    const char* args[2] = {name, local_ip};
+    char token[256] = {0};
+    get_client_token(token, sizeof(token));
+    const char* args[3] = {name, local_ip, token};
     char response[256] = {0};
-    int result = send_to_server_tlv("CONNECT", args, local_ip[0] ? 2 : 1, response, sizeof(response));
+    LOGF("[Daemon] CONNECT with token len=%zu (ip='%s')", strlen(token), local_ip);
+    int result = send_authenticated_request("CONNECT", name, args, 3, 2, response, sizeof(response));
     if (result == 0 || strstr(response, "already connected") != NULL) {
         SetServerSessionActive(1);
         return 0;
@@ -797,27 +1289,33 @@ int ServerConnect(const char* name) {
 
 int ServerDisconnect(const char* name) {
     if (!name) return -1;
-    const char* args[1] = {name};
+    char token[256] = {0};
+    get_client_token(token, sizeof(token));
+    const char* args[2] = {name, token};
     char response[256];
-    int result = send_to_server_tlv("DISCONNECT", args, 1, response, sizeof(response));
-    if (result == 0) SetServerSessionActive(0);
+    int result = send_authenticated_request("DISCONNECT", name, args, 2, 1, response, sizeof(response));
+    if (result == 0) pause_server_connection();
     return result;
 }
 
 int ServerRefresh(const char* name) {
-    if (!name) return -1;
-    const char* args[1] = {name};
+    if (!name || is_server_connection_paused()) return -1;
+    char token[256] = {0};
+    get_client_token(token, sizeof(token));
+    const char* args[2] = {name, token};
     char response[256];
-    int result = send_to_server_tlv("REFRESH", args, 1, response, sizeof(response));
+    int result = send_authenticated_request("REFRESH", name, args, 2, 1, response, sizeof(response));
     if (result == 0) SetServerSessionActive(1);
     return result;
 }
 
 int ServerChangeName(const char* oldName, const char* newName) {
     if (!oldName || !newName) return -1;
-    const char* args[2] = {oldName, newName};
+    char token[256] = {0};
+    get_client_token(token, sizeof(token));
+    const char* args[3] = {oldName, newName, token};
     char response[256];
-    return send_to_server_tlv("CHANGE_NAME", args, 2, response, sizeof(response));
+    return send_authenticated_request("CHANGE_NAME", oldName, args, 3, 2, response, sizeof(response));
 }
 
 int PingServer(void) {
@@ -829,20 +1327,20 @@ int PingServer(void) {
 
 // Buffered line reader used by server_subscribe_loop
 typedef struct {
-    SOCKET sock;
+    bb_tls_t* tls;
     char buf[4096];
     size_t pos;
     size_t len;
 } SrvLineReader;
 
-static void srv_line_reader_init(SrvLineReader* r, SOCKET sock) {
-    r->sock = sock;
+static void srv_line_reader_init(SrvLineReader* r, bb_tls_t* tls) {
+    r->tls = tls;
     r->pos = 0;
     r->len = 0;
 }
 
 // Read a single LF-terminated line (strips CR). Returns 1 on success,
-// 2 on recv timeout, 0 on error/disconnect. Over-long lines are truncated
+// 2 on read timeout, 0 on error/disconnect. Over-long lines are truncated
 // but fully drained so framing stays intact (no bogus follow-up line).
 static int srv_readline(SrvLineReader* r, char* out, size_t out_size) {
     size_t consumed = 0;
@@ -850,11 +1348,11 @@ static int srv_readline(SrvLineReader* r, char* out, size_t out_size) {
         if (r->pos >= r->len) {
             r->pos = 0;
             r->len = 0;
-            int n = recv(r->sock, r->buf, sizeof(r->buf) - 1, 0);
+            int n = bb_tls_read(r->tls, r->buf, sizeof(r->buf) - 1);
             if (n <= 0) {
-                if (n == 0) return 0; // connection closed
-                if (WSAGetLastError() == WSAETIMEDOUT) return 2; // recv timeout
-                return 0; // real error
+                if (n == 0) return 0;         // connection closed
+                if (n == BB_TLS_TRY_AGAIN) return 2; // idle timeout, retry
+                return 0;                     // real error
             }
             r->len = (size_t)n;
         }
@@ -874,13 +1372,14 @@ static int srv_readline(SrvLineReader* r, char* out, size_t out_size) {
 static int srv_read_tlv(SrvLineReader* r, char* out, size_t out_size) {
     char len_str[32];
     if (srv_readline(r, len_str, sizeof(len_str)) != 1) return 0;
-    int expected = atoi(len_str);
-    if (expected < 0 || (size_t)expected >= out_size) return 0;
+    char* end;
+    long expected = strtol(len_str, &end, 10);
+    if (end == len_str || *end != '\0' || expected <= 0 || (size_t)expected >= out_size) return 0;
     // Read exactly expected bytes
     size_t got = 0;
     while (got < (size_t)expected) {
         if (r->pos >= r->len) {
-            int n = recv(r->sock, r->buf, sizeof(r->buf) - 1, 0);
+            int n = bb_tls_read(r->tls, r->buf, sizeof(r->buf) - 1);
             if (n <= 0) return 0;
             r->pos = 0;
             r->len = (size_t)n;
@@ -895,19 +1394,23 @@ static int srv_read_tlv(SrvLineReader* r, char* out, size_t out_size) {
     out[got] = '\0';
     // Consume trailing newline
     if (r->pos >= r->len) {
-        int n = recv(r->sock, r->buf, sizeof(r->buf) - 1, 0);
+        int n = bb_tls_read(r->tls, r->buf, sizeof(r->buf) - 1);
         if (n <= 0) return 0;
         r->pos = 0;
         r->len = (size_t)n;
     }
     if (r->buf[r->pos] == '\r') r->pos++;
-    if (r->pos < r->len && r->buf[r->pos] == '\n') r->pos++;
+    if (r->pos >= r->len || r->buf[r->pos] != '\n') return 0;
+    r->pos++;
     return 1;
 }
 
 // Fetches and applies the whitelist from the server.
 static void sync_whitelist_from_server(const char* username) {
-    const char* wl_args[1] = {username};
+    g_whitelist_sync_pending = 1;
+    char token[256] = {0};
+    get_client_token(token, sizeof(token));
+    const char* wl_args[2] = {username, token};
 
     // Server whitelist can be large; read it into a heap buffer (bounded only by
     // the DAEMON_MAX_MESSAGE_SIZE soft cap).
@@ -917,7 +1420,7 @@ static void sync_whitelist_from_server(const char* username) {
         return;
     }
 
-    if (send_to_server_tlv("GET_WHITELIST", wl_args, 1, response, DAEMON_MAX_MESSAGE_SIZE) != 0) {
+    if (send_authenticated_request("GET_WHITELIST", username, wl_args, 2, 1, response, DAEMON_MAX_MESSAGE_SIZE) != 0) {
         LOGF("[Daemon] Failed to fetch whitelist from server");
         free(response);
         return;
@@ -939,6 +1442,7 @@ static void sync_whitelist_from_server(const char* username) {
             }
             wl_last_set("SYNC_DISABLED");
         }
+        g_whitelist_sync_pending = 0;
         free(response);
         return;
     }
@@ -948,15 +1452,16 @@ static void sync_whitelist_from_server(const char* username) {
         wl_last_clear();
     }
     if (wl_last_equals(response)) {
+        g_whitelist_sync_pending = 0;
         free(response);
         return;
     }
-    wl_last_set(response);
-
     char ok_buf[16];
     if (DaemonSetWhitelist(response, strlen(response), ok_buf, sizeof(ok_buf)) != 0) {
         LOGF("[Daemon] Failed to set whitelist on daemon");
     } else {
+        wl_last_set(response);
+        g_whitelist_sync_pending = 0;
         LOGF("[Daemon] Whitelist updated");
         g_whitelist_revision++;
         NotifyStateChanged();
@@ -964,13 +1469,84 @@ static void sync_whitelist_from_server(const char* username) {
     free(response);
 }
 
+static int compare_rules(const void* a, const void* b) {
+    return strcmp(*(const char* const*)a, *(const char* const*)b);
+}
+
+static int whitelist_revision(char* rules, char revision[65]) {
+    size_t capacity = 1;
+    for (char* p = rules; *p; p++) if (*p == '\n') capacity++;
+    char** entries = malloc(capacity * sizeof(*entries));
+    if (!entries) return -1;
+    size_t count = 0;
+    char* context;
+    for (char* line = strtok_r(rules, "\n", &context); line; line = strtok_r(NULL, "\n", &context)) {
+        while (isspace((unsigned char)*line)) line++;
+        size_t len = strlen(line);
+        while (len && isspace((unsigned char)line[len - 1])) line[--len] = '\0';
+        if (!len || line[0] == '#' || line[0] == ';') continue;
+        for (char* p = line; *p; p++) if (*p >= 'A' && *p <= 'Z') *p += 'a' - 'A';
+        entries[count++] = line;
+    }
+    qsort(entries, count, sizeof(*entries), compare_rules);
+    mbedtls_sha256_context hash;
+    mbedtls_sha256_init(&hash);
+    int result = mbedtls_sha256_starts(&hash, 0);
+    for (size_t i = 0; !result && i < count; i++) {
+        if (i && strcmp(entries[i], entries[i - 1]) == 0) continue;
+        result = mbedtls_sha256_update(&hash, (unsigned char*)entries[i], strlen(entries[i]));
+        if (!result) result = mbedtls_sha256_update(&hash, (const unsigned char*)"\n", 1);
+    }
+    unsigned char digest[32];
+    if (!result) result = mbedtls_sha256_finish(&hash, digest);
+    mbedtls_sha256_free(&hash);
+    free(entries);
+    if (result) return -1;
+    for (size_t i = 0; i < sizeof(digest); i++) snprintf(revision + i * 2, 3, "%02x", digest[i]);
+    return 0;
+}
+
+static int firewall_whitelist_revision(char revision[65]) {
+    revision[0] = '\0';
+    int result = -1;
+    char* whitelist = malloc(DAEMON_MAX_MESSAGE_SIZE);
+    if (whitelist) {
+        if (DaemonGetWhitelist(whitelist, DAEMON_MAX_MESSAGE_SIZE) == 0) {
+            if (strcmp(whitelist, "WHITELIST") == 0)
+                result = whitelist_revision(whitelist + strlen(whitelist), revision);
+            else if (strncmp(whitelist, "WHITELIST\n", 10) == 0)
+                result = whitelist_revision(whitelist + 10, revision);
+        }
+        free(whitelist);
+    }
+    return result;
+}
+
+static int build_policy_heartbeat(char* message, size_t capacity) {
+    int filtration = RefreshFiltrationEffective();
+    char revision[65];
+    firewall_whitelist_revision(revision);
+    return snprintf(message, capacity,
+        "POLICY {\"whitelistRevision\":\"%s\",\"filtrationEnabled\":%s,\"blockIpv6\":%s,\"canSetIpv6Block\":true}\n",
+        revision, filtration ? "true" : "false", IsIpv6BlockEnabled() ? "true" : "false");
+}
+
+static int send_policy_heartbeat(bb_tls_t* tls) {
+    char message[256];
+    int length = build_policy_heartbeat(message, sizeof(message));
+    return bb_tls_write(tls, message, (size_t)length);
+}
+
 // Syncs filtration state from the server.
 static void sync_filtration_from_server(void) {
     char filt_buf[16] = {0};
     if (send_to_server_tlv("GET_FILTRATION", NULL, 0, filt_buf, sizeof(filt_buf)) != 0) return;
     int server_filt = (filt_buf[0] == '1');
-    if (server_filt != g_filtration_enabled) {
-        LOGF("[Daemon] Server filtration %s, updating local firewall", server_filt ? "enabled" : "disabled");
+    // With connection-sync enabled the user's explicit choice survives
+    // reconnects, so the server value may only pull filtration off.
+    if (IsFiltrationAutoDisableEnabled() && server_filt) return;
+    if (server_filt != g_filtration_requested) {
+        LOGF("[Daemon] Server filtration %s, updating local filtration", server_filt ? "enabled" : "disabled");
         DaemonSetFiltration(server_filt);
     }
 }
@@ -1039,7 +1615,7 @@ static int try_discover_server(void) {
 }
 
 // Handle a server-pushed event. Reads the event's data TLV lines (terminated
-// by an empty line) and applies the change. Returns 0 to continue, 1 to resubscribe.
+// by an empty line) and applies the change. Returns 0 to continue, 1 to close the subscription, 2 to report policy.
 static int handle_server_event(const char* event_type, SrvLineReader* reader, const char* username) {
     // Read data key=value lines until empty line
     char data[8][256];
@@ -1053,6 +1629,45 @@ static int handle_server_event(const char* event_type, SrvLineReader* reader, co
         data_count++;
     }
 
+    if (strcmp(event_type, "CLIENT_DISCONNECTED") == 0) {
+        for (int i = 0; i < data_count; i++) {
+            if (strncmp(data[i], "name=", 5) == 0 && strcmp(data[i] + 5, username) == 0) {
+                LOGF("[Daemon] Disconnected by server; automatic reconnect paused");
+                pause_server_connection();
+                return 1;
+            }
+        }
+        return 0;
+    }
+    if (strcmp(event_type, "CLIENT_IPV6_BLOCK_CHANGED") == 0) {
+        const char* target = NULL;
+        int enabled = -1;
+        for (int i = 0; i < data_count; i++) {
+            if (strncmp(data[i], "name=", 5) == 0) target = data[i] + 5;
+            else if (strcmp(data[i], "enabled=0") == 0) enabled = 0;
+            else if (strcmp(data[i], "enabled=1") == 0) enabled = 1;
+        }
+        if (!target || strcmp(target, username) != 0 || enabled < 0) return 0;
+        if (SetIpv6BlockEnabled(enabled) != 0)
+            LOGF("[Daemon] Failed to save server-requested IPv6 blocking preference");
+        else
+            LOGF("[Daemon] Server set IPv6 blocking to %d", enabled);
+        return 2;
+    }
+    if (strcmp(event_type, "WHITELIST_SYNC_REQUESTED") == 0) {
+        const char* expected = NULL;
+        for (int i = 0; i < data_count; i++) {
+            if (strncmp(data[i], "revision=", 9) == 0) expected = data[i] + 9;
+        }
+        if (!expected || strlen(expected) != 64 || strspn(expected, "0123456789abcdef") != 64) return 0;
+        char revision[65];
+        if (firewall_whitelist_revision(revision) != 0 || strcmp(revision, expected) != 0) {
+            LOGF("[Daemon] Whitelist synchronization requested; refreshing mismatched or unavailable rules");
+            wl_last_clear();
+            sync_whitelist_from_server(username);
+        }
+        return 2;
+    }
     if (strcmp(event_type, "WHITELIST_CHANGED") == 0) {
         sync_whitelist_from_server(username);
         return 0;
@@ -1063,7 +1678,7 @@ static int handle_server_event(const char* event_type, SrvLineReader* reader, co
             if (eq && strncmp(data[i], "enabled", (size_t)(eq - data[i])) == 0) {
                 int val = (*(eq + 1) == '1');
                 if (val != g_filtration_enabled) {
-                    LOGF("[Daemon] Server filtration toggled to %d, updating local firewall", val);
+                    LOGF("[Daemon] Server filtration toggled to %d, updating local filtration", val);
                     DaemonSetFiltration(val);
                 }
             }
@@ -1079,7 +1694,6 @@ static int handle_server_event(const char* event_type, SrvLineReader* reader, co
                     LOGF("[Daemon] User '%s' approved, connecting to server...", approved_name);
                     if (ServerConnect(username) == 0) {
                         SetServerSessionActive(1);
-                        apply_auto_enable();
                         sync_whitelist_from_server(username);
                         sync_filtration_from_server();
                     }
@@ -1094,7 +1708,9 @@ static int handle_server_event(const char* event_type, SrvLineReader* reader, co
 
 // Runs the server subscription loop. Returns 0 on connection loss, 1 on service stop.
 // Blocks until the connection drops or the service should shut down.
-static int server_subscribe_loop(const char* username, int* consecutive_failures) {
+static int server_subscribe_loop(const char* username, int* consecutive_failures, int allow_auth_retry) {
+    if (is_server_connection_paused()) return 0;
+    LONG connection_revision = InterlockedCompareExchange(&g_server_connection_revision, 0, 0);
     WSADATA wsa;
     if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) return 0;
 
@@ -1124,11 +1740,24 @@ static int server_subscribe_loop(const char* username, int* consecutive_failures
         return 0;
     }
 
-    // Send SUBSCRIBE with username
-    char sub_req[1024];
-    int sub_len = snprintf(sub_req, sizeof(sub_req), "SUBSCRIBE\n%zu\n%s\n\n",
-                           strlen(username), username);
-    if (send(sock, sub_req, sub_len, 0) <= 0) {
+    // Establish TLS over the connected socket (fingerprint pinned).
+    LONG certificate_revision = InterlockedCompareExchange(&g_certificate_revision, 0, 0);
+    bb_tls_t subscription_tls;
+    if (tls_connect_socket(sock, &subscription_tls) != 0) {
+        LOGF("[Daemon] SUBSCRIBE TLS handshake failed");
+        closesocket(sock);
+        WSACleanup();
+        return 0;
+    }
+
+    // Send SUBSCRIBE with username + client token
+    char token[256] = {0};
+    get_client_token(token, sizeof(token));
+    char sub_req[128 + 512];
+    int sub_len = snprintf(sub_req, sizeof(sub_req), "SUBSCRIBE\n%zu\n%s\n%zu\n%s\n\n",
+                           strlen(username), username, strlen(token), token);
+    if (bb_tls_write(&subscription_tls, sub_req, (size_t)sub_len) <= 0) {
+        bb_tls_free(&subscription_tls);
         closesocket(sock);
         WSACleanup();
         return 0;
@@ -1136,12 +1765,30 @@ static int server_subscribe_loop(const char* username, int* consecutive_failures
 
     // Read OK response
     SrvLineReader reader;
-    srv_line_reader_init(&reader, sock);
-    char status[32];
+    srv_line_reader_init(&reader, &subscription_tls);
+    char status[32] = {0};
     if (!srv_readline(&reader, status, sizeof(status)) || strcmp(status, "OK") != 0) {
-        LOGF("[Daemon] SUBSCRIBE handshake failed: '%s'", status);
+        char emsg[256] = {0};
+        int rejected = strcmp(status, "ERROR") == 0 &&
+            srv_read_tlv(&reader, emsg, sizeof(emsg)) && strcmp(emsg, "invalid token") == 0;
+        if (emsg[0] != '\0') {
+            LOGF("[Daemon] SUBSCRIBE failed: '%s'", emsg);
+        } else {
+            LOGF("[Daemon] SUBSCRIBE handshake failed: '%s'", status[0] ? status : "(closed)");
+        }
+        bb_tls_free(&subscription_tls);
         closesocket(sock);
         WSACleanup();
+        if (rejected) {
+            invalidate_client_token(token);
+            if (allow_auth_retry && fetch_token_if_needed(username) == 0)
+                return server_subscribe_loop(username, consecutive_failures, 0);
+            if (!allow_auth_retry) {
+                AcquireSRWLockExclusive(&g_token_fetch_lock);
+                g_next_token_fetch = GetTickCount64() + 5000;
+                ReleaseSRWLockExclusive(&g_token_fetch_lock);
+            }
+        }
         return 0;
     }
     // Consume empty line terminator
@@ -1150,13 +1797,7 @@ static int server_subscribe_loop(const char* username, int* consecutive_failures
 
     LOGF("[Daemon] Subscribed to server events for user '%s'", username);
 
-    // On successful subscribe, ensure we are connected and synced
-    if (ServerConnect(username) == 0) {
-        SetServerSessionActive(1);
-        apply_auto_enable();
-    } else {
-        apply_auto_disable();
-    }
+    SetServerSessionActive(1);
     sync_whitelist_from_server(username);
     sync_filtration_from_server();
     if (consecutive_failures) *consecutive_failures = 0;
@@ -1164,13 +1805,17 @@ static int server_subscribe_loop(const char* username, int* consecutive_failures
     // Event loop
     DWORD last_heartbeat = GetTickCount();
     DWORD last_local_check = GetTickCount();
-    int keep_going = 1;
+    int keep_going = send_policy_heartbeat(&subscription_tls) > 0;
+    int stop_requested = 0;
 
     while (keep_going) {
+        if (is_server_connection_paused() || connection_revision != InterlockedCompareExchange(&g_server_connection_revision, 0, 0)) break;
+        if (certificate_revision != InterlockedCompareExchange(&g_certificate_revision, 0, 0)) break;
         // Check for service stop
         if (g_ServiceStopEvent != INVALID_HANDLE_VALUE &&
             WaitForSingleObject(g_ServiceStopEvent, 0) == WAIT_OBJECT_0) {
             keep_going = 0;
+            stop_requested = 1;
             break;
         }
 
@@ -1178,7 +1823,7 @@ static int server_subscribe_loop(const char* username, int* consecutive_failures
         DWORD now = GetTickCount();
         if (now - last_heartbeat >= SRV_HEARTBEAT_INTERVAL_MS) {
             last_heartbeat = now;
-            if (send(sock, "K\n", 2, 0) <= 0) {
+            if (send_policy_heartbeat(&subscription_tls) <= 0) {
                 LOGF("[Daemon] Heartbeat send failed, connection lost");
                 break;
             }
@@ -1187,12 +1832,13 @@ static int server_subscribe_loop(const char* username, int* consecutive_failures
         // Check local daemon health
         if (now - last_local_check >= SRV_LOCAL_DAEMON_CHECK_MS) {
             last_local_check = now;
-            PingDaemon(); // just check — failure is non-fatal here
+            if (g_whitelist_sync_pending) sync_whitelist_from_server(username);
         }
 
         // Try to read a line (non-blocking with SO_RCVTIMEO)
         char line[512];
         int rd = srv_readline(&reader, line, sizeof(line));
+        if (connection_revision != InterlockedCompareExchange(&g_server_connection_revision, 0, 0)) break;
         if (rd == 0) {
             // Connection closed or real error — leave loop
             keep_going = 0;
@@ -1209,10 +1855,11 @@ static int server_subscribe_loop(const char* username, int* consecutive_failures
                 break; // bad data
             }
 
-            if (handle_server_event(event_type, &reader, username) == 1) {
-                // Resubscribe requested
+            int result = handle_server_event(event_type, &reader, username);
+            if (result == 1) {
                 break;
             }
+            if (result == 2 && send_policy_heartbeat(&subscription_tls) <= 0) break;
         } else if (strcmp(line, "K") == 0) {
             // Server heartbeat reply — ignore
         } else {
@@ -1228,9 +1875,10 @@ static int server_subscribe_loop(const char* username, int* consecutive_failures
         }
     }
 
+    bb_tls_free(&subscription_tls);
     closesocket(sock);
     WSACleanup();
-    return keep_going; // 1 = service stop, 0 = connection lost
+    return stop_requested;
 }
 
 // Sleep in increments of 1 second, checking for service stop.
@@ -1249,7 +1897,27 @@ static int sleep_with_stop_check(int total_ms) {
     return 0;
 }
 
+static DWORD WINAPI notification_monitor(LPVOID context) {
+    (void)context;
+    for (;;) {
+        DaemonGetFiltration();
+        if (g_ServiceStopEvent != INVALID_HANDLE_VALUE) {
+            if (WaitForSingleObject(g_ServiceStopEvent, 1000) != WAIT_TIMEOUT) return 0;
+        } else {
+            Sleep(1000);
+        }
+    }
+}
+
+static void notification_failed(DWORD error) {
+    LOGF("[Notifications] Windows toast delivery failed: 0x%08lX", error);
+}
+
 int DaemonRun(const char* server_ip) {
+    bb_notifications_set_error_handler(notification_failed);
+    HANDLE notification_thread = CreateThread(NULL, 0, notification_monitor, NULL, 0, NULL);
+    if (notification_thread) CloseHandle(notification_thread);
+    else LOGF("[Notifications] Could not start firewall state monitor");
     char username[128] = {0};
     int consecutive_failures = 0;
     int startup_retries = 30;
@@ -1273,13 +1941,13 @@ int DaemonRun(const char* server_ip) {
     // Try to connect to server on startup
     if (LoadUserName(username, sizeof(username)) == 0 && username[0] != '\0') {
         LOGF("[Daemon] Found saved username: %s, connecting to server...", username);
+        fetch_token_if_needed(username);
         if (ServerConnect(username) == 0) {
             LOGF("[Daemon] Connected to server successfully");
             SetServerSessionActive(1);
-            apply_auto_enable();
         } else {
             LOGF("[Daemon] Failed to connect to server (may not be registered/approved yet)");
-            apply_auto_disable();
+            apply_filtration_sync();
             if (!g_registration_tried) {
                 LOGF("[Daemon] Attempting to register...");
                 ServerRegister(username);
@@ -1288,7 +1956,7 @@ int DaemonRun(const char* server_ip) {
         }
     } else {
         LOGF("[Daemon] No saved username found, skipping server connection");
-        apply_auto_disable();
+        apply_filtration_sync();
     }
 
     // Event-driven subscription loop
@@ -1316,18 +1984,24 @@ int DaemonRun(const char* server_ip) {
             continue;
         }
 
+        if (is_server_connection_paused()) {
+            sleep_with_stop_check(1000);
+            continue;
+        }
+
         // Try to subscribe to server events
-        int sub_result = server_subscribe_loop(username, &consecutive_failures);
+        fetch_token_if_needed(username);
+        int sub_result = server_subscribe_loop(username, &consecutive_failures, 1);
         if (sub_result == 1) {
             // Service stop requested
             break;
         }
 
         // Connection lost — clean up state
-        LOGF("[Daemon] Lost connection to server %s, retrying...", g_server_ip);
-        SetServerSessionActive(0);
-        apply_auto_disable();
+        LOGF("[Daemon] Server session ended%s", is_server_connection_paused() ? "; automatic reconnect paused" : "; retrying");
+        SetServerSessionActive(0); // syncs filtration off when connection-sync is enabled
         block_all_if_no_fallback();
+        if (is_server_connection_paused()) continue;
 
         consecutive_failures++;
         if (consecutive_failures >= 3) {

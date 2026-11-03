@@ -1,0 +1,12 @@
+<Project>
+  <PropertyGroup>
+    <BigBrotherVersionFile>$(MSBuildThisFileDirectory)VERSION</BigBrotherVersionFile>
+    <BigBrotherVersion>$([System.IO.File]::ReadAllText('$(BigBrotherVersionFile)').Trim())</BigBrotherVersion>
+    <Version>$(BigBrotherVersion)</Version>
+    <PackageVersion>$(BigBrotherVersion)</PackageVersion>
+    <AssemblyVersion>$(BigBrotherVersion).0</AssemblyVersion>
+    <FileVersion>$(BigBrotherVersion).0</FileVersion>
+    <InformationalVersion>$(BigBrotherVersion)</InformationalVersion>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+  </PropertyGroup>
+</Project>

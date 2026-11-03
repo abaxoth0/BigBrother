@@ -43,7 +43,7 @@ func (s *UserStorage) GetAll() []*entity.PendingUser {
 	return users
 }
 
-func (s *UserStorage) Add(username, addr string) error {
+func (s *UserStorage) Add(username, addr string, extra ...string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.invalidate()
@@ -52,10 +52,16 @@ func (s *UserStorage) Add(username, addr string) error {
 		return fmt.Errorf("user already pending")
 	}
 
+	signPublic := ""
+	if len(extra) > 0 {
+		signPublic = extra[0]
+	}
+
 	s.users[username] = &entity.PendingUser{
-		Name:      username,
-		Addr:      addr,
-		CreatedAt: time.Now(),
+		Name:       username,
+		Addr:       addr,
+		SignPublic: signPublic,
+		CreatedAt:  time.Now(),
 	}
 
 	return nil
@@ -73,7 +79,8 @@ func (s *UserStorage) Pop(username string) (*entity.User, error) {
 
 	delete(s.users, username)
 	return &entity.User{
-		Name: user.Name,
-		Addr: user.Addr,
+		Name:       user.Name,
+		Addr:       user.Addr,
+		SignPublic: user.SignPublic,
 	}, nil
 }

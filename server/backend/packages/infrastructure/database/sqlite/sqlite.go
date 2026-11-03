@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"sync"
+	"time"
 
 	_ "github.com/ncruces/go-sqlite3/driver"
 )
@@ -13,11 +15,16 @@ type Database struct {
 	isConnected bool
 	conn        *sql.DB
 	path        string
+	timerMu     sync.Mutex
+	timers      map[string]*whitelistTimer
+	now         func() time.Time
 }
 
 func New(path string) *Database {
 	return &Database{
-		path: path,
+		path:   path,
+		timers: make(map[string]*whitelistTimer),
+		now:    time.Now,
 	}
 }
 
@@ -52,6 +59,11 @@ func (db *Database) Connect() error {
 	if _, err := db.conn.Exec("PRAGMA busy_timeout = 5000"); err != nil {
 		db.Disconnect()
 		return fmt.Errorf("Failed to set busy timeout: %v", err)
+	}
+
+	if err := db.loadWhitelistTimers(); err != nil {
+		db.Disconnect()
+		return err
 	}
 
 	dbcommon.Log.Info("Connecting: OK", nil)
@@ -90,12 +102,14 @@ func (db *Database) initTables() error {
 		`CREATE TABLE IF NOT EXISTS whitelist (
 		id 				BLOB NOT NULL PRIMARY KEY,
 		name 			TEXT UNIQUE NOT NULL,
+		is_active       INTEGER NOT NULL DEFAULT 0,
 		parent_id		BLOB REFERENCES whitelist(id) ON DELETE SET NULL
 	)`
 	createWhitelistDomainTableSQL :=
 		`CREATE TABLE IF NOT EXISTS whitelist_entry (
 		id 				BLOB NOT NULL PRIMARY KEY,
 		value 			TEXT NOT NULL,
+        position INTEGER NOT NULL DEFAULT 0,
 		whitelist_id	BLOB NOT NULL REFERENCES whitelist(id) ON DELETE CASCADE
 	)`
 	createUserTableSQL :=
@@ -103,7 +117,9 @@ func (db *Database) initTables() error {
 		id 				BLOB NOT NULL PRIMARY KEY,
 		name 			TEXT UNIQUE NOT NULL,
 		addr			TEXT UNIQUE NOT NULL,
-		whitelist_id	BLOB REFERENCES whitelist(id) ON DELETE SET NULL
+		whitelist_id	BLOB REFERENCES whitelist(id) ON DELETE SET NULL,
+		token			TEXT,
+		sign_public		TEXT
 	)`
 	createSettingsTableSQL :=
 		`CREATE TABLE IF NOT EXISTS settings (
@@ -114,7 +130,20 @@ func (db *Database) initTables() error {
 	queries := []string{
 		enableForeignKeysSQL,
 		createWhitelistTableSQL,
+		`CREATE TABLE IF NOT EXISTS whitelist_preset (name TEXT NOT NULL PRIMARY KEY)`,
+		`CREATE TABLE IF NOT EXISTS whitelist_preset_member (
+            preset_name TEXT NOT NULL REFERENCES whitelist_preset(name) ON DELETE CASCADE,
+            whitelist_id BLOB NOT NULL REFERENCES whitelist(id) ON DELETE CASCADE,
+            PRIMARY KEY (preset_name, whitelist_id)
+        )`,
 		createWhitelistDomainTableSQL,
+		`CREATE TABLE IF NOT EXISTS whitelist_timer (
+            whitelist_id BLOB NOT NULL PRIMARY KEY REFERENCES whitelist(id) ON DELETE CASCADE,
+            duration_seconds INTEGER NOT NULL,
+            auto_delete INTEGER NOT NULL DEFAULT 0,
+            saved_remaining_ns INTEGER,
+            saved_active INTEGER NOT NULL DEFAULT 0
+        )`,
 		createUserTableSQL,
 		createSettingsTableSQL,
 	}
@@ -124,7 +153,78 @@ func (db *Database) initTables() error {
 		}
 	}
 
+	if err := db.migrate(); err != nil {
+		return err
+	}
+
 	dbcommon.Log.Info("Initializing tables: OK", nil)
 
 	return nil
+}
+
+// migrate applies additive schema changes to databases created by older
+// versions (CREATE TABLE IF NOT EXISTS only covers new databases).
+func (db *Database) migrate() error {
+	type column struct {
+		cid     int
+		name    string
+		typ     string
+		notNull int
+		dflt    sql.NullString
+		pk      int
+	}
+
+	ensureColumn := func(table, col, ddl string) error {
+		rows, err := db.conn.Query("PRAGMA table_info(" + table + ")")
+		if err != nil {
+			return err
+		}
+		found := false
+		for rows.Next() {
+			var c column
+			if err := rows.Scan(&c.cid, &c.name, &c.typ, &c.notNull, &c.dflt, &c.pk); err != nil {
+				rows.Close()
+				return err
+			}
+			if c.name == col {
+				found = true
+				break
+			}
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		if found {
+			return nil
+		}
+		_, err = db.conn.Exec(ddl)
+		return err
+	}
+
+	if err := ensureColumn("user", "token", "ALTER TABLE user ADD COLUMN token TEXT"); err != nil {
+		return fmt.Errorf("Failed to migrate user table: %v", err)
+	}
+	if err := ensureColumn("user", "sign_public", "ALTER TABLE user ADD COLUMN sign_public TEXT"); err != nil {
+		return fmt.Errorf("Failed to migrate user table: %v", err)
+	}
+	if err := ensureColumn("whitelist", "is_active", "ALTER TABLE whitelist ADD COLUMN is_active INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return fmt.Errorf("Failed to migrate whitelist table: %v", err)
+	}
+	if err := ensureColumn("whitelist_entry", "position", "ALTER TABLE whitelist_entry ADD COLUMN position INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return fmt.Errorf("Failed to migrate whitelist entry order: %v", err)
+	}
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`UPDATE whitelist SET is_active = 1
+		WHERE name = (SELECT value FROM settings WHERE key = 'active_whitelist')`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec("DELETE FROM settings WHERE key = 'active_whitelist'"); err != nil {
+		return err
+	}
+	return tx.Commit()
 }

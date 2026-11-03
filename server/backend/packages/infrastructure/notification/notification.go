@@ -6,6 +6,7 @@ import (
 	"net"
 	"strconv"
 	"sync"
+	"time"
 )
 
 type EventType int
@@ -19,6 +20,11 @@ const (
 	UserRejected
 	WhitelistChanged
 	FiltrationToggled
+	ClientUpdateChanged
+	ClientIpv6BlockChanged
+	ClientPolicyChanged
+	ClientDisconnected
+	WhitelistSyncRequested
 )
 
 func (e EventType) String() string {
@@ -37,6 +43,16 @@ func (e EventType) String() string {
 		return "USER_REJECTED"
 	case WhitelistChanged:
 		return "WHITELIST_CHANGED"
+	case ClientUpdateChanged:
+		return "CLIENT_UPDATE_CHANGED"
+	case ClientIpv6BlockChanged:
+		return "CLIENT_IPV6_BLOCK_CHANGED"
+	case ClientPolicyChanged:
+		return "CLIENT_POLICY_CHANGED"
+	case ClientDisconnected:
+		return "CLIENT_DISCONNECTED"
+	case WhitelistSyncRequested:
+		return "WHITELIST_SYNC_REQUESTED"
 	case FiltrationToggled:
 		return "FILTRATION_TOGGLED"
 	default:
@@ -55,11 +71,23 @@ type Subscriber struct {
 	EventCh   chan Event
 	done      chan struct{}
 	closeOnce sync.Once
+	terminal  *Event
 }
 
 func (s *Subscriber) Close() {
+	s.closeWithEvent(nil)
+}
+
+func (s *Subscriber) closeWithEvent(event *Event) {
 	s.closeOnce.Do(func() {
+		s.terminal = event
+		if event != nil {
+			s.Conn.SetWriteDeadline(time.Now().Add(time.Second))
+		}
 		close(s.done)
+		if event == nil {
+			s.Conn.Close()
+		}
 	})
 }
 
@@ -82,33 +110,57 @@ func NewSubscriber(conn net.Conn, bufSize int) *Subscriber {
 }
 
 type Manager struct {
+	notify      func(Event)
 	mu          sync.RWMutex
 	subscribers map[*Subscriber]struct{}
 }
 
 func NewManager() *Manager {
+	return NewManagerWithNotifier(nil)
+}
+
+func NewManagerWithNotifier(notify func(Event)) *Manager {
 	return &Manager{
+		notify:      notify,
 		subscribers: make(map[*Subscriber]struct{}),
 	}
 }
 
-func (m *Manager) Add(sub *Subscriber) {
+// MaxSubscribers caps how many push subscribers the manager holds (a LAN peer
+// shouldn't be able to open unbounded subscriptions and exhaust memory/events).
+const MaxSubscribers = 128
+
+func (m *Manager) Add(sub *Subscriber) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if len(m.subscribers) >= MaxSubscribers {
+		return fmt.Errorf("too many subscribers (%d)", MaxSubscribers)
+	}
 	m.subscribers[sub] = struct{}{}
 	go m.writeLoop(sub)
+	return nil
 }
 
 func (m *Manager) Remove(sub *Subscriber) {
+	m.RemoveWithEvent(sub, nil)
+}
+
+func (m *Manager) RemoveWithEvent(sub *Subscriber, event *Event) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	if _, ok := m.subscribers[sub]; ok {
+	_, exists := m.subscribers[sub]
+	if exists {
 		delete(m.subscribers, sub)
-		sub.Close()
+	}
+	m.mu.Unlock()
+	if exists {
+		sub.closeWithEvent(event)
 	}
 }
 
 func (m *Manager) Publish(event Event) {
+	if m.notify != nil {
+		m.notify(event)
+	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	for sub := range m.subscribers {
@@ -154,12 +206,27 @@ func writeTLV(writer *bufio.Writer, value string) error {
 }
 
 func (m *Manager) writeLoop(sub *Subscriber) {
+	defer sub.Conn.Close()
 	defer func() {
 		m.Remove(sub)
 	}()
 	for {
 		select {
+		case <-sub.done:
+			if sub.terminal != nil {
+				m.writeEvent(sub, *sub.terminal)
+			}
+			return
+		default:
+		}
+		select {
 		case event := <-sub.EventCh:
+			if sub.IsClosed() {
+				if sub.terminal != nil {
+					m.writeEvent(sub, *sub.terminal)
+				}
+				return
+			}
 			if err := m.writeEvent(sub, event); err != nil {
 				// Stalled or broken subscriber: close its conn so the handler's
 				// read loop unblocks too, then exit; the deferred Remove cleans up.
@@ -167,6 +234,9 @@ func (m *Manager) writeLoop(sub *Subscriber) {
 				return
 			}
 		case <-sub.done:
+			if sub.terminal != nil {
+				m.writeEvent(sub, *sub.terminal)
+			}
 			return
 		}
 	}

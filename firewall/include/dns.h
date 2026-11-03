@@ -99,10 +99,10 @@ void DnsFree(DnsPacket* packet);
 int DnsCheckDomainLower(const char* domain_lower, const char* pattern_lower);
 
 /**
- * @brief Compute the offset just past the first question section (name + type + class).
+ * @brief Compute the end of an uncompressed question (name + type + class).
  *
- * Used to append answer records after the question so DNS compression pointers
- * (0xC00C) that reference the question name remain valid.
+ * Rejects malformed or compressed names so the question remains valid when
+ * subsequent records are removed from a synthetic response.
  *
  * @param[in] payload     Pointer to DNS data.
  * @param[in] payload_len Length of DNS data.

@@ -1,6 +1,7 @@
 using System;
 using System.Windows;
 using frontend.Models;
+using frontend.Services;
 using frontend.ViewModels;
 
 namespace frontend
@@ -12,6 +13,7 @@ namespace frontend
         public MainWindow()
         {
             InitializeComponent();
+            LogSelectionCopy.Enable<LogEntry>(LogsListBox, LogEntryFormatter.Format);
 
             if (DataContext is MainViewModel vm)
             {

@@ -2,17 +2,27 @@
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                     xmlns:prim="clr-namespace:System.Windows.Controls.Primitives;assembly=PresentationFramework">
 
-    <!-- Server-only accent ("rose-pine") theme. Merged AFTER ThemeDark.xaml in
+    <!-- Server-only cyan accent theme. Merged AFTER ThemeDark.xaml in
          the server's App.xaml so it overrides the shared accent tokens, and
          carries the server-specific dark control styles (DataGrid, menus, nav).
          Backgrounds/surfaces come from ThemeDark.xaml unchanged. -->
 
-    <!-- Rose-pine accent overrides -->
-    <SolidColorBrush x:Key="Accent" Color="#EB6F92"/>
-    <SolidColorBrush x:Key="AccentHover" Color="#F48FA8"/>
-    <SolidColorBrush x:Key="AccentPressed" Color="#D15D7F"/>
-    <SolidColorBrush x:Key="OnAccent" Color="#FFFFFF"/>
-    <SolidColorBrush x:Key="SecondaryAccent" Color="#C4A7E7"/>
+    <!-- Bright actions, subtle selected surfaces, and readable accent labels -->
+    <SolidColorBrush x:Key="Accent" Color="#04D9FF"/>
+    <SolidColorBrush x:Key="AccentHover" Color="#70E8FA"/>
+    <SolidColorBrush x:Key="AccentPressed" Color="#03B8D9"/>
+    <SolidColorBrush x:Key="OnAccent" Color="#000000"/>
+    <SolidColorBrush x:Key="SelectedBackground" Color="#083B47"/>
+    <SolidColorBrush x:Key="AccentText" Color="#70E8FA"/>
+    <SolidColorBrush x:Key="SecondaryAccent" Color="#70E8FA"/>
+
+    <Style TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+        <Style.Triggers>
+            <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                <Setter Property="BorderBrush" Value="{StaticResource Accent}"/>
+            </Trigger>
+        </Style.Triggers>
+    </Style>
 
     <!-- Right-side nav item (mirrors the client nav) -->
     <Style x:Key="NavItem" TargetType="RadioButton">
@@ -30,6 +40,9 @@
                                           TextElement.Foreground="{TemplateBinding Foreground}"/>
                     </Border>
                     <ControlTemplate.Triggers>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="Bg" Property="Opacity" Value="0.4"/>
+                        </Trigger>
                         <Trigger Property="IsMouseOver" Value="True">
                             <Setter TargetName="Bg" Property="Background" Value="{StaticResource SurfaceAlt}"/>
                         </Trigger>
@@ -61,6 +74,7 @@
 
     <!-- Dark context menu -->
     <Style TargetType="ContextMenu">
+        <Setter Property="FontSize" Value="{DynamicResource FontSize14}"/>
         <Setter Property="Background" Value="{StaticResource Surface}"/>
         <Setter Property="Foreground" Value="{StaticResource TitleBarText}"/>
         <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
@@ -80,12 +94,12 @@
         </Setter>
     </Style>
 
-    <!-- MenuItem without the default icon column: header + rose hover -->
+    <!-- MenuItem without the default icon column: header + accent hover -->
     <Style TargetType="MenuItem">
         <Setter Property="Foreground" Value="{StaticResource TitleBarText}"/>
         <Setter Property="Background" Value="Transparent"/>
         <Setter Property="Padding" Value="10,5"/>
-        <Setter Property="FontSize" Value="13"/>
+        <Setter Property="FontSize" Value="{DynamicResource FontSize13}"/>
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="MenuItem">
@@ -97,8 +111,8 @@
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsHighlighted" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Accent}"/>
-                            <Setter Property="Foreground" Value="{DynamicResource OnAccent}"/>
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource SelectedBackground}"/>
+                            <Setter Property="Foreground" Value="{DynamicResource AccentText}"/>
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
                             <Setter Property="Opacity" Value="0.45"/>
@@ -111,26 +125,47 @@
 
 <!-- Dark DataGrid column headers -->
     <Style x:Key="GridColumnHeaderStyle" TargetType="prim:DataGridColumnHeader">
+        <Setter Property="FontSize" Value="{DynamicResource FontSize14}"/>
+        <Setter Property="MinHeight" Value="{DynamicResource TableHeaderMinHeight}"/>
         <Setter Property="Background" Value="{StaticResource SurfaceAlt}"/>
         <Setter Property="Foreground" Value="{StaticResource TitleBarText}"/>
         <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
-        <Setter Property="Padding" Value="6,4"/>
+        <Setter Property="Padding" Value="{DynamicResource TableHeaderPadding}"/>
         <Setter Property="FontWeight" Value="SemiBold"/>
-        <Setter Property="HorizontalContentAlignment" Value="Left"/>
+        <Setter Property="HorizontalContentAlignment" Value="Center"/>
         <Setter Property="VerticalContentAlignment" Value="Center"/>
         <Setter Property="SeparatorBrush" Value="{StaticResource BorderBrush}"/>
     </Style>
 
     <!-- Dark DataGrid cells: replaces the default blue selection highlight -->
     <Style TargetType="DataGridCell">
+        <Setter Property="FontSize" Value="{DynamicResource TextFontSize14}"/>
         <Setter Property="Background" Value="Transparent"/>
         <Setter Property="Foreground" Value="{StaticResource TitleBarText}"/>
-        <Setter Property="Padding" Value="4,3"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+        <Setter Property="Padding" Value="{DynamicResource RowPadding}"/>
+        <Setter Property="HorizontalContentAlignment" Value="Center"/>
         <Setter Property="VerticalContentAlignment" Value="Center"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="DataGridCell">
+                    <Border Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            Padding="{TemplateBinding Padding}"
+                            SnapsToDevicePixels="True">
+                        <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                          VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                          SnapsToDevicePixels="{TemplateBinding SnapsToDevicePixels}"/>
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
         <Style.Triggers>
             <Trigger Property="IsSelected" Value="True">
-                <Setter Property="Background" Value="{DynamicResource Accent}"/>
-                <Setter Property="Foreground" Value="{DynamicResource OnAccent}"/>
+                <Setter Property="Background" Value="{DynamicResource SelectedBackground}"/>
+                <Setter Property="Foreground" Value="{DynamicResource AccentText}"/>
             </Trigger>
         </Style.Triggers>
     </Style>

@@ -10,6 +10,7 @@
 #include "../include/ipc_daemon.h"
 #include "../include/ipc_client.h"
 #include "../../../common/log/log.h"
+#include "../../../common/version.h"
 
 SERVICE_STATUS g_ServiceStatus = {0};
 SERVICE_STATUS_HANDLE g_StatusHandle = NULL;
@@ -79,6 +80,7 @@ void WINAPI ServiceMain(DWORD argc, LPTSTR* argv) {
 }
 
 static void print_usage(const char* prog) {
+    printf("BigBrother Client Daemon %s\n", BB_VERSION);
     printf("Usage: %s <command>\n", prog);
     printf("       %s -d <server-ip>\n", prog);
     printf("\nLocal Commands:\n");
@@ -107,6 +109,15 @@ static void print_response(const char* cmd, int result, const char* response) {
 }
 
 int main(int argc, char** argv) {
+    if (argc == 2 && strcmp(argv[1], "--version") == 0) {
+        printf("BigBrother Client Daemon %s\n", BB_VERSION);
+        return 0;
+    }
+    if (PrepareClientSecretPermissions() != 0) {
+        fprintf(stderr, "Cannot secure client secrets. Run elevated or as SYSTEM (error %lu).\n", GetLastError());
+        return 1;
+    }
+    if (argc == 2 && strcmp(argv[1], "--secure-storage") == 0) return 0;
     // Check if running as a service
     SERVICE_TABLE_ENTRY serviceTable[] = {
         {"BigBrother.Client", ServiceMain},
@@ -120,7 +131,7 @@ int main(int argc, char** argv) {
 
     // Not running as service, run in console mode
     log_init();
-    printf("[DEBUG] main: log_init done\n");
+    DLOGF("main: log_init done");
 
     if (argc < 2) {
         print_usage(argv[0]);
@@ -128,9 +139,9 @@ int main(int argc, char** argv) {
     }
 
     // Load server IP from config
-    printf("[DEBUG] main: calling load_server_ip\n");
+    DLOGF("main: calling load_server_ip");
     load_server_ip();
-    printf("[DEBUG] main: load_server_ip done\n");
+    DLOGF("main: load_server_ip done");
 
     // Check for daemon mode
     if (strcmp(argv[1], "-d") == 0) {
@@ -144,7 +155,7 @@ int main(int argc, char** argv) {
             SetServerIp(server_ip);
         }
 
-        LOGF("[Main] Starting daemon mode, server: %s", server_ip[0] ? server_ip : "(none)");
+        LOGF("[Main] Starting daemon version %s, server: %s", BB_VERSION, server_ip[0] ? server_ip : "(none)");
         LOGF("[Main] Starting client server...");
         StartClientServer();
 

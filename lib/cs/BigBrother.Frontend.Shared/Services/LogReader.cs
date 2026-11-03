@@ -5,189 +5,88 @@ namespace frontend.Services;
 
 public class LogReader
 {
-    private string _currentFile = "";
-    private long _lastPosition;
-    private bool _isRunning;
-    private LogSource _source = LogSource.Unknown;
-    private bool _initialLoadDone;
-    
-    private CancellationTokenSource? _cts;
-    private Task? _readTask;
-    private readonly object _lock = new();
-    
-    private const int InitialReadKB = 512; // Read last 512KB on startup
-    private const int PollIntervalMs = 500; // log tailing poll interval
+    private LogFileMonitor? _monitor;
+    private int _generation;
+    private const int InitialReadBytes = 512 * 1024;
 
     public event Action<string>? OnNewLine;
-    public string CurrentFile => _currentFile;
-    public bool IsRunning => _isRunning;
+    public string CurrentFile { get; private set; } = "";
+    public bool IsRunning => _monitor != null;
 
     public void Start(string filePath, LogSource source = LogSource.Unknown, bool loadFullHistory = false)
     {
         Stop();
-
-        _source = source;
-
         if (source == LogSource.Unknown)
         {
-            string fileName = Path.GetFileName(filePath).ToLower();
-            if (fileName.Contains("firewall"))
-                _source = LogSource.Firewall;
-            else if (fileName.Contains("client"))
-                _source = LogSource.Client;
-            else
-                _source = LogSource.Frontend;
+            string name = Path.GetFileName(filePath).ToLowerInvariant();
+            source = name.Contains("firewall") ? LogSource.Firewall :
+                name.Contains("client") ? LogSource.Client : LogSource.Frontend;
         }
-
         if (!File.Exists(filePath))
         {
             OnNewLine?.Invoke($"Log file not found: {filePath}");
             return;
         }
 
-        _currentFile = filePath;
-        _lastPosition = 0;
-        _initialLoadDone = false;
-
-        try
+        CurrentFile = filePath;
+        int generation = _generation;
+        long position = 0;
+        bool initial = true;
+        var buffer = new byte[128 * 1024];
+        int retained = 0;
+        _monitor = new LogFileMonitor(Path.GetDirectoryName(Path.GetFullPath(filePath))!,
+            Path.GetFileName(filePath), () =>
         {
-            _isRunning = true;
-            _cts = new CancellationTokenSource();
-            _readTask = Task.Run(async () => 
+            if (generation != Volatile.Read(ref _generation)) return;
+            using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete);
+            long end = stream.Length;
+            if (end < position)
             {
-                try
-                {
-                    await BackgroundReadLoop(_cts.Token);
-                }
-                catch { }
-            });
-            
-            OnNewLine?.Invoke($"Started reading log: {filePath}");
-        }
-        catch (Exception ex)
-        {
-            OnNewLine?.Invoke($"Failed to open log file: {ex.Message}");
-        }
-    }
-
-    private async Task BackgroundReadLoop(CancellationToken ct)
-    {
-        byte[] buffer = new byte[65536]; // 64KB buffer for fewer reads
-        
-        while (!ct.IsCancellationRequested && _isRunning)
-        {
-            try
-            {
-                await Task.Delay(PollIntervalMs, ct);
-                if (!_isRunning) break;
-                
-                ReadNewEntries(buffer);
+                position = 0;
+                retained = 0;
+                initial = true;
             }
-            catch (TaskCanceledException)
+            if (initial)
             {
-                break;
+                position = loadFullHistory ? 0 : Math.Max(0, end - InitialReadBytes);
+                initial = false;
             }
-            catch { }
-        }
-    }
-
-    private void ReadNewEntries(byte[] buffer)
-    {
-        if (!_isRunning) return;
-
-        try
-        {
-            lock (_lock)
+            stream.Position = position;
+            while (position < end && generation == Volatile.Read(ref _generation))
             {
-                if (!File.Exists(_currentFile)) return;
-                
-                var fileInfo = new FileInfo(_currentFile);
-                
-                // Detect rotation: file shrunk or disappeared+reappeared
-                if (fileInfo.Length < _lastPosition)
-                {
-                    _lastPosition = 0;
-                    _initialLoadDone = false;
-                }
-                
-                // On first read, skip to near end to avoid loading old logs
-                if (!_initialLoadDone && fileInfo.Length > InitialReadKB * 1024)
-                {
-                    _lastPosition = fileInfo.Length - (InitialReadKB * 1024);
-                    _initialLoadDone = true;
-                }
-                
-                if (fileInfo.Length <= _lastPosition) return;
-                
-                using var fs = new FileStream(_currentFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-                fs.Seek(_lastPosition, SeekOrigin.Begin);
-                
-                int bytesRead = fs.Read(buffer, 0, buffer.Length);
-                if (bytesRead <= 0) return;
-                
-                var entries = LogParser.ParseAll(buffer.Take(bytesRead).ToArray());
-                
-                if (entries.Count == 0) 
-                {
-                    _lastPosition += bytesRead;
-                    return;
-                }
-                
-                var lines = new List<string>();
+                int read = stream.Read(buffer, retained, (int)Math.Min(buffer.Length - retained, end - position));
+                if (read == 0) break;
+                position += read;
+                int length = retained + read;
+                var data = buffer.AsSpan(0, length).ToArray();
+                var entries = LogParser.ParseAvailable(data, out int consumed);
+                retained = length - consumed;
+                Buffer.BlockCopy(buffer, consumed, buffer, 0, retained);
                 foreach (var entry in entries)
                 {
-                    entry.Source = _source;
-                    
-                    string levelStr = entry.Level switch
+                    if (generation != Volatile.Read(ref _generation)) return;
+                    string level = entry.Level switch
                     {
-                        LogLevel.Info => "INFO",
-                        LogLevel.Error => "ERROR",
-                        LogLevel.Debug => "DEBUG",
-                        LogLevel.Blocked => "BLOCKED",
-                        _ => "UNK"
+                        LogLevel.Info => "INFO", LogLevel.Error => "ERROR",
+                        LogLevel.Debug => "DEBUG", LogLevel.Blocked => "BLOCKED", _ => "UNK"
                     };
-                    
-                    string sourceStr = entry.Source switch
+                    string label = source switch
                     {
-                        LogSource.Firewall => "FW",
-                        LogSource.Client => "CL",
-                        LogSource.Frontend => "FE",
-                        _ => "??"
+                        LogSource.Firewall => "FW", LogSource.Client => "CL",
+                        LogSource.Frontend => "FE", _ => "??"
                     };
-                    
-                    lines.Add($"[{entry.Timestamp:HH:mm:ss}] [{sourceStr}] [{levelStr}] {entry.Message}");
-                }
-                
-                if (lines.Count > 0)
-                {
-                    _lastPosition += bytesRead;
-                    
-                    var finalLines = lines;
-                    System.Windows.Application.Current?.Dispatcher.BeginInvoke(() =>
-                    {
-                        foreach (var line in finalLines)
-                        {
-                            OnNewLine?.Invoke(line);
-                        }
-                    });
-                }
-                else
-                {
-                    _lastPosition += bytesRead;
+                    OnNewLine?.Invoke($"[{entry.Timestamp:HH:mm:ss}] [{label}] [{level}] {entry.Message}");
                 }
             }
-        }
-        catch { }
+        });
+        OnNewLine?.Invoke($"Started reading log: {filePath}");
     }
 
     public void Stop()
     {
-        _isRunning = false;
-        
-        _cts?.Cancel();
-        _cts?.Dispose();
-        _cts = null;
-        
-        _readTask = null;
+        Interlocked.Increment(ref _generation);
+        _monitor?.Dispose();
+        _monitor = null;
     }
 }

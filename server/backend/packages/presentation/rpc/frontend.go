@@ -3,14 +3,19 @@
 package rpc
 
 import (
+	buildlog "bigbrother_server_backend/packages/common/log"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"bigbrother_server_backend/packages/application/settings"
+	"bigbrother_server_backend/packages/application/updates"
+	whitelistapplication "bigbrother_server_backend/packages/application/whitelist"
 	"bigbrother_server_backend/packages/domain/entity"
 	"bigbrother_server_backend/packages/infrastructure/connection"
 	"bigbrother_server_backend/packages/infrastructure/database"
@@ -24,11 +29,12 @@ type ServerStatus struct {
 }
 
 type FrontendHandler struct {
-	db           database.DBInstance
-	connManager  connection.Manager
-	pendingUsers *pending.UserStorage
-	startTime    time.Time
-	bus          *notification.Manager
+	db                     database.DBInstance
+	connManager            connection.Manager
+	pendingUsers           *pending.UserStorage
+	startTime              time.Time
+	bus                    *notification.Manager
+	certificateFingerprint string
 }
 
 func NewFrontendHandler(
@@ -36,19 +42,24 @@ func NewFrontendHandler(
 	connManager connection.Manager,
 	pendingUsers *pending.UserStorage,
 	bus *notification.Manager,
+	fingerprint ...string,
 ) *FrontendHandler {
+	activeFingerprint := ""
+	if len(fingerprint) > 0 {
+		activeFingerprint = fingerprint[0]
+	}
 	return &FrontendHandler{
-		db:           db,
-		connManager:  connManager,
-		pendingUsers: pendingUsers,
-		startTime:    time.Now(),
-		bus:          bus,
+		db:                     db,
+		connManager:            connManager,
+		pendingUsers:           pendingUsers,
+		startTime:              time.Now(),
+		bus:                    bus,
+		certificateFingerprint: activeFingerprint,
 	}
 }
 
 func (h *FrontendHandler) handle(conn net.Conn) {
 	defer conn.Close()
-	log.Info("Frontend connected", nil)
 
 	scanner := newScanner(conn)
 	for {
@@ -61,23 +72,218 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 			return
 		}
 
-		log.Debug("Frontend received: "+cmd, nil)
+		if buildlog.DiagnosticsEnabled {
+			log.Debug("Frontend received: "+cmd, nil)
+		}
 
 		switch cmd {
-		case "GET_ACTIVE_WHITELIST":
-			writeTLVResponse(conn, h.GetActiveWhitelist())
-
-		case "SET_ACTIVE_WHITELIST":
-			if len(args) < 1 {
-				writeErrorTLV(conn, "Missing whitelist name")
+		case "SYNC_WHITELISTS":
+			if len(args) != 0 {
+				writeErrorTLV(conn, "Expected no arguments")
 				continue
 			}
-			h.SetActiveWhitelist(args[0])
+			composition, err := whitelistapplication.Compose(h.db)
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			h.bus.Publish(notification.Event{Type: notification.WhitelistSyncRequested,
+				Data: map[string]string{"revision": whitelistapplication.Revision(composition.Entries)}})
+			writeOK(conn)
+
+		case "SET_CLIENT_IPV6_BLOCK":
+			if len(args) != 2 || (args[1] != "0" && args[1] != "1") {
+				writeErrorTLV(conn, "Expected client name and IPv6 blocking value 0 or 1")
+				continue
+			}
+			client, err := h.connManager.GetConnection(args[0])
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			if client.Policy == nil || !client.Policy.CanSetIpv6Block {
+				writeErrorTLV(conn, "Client does not support remote IPv6 blocking changes")
+				continue
+			}
+			h.bus.Publish(notification.Event{Type: notification.ClientIpv6BlockChanged,
+				Data: map[string]string{"name": args[0], "enabled": args[1]}})
+			writeOK(conn)
+
+		case "SET_CLIENT_UPDATE":
+			if len(args) != 1 {
+				writeErrorTLV(conn, "Expected update metadata")
+				continue
+			}
+			data := args[0]
+			if data != "" {
+				manifest, err := updates.Parse(data)
+				if err != nil {
+					writeErrorTLV(conn, err.Error())
+					continue
+				}
+				canonical, _ := json.Marshal(manifest)
+				data = string(canonical)
+			}
+			if err := h.db.SetSetting("client_update", data); err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			h.bus.Publish(notification.Event{Type: notification.ClientUpdateChanged, Data: map[string]string{}})
+			writeOK(conn)
+
+		case "GET_CLIENT_UPDATE":
+			data, err := h.db.GetSetting("client_update")
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			if data == "" {
+				writeOK(conn)
+				continue
+			}
+			writeTLVResponse(conn, data)
+
+		case "GET_COMPOSED_WHITELIST_DETAILS":
+			composition, err := whitelistapplication.Compose(h.db)
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			data, err := json.Marshal(composition.Entries)
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			writeTLVResponse(conn, string(data))
+
+		case "GET_COMPOSED_WHITELIST":
+			composition, err := whitelistapplication.Compose(h.db)
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			var data []string
+			for _, entry := range composition.Entries {
+				data = append(data, entry.Value)
+			}
+			writeTLVResponse(conn, data...)
+
+		case "GET_WHITELIST_CONFLICTS":
+			composition, err := whitelistapplication.Compose(h.db)
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			data, err := json.Marshal(composition.Conflicts)
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			writeTLVResponse(conn, string(data))
+
+		case "GET_WHITELIST_PRESETS":
+			presets, err := h.db.GetWhitelistPresets()
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			data, err := json.Marshal(presets)
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			writeTLVResponse(conn, string(data))
+
+		case "SAVE_WHITELIST_PRESET":
+			if len(args) < 2 || (args[1] != "0" && args[1] != "1") {
+				writeErrorTLV(conn, "Expected preset name, replace value 0 or 1 and active whitelist names")
+				continue
+			}
+			if err := h.db.SaveWhitelistPreset(args[0], args[2:], args[1] == "1"); err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			writeOK(conn)
+
+		case "DELETE_WHITELIST_PRESET":
+			if len(args) != 1 {
+				writeErrorTLV(conn, "Expected preset name")
+				continue
+			}
+			if err := h.db.DeleteWhitelistPreset(args[0]); err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			writeOK(conn)
+
+		case "LOAD_WHITELIST_PRESET":
+			if len(args) != 1 {
+				writeErrorTLV(conn, "Expected preset name")
+				continue
+			}
+			changed, err := h.db.LoadWhitelistPreset(args[0])
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			if changed {
+				h.bus.Publish(notification.Event{Type: notification.WhitelistChanged, Data: map[string]string{}})
+			}
+			writeOK(conn)
+
+		case "SET_WHITELISTS_ACTIVE":
+			if len(args) == 0 || len(args)%2 != 0 {
+				writeErrorTLV(conn, "Expected whitelist name and active value pairs")
+				continue
+			}
+			states := make(map[string]bool, len(args)/2)
+			valid := true
+			for i := 0; i < len(args); i += 2 {
+				_, duplicate := states[args[i]]
+				if duplicate || (args[i+1] != "0" && args[i+1] != "1") {
+					valid = false
+					break
+				}
+				states[args[i]] = args[i+1] == "1"
+			}
+			if !valid {
+				writeErrorTLV(conn, "Expected unique whitelist names and active values 0 or 1")
+				continue
+			}
+			changed, err := h.db.SetWhitelistsActive(states)
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			if changed {
+				h.bus.Publish(notification.Event{
+					Type: notification.WhitelistChanged,
+					Data: map[string]string{},
+				})
+			}
+			writeOK(conn)
+
+		case "SET_WHITELIST_ACTIVE":
+			if len(args) != 2 || (args[1] != "0" && args[1] != "1") {
+				writeErrorTLV(conn, "Expected whitelist name and active value 0 or 1")
+				continue
+			}
+			if err := h.db.SetWhitelistActive(args[0], args[1] == "1"); err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
 			h.bus.Publish(notification.Event{
 				Type: notification.WhitelistChanged,
 				Data: map[string]string{},
 			})
 			writeOK(conn)
+
+		case "GET_CERTIFICATE_FINGERPRINT":
+			if h.certificateFingerprint == "" {
+				writeErrorTLV(conn, "certificate fingerprint unavailable")
+			} else {
+				writeTLVResponse(conn, h.certificateFingerprint)
+			}
 
 		case "GET_SERVER_STATUS":
 			connections := h.connManager.GetAllConnections()
@@ -102,16 +308,42 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 				continue
 			}
 			log.Info("Approving user \""+args[0]+"\"...", nil)
-			if err := h.ApproveUser(args[0]); err != nil {
+			if _, err := h.ApproveUser(args[0]); err != nil {
 				log.Error("Approving user \""+args[0]+"\"", err.Error(), nil)
 				writeErrorTLV(conn, err.Error())
 			} else {
+				// The token is NOT broadcast in the event — the client fetches it
+				// itself via the signed GET_TOKEN challenge.
 				h.bus.Publish(notification.Event{
 					Type: notification.UserApproved,
 					Data: map[string]string{"name": args[0]},
 				})
 				log.Info("Approving user \""+args[0]+"\": OK", nil)
 				writeOK(conn)
+			}
+
+		case "GET_USER_TOKEN":
+			if len(args) < 1 {
+				writeErrorTLV(conn, "Missing name")
+				continue
+			}
+			token, err := h.GetUserToken(args[0])
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+			} else {
+				writeTLVResponse(conn, token)
+			}
+
+		case "REGENERATE_TOKEN":
+			if len(args) < 1 {
+				writeErrorTLV(conn, "Missing name")
+				continue
+			}
+			token, err := h.RegenerateUserToken(args[0])
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+			} else {
+				writeTLVResponse(conn, token)
 			}
 
 		case "REJECT":
@@ -131,13 +363,9 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 				writeErrorTLV(conn, "Missing name")
 				continue
 			}
-			if err := h.connManager.DeleteConnection(args[0]); err != nil {
+			if err := h.connManager.DisconnectConnection(args[0]); err != nil {
 				writeErrorTLV(conn, err.Error())
 			} else {
-				h.bus.Publish(notification.Event{
-					Type: notification.UserDisconnected,
-					Data: map[string]string{"name": args[0]},
-				})
 				writeOK(conn)
 			}
 
@@ -172,12 +400,149 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 			}
 			writeTLVResponse(conn, data...)
 
+		case "GET_REGISTERED_USERS":
+			users, err := h.db.GetUsers()
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			type registeredUser struct {
+				Name    string `json:"name"`
+				Address string `json:"address"`
+			}
+			result := []registeredUser{}
+			for _, user := range users {
+				result = append(result, registeredUser{Name: user.Name, Address: user.Addr})
+			}
+			data, err := json.Marshal(result)
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			writeTLVResponse(conn, string(data))
+
+		case "GET_CLIENTS_DETAILS":
+			composition, err := whitelistapplication.Compose(h.db)
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			revision := whitelistapplication.Revision(composition.Entries)
+			type clientDetails struct {
+				Name             string                   `json:"name"`
+				Address          string                   `json:"address"`
+				LastActivity     time.Time                `json:"lastActivity"`
+				Policy           *connection.PolicyStatus `json:"policy"`
+				WhitelistCurrent *bool                    `json:"whitelistCurrent"`
+			}
+			clients := []clientDetails{}
+			for _, conn := range h.connManager.GetAllConnections() {
+				user := conn.GetUser()
+				client := clientDetails{Name: user.Name, Address: user.Addr, LastActivity: conn.LastActivity, Policy: conn.Policy}
+				if conn.Policy != nil && conn.Policy.WhitelistRevision != "" {
+					current := conn.Policy.WhitelistRevision == revision
+					client.WhitelistCurrent = &current
+				}
+				clients = append(clients, client)
+			}
+			data, err := json.Marshal(clients)
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			writeTLVResponse(conn, string(data))
+
 		case "GET_PENDING":
 			var data []string
 			for _, user := range h.pendingUsers.GetAll() {
 				data = append(data, fmt.Sprintf("%s:%s:%d", user.Name, user.Addr, user.CreatedAt.Unix()))
 			}
 			writeTLVResponse(conn, data...)
+
+		case "GET_WHITELISTS_DETAILS":
+			wls, err := h.db.GetWhitelists()
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			data, err := json.Marshal(wls)
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			writeTLVResponse(conn, string(data))
+
+		case "CREATE_TEMPORARY_WHITELIST":
+			if len(args) != 3 || (args[2] != "0" && args[2] != "1") {
+				writeErrorTLV(conn, "Expected name, duration seconds and auto-delete value")
+				continue
+			}
+			duration, err := strconv.ParseInt(args[1], 10, 64)
+			if err == nil {
+				err = h.db.CreateTemporaryWhitelist(args[0], duration, args[2] == "1")
+			}
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			h.bus.Publish(notification.Event{Type: notification.WhitelistChanged, Data: map[string]string{}})
+			writeOK(conn)
+
+		case "UPDATE_WHITELIST_TIMER":
+			if len(args) != 4 || (args[3] != "0" && args[3] != "1") {
+				writeErrorTLV(conn, "Expected name, duration seconds, remaining seconds or unchanged, and auto-delete value")
+				continue
+			}
+			duration, err := strconv.ParseInt(args[1], 10, 64)
+			var remaining *int64
+			if err == nil && args[2] != "unchanged" {
+				var seconds int64
+				seconds, err = strconv.ParseInt(args[2], 10, 64)
+				remaining = &seconds
+			}
+			if err == nil {
+				err = h.db.UpdateWhitelistTimer(args[0], duration, remaining, args[3] == "1")
+			}
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			h.bus.Publish(notification.Event{Type: notification.WhitelistChanged, Data: map[string]string{}})
+			writeOK(conn)
+
+		case "RESET_WHITELIST_TIMERS":
+			if len(args) == 0 {
+				writeErrorTLV(conn, "Expected temporary whitelist names")
+				continue
+			}
+			if err := h.db.ResetWhitelistTimers(args); err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			h.bus.Publish(notification.Event{Type: notification.WhitelistChanged, Data: map[string]string{}})
+			writeOK(conn)
+
+		case "GET_SAVE_TEMPORARY_WHITELIST_STATE":
+			value, err := h.db.GetSetting("save_temporary_whitelist_state")
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			if value != "1" {
+				value = "0"
+			}
+			writeTLVResponse(conn, value)
+
+		case "SET_SAVE_TEMPORARY_WHITELIST_STATE":
+			if len(args) != 1 || (args[0] != "0" && args[0] != "1") {
+				writeErrorTLV(conn, "Expected value 0 or 1")
+				continue
+			}
+			if err := h.db.SetSetting("save_temporary_whitelist_state", args[0]); err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			writeOK(conn)
 
 		case "GET_WHITELISTS":
 			wls, err := h.GetWhitelists()
@@ -190,9 +555,12 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 				entryCount := 0
 				entries, err := h.db.GetWhitelistEntries(wl.Name)
 				if err == nil {
-					entryCount = len(entries)
+					normalized, normalizeErr := whitelistapplication.NormalizePriorities(entries)
+					if normalizeErr == nil {
+						entryCount = len(normalized)
+					}
 				}
-				data = append(data, fmt.Sprintf("%s:%d", wl.Name, entryCount))
+				data = append(data, fmt.Sprintf("%s:%d:%t", wl.Name, entryCount, wl.IsActive))
 			}
 			writeTLVResponse(conn, data...)
 
@@ -201,7 +569,11 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 				writeErrorTLV(conn, "Missing whitelist name")
 				continue
 			}
-			wl := h.GetWhitelist(args[0])
+			wl, err := h.db.GetWhitelistEntries(args[0])
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
 			var data []string
 			for _, entry := range wl {
 				data = append(data, entry.Value)
@@ -297,11 +669,41 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 				writeErrorTLV(conn, "Missing port number")
 				continue
 			}
-			h.db.SetSetting("server_port", args[0])
+			port, err := settingsapplication.ParseServerPort(args[0])
+			if len(args) != 1 || err != nil {
+				writeErrorTLV(conn, "Expected TCP port 1 through 65535")
+				continue
+			}
+			if err := h.db.SetSetting("server_port", fmt.Sprint(port)); err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
 			writeOK(conn)
 
 		case "GET_LOG_PATH":
 			writeTLVResponse(conn, h.getLogPath())
+
+		case "GET_WINDOWS_NOTIFICATIONS":
+			value, err := h.db.GetSetting("windows_notifications_enabled")
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			if value != "0" {
+				value = "1"
+			}
+			writeTLVResponse(conn, value)
+
+		case "SET_WINDOWS_NOTIFICATIONS":
+			if len(args) != 1 || (args[0] != "0" && args[0] != "1") {
+				writeErrorTLV(conn, "Expected Windows notification value 0 or 1")
+				continue
+			}
+			if err := h.db.SetSetting("windows_notifications_enabled", args[0]); err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			writeOK(conn)
 
 		case "GET_FILTRATION":
 			filt, _ := h.db.GetSetting("filtration_enabled")
@@ -311,11 +713,14 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 			writeTLVResponse(conn, filt)
 
 		case "SET_FILTRATION":
-			if len(args) < 1 {
-				writeErrorTLV(conn, "Missing value")
+			if len(args) != 1 || (args[0] != "0" && args[0] != "1") {
+				writeErrorTLV(conn, "Expected filtration value 0 or 1")
 				continue
 			}
-			h.db.SetSetting("filtration_enabled", args[0])
+			if err := h.db.SetSetting("filtration_enabled", args[0]); err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
 			h.bus.Publish(notification.Event{
 				Type: notification.FiltrationToggled,
 				Data: map[string]string{"enabled": args[0]},
@@ -324,8 +729,12 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 
 		case "SUBSCRIBE":
 			sub := notification.NewSubscriber(conn, 65536)
+			if err := h.bus.Add(sub); err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			log.Info("Frontend connected", nil)
 			writeOK(conn)
-			h.bus.Add(sub)
 			conn.SetReadDeadline(time.Time{}) // pushed events only, no request deadline
 			scanner := newScanner(conn)
 			for scanner.Scan() {
@@ -357,53 +766,69 @@ func (h *FrontendHandler) CreateWhitelist(name string) error {
 }
 
 func (h *FrontendHandler) DeleteWhitelist(name string) error {
-	if err := h.db.DeleteWhitelist(name); err != nil {
-		return err
-	}
-	activeWl, _ := h.db.GetSetting("active_whitelist")
-	if activeWl == name {
-		h.db.SetSetting("active_whitelist", "")
-	}
-	return nil
+	return h.db.DeleteWhitelist(name)
 }
 
 func (h *FrontendHandler) ChangeWhitelistName(oldName, newName string) error {
-	if err := h.db.ChangeWhitelistName(oldName, newName); err != nil {
-		return err
-	}
-	activeWl, _ := h.db.GetSetting("active_whitelist")
-	if activeWl == oldName {
-		h.db.SetSetting("active_whitelist", newName)
-	}
-	return nil
+	return h.db.ChangeWhitelistName(oldName, newName)
 }
 
 func (h *FrontendHandler) SetWhitelistEntries(name string, entries []string) error {
+	rules := make([]*entity.WhitelistEntry, 0, len(entries))
+	for _, value := range entries {
+		rules = append(rules, &entity.WhitelistEntry{Value: value})
+	}
+	if _, err := whitelistapplication.NormalizePriorities(rules); err != nil {
+		return err
+	}
+
 	return h.db.ReplaceWhitelistEntries(entries, name)
 }
 
-func (h *FrontendHandler) ApproveUser(name string) error {
+func (h *FrontendHandler) ApproveUser(name string) (string, error) {
 	user, err := h.pendingUsers.Pop(name)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if _, err := h.db.CreateUser(user.Name, user.Addr); err != nil {
-		return err
+		return "", err
 	}
-	return nil
+	// Bind the client's public identity key from this registration. Approval is
+	// the trust decision, so the key from the approved registration is used
+	// (this also lets a re-registered existing user rebind a fresh key).
+	if user.SignPublic != "" {
+		if err := h.db.SetUserSignPublic(user.Name, user.SignPublic); err != nil {
+			return "", err
+		}
+	}
+	token := issueToken()
+	if err := h.db.SetUserToken(user.Name, token); err != nil {
+		return "", err
+	}
+	return token, nil
 }
 
 func (h *FrontendHandler) RejectUser(name string) {
 	h.pendingUsers.Pop(name) // ignore error, user just won't be approved
 }
 
-func (h *FrontendHandler) GetActiveWhitelist() string {
-	activeWl, _ := h.db.GetSetting("active_whitelist")
-	return activeWl
+func (h *FrontendHandler) GetUserToken(name string) (string, error) {
+	u, err := h.db.GetUserByName(name)
+	if err != nil {
+		return "", err
+	}
+	return u.Token, nil
 }
 
-func (h *FrontendHandler) SetActiveWhitelist(name string) {
-	h.db.SetSetting("active_whitelist", name)
+func (h *FrontendHandler) RegenerateUserToken(name string) (string, error) {
+	if _, err := h.db.GetUserByName(name); err != nil {
+		return "", err
+	}
+	token := issueToken()
+	if err := h.db.SetUserToken(name, token); err != nil {
+		return "", err
+	}
+	return token, nil
 }
 
 func (h *FrontendHandler) getLogPath() string {

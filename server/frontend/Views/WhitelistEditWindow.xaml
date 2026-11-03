@@ -6,14 +6,18 @@
         xmlns:local="clr-namespace:frontend;assembly=BigBrother.Frontend.Shared"
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         mc:Ignorable="d"
-        Title="{Binding WindowTitle}" Height="450" Width="520"
+        Title="{Binding WindowTitle}" Height="720" Width="680"
+        MinHeight="600" MinWidth="600"
         WindowStartupLocation="CenterOwner"
         Background="{StaticResource WindowBackground}"
         Foreground="{StaticResource TitleBarText}"
-        ResizeMode="NoResize"
+        ResizeMode="CanResize"
         WindowStyle="None">
+    <local:ChromeWindow.InputBindings>
+        <KeyBinding Key="S" Modifiers="Control" Command="{Binding SaveInPlaceCommand}"/>
+    </local:ChromeWindow.InputBindings>
     <shell:WindowChrome.WindowChrome>
-        <shell:WindowChrome CaptionHeight="42" ResizeBorderThickness="6"
+        <shell:WindowChrome CaptionHeight="{DynamicResource Scaled42}" ResizeBorderThickness="6"
                             GlassFrameThickness="0" UseAeroCaptionButtons="False"/>
     </shell:WindowChrome.WindowChrome>
 
@@ -33,12 +37,15 @@
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <TextBlock Grid.Column="0" Text="{Binding WindowTitle}" Foreground="{StaticResource TitleBarText}"
-                           FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" Margin="14,0,0,0"/>
+                           FontSize="{DynamicResource FontSize13}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="14,0,0,0"/>
                 <StackPanel Grid.Column="2" Orientation="Horizontal">
                     <Button Content="&#x2013;"
                             Style="{StaticResource TitleBarButton}"
                             shell:WindowChrome.IsHitTestVisibleInChrome="True"
                             Click="MinimizeButton_Click"/>
+                    <Button Style="{StaticResource MaximizeRestoreButton}"
+                            shell:WindowChrome.IsHitTestVisibleInChrome="True"
+                            Click="MaximizeRestoreButton_Click"/>
                     <Button Content="&#x2715;"
                             Style="{StaticResource TitleBarButton}"
                             Tag="Close"
@@ -53,12 +60,14 @@
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
                 <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
             <!-- Name Input -->
             <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,10">
                 <TextBlock Text="Название: " VerticalAlignment="Center" FontWeight="Bold"/>
-                <TextBox Text="{Binding WhitelistName, UpdateSourceTrigger=PropertyChanged}" Width="300"/>
+                <TextBox Text="{Binding WhitelistName, UpdateSourceTrigger=PropertyChanged}" Width="300"
+                         IsReadOnly="{Binding IsSaving}"/>
             </StackPanel>
 
             <!-- Entries Text Area -->
@@ -69,20 +78,49 @@
                 </Grid.RowDefinitions>
 
                 <TextBlock Grid.Row="0" Text="Записи (по одной на строку):" FontWeight="Bold" Margin="0,0,0,5"/>
-                <TextBox Grid.Row="1" Text="{Binding EntriesText, UpdateSourceTrigger=PropertyChanged}"
-                         AcceptsReturn="True" VerticalScrollBarVisibility="Auto"
-                         VerticalContentAlignment="Top"
-                         FontFamily="Consolas" Padding="6"
-                         Background="{StaticResource InputBackground}"
-                         Foreground="{StaticResource TitleBarText}"
-                         BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"/>
+                <Border Grid.Row="1" Background="{StaticResource InputBackground}"
+                        BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Canvas x:Name="LineHighlightCanvas" Grid.ColumnSpan="2"
+                                ClipToBounds="True" IsHitTestVisible="False"/>
+                        <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,1,0">
+                            <Canvas x:Name="LineNumberGutter" Width="32" ClipToBounds="True"
+                                    IsHitTestVisible="False"/>
+                        </Border>
+                        <!-- The TextBox handles editing; the overlay supplies per-line text colors. -->
+                        <TextBox x:Name="EntriesEditor" Grid.Column="1" Text="{Binding EntriesText, UpdateSourceTrigger=PropertyChanged}"
+                                 IsReadOnly="{Binding IsSaving}"
+                                 AcceptsReturn="True" VerticalScrollBarVisibility="Auto"
+                                 HorizontalScrollBarVisibility="Auto" TextWrapping="NoWrap"
+                                 VerticalContentAlignment="Top"
+                                 FontFamily="Consolas" FontSize="{DynamicResource TextFontSize15}" Padding="6"
+                                 Loaded="EntriesEditor_LayoutChanged" SizeChanged="EntriesEditor_LayoutChanged"
+                                 TextChanged="EntriesEditor_TextChanged"
+                                 ScrollViewer.ScrollChanged="EntriesEditor_ScrollChanged"
+                                 Background="Transparent"
+                                 Foreground="Transparent" SelectionTextBrush="Transparent"
+                                 CaretBrush="{StaticResource TitleBarText}"
+                                 BorderThickness="0"/>
+                        <Canvas x:Name="EntriesTextCanvas" Grid.Column="1"
+                                ClipToBounds="True" IsHitTestVisible="False"/>
+                    </Grid>
+                </Border>
             </Grid>
 
+            <StackPanel Grid.Row="2" Margin="0,8,0,0">
+                <ScrollViewer MaxHeight="120" VerticalScrollBarVisibility="Auto">
+                    <TextBlock FontSize="{DynamicResource TextFontSize14}" Text="{Binding ValidationSummary}" TextWrapping="Wrap"/>
+                </ScrollViewer>
+            </StackPanel>
             <!-- Buttons -->
-            <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
-                <Button Content="Сохранить" Style="{StaticResource PrimaryButton}" Width="90" Height="28" Margin="0,0,5,0"
-                        Command="{Binding SaveCommand}" IsDefault="True"/>
-                <Button Content="Отмена" Width="90" Height="28" IsCancel="True"/>
+            <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+                <Button Content="Сохранить" Style="{StaticResource PrimaryButton}" MinWidth="{DynamicResource Scaled90}" MinHeight="{DynamicResource Scaled28}" Margin="0,0,5,0"
+                        Command="{Binding SaveCommand}" IsDefault="True" ToolTip="Сохранить и закрыть. Ctrl+S — сохранить без закрытия"/>
+                <Button Content="Отмена" MinWidth="{DynamicResource Scaled90}" MinHeight="{DynamicResource Scaled28}" IsCancel="True" IsEnabled="{Binding CanEdit}"/>
             </StackPanel>
         </Grid>
     </Grid>

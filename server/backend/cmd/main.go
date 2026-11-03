@@ -1,25 +1,36 @@
 //go:build windows
 
+//go:generate make -C .. resources
+
 package main
 
 import (
 	"bigbrother_server_backend/cmd/app"
+	settingsapplication "bigbrother_server_backend/packages/application/settings"
 	"bigbrother_server_backend/packages/common/log"
+	"bigbrother_server_backend/packages/domain/entity"
 	"bigbrother_server_backend/packages/infrastructure/connection"
 	"bigbrother_server_backend/packages/infrastructure/database/sqlite"
+	"bigbrother_server_backend/packages/infrastructure/firewall"
 	"bigbrother_server_backend/packages/infrastructure/notification"
 	"bigbrother_server_backend/packages/infrastructure/pending"
+	"bigbrother_server_backend/packages/infrastructure/secretfs"
+	"bigbrother_server_backend/packages/infrastructure/tlsutil"
 	"bigbrother_server_backend/packages/presentation/discovery"
 	"bigbrother_server_backend/packages/presentation/rpc"
 	"fmt"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/abaxoth0/Ain/logger"
 )
+
+var productVersion = "development"
 
 var mainLogger = logger.NewSource("MAIN", log.DefaultLogger)
 
@@ -27,12 +38,17 @@ const frontendPipePath = `\\.\pipe\BigBrother.Server.Frontend`
 const frontendPipeBufSize = 65536
 const defaultBackendPort = 1984
 const serviceName = "BigBrother Server"
-const pipeSecurityDescriptor = "D:(A;;GA;;;WD)"
+
+// Restrict the frontend pipe to SYSTEM, Builtin Administrators and the object
+// owner. Previously everyone (WD) could drive approve/reject/user/whitelist
+// administration from any local process.
+const pipeSecurityDescriptor = "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GA;;;OW)"
 
 func main() {
-	log.DefaultLoggerConfig.Trace = true
-	log.DefaultLoggerConfig.Debug = true
-
+	if len(os.Args) == 2 && os.Args[1] == "--version" {
+		fmt.Println("BigBrother Server Daemon " + productVersion)
+		return
+	}
 	app.StartInit()
 	app.InitDefaults()
 	app.EndInit()
@@ -49,8 +65,8 @@ func main() {
 	}()
 
 	time.Sleep(time.Millisecond * 50)
+	mainLogger.Info("Version: "+productVersion, nil)
 
-	connManager := connection.NewMemoryResidentConnectionManager()
 	dbPath := "bb-server.db"
 	if exe, err := os.Executable(); err == nil {
 		exeDir := filepath.Dir(exe)
@@ -61,29 +77,113 @@ func main() {
 			dbPath = filepath.Join(exeDir, "bb-server.db")
 		}
 	}
+	securePath, securityErr := secretfs.Prepare(dbPath)
+	if securityErr != nil {
+		mainLogger.Fatal("Secret storage setup error", securityErr.Error(), nil)
+		return
+	}
+	dbPath = securePath
+	if len(os.Args) == 2 && os.Args[1] == "--secure-storage" {
+		fmt.Println("Secret storage secured: " + dbPath)
+		return
+	}
 	mainLogger.Info("Database path: "+dbPath, nil)
 	db := sqlite.New(dbPath)
 	if err := db.Connect(); err != nil {
 		mainLogger.Fatal("Database connection error", err.Error(), nil)
 	}
 	defer db.Disconnect()
+	if err := secretfs.PrivateTree(filepath.Dir(dbPath)); err != nil {
+		mainLogger.Fatal("Secret permissions error", err.Error(), nil)
+		return
+	}
+
+	desktop := notification.NewDesktopNotifier(notification.DeliverWindowsNotification, func(err error) {
+		mainLogger.Error("Windows notification failed", err.Error(), nil)
+	}, func() (bool, error) {
+		value, err := db.GetSetting("windows_notifications_enabled")
+		return value != "0", err
+	})
+
+	notifMgr := notification.NewManagerWithNotifier(desktop.Notify)
+	timerStop := make(chan struct{})
+	timerDone := make(chan struct{})
+	go func() {
+		defer close(timerDone)
+		ticker := time.NewTicker(250 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-timerStop:
+				return
+			case <-ticker.C:
+				changed, err := db.ExpireWhitelistTimers()
+				if err != nil {
+					mainLogger.Error("Temporary whitelist expiry failed", err.Error(), nil)
+				}
+				if changed {
+					notifMgr.Publish(notification.Event{Type: notification.WhitelistChanged, Data: map[string]string{}})
+				}
+			}
+		}
+	}()
+	var shutdownOnce sync.Once
+	shutdown := func() {
+		shutdownOnce.Do(func() {
+			close(timerStop)
+			<-timerDone
+			if _, err := db.ExpireWhitelistTimers(); err != nil {
+				mainLogger.Error("Temporary whitelist expiry failed", err.Error(), nil)
+			}
+			if err := db.SaveWhitelistTimerState(); err != nil {
+				mainLogger.Error("Temporary whitelist state save failed", err.Error(), nil)
+			}
+			desktop.Close()
+		})
+	}
+	defer shutdown()
+
+	connManager := connection.NewMemoryResidentConnectionManagerWithDisconnectHandler(func(user entity.User) {
+		notifMgr.Publish(notification.Event{Type: notification.UserDisconnected, Data: map[string]string{"name": user.Name, "addr": user.Addr}})
+	})
 
 	pendingUsersStorage := pending.NewUserStorage()
-	notifMgr := notification.NewManager()
 
-	discoveryListener := discovery.New(db)
+	// TLS for the client↔server TCP channel. Self-signed cert is generated once
+	// and stored next to the database; clients pin its fingerprint.
+	tlsCert, err := tlsutil.LoadOrCreateCert(
+		filepath.Join(filepath.Dir(dbPath), "tls", "server.crt"),
+		filepath.Join(filepath.Dir(dbPath), "tls", "server.key"),
+	)
+	if err != nil {
+		mainLogger.Fatal("TLS certificate setup error", err.Error(), nil)
+	}
+	if err := secretfs.PrivateTree(filepath.Dir(dbPath)); err != nil {
+		mainLogger.Fatal("TLS permissions error", err.Error(), nil)
+		return
+	}
+	tlsConfig, err := tlsutil.ServerConfig(tlsCert)
+	if err != nil {
+		mainLogger.Fatal("TLS configuration error", err.Error(), nil)
+	}
 
 	backendServer := rpc.NewServer(
 		"Backend",
 		rpc.NewBackendHandler(db, connManager, pendingUsersStorage, notifMgr),
 		&rpc.ServerConfig{
-			Network: rpc.NetworkTCP,
+			Network:   rpc.NetworkTCP,
+			TLSConfig: tlsConfig,
 		},
 	)
 
+	fingerprint, err := tlsutil.Fingerprint(tlsCert)
+	if err != nil {
+		mainLogger.Fatal("TLS fingerprint error", err.Error(), nil)
+	}
+
 	frontendServer := rpc.NewServer(
 		"Frontend",
-		rpc.NewFrontendHandler(db, connManager, pendingUsersStorage, notifMgr),
+		rpc.NewFrontendHandler(db, connManager, pendingUsersStorage, notifMgr, fingerprint),
 		&rpc.ServerConfig{
 			Network:            rpc.NetworkPipe,
 			InputBufferSize:    frontendPipeBufSize,
@@ -92,31 +192,40 @@ func main() {
 		},
 	)
 
-	// Determine backend port: CLI --port flag overrides DB, DB overrides default
 	backendPort := defaultBackendPort
 	cliPortSet := false
-	for i, arg := range os.Args {
-		if arg == "--port" && i+1 < len(os.Args) {
-			if _, err := fmt.Sscanf(os.Args[i+1], "%d", &backendPort); err == nil && backendPort > 0 && backendPort < 65536 {
-				cliPortSet = true
-				break
+	for i := 1; i < len(os.Args); i++ {
+		if os.Args[i] == "--port" {
+			if i+1 >= len(os.Args) {
+				mainLogger.Error("Missing --port value", "", nil)
+				return
 			}
+			backendPort, err = settingsapplication.ParseServerPort(os.Args[i+1])
+			if err != nil {
+				mainLogger.Error("Invalid --port value", err.Error(), nil)
+				return
+			}
+			cliPortSet = true
+			i++
 		}
 	}
 	if !cliPortSet {
 		if dbPort, err := db.GetSetting("server_port"); err == nil && dbPort != "" {
-			if p, e := fmt.Sscanf(dbPort, "%d", &backendPort); e == nil && p == 1 && backendPort > 0 && backendPort < 65536 {
-				// use db port
+			backendPort, err = settingsapplication.ParseServerPort(dbPort)
+			if err != nil {
+				mainLogger.Error("Invalid saved server port", err.Error(), nil)
+				return
 			}
 		}
 	}
 	backendAddr := fmt.Sprintf(":%d", backendPort)
+	discoveryListener := discovery.New(db, backendPort)
 
 	// TODO make this thread a hypervisor which will track status of those servers and restart them if anything
 
 	if isService() {
 		mainLogger.Info("Starting as Windows service...", nil)
-		runService(backendAddr, frontendPipePath, discoveryListener, connManager, backendServer, frontendServer)
+		runService(backendAddr, frontendPipePath, discoveryListener, connManager, backendServer, frontendServer, shutdown)
 	} else {
 		mainLogger.Info("Starting in console mode...", nil)
 		runConsole(backendAddr, frontendPipePath, discoveryListener, backendServer, frontendServer, connManager)
@@ -150,6 +259,10 @@ func startAndWait(backendAddr, frontendPipePath string, discoveryListener *disco
 }
 
 func runConsole(backendAddr, frontendPipePath string, discoveryListener *discovery.Listener, backendServer, frontendServer *rpc.Server, connManager *connection.MemoryResidentConnectionManager) {
+	if err := configureFirewall(backendAddr); err != nil {
+		mainLogger.Error("Firewall setup failed", err.Error(), nil)
+		return
+	}
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 	stopCh := make(chan struct{}, 1)
@@ -158,4 +271,16 @@ func runConsole(backendAddr, frontendPipePath string, discoveryListener *discove
 		close(stopCh)
 	}()
 	startAndWait(backendAddr, frontendPipePath, discoveryListener, backendServer, frontendServer, connManager, stopCh)
+}
+
+func configureFirewall(backendAddr string) error {
+	port, err := strconv.Atoi(backendAddr[1:])
+	if err != nil {
+		return err
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	return firewall.Sync(exe, port, discovery.Port)
 }

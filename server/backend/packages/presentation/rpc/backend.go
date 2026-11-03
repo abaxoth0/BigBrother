@@ -3,13 +3,21 @@
 package rpc
 
 import (
+	buildlog "bigbrother_server_backend/packages/common/log"
+	"context"
+	"crypto/subtle"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net"
+	"strings"
 	"time"
 
 	"bigbrother_server_backend/packages/application/settings"
+	"bigbrother_server_backend/packages/application/updates"
+	whitelistapplication "bigbrother_server_backend/packages/application/whitelist"
 	"bigbrother_server_backend/packages/domain/entity"
 	"bigbrother_server_backend/packages/infrastructure/connection"
 	"bigbrother_server_backend/packages/infrastructure/database"
@@ -62,19 +70,51 @@ func (h *BackendHandler) handle(conn net.Conn) {
 			return
 		}
 
-		log.Debug("Received: "+cmd, nil)
+		if buildlog.DiagnosticsEnabled {
+			log.Debug("Received: "+cmd, nil)
+		}
 
 		switch cmd {
+		case "GET_CLIENT_UPDATE", "GET_CLIENT_UPDATE_DETAILS":
+			if len(args) != 2 || !h.authenticate(args[0], args[1]) {
+				writeErrorTLV(conn, "invalid token")
+				continue
+			}
+			data, err := h.db.GetSetting("client_update")
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			if data == "" {
+				writeOK(conn)
+				continue
+			}
+			manifest, err := updates.Parse(data)
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			if cmd == "GET_CLIENT_UPDATE" {
+				manifest.ReleaseNotes = nil
+				metadata, _ := json.Marshal(manifest)
+				data = string(metadata)
+			}
+			writeTLVResponse(conn, data)
+
 		case "GET_WHITELIST":
-			if len(args) < 1 {
-				writeErrorTLV(conn, "Missing username")
+			if len(args) < 2 {
+				writeErrorTLV(conn, "Missing username or token")
 				continue
 			}
-			if _, err := h.db.GetUserByName(args[0]); err != nil {
-				writeErrorTLV(conn, "user not found")
+			if !h.authenticate(args[0], args[1]) {
+				writeErrorTLV(conn, "invalid token")
 				continue
 			}
-			wl := h.GetWhitelist(args[0])
+			wl, err := h.GetWhitelist(args[0])
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
 			var data []string
 			for _, entry := range wl {
 				data = append(data, entry.Value)
@@ -90,7 +130,11 @@ func (h *BackendHandler) handle(conn net.Conn) {
 			if len(args) >= 2 && args[1] != "" {
 				addr = args[1]
 			}
-			if err := h.RegisterPendingUser(args[0], addr); err != nil {
+			signPublic := ""
+			if len(args) >= 3 {
+				signPublic = args[2]
+			}
+			if err := h.RegisterPendingUser(args[0], addr, signPublic); err != nil {
 				writeErrorTLV(conn, err.Error())
 			} else {
 				h.bus.Publish(notification.Event{
@@ -101,13 +145,17 @@ func (h *BackendHandler) handle(conn net.Conn) {
 			}
 
 		case "CONNECT":
-			if len(args) < 1 {
-				writeErrorTLV(conn, "Missing name")
+			if len(args) < 3 {
+				writeErrorTLV(conn, "Missing name, address or token")
 				continue
 			}
-			addr := conn.RemoteAddr().String()
-			if len(args) >= 2 && args[1] != "" {
-				addr = args[1]
+			if !h.authenticate(args[0], args[2]) {
+				writeErrorTLV(conn, "invalid token")
+				continue
+			}
+			addr := args[1]
+			if addr == "" {
+				addr = conn.RemoteAddr().String()
 			}
 			if err := h.ConnectUser(args[0], addr); err != nil {
 				writeErrorTLV(conn, err.Error())
@@ -120,23 +168,27 @@ func (h *BackendHandler) handle(conn net.Conn) {
 			}
 
 		case "DISCONNECT":
-			if len(args) < 1 {
-				writeErrorTLV(conn, "Missing name")
+			if len(args) < 2 {
+				writeErrorTLV(conn, "Missing name or token")
+				continue
+			}
+			if !h.authenticate(args[0], args[1]) {
+				writeErrorTLV(conn, "invalid token")
 				continue
 			}
 			if err := h.connManager.DeleteConnection(args[0]); err != nil {
 				writeErrorTLV(conn, err.Error())
 			} else {
-				h.bus.Publish(notification.Event{
-					Type: notification.UserDisconnected,
-					Data: map[string]string{"name": args[0]},
-				})
 				writeOK(conn)
 			}
 
 		case "REFRESH":
-			if len(args) < 1 {
-				writeErrorTLV(conn, "Missing name")
+			if len(args) < 2 {
+				writeErrorTLV(conn, "Missing name or token")
+				continue
+			}
+			if !h.authenticate(args[0], args[1]) {
+				writeErrorTLV(conn, "invalid token")
 				continue
 			}
 			if err := h.RefreshConnection(args[0]); err != nil {
@@ -172,42 +224,150 @@ func (h *BackendHandler) handle(conn net.Conn) {
 			}
 			writeTLVResponse(conn, filt)
 
-		case "SET_FILTRATION":
+		case "GET_TOKEN_CHALLENGE":
 			if len(args) < 1 {
-				writeErrorTLV(conn, "Missing value")
+				writeErrorTLV(conn, "Missing name")
 				continue
 			}
-			h.db.SetSetting("filtration_enabled", args[0])
-			h.bus.Publish(notification.Event{
-				Type: notification.FiltrationToggled,
-				Data: map[string]string{"enabled": args[0]},
-			})
-			writeOK(conn)
+			if _, err := h.db.GetUserByName(args[0]); err != nil {
+				writeErrorTLV(conn, "user not found")
+				continue
+			}
+			nonce, err := newChallenge(args[0])
+			if err != nil {
+				writeErrorTLV(conn, "failed to issue challenge")
+				continue
+			}
+			writeTLVResponse(conn, nonce)
+
+		case "GET_TOKEN":
+			if len(args) < 3 {
+				writeErrorTLV(conn, "Missing name, challenge or signature")
+				continue
+			}
+			if !consumeChallenge(args[0], args[1]) {
+				writeErrorTLV(conn, "invalid or expired challenge")
+				continue
+			}
+			u, err := h.db.GetUserByName(args[0])
+			if err != nil {
+				writeErrorTLV(conn, "user not found")
+				continue
+			}
+			if u.SignPublic == "" {
+				writeErrorTLV(conn, "client key not registered")
+				continue
+			}
+			if !verifyClientSignature(u.SignPublic, args[0], args[1], args[2]) {
+				writeErrorTLV(conn, "signature verify failed")
+				continue
+			}
+			if u.Token == "" {
+				writeTLVResponse(conn, "NOT_SET")
+				continue
+			}
+			writeTLVResponse(conn, u.Token)
 
 		case "SUBSCRIBE":
-			name := ""
-			if len(args) >= 1 {
-				name = args[0]
+			if len(args) < 2 {
+				writeErrorTLV(conn, "Missing name or token")
+				continue
+			}
+			name := args[0]
+			if !h.authenticate(name, args[1]) {
+				writeErrorTLV(conn, "invalid token")
+				continue
+			}
+			session, err := h.connManager.GetConnection(name)
+			if err == nil && session.GetUser().Token != args[1] {
+				h.connManager.DeleteSession(name, session.ID())
+				err = connection.ErrConnectionNotFound
+			}
+			createdSession := false
+			if err != nil {
+				user, userErr := h.db.GetUserByName(name)
+				if userErr != nil {
+					writeErrorTLV(conn, userErr.Error())
+					continue
+				}
+				session, err = h.connManager.NewConnection(user)
+				if err == nil {
+					createdSession = true
+					h.bus.Publish(notification.Event{Type: notification.UserConnected,
+						Data: map[string]string{"name": name, "addr": user.Addr}})
+				}
+				if errors.Is(err, connection.ErrAlreadyConnected) {
+					session, err = h.connManager.GetConnection(name)
+				}
+				if err != nil {
+					writeErrorTLV(conn, err.Error())
+					continue
+				}
 			}
 			sub := notification.NewSubscriber(conn, 4096)
+			if err := h.bus.Add(sub); err != nil {
+				if createdSession {
+					h.connManager.DeleteSession(name, session.ID())
+				}
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
 			writeOK(conn)
-			h.bus.Add(sub)
 			conn.SetReadDeadline(time.Time{}) // pushed events/heartbeats, no request deadline
+			watchDone := make(chan struct{})
+			go func() {
+				select {
+				case <-session.Context().Done():
+					var terminal *notification.Event
+					if errors.Is(context.Cause(session.Context()), connection.ErrDisconnectedByServer) {
+						terminal = &notification.Event{Type: notification.ClientDisconnected, Data: map[string]string{"name": name}}
+					}
+					h.bus.RemoveWithEvent(sub, terminal)
+				case <-watchDone:
+				}
+			}()
 			scanner := newScanner(conn)
 			for scanner.Scan() {
 				line := scanner.Text()
 				if line == "" {
 					continue
 				}
-				// Keep connection alive until client disconnects
-				if name != "" {
-					h.RefreshConnection(name)
+				if session.Context().Err() != nil {
+					continue
 				}
+				// Revalidate on heartbeat so rotated tokens cannot retain a subscription.
+				if !h.authenticate(name, args[1]) {
+					break
+				}
+				if strings.HasPrefix(line, "POLICY ") {
+					var report struct {
+						WhitelistRevision *string `json:"whitelistRevision"`
+						FiltrationEnabled *bool   `json:"filtrationEnabled"`
+						BlockIpv6         *bool   `json:"blockIpv6"`
+						CanSetIpv6Block   bool    `json:"canSetIpv6Block"`
+					}
+					if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "POLICY ")), &report); err != nil ||
+						report.WhitelistRevision == nil || report.FiltrationEnabled == nil || report.BlockIpv6 == nil {
+						continue
+					}
+					policy := connection.PolicyStatus{WhitelistRevision: *report.WhitelistRevision,
+						FiltrationEnabled: *report.FiltrationEnabled, BlockIpv6: *report.BlockIpv6, CanSetIpv6Block: report.CanSetIpv6Block}
+					if policy.WhitelistRevision != "" {
+						if digest, err := hex.DecodeString(policy.WhitelistRevision); err != nil || len(digest) != 32 {
+							continue
+						}
+					}
+					if changed, err := h.connManager.RefreshSession(name, session.ID(), &policy); err == nil && changed {
+						h.bus.Publish(notification.Event{Type: notification.ClientPolicyChanged,
+							Data: map[string]string{"name": name}})
+					}
+					continue
+				}
+				h.connManager.RefreshSession(name, session.ID(), nil)
 			}
+			close(watchDone)
 			h.bus.Remove(sub)
-			if name != "" {
-				h.connManager.DeleteConnection(name)
-			}
+			h.connManager.DeleteSession(name, session.ID())
 			return
 
 		default:
@@ -216,19 +376,15 @@ func (h *BackendHandler) handle(conn net.Conn) {
 	}
 }
 
-func (s *BackendHandler) GetWhitelist(username string) []*entity.WhitelistEntry {
+func (s *BackendHandler) GetWhitelist(username string) ([]*entity.WhitelistEntry, error) {
 	if _, err := s.db.GetUserByName(username); err != nil {
-		return nil
+		return nil, err
 	}
-	activeWl, err := s.db.GetSetting("active_whitelist")
-	if err != nil || activeWl == "" {
-		return nil
-	}
-	entries, err := s.db.GetWhitelistEntries(activeWl)
+	composition, err := whitelistapplication.Compose(s.db)
 	if err != nil {
-		return nil
+		return nil, err
 	}
-	return entries
+	return composition.Entries, nil
 }
 
 func (s *BackendHandler) ConnectUser(name string, addr string) error {
@@ -253,9 +409,19 @@ func (s *BackendHandler) RefreshConnection(name string) error {
 	return s.connManager.RefreshConnection(name)
 }
 
-func (s *BackendHandler) RegisterPendingUser(username, addr string) error {
+// authenticate verifies a client-supplied per-user token (constant-time). Users
+// that predate token issuance (empty token) are rejected until re-approved.
+func (s *BackendHandler) authenticate(username, token string) bool {
+	u, err := s.db.GetUserByName(username)
+	if err != nil || u.Token == "" {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(u.Token), []byte(token)) == 1
+}
+
+func (s *BackendHandler) RegisterPendingUser(username, addr, signPublic string) error {
 	log.Info("Registration request for user \""+username+"\"", nil)
-	return s.pendingUsers.Add(username, addr)
+	return s.pendingUsers.Add(username, addr, signPublic)
 }
 
 func (s *BackendHandler) GetStatus() *ServerStatus {

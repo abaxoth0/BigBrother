@@ -5,6 +5,7 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using frontend.Models;
+using frontend.Services;
 using frontend.ViewModels;
 
 namespace frontend;
@@ -27,6 +28,19 @@ public partial class LogViewWindow : ChromeWindow
 
         BuildTabs();
         RefreshTabBindings();
+        Loaded += OnLoaded;
+    }
+
+    private async void OnLoaded(object sender, RoutedEventArgs e)
+    {
+        Loaded -= OnLoaded;
+        await _vm.ReloadAsync();
+    }
+
+    protected override void OnClosed(EventArgs e)
+    {
+        _vm.Dispose();
+        base.OnClosed(e);
     }
 
     private void BuildTabs()
@@ -37,10 +51,15 @@ public partial class LogViewWindow : ChromeWindow
             var listBox = new System.Windows.Controls.ListBox
             {
                 FontFamily = new System.Windows.Media.FontFamily("Consolas"),
-                FontSize = 12,
+                DataContext = src,
+                ItemContainerStyle = (Style)FindResource("LogRowStyle"),
                 ItemTemplate = (DataTemplate)FindResource("LogLineTemplate")
             };
+            listBox.SetResourceReference(FontSizeProperty, "TextFontSize12");
+            LogSelectionCopy.Enable<Lib.LogEntry>(listBox, entry => LogEntryFormatter.Format(entry, src.Label),
+                error => _vm.StatusText = error);
             listBox.SetValue(VirtualizingPanel.IsVirtualizingProperty, true);
+            listBox.SetValue(VirtualizingPanel.VirtualizationModeProperty, VirtualizationMode.Recycling);
             tab.Content = listBox;
             LogTabs.Items.Add(tab);
 
@@ -57,7 +76,6 @@ public partial class LogViewWindow : ChromeWindow
             _listBoxes[i].ItemsSource = src.FilteredEntries;
             _tabs[i].Header = $"{src.Label} ({src.AllEntries.Count})";
         }
-        StatusText.Text = _vm.StatusText;
     }
 
     private void Export()
@@ -81,14 +99,14 @@ public partial class LogViewWindow : ChromeWindow
                 var label = _vm.Sources[i].Label;
                 foreach (var log in logs)
                 {
-                    writer.WriteLine($"[{log.Timestamp:HH:mm:ss}] [{label}] [{log.Level}] {log.Message}");
+                    writer.WriteLine(LogEntryFormatter.Format(log, label));
                 }
             }
-            System.Windows.MessageBox.Show($"Логи сохранены: {dialog.FileName}", "Успех", MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageDialog.Show($"Логи сохранены: {dialog.FileName}", "Успех", MessageBoxButton.OK, MessageBoxImage.Information);
         }
         catch (Exception ex)
         {
-            System.Windows.MessageBox.Show($"Ошибка экспорта: {ex.Message}", "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
+            MessageDialog.Show($"Ошибка экспорта: {ex.Message}", "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 }

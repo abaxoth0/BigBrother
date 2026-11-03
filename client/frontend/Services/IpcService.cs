@@ -9,6 +9,10 @@ public class IpcService : IDisposable
 {
     private const string PipeName = "BigBrother.Client.Backend";
     private const int MaxRetries = 3;
+    private readonly string _pipeName;
+
+    public IpcService() : this(PipeName) { }
+    internal IpcService(string pipeName) { _pipeName = pipeName; }
     private const int ReadTimeoutMs = 10000;
     private NamedPipeClientStream? _pipe;
     private bool _isConnected;
@@ -42,9 +46,10 @@ public class IpcService : IDisposable
     {
         while (!ct.IsCancellationRequested)
         {
+            bool subscribed = false;
             try
             {
-                using var pipe = new NamedPipeClientStream(".", PipeName, PipeDirection.InOut);
+                using var pipe = new NamedPipeClientStream(".", _pipeName, PipeDirection.InOut);
                 // Non-blocking probe: fails instantly when the daemon is not running
                 // (a timed ConnectAsync busy-waits for the full timeout, burning CPU).
                 await pipe.ConnectAsync(0, ct);
@@ -65,6 +70,7 @@ public class IpcService : IDisposable
                 await reader.ReadLineAsync(ct).ConfigureAwait(false);
 
                 // Subscribed — signal UI to refresh once (covers reconnects)
+                subscribed = true;
                 StateChanged?.Invoke();
 
                 while (!ct.IsCancellationRequested)
@@ -90,6 +96,10 @@ public class IpcService : IDisposable
             catch (Exception)
             {
                 // pipe unavailable — retry after delay
+            }
+            finally
+            {
+                if (subscribed && !ct.IsCancellationRequested) StateChanged?.Invoke();
             }
 
             if (!ct.IsCancellationRequested)
@@ -117,7 +127,7 @@ public class IpcService : IDisposable
             {
                 try
                 {
-                    _pipe = new NamedPipeClientStream(".", PipeName, PipeDirection.InOut);
+                    _pipe = new NamedPipeClientStream(".", _pipeName, PipeDirection.InOut);
                     await _pipe.ConnectAsync(0);
                     _isConnected = true;
                     _lastError = "";
@@ -264,6 +274,24 @@ public class IpcService : IDisposable
         }
     }
 
+    public async Task<string> GetClientUpdateAsync()
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) throw new IOException("Нет соединения с клиентом.");
+            try
+            {
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+                var (status, data) = await SendCommandAsync("GET_CLIENT_UPDATE", Array.Empty<string>(), timeout.Token);
+                if (status != "OK") throw new IOException(string.IsNullOrEmpty(_lastError) ? "Не удалось получить обновление с сервера." : _lastError);
+                return data.Count > 0 ? data[0] : "";
+            }
+            finally { Disconnect(); }
+        }
+        finally { _connectionLock.Release(); }
+    }
+
     public async Task<ClientStatus> GetStatusAsync()
     {
         var status = new ClientStatus();
@@ -320,25 +348,20 @@ public class IpcService : IDisposable
         return status;
     }
 
-    public async Task<List<string>> GetWhitelistAsync()
+    public async Task<List<string>?> GetWhitelistAsync()
     {
-        var whitelist = new List<string>();
-
         await _connectionLock.WaitAsync();
         try
         {
             if (!await ConnectAsync())
             {
-                return whitelist;
+                return null;
             }
 
             try
             {
                 var (status, data) = await SendCommandWithTimeoutAsync("GET_WHITELIST", ReadTimeoutMs);
-                if (status == "OK")
-                {
-                    whitelist.AddRange(data);
-                }
+                return status == "OK" ? data : null;
             }
             finally
             {
@@ -349,8 +372,6 @@ public class IpcService : IDisposable
         {
             _connectionLock.Release();
         }
-
-        return whitelist;
     }
 
     public async Task<bool> RestartClientAsync()
@@ -992,6 +1013,140 @@ public class IpcService : IDisposable
         {
             _connectionLock.Release();
         }
+    }
+
+    public async Task<bool?> GetIpv6BlockAsync()
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return null;
+            try
+            {
+                var (status, data) = await SendCommandWithTimeoutAsync("GET_IPV6_BLOCK", ReadTimeoutMs);
+                return status == "OK" && data.Count > 0 && (data[0] == "0" || data[0] == "1")
+                    ? data[0] == "1" : null;
+            }
+            finally
+            {
+                Disconnect();
+            }
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
+    public async Task<bool> SetIpv6BlockAsync(bool enabled)
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return false;
+            try
+            {
+                var (status, _) = await SendCommandWithTimeoutAsync("SET_IPV6_BLOCK", ReadTimeoutMs, enabled ? "1" : "0");
+                return status == "OK";
+            }
+            finally
+            {
+                Disconnect();
+            }
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
+    public async Task<bool?> GetWindowsNotificationsAsync()
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return null;
+            try
+            {
+                var (status, data) = await SendCommandWithTimeoutAsync("GET_WINDOWS_NOTIFICATIONS", ReadTimeoutMs);
+                return status == "OK" && data.Count > 0 && (data[0] == "0" || data[0] == "1")
+                    ? data[0] == "1" : null;
+            }
+            finally
+            {
+                Disconnect();
+            }
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
+    public async Task<bool> SetWindowsNotificationsAsync(bool enabled)
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return false;
+            try
+            {
+                var (status, _) = await SendCommandWithTimeoutAsync("SET_WINDOWS_NOTIFICATIONS", ReadTimeoutMs, enabled ? "1" : "0");
+                return status == "OK";
+            }
+            finally
+            {
+                Disconnect();
+            }
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
+    private async Task<(string status, List<string> data, string error)> CertificateCommandAsync(string command, params string[] args)
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return ("", new List<string>(), _lastError);
+            try
+            {
+                var response = await SendCommandWithTimeoutAsync(command, ReadTimeoutMs, args);
+                return (response.status, response.data, _lastError);
+            }
+            finally { Disconnect(); }
+        }
+        finally { _connectionLock.Release(); }
+    }
+
+    public string SavedFingerprintError { get; private set; } = "";
+
+    public async Task<string?> GetSavedServerFingerprintAsync()
+    {
+        var (status, data, error) = await CertificateCommandAsync("GET_SAVED_SERVER_FINGERPRINT");
+        if (status == "OK" && data.Count == 1)
+        {
+            SavedFingerprintError = "";
+            return data[0];
+        }
+        SavedFingerprintError = error.Length > 0 ? error : "Клиентский демон не ответил";
+        return null;
+    }
+
+    public async Task<CertificateInspection?> InspectServerCertificateAsync()
+    {
+        var (status, data, _) = await CertificateCommandAsync("INSPECT_SERVER_CERTIFICATE");
+        return status == "OK" && data.Count == 4
+            ? new CertificateInspection(data[0], data[1], data[2], data[3]) : null;
+    }
+
+    public async Task<bool> UpdateServerFingerprintAsync(CertificateInspection inspection, string verified)
+    {
+        var (status, _, _) = await CertificateCommandAsync("UPDATE_SERVER_FINGERPRINT",
+            inspection.Address, inspection.Port, inspection.Pinned, verified);
+        return status == "OK";
     }
 
     public void Dispose()

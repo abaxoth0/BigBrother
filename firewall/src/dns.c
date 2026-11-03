@@ -131,12 +131,20 @@ size_t DnsGetQuestionEnd(const uint8_t* payload, size_t payload_len) {
     uint16_t qdcount = ntohs(hdr->question_count);
     if (qdcount == 0) return 0;
 
-    char name[DNS_MAX_DOMAIN_LEN + 1];
-    size_t offset = parse_dns_name(payload, payload_len, sizeof(DnsHeader), name, sizeof(name));
-
-    // 2 bytes type + 2 bytes class
-    if (offset + 4 > payload_len) return 0;
-    return offset + 4;
+    size_t offset = sizeof(DnsHeader);
+    while (offset < payload_len) {
+        uint8_t label_len = payload[offset++];
+        if (label_len == 0) {
+            if (offset - sizeof(DnsHeader) > DNS_MAX_DOMAIN_LEN ||
+                payload_len - offset < 4) return 0;
+            return offset + 4;
+        }
+        // A compressed question could point into records removed from the reply.
+        if (label_len > 63 || payload_len - offset < label_len) return 0;
+        offset += label_len;
+        if (offset - sizeof(DnsHeader) >= DNS_MAX_DOMAIN_LEN) return 0;
+    }
+    return 0;
 }
 
 DnsPacket DnsParse(const uint8_t* payload, size_t payload_len) {

@@ -9,12 +9,84 @@
         Foreground="{StaticResource TitleBarText}"
         WindowStyle="None">
     <shell:WindowChrome.WindowChrome>
-        <shell:WindowChrome CaptionHeight="42" ResizeBorderThickness="6"
+        <shell:WindowChrome CaptionHeight="{DynamicResource Scaled42}" ResizeBorderThickness="6"
                             GlassFrameThickness="0" UseAeroCaptionButtons="False"/>
     </shell:WindowChrome.WindowChrome>
     <Window.Resources>
+        <Style TargetType="TabItem">
+            <Setter Property="Background" Value="{StaticResource SurfaceAlt}"/>
+            <Setter Property="Foreground" Value="{StaticResource TitleBarText}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="12,6"/>
+            <Setter Property="Margin" Value="0"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabItem">
+                        <Border x:Name="TabBorder" Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="5" Padding="{TemplateBinding Padding}" Margin="0,0,6,0">
+                            <ContentPresenter ContentSource="Header" RecognizesAccessKey="True"
+                                              HorizontalAlignment="Center" VerticalAlignment="Center"
+                                              TextElement.Foreground="{TemplateBinding Foreground}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="TabBorder" Property="Background" Value="{StaticResource SurfaceAltHover}"/>
+                                <Setter TargetName="TabBorder" Property="BorderBrush" Value="{DynamicResource AccentText}"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="TabBorder" Property="Background" Value="{DynamicResource Accent}"/>
+                                <Setter TargetName="TabBorder" Property="BorderBrush" Value="{DynamicResource Accent}"/>
+                                <Setter Property="Foreground" Value="{DynamicResource OnAccent}"/>
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="TabBorder" Property="BorderBrush" Value="{DynamicResource AccentHover}"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="TabBorder" Property="Opacity" Value="0.45"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style TargetType="TabControl">
+            <Setter Property="Background" Value="{StaticResource Surface}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabControl">
+                        <Grid KeyboardNavigation.TabNavigation="Local">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+                            <TabPanel Grid.Row="0" IsItemsHost="True" Margin="0,0,0,6"
+                                      KeyboardNavigation.TabIndex="1"/>
+                            <Border Grid.Row="1" Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="5">
+                                <ContentPresenter x:Name="PART_SelectedContentHost" ContentSource="SelectedContent"
+                                                  Margin="{TemplateBinding Padding}"/>
+                            </Border>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
         <DataTemplate x:Key="LogLineTemplate">
-            <TextBlock Text="{Binding Message}" FontFamily="Consolas" FontSize="12"/>
+            <TextBlock FontSize="{DynamicResource TextFontSize12}">
+                <TextBlock.Text>
+                    <MultiBinding StringFormat="[{0:yyyy-MM-dd HH:mm:ss}] {1}">
+                        <Binding Path="LocalTimestamp"/>
+                        <Binding Path="Message"/>
+                    </MultiBinding>
+                </TextBlock.Text>
+            </TextBlock>
         </DataTemplate>
     </Window.Resources>
     <Grid>
@@ -34,13 +106,16 @@
                 </Grid.ColumnDefinitions>
 
                 <TextBlock Grid.Column="0" Text="Просмотр логов" Foreground="{StaticResource TitleBarText}"
-                           FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" Margin="14,0,0,0"/>
+                           FontSize="{DynamicResource FontSize13}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="14,0,0,0"/>
 
                 <StackPanel Grid.Column="2" Orientation="Horizontal">
                     <Button Content="&#x2013;"
                             Style="{StaticResource TitleBarButton}"
                             shell:WindowChrome.IsHitTestVisibleInChrome="True"
                             Click="MinimizeButton_Click"/>
+                    <Button Style="{StaticResource MaximizeRestoreButton}"
+                            shell:WindowChrome.IsHitTestVisibleInChrome="True"
+                            Click="MaximizeRestoreButton_Click"/>
                     <Button Content="&#x2715;"
                             Style="{StaticResource TitleBarButton}"
                             Tag="Close"
@@ -84,6 +159,7 @@
 
             <!-- Status bar -->
             <TextBlock Grid.Row="2" x:Name="StatusText"
+                       Text="{Binding StatusText}"
                        Margin="10,5,10,10" VerticalAlignment="Center" Foreground="{StaticResource TitleBarText}"/>
         </Grid>
     </Grid>

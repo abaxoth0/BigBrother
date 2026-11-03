@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ "${1:-}" == --help ]]; then
+    echo "Usage: $0 <Debug|Release> [payload-dir [installer-output-dir [changelog-file]]]"
+    echo "Defaults: $SCRIPT_DIR/dist, $SCRIPT_DIR/dist/installers, repository VERSION; matching release notes or Unreleased"
+    exit 0
+fi
+source "$SCRIPT_DIR/scripts/build-configuration.sh"
+if [[ $# -gt 4 ]]; then
+    echo "Too many arguments; use --help for usage." >&2
+    exit 2
+fi
+source "$SCRIPT_DIR/scripts/frontend-files.sh"
+PAYLOAD_DIR="$(realpath -e "${2:-$SCRIPT_DIR/dist}")"
+if [[ ! -f "$PAYLOAD_DIR/build-configuration.txt" ]] || \
+    [[ "$(cat "$PAYLOAD_DIR/build-configuration.txt")" != "$BUILD_CONFIGURATION" ]]; then
+    echo "Payload configuration does not match $BUILD_CONFIGURATION; run build.sh $BUILD_CONFIGURATION for this payload first." >&2
+    exit 1
+fi
+source "$SCRIPT_DIR/scripts/inno-env.sh"
+INSTALLER_OUTPUT_DIR="${3:-$SCRIPT_DIR/dist/installers}"
+VERSION="$(python3 "$SCRIPT_DIR/scripts/version.py")"
+BUILD_JOBS="$(nproc)"
+CHANGELOG_FILE="${4:-$SCRIPT_DIR/CHANGELOG.md}"
+python3 "$SCRIPT_DIR/scripts/update-manifest.py" --changelog "$CHANGELOG_FILE" --validate-only
+if [[ ! -f "$INNO_ISCC" ]]; then
+    echo "Inno Setup compiler not found: $INNO_ISCC" >&2
+    echo "Run $SCRIPT_DIR/install-inno-setup.sh first." >&2
+    exit 1
+fi
+for file in 'BigBrother Firewall.exe' 'BigBrother Client Daemon.exe' \
+    'BigBrother Server Daemon.exe' 'BigBrother Notifications.exe' WinDivert.dll WinDivert64.sys \
+    'client-frontend/BigBrother Client.exe' 'server-frontend/BigBrother Server.exe'; do
+    if [[ ! -f "$PAYLOAD_DIR/$file" ]]; then
+        echo "Missing installer payload: $PAYLOAD_DIR/$file" >&2
+        exit 1
+    fi
+done
+for frontend in client-frontend server-frontend; do
+    for file in "${FRONTEND_NATIVE_DLLS[@]}"; do
+        if [[ ! -f "$PAYLOAD_DIR/$frontend/$file" ]]; then
+            echo "Missing installer payload: $PAYLOAD_DIR/$frontend/$file" >&2
+            exit 1
+        fi
+    done
+done
+mkdir -p "$INSTALLER_OUTPUT_DIR"
+INSTALLER_OUTPUT_DIR="$(realpath -e "$INSTALLER_OUTPUT_DIR")"
+PAYLOAD_WINDOWS="$(winepath -w "$PAYLOAD_DIR")"
+OUTPUT_WINDOWS="$(winepath -w "$INSTALLER_OUTPUT_DIR")"
+printf '%s\n' "$VERSION" > "$PAYLOAD_DIR/client-version.txt"
+for product in Client Server Client-Update; do
+    SCRIPT_WINDOWS="$(winepath -w "$SCRIPT_DIR/BigBrother-$product.iss")"
+    "${INNO_WINE_RUNNER[@]}" "$INNO_ISCC" --quiet-progress \
+        "--define=PayloadDir=$PAYLOAD_WINDOWS" "--define=ProductVersion=$VERSION" \
+        "--define=BuildJobs=$BUILD_JOBS" \
+        "--output-dir=$OUTPUT_WINDOWS" "$SCRIPT_WINDOWS"
+done
+python3 "$SCRIPT_DIR/scripts/update-manifest.py" --changelog "$CHANGELOG_FILE" \
+    --package "$INSTALLER_OUTPUT_DIR/BigBrother-$VERSION-Client-Update.exe"
+echo "Installers and client update built in $INSTALLER_OUTPUT_DIR"

@@ -71,11 +71,17 @@ int DaemonReloadWhitelist(char* out_buffer, size_t buffer_size);
  * @return 1 if configured, 0 otherwise.
  */
 int HasServerIp(void);
+int PrepareClientSecretPermissions(void);
+
+int InspectServerCertificate(char address[64], int* port, char pinned[65], char observed[65]);
+int UpdateServerFingerprint(const char* address, int port, const char* original_pin,
+                            const char* verified_fingerprint);
 
 /**
  * @brief Set the active session state with the server.
  */
 void SetServerSessionActive(int active);
+void ResumeServerConnection(void);
 
 /**
  * @brief Check if there is an active user session with the server.
@@ -149,15 +155,36 @@ int DaemonSetFiltration(int enabled);
  */
 int IsFiltrationEnabled(void);
 
+/** IPv6 blocking preference, persisted in config.ini (enabled by default). */
+int IsIpv6BlockEnabled(void);
+int SetIpv6BlockEnabled(int enabled);
+
+int IsWindowsNotificationsEnabled(void);
+int SetWindowsNotificationsEnabled(int enabled);
+
 /**
- * @brief Check if filtration auto-disable on server disconnect is enabled.
+ * @brief Recompute and return the effective (connection-gated) filtration state.
+ *
+ * Called when status is reported so the value always reflects the current
+ * server connection state; pushes the updated state to the firewall if needed.
+ *
+ * @return 1 if filtration is effective, 0 if disabled.
+ */
+int RefreshFiltrationEffective(void);
+
+/**
+ * @brief Check if filtration is synced with the server connection (enabled by default).
+ *
+ * When enabled, filtration is only effective while connected to the server; it
+ * is automatically disabled whenever the connection is down (whatever the
+ * reason) and re-enabled on reconnect, unless the user turned it off manually.
  *
  * @return 1 if enabled, 0 if disabled.
  */
 int IsFiltrationAutoDisableEnabled(void);
 
 /**
- * @brief Enable or disable filtration auto-disable on server disconnect.
+ * @brief Enable or disable filtration connection-sync.
  *
  * @param enabled 1 to enable, 0 to disable.
  */
@@ -264,5 +291,7 @@ int ServerRefresh(const char* name);
  * @return 0 on success, -1 on error.
  */
 int ServerChangeName(const char* oldName, const char* newName);
+
+int ServerGetUpdate(char* output, size_t size);
 
 #endif // IPC_H

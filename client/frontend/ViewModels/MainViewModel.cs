@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Timers;
@@ -22,12 +21,17 @@ public enum NavigationSection
 {
     Main,
     Whitelist,
+    Updates,
     Settings
 }
 
 public class MainViewModel : ViewModelBase, IDisposable
 {
     private const int MaxLogs = 500;
+
+    public UpdatesViewModel Updates { get; } = new(ClientUpdates.InstalledVersion,
+        async () => { using var ipc = new IpcService(); return await ClientUpdates.CheckAsync(ipc); },
+        update => ((App)System.Windows.Application.Current).InstallUpdateAsync(update));
 
     // Services
     private readonly IpcService _ipcService = new IpcService();
@@ -43,7 +47,7 @@ public class MainViewModel : ViewModelBase, IDisposable
     private string _lastFirewallLogPath = "";
 
     // Status
-    private bool _filtrationEnabled = true;
+    private bool _filtrationEnabled = false;
     private bool _hasSettingsChanges;
     private bool _isRegistering;
     private bool _autoScroll = true;
@@ -98,16 +102,43 @@ public class MainViewModel : ViewModelBase, IDisposable
     };
 
     private NavigationSection _selectedSection = NavigationSection.Main;
+    private bool _backendConnected;
+
+    public bool BackendConnected
+    {
+        get => _backendConnected;
+        private set
+        {
+            if (SetProperty(ref _backendConnected, value) && !value)
+                SelectedSection = NavigationSection.Main;
+        }
+    }
+
     public NavigationSection SelectedSection
     {
         get => _selectedSection;
-        set => SetProperty(ref _selectedSection, value);
+        set
+        {
+            if (value != NavigationSection.Main && !BackendConnected) return;
+            if (SetProperty(ref _selectedSection, value) && value == NavigationSection.Settings)
+            {
+                _ = RefreshSavedFingerprintAsync();
+                _ = RefreshIpv6BlockAsync();
+            }
+        }
     }
 
     public int WhitelistCount
     {
         get => _whitelistCount;
         set => SetProperty(ref _whitelistCount, value);
+    }
+
+    private bool _isWhitelistEmpty;
+    public bool IsWhitelistEmpty
+    {
+        get => _isWhitelistEmpty;
+        private set => SetProperty(ref _isWhitelistEmpty, value);
     }
 
     public DateTime LastUpdate
@@ -202,7 +233,7 @@ public class MainViewModel : ViewModelBase, IDisposable
         }
     }
 
-    private bool _filtrationAutoDisable;
+    private bool _filtrationAutoDisable = true;
 
     public bool FiltrationAutoDisable
     {
@@ -213,10 +244,34 @@ public class MainViewModel : ViewModelBase, IDisposable
         }
     }
 
+    private readonly Ipv6BlockPreference _ipv6BlockPreference = new();
+    public bool Ipv6BlockEnabled
+    {
+        get => _ipv6BlockPreference.Value;
+        set
+        {
+            if (_ipv6BlockPreference.Edit(value))
+            {
+                OnPropertyChanged();
+                MarkSettingsChanged();
+            }
+        }
+    }
+
     public bool HasSettingsChanges
     {
         get => _hasSettingsChanges;
         set => SetProperty(ref _hasSettingsChanges, value);
+    }
+
+    private bool _windowsNotificationsEnabled = true;
+    public bool WindowsNotificationsEnabled
+    {
+        get => _windowsNotificationsEnabled;
+        set
+        {
+            if (SetProperty(ref _windowsNotificationsEnabled, value)) MarkSettingsChanged();
+        }
     }
 
     public bool IsRegistering
@@ -351,6 +406,8 @@ public class MainViewModel : ViewModelBase, IDisposable
     public ICommand DisconnectCommand { get; }
     public ICommand ChangeServerCommand { get; }
     public ICommand SaveSettingsCommand { get; }
+    public ICommand InspectCertificateCommand { get; }
+    public ICommand ApplyCertificateFingerprintCommand { get; }
     public ICommand ToggleFiltrationCommand { get; }
     public ICommand StartDaemonCommand { get; }
     public ICommand StopDaemonCommand { get; }
@@ -399,6 +456,7 @@ public class MainViewModel : ViewModelBase, IDisposable
                 {
                     var status = await _ipcService.GetStatusAsync().ConfigureAwait(false);
                     if (_disposed) return;
+                    if (status.IsConnected) await RefreshIpv6BlockAsync().ConfigureAwait(false);
 
                     System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
                     {
@@ -425,13 +483,12 @@ public class MainViewModel : ViewModelBase, IDisposable
 
                     if (status.WhitelistRevision != 0 && status.WhitelistRevision != _lastWhitelistRevision)
                     {
-                        _lastWhitelistRevision = status.WhitelistRevision;
-
                         var whitelist = await _ipcService.GetWhitelistAsync().ConfigureAwait(false);
                         if (_disposed) return;
 
-                        if (whitelist.Count > 0)
+                        if (whitelist != null)
                         {
+                            _lastWhitelistRevision = status.WhitelistRevision;
                             System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
                             {
                                 if (_disposed) return;
@@ -441,6 +498,7 @@ public class MainViewModel : ViewModelBase, IDisposable
                                     WhitelistEntries.Add(WhitelistEntry.Parse(domain));
                                 }
 
+                                IsWhitelistEmpty = whitelist.Count == 0;
                                 UpdateWhitelistDisplay();
                                 AddLog("INFO", $"Whitelist updated ({whitelist.Count} domains)");
                             });
@@ -454,7 +512,10 @@ public class MainViewModel : ViewModelBase, IDisposable
                     {
                         if (_disposed) return;
                         FirewallRunning = false;
+                        BackendConnected = false;
+                        SettingsAvailable = false;
                         ServerConnected = false;
+                        FiltrationEnabled = false;
                         OverallHealth = HealthState.Critical;
                         StatusRefreshed?.Invoke(new ClientStatus { ClientPid = 0 });
                     });
@@ -470,6 +531,9 @@ public class MainViewModel : ViewModelBase, IDisposable
 
     public MainViewModel()
     {
+        _logUpdates = new DispatcherLogQueue<LogEntry>(MaxLogs,
+            System.Windows.Application.Current.Dispatcher, FlushPendingLogs);
+
         ClearLogsCommand = new RelayCommand(_ => ClearLogs());
         ExportLogsCommand = new RelayCommand(_ => ExportLogs());
         RegisterCommand = new RelayCommand(async _ => await RegisterAsync());
@@ -477,13 +541,15 @@ public class MainViewModel : ViewModelBase, IDisposable
         DisconnectCommand = new RelayCommand(async _ => await DisconnectAsync());
         ChangeServerCommand = new RelayCommand(async _ => await ChangeServerAsync(), _ => DiscoveryEnabled);
         SaveSettingsCommand = new RelayCommand(async _ => await SaveAllSettingsAsync());
+        InspectCertificateCommand = new RelayCommand(async _ => await InspectCertificateAsync(), _ => !CertificateBusy);
+        ApplyCertificateFingerprintCommand = new RelayCommand(async _ => await ApplyCertificateFingerprintAsync(), _ => CanApplyCertificateFingerprint);
         ToggleFiltrationCommand = new RelayCommand(async _ => await ToggleFiltrationAsync());
         StartDaemonCommand = new RelayCommand(async _ => await StartDaemonAsync());
         StopDaemonCommand = new RelayCommand(async _ => await StopDaemonAsync());
         RestartDaemonCommand = new RelayCommand(async _ => await RestartDaemonAsync());
         RestartClientCommand = new RelayCommand(async _ => await RestartClientAsync());
         RefreshStatusCommand = new RelayCommand(async _ => await RefreshStateAsync());
-        OpenHistoryCommand = new RelayCommand(_ => OpenHistory());
+        OpenHistoryCommand = new RelayCommand(async _ => await OpenHistoryAsync());
         OpenArchivedLogCommand = new RelayCommand(_ => OpenArchivedLogs());
         JumpToBottomCommand = new RelayCommand(_ => ScrollToBottomRequested?.Invoke());
 
@@ -495,14 +561,6 @@ public class MainViewModel : ViewModelBase, IDisposable
         // Event-driven updates from the daemon pipe
         _ipcService.StateChanged += OnStateChanged;
         _ipcService.StartEventSubscription();
-
-        // Log UI flush timer (batches log lines onto the UI thread)
-        var logFlushTimer = new System.Windows.Threading.DispatcherTimer
-        {
-            Interval = TimeSpan.FromMilliseconds(500)
-        };
-        logFlushTimer.Tick += (s, e) => FlushPendingLogs();
-        logFlushTimer.Start();
 
         AddLog("INFO", "Клиент запущен");
 
@@ -522,6 +580,8 @@ public class MainViewModel : ViewModelBase, IDisposable
         var netGw = await _ipcService.GetNetworkGatewayAsync();
         var netMask = await _ipcService.GetNetworkMaskAsync();
         var filtAuto = await _ipcService.GetFiltrationAutoDisableAsync();
+        var notifications = await _ipcService.GetWindowsNotificationsAsync();
+        await RefreshSavedFingerprintAsync();
         var available = addr != "" || name != "" || enabled || srvName != "";
 
         System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
@@ -546,8 +606,148 @@ public class MainViewModel : ViewModelBase, IDisposable
             OnPropertyChanged(nameof(FallbackWhitelistEnabled));
             _filtrationAutoDisable = filtAuto;
             OnPropertyChanged(nameof(FiltrationAutoDisable));
+            if (notifications.HasValue)
+            {
+                _windowsNotificationsEnabled = notifications.Value;
+                OnPropertyChanged(nameof(WindowsNotificationsEnabled));
+            }
             SettingsAvailable = available;
         });
+        await RefreshIpv6BlockAsync();
+    }
+
+    private async Task RefreshIpv6BlockAsync()
+    {
+        var revision = _ipv6BlockPreference.Revision;
+        var value = await _ipcService.GetIpv6BlockAsync().ConfigureAwait(false);
+        await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+        {
+            if (!_disposed && _ipv6BlockPreference.Refresh(value, revision))
+                OnPropertyChanged(nameof(Ipv6BlockEnabled));
+        });
+    }
+
+    private int _savedFingerprintRefreshInProgress;
+    private async Task RefreshSavedFingerprintAsync()
+    {
+        if (Interlocked.CompareExchange(ref _savedFingerprintRefreshInProgress, 1, 0) != 0) return;
+        try
+        {
+            var pin = await _ipcService.GetSavedServerFingerprintAsync();
+            var error = _ipcService.SavedFingerprintError;
+            await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+            {
+                if (_disposed) return;
+                if (pin != null) PinnedCertificateFingerprint = pin;
+                if (_certificateInspection != null || CertificateBusy) return;
+                CertificateStatus = pin == null
+                    ? (error.Contains("unknown command", StringComparison.OrdinalIgnoreCase)
+                        ? "Клиентский демон не поддерживает чтение отпечатка. Обновите демон и перезапустите службу Firewall."
+                        : $"Не удалось прочитать сохранённый отпечаток: {error}")
+                    : pin.Length == 0
+                        ? "В настройках клиентского демона нет сохранённого отпечатка."
+                        : "Сохранённый отпечаток загружен. Проверка сервера ещё не выполнена.";
+            });
+        }
+        catch (Exception ex)
+        {
+            AddLog("ERROR", $"Чтение сохранённого отпечатка: {ex.Message}");
+        }
+        finally { Interlocked.Exchange(ref _savedFingerprintRefreshInProgress, 0); }
+    }
+
+    private CertificateInspection? _certificateInspection;
+    private string _certificateEndpoint = "";
+    private string _pinnedCertificateFingerprint = "";
+    private string _observedCertificateFingerprint = "";
+    private string _verifiedCertificateFingerprint = "";
+    private string _certificateStatus = "Проверьте сертификат сохранённого сервера.";
+    private bool _certificateBusy;
+
+    public string CertificateEndpoint { get => _certificateEndpoint; private set => SetProperty(ref _certificateEndpoint, value); }
+    public string PinnedCertificateFingerprint { get => _pinnedCertificateFingerprint; private set => SetProperty(ref _pinnedCertificateFingerprint, value); }
+    public string ObservedCertificateFingerprint { get => _observedCertificateFingerprint; private set => SetProperty(ref _observedCertificateFingerprint, value); }
+    public string CertificateStatus { get => _certificateStatus; private set => SetProperty(ref _certificateStatus, value); }
+    public bool CertificateBusy
+    {
+        get => _certificateBusy;
+        private set { if (SetProperty(ref _certificateBusy, value)) CommandManager.InvalidateRequerySuggested(); }
+    }
+    public string VerifiedCertificateFingerprint
+    {
+        get => _verifiedCertificateFingerprint;
+        set { if (SetProperty(ref _verifiedCertificateFingerprint, value)) CommandManager.InvalidateRequerySuggested(); }
+    }
+    private static string NormalizeFingerprint(string value)
+    {
+        var hex = string.Concat(value.Where(c => !char.IsWhiteSpace(c) && c != ':')).ToUpperInvariant();
+        return hex.Length == 64 && hex.All(char.IsAsciiHexDigit) ? hex : "";
+    }
+    public bool CanApplyCertificateFingerprint => !CertificateBusy && _certificateInspection != null &&
+        NormalizeFingerprint(VerifiedCertificateFingerprint).Length == 64 &&
+        NormalizeFingerprint(VerifiedCertificateFingerprint) == _certificateInspection.Observed;
+
+    private async Task InspectCertificateAsync()
+    {
+        CertificateBusy = true;
+        _certificateInspection = null;
+        CertificateEndpoint = "";
+        ObservedCertificateFingerprint = "";
+        CertificateStatus = "Проверка сертификата…";
+        try
+        {
+            var inspection = await _ipcService.InspectServerCertificateAsync();
+            if (inspection == null)
+            {
+                CertificateStatus = "Не удалось получить сертификат. Сохранённое доверие не изменено.";
+                return;
+            }
+            _certificateInspection = inspection;
+            CertificateEndpoint = $"{inspection.Address}:{inspection.Port}";
+            PinnedCertificateFingerprint = inspection.Pinned;
+            ObservedCertificateFingerprint = inspection.Observed;
+            CertificateStatus = NormalizeFingerprint(inspection.Pinned) == inspection.Observed
+                ? "Сертификат соответствует сохранённому отпечатку."
+                : "Отпечаток отличается. Сверьте его с действующим отпечатком в настройках сервера.";
+        }
+        catch (Exception ex)
+        {
+            CertificateStatus = "Ошибка проверки. Сохранённое доверие не изменено.";
+            AddLog("ERROR", $"Проверка сертификата: {ex.Message}");
+        }
+        finally { CertificateBusy = false; }
+    }
+
+    private async Task ApplyCertificateFingerprintAsync()
+    {
+        if (!CanApplyCertificateFingerprint || _certificateInspection == null) return;
+        var inspection = _certificateInspection;
+        var verified = NormalizeFingerprint(VerifiedCertificateFingerprint);
+        CertificateBusy = true;
+        try
+        {
+            if (await _ipcService.UpdateServerFingerprintAsync(inspection, verified))
+            {
+                PinnedCertificateFingerprint = verified;
+                CertificateStatus = "Проверенный отпечаток сохранён. Клиент переподключится автоматически.";
+                VerifiedCertificateFingerprint = "";
+                AddLog("INFO", "Проверенный отпечаток сертификата сервера сохранён");
+            }
+            else
+            {
+                CertificateStatus = "Отпечаток не сохранён. Проверьте сервер и повторите проверку сертификата.";
+            }
+        }
+        catch (Exception ex)
+        {
+            CertificateStatus = "Не удалось подтвердить сохранение. Повторите проверку сертификата.";
+            AddLog("ERROR", $"Обновление отпечатка: {ex.Message}");
+        }
+        finally
+        {
+            _certificateInspection = null;
+            CertificateBusy = false;
+        }
     }
 
     private async Task SaveAllSettingsAsync()
@@ -561,7 +761,20 @@ public class MainViewModel : ViewModelBase, IDisposable
         await _ipcService.SetDiscoveryEnabledAsync(DiscoveryEnabled);
         await _ipcService.SetNetworkAutoAsync(NetworkAuto);
         await _ipcService.SetFiltrationAutoDisableAsync(FiltrationAutoDisable);
-        HasSettingsChanges = false;
+        var ipv6Revision = _ipv6BlockPreference.Revision;
+        var ipv6Saved = await _ipcService.SetIpv6BlockAsync(Ipv6BlockEnabled);
+        if (!ipv6Saved)
+        {
+            AddLog("ERROR", "Ошибка сохранения: блокировка IPv6");
+            return;
+        }
+        _ipv6BlockPreference.ConfirmSave(ipv6Revision);
+        if (!await _ipcService.SetWindowsNotificationsAsync(WindowsNotificationsEnabled))
+        {
+            AddLog("ERROR", "Ошибка сохранения: уведомления Windows");
+            return;
+        }
+        HasSettingsChanges = _ipv6BlockPreference.IsEdited;
     }
 
     private async Task SaveFieldAsync(string label, string value, Func<string, Task<bool>> setter)
@@ -587,7 +800,7 @@ public class MainViewModel : ViewModelBase, IDisposable
         var name = Username?.Trim() ?? "";
         if (string.IsNullOrEmpty(name))
         {
-            System.Windows.MessageBox.Show("Укажите имя пользователя в поле «Пользователь» и нажмите «Сохранить».", "Регистрация",
+            MessageDialog.Show("Укажите имя пользователя в поле «Пользователь» и нажмите «Сохранить».", "Регистрация",
                 System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Warning);
             AddLog("ERROR", "Укажите имя пользователя в настройках");
             return;
@@ -600,12 +813,12 @@ public class MainViewModel : ViewModelBase, IDisposable
             AddLog(ok ? "INFO" : "ERROR", ok ? $"Запрос на регистрацию отправлен: {name}" : "Ошибка регистрации");
             if (ok)
             {
-                System.Windows.MessageBox.Show("Запрос на регистрацию принят. Ожидайте подтверждения.",
+                MessageDialog.Show("Запрос на регистрацию принят. Ожидайте подтверждения.",
                     "Регистрация", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
             }
             else
             {
-                System.Windows.MessageBox.Show("Ошибка регистрации.",
+                MessageDialog.Show("Ошибка регистрации.",
                     "Регистрация", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
             }
         }
@@ -684,79 +897,39 @@ public class MainViewModel : ViewModelBase, IDisposable
         AddLog("INFO", $"Выбран сервер: {selected.Name} ({selected.Ip}:{selected.Port})");
     }
 
-    private readonly ConcurrentQueue<string> _pendingLogs = new();
-    
+    private readonly DispatcherLogQueue<LogEntry> _logUpdates;
+
     public void AddLog(string level, string message)
     {
-        _pendingLogs.Enqueue(message);
-    }
-    
-    public void FlushPendingLogs()
-    {
-        var toAdd = new List<string>();
-        while (_pendingLogs.TryDequeue(out var msg))
+        if (_disposed) return;
+        _logUpdates.Add(new LogEntry
         {
-            toAdd.Add(msg);
-            if (toAdd.Count >= 50) break;
-        }
-        
-        if (toAdd.Count == 0) return;
-        
-        System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
-        {
-            int logsToRemove = Logs.Count + toAdd.Count - MaxLogs;
-
-            if (logsToRemove > 0)
-            {
-                int removeCount = Math.Min(logsToRemove, Logs.Count);
-                for (int i = 0; i < removeCount; i++)
-                {
-                    Logs.RemoveAt(0);
-                }
-                // Keep the filtered mirror in sync when the source is trimmed.
-                while (FilteredLogs.Count > Logs.Count)
-                    FilteredLogs.RemoveAt(0);
-            }
-
-            var newEntries = new List<LogEntry>(toAdd.Count);
-            foreach (var msg in toAdd)
-            {
-                string level = "INFO";
-                if (msg.Contains("[ERROR]")) level = "ERROR";
-                else if (msg.Contains("[WARNING]") || msg.Contains("[WARN]")) level = "WARNING";
-                else if (msg.Contains("[DNS]")) level = "DNS";
-                else if (msg.Contains("[BLOCKED]")) level = "BLOCKED";
-
-                var entry = new LogEntry
-                {
-                    Timestamp = DateTime.Now.ToString("HH:mm:ss"),
-                    Level = level,
-                    Message = msg
-                };
-
-                Logs.Add(entry);
-                newEntries.Add(entry);
-            }
-
-            if (!string.IsNullOrEmpty(LogSearchText))
-            {
-                UpdateFilteredLogs();
-            }
-            else
-            {
-                // Incremental: mirror only the new entries (avoid full rebuild).
-                foreach (var entry in newEntries)
-                {
-                    if (IsLevelVisible(entry.Level))
-                        FilteredLogs.Add(entry);
-                }
-            }
-
-            if (AutoScroll)
-            {
-                ScrollToBottomRequested?.Invoke();
-            }
+            Timestamp = DateTime.Now.ToString("HH:mm:ss"),
+            Level = level,
+            Message = message
         });
+    }
+
+    private void FlushPendingLogs(List<LogEntry> entries)
+    {
+        if (_disposed) return;
+        int removeCount = Math.Max(0, Logs.Count + entries.Count - MaxLogs);
+        for (int i = 0; i < removeCount; i++)
+        {
+            var removed = Logs[0];
+            Logs.RemoveAt(0);
+            FilteredLogs.Remove(removed);
+        }
+        foreach (var entry in entries)
+        {
+            Logs.Add(entry);
+            if (IsLevelVisible(entry.Level) &&
+                (string.IsNullOrEmpty(LogSearchText) ||
+                 entry.Message.Contains(LogSearchText, StringComparison.OrdinalIgnoreCase) ||
+                 entry.Level.Contains(LogSearchText, StringComparison.OrdinalIgnoreCase)))
+                FilteredLogs.Add(entry);
+        }
+        if (AutoScroll) ScrollToBottomRequested?.Invoke();
     }
 
     private void UpdateFilteredLogs()
@@ -825,6 +998,7 @@ public class MainViewModel : ViewModelBase, IDisposable
 
     private void UpdateStatus(ClientStatus status)
     {
+        BackendConnected = status.IsConnected;
         var daemonRunning = status.DaemonStatus == "RUNNING";
         var serverConnected = status.IsServerSessionActive;
         FirewallRunning = daemonRunning;
@@ -985,7 +1159,6 @@ public class MainViewModel : ViewModelBase, IDisposable
 
     private void OnLogLineReceived(string line)
     {
-        // LogReader already dispatches to the UI thread before calling this.
         string level = "INFO";
         if (line.Contains("[ERROR]") || line.Contains("ERROR"))
             level = "ERROR";
@@ -999,17 +1172,16 @@ public class MainViewModel : ViewModelBase, IDisposable
         AddLog(level, line);
     }
 
-    public void OpenHistory()
+    public async Task OpenHistoryAsync()
     {
         string clientLog = _lastClientLogPath;
         string firewallLog = _lastFirewallLogPath;
 
-        // Only try IPC if we have a valid client PID (connected)
-        if (_lastClientPid != 0)
+        if (_lastClientPid != 0 && (string.IsNullOrEmpty(clientLog) || string.IsNullOrEmpty(firewallLog)))
         {
             try
             {
-                var paths = _ipcService.GetLogPathAsync().GetAwaiter().GetResult();
+                var paths = await _ipcService.GetLogPathAsync();
                 if (!string.IsNullOrEmpty(paths.clientLog))
                     clientLog = paths.clientLog;
                 if (!string.IsNullOrEmpty(paths.firewallLog))
@@ -1017,6 +1189,8 @@ public class MainViewModel : ViewModelBase, IDisposable
             }
             catch { }
         }
+
+        if (_disposed) return;
 
         // Save for next time
         if (!string.IsNullOrEmpty(clientLog))
@@ -1026,7 +1200,7 @@ public class MainViewModel : ViewModelBase, IDisposable
 
         if (string.IsNullOrEmpty(clientLog) && string.IsNullOrEmpty(firewallLog))
         {
-            System.Windows.MessageBox.Show("Нет доступных логов", "Ошибка", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageDialog.Show("Нет доступных логов", "Ошибка", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
 
@@ -1088,6 +1262,7 @@ public class MainViewModel : ViewModelBase, IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        _logUpdates.Dispose();
         _statusTimer?.Stop();
         _statusTimer?.Dispose();
         _ipcService.StateChanged -= OnStateChanged;

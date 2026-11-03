@@ -1,6 +1,7 @@
 package sqlite
 
 import (
+	"bigbrother_server_backend/packages/common/log"
 	"bigbrother_server_backend/packages/domain/entity"
 	dbcommon "bigbrother_server_backend/packages/infrastructure/database/common"
 	"database/sql"
@@ -14,49 +15,94 @@ import (
 	_ "github.com/ncruces/go-sqlite3/driver"
 )
 
+func (db *Database) GetUsers() ([]*entity.User, error) {
+	rows, err := db.conn.Query("SELECT name, addr FROM user ORDER BY name")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	users := []*entity.User{}
+	for rows.Next() {
+		user := &entity.User{}
+		if err := rows.Scan(&user.Name, &user.Addr); err != nil {
+			return nil, err
+		}
+		users = append(users, user)
+	}
+	return users, rows.Err()
+}
+
 func (db *Database) GetUserByName(username string) (*entity.User, error) {
-	dbcommon.Log.Trace("Getting user with name \""+username+"\"...", nil)
+	if log.DiagnosticsEnabled {
+		dbcommon.Log.Trace("Getting user with name \""+username+"\"...", nil)
+	}
 
 	row := db.conn.QueryRow(
-		"SELECT id, name, addr, whitelist_id FROM user WHERE name = ?",
+		"SELECT id, name, addr, whitelist_id, token, sign_public FROM user WHERE name = ?",
 		username,
 	)
 
 	user := entity.User{}
 	var id []byte
 	var wlID sql.NullString
-	if err := row.Scan(&id, &user.Name, &user.Addr, &wlID); err != nil {
+	var token sql.NullString
+	var signPublic sql.NullString
+	if err := row.Scan(&id, &user.Name, &user.Addr, &wlID, &token, &signPublic); err != nil {
 		return nil, err
 	}
 	user.Id = string(id)
 	user.WhitelistID = wlID.String
+	user.Token = token.String
+	user.SignPublic = signPublic.String
 
-	dbcommon.Log.Trace("Getting user with name \""+username+"\": OK", nil)
+	if log.DiagnosticsEnabled {
+		dbcommon.Log.Trace("Getting user with name \""+username+"\": OK", nil)
+	}
 
 	return &user, nil
 }
 
 // FIXME Code duplication
 func (db *Database) GetUserByAddr(userAddr string) (*entity.User, error) {
-	dbcommon.Log.Trace("Getting user with address \""+userAddr+"\"...", nil)
+	if log.DiagnosticsEnabled {
+		dbcommon.Log.Trace("Getting user with address \""+userAddr+"\"...", nil)
+	}
 
 	row := db.conn.QueryRow(
-		"SELECT id, name, addr, whitelist_id FROM user WHERE addr = ?",
+		"SELECT id, name, addr, whitelist_id, token, sign_public FROM user WHERE addr = ?",
 		userAddr,
 	)
 
 	user := entity.User{}
 	var id []byte
 	var wlID sql.NullString
-	if err := row.Scan(&id, &user.Name, &user.Addr, &wlID); err != nil {
+	var token sql.NullString
+	var signPublic sql.NullString
+	if err := row.Scan(&id, &user.Name, &user.Addr, &wlID, &token, &signPublic); err != nil {
 		return nil, err
 	}
 	user.Id = string(id)
 	user.WhitelistID = wlID.String
+	user.Token = token.String
+	user.SignPublic = signPublic.String
 
-	dbcommon.Log.Trace("Getting user with address \""+userAddr+"\": OK", nil)
+	if log.DiagnosticsEnabled {
+		dbcommon.Log.Trace("Getting user with address \""+userAddr+"\": OK", nil)
+	}
 
 	return &user, nil
+}
+
+// SetUserToken stores (or clears) the auth token for a user.
+func (db *Database) SetUserToken(username string, token string) error {
+	_, err := db.conn.Exec("UPDATE user SET token = ? WHERE name = ?", token, username)
+	return err
+}
+
+// SetUserSignPublic stores the client's Ed25519 public key (hex).
+func (db *Database) SetUserSignPublic(username string, signPublic string) error {
+	_, err := db.conn.Exec("UPDATE user SET sign_public = ? WHERE name = ?", signPublic, username)
+	return err
 }
 
 func (db *Database) CreateUser(name string, addr string) (string, error) {

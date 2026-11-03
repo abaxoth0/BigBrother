@@ -3,6 +3,7 @@ package userapplication
 import "bigbrother_server_backend/packages/domain/entity"
 
 type QueryHandler interface {
+	GetUsers() ([]*entity.User, error)
 	GetUserByName(username string) (*entity.User, error)
 	GetUserByAddr(userAddr string) (*entity.User, error)
 }
@@ -13,6 +14,8 @@ type CommandHandler interface {
 	ChangeUserName(username string, newUsername string) error
 	ChangeUsersWhitelist(newWhitelistName string, usernames ...string) error
 	DeleteUsers(usernames ...string) error
+	SetUserToken(username string, token string) error
+	SetUserSignPublic(username string, signPublic string) error
 }
 
 type UseCases interface {

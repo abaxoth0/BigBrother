@@ -7,6 +7,7 @@
 #include "../include/allowlist.h"
 #include "../include/firewall.h"
 #include "../../common/encoding/encoding.h"
+#include "../../common/pipe_security.h"
 #include <windows.h>
 #include <stdio.h>
 #include <string.h>
@@ -56,13 +57,13 @@ static void write_whitelist(HANDLE pipe) {
 
     AcquireSRWLockShared(&g_AllowlistLock);
 
-    // Allow rules first, then exception rules (prefixed with '!').
+    // Rules include their effective priority and exception marker.
     for (size_t i = 0; i < g_Whitelist.count && pos < IPC_MAX_MESSAGE_SIZE - 1; i++) {
-        n = snprintf(buffer + pos, IPC_MAX_MESSAGE_SIZE - pos, "%s\n", g_Whitelist.entries[i].domain);
+        n = snprintf(buffer + pos, IPC_MAX_MESSAGE_SIZE - pos, "%s\n", g_Whitelist.entries[i].text);
         if (n > 0) pos += (size_t)n;
     }
     for (size_t i = 0; i < g_Blacklist.count && pos < IPC_MAX_MESSAGE_SIZE - 1; i++) {
-        n = snprintf(buffer + pos, IPC_MAX_MESSAGE_SIZE - pos, "!%s\n", g_Blacklist.entries[i].domain);
+        n = snprintf(buffer + pos, IPC_MAX_MESSAGE_SIZE - pos, "%s\n", g_Blacklist.entries[i].text);
         if (n > 0) pos += (size_t)n;
     }
 
@@ -140,6 +141,24 @@ static int parse_and_execute(HANDLE pipe, char* buffer, size_t size) {
             break;
         }
 
+        case MSG_GET_IPV6_BLOCK: {
+            char buf[8];
+            snprintf(buf, sizeof(buf), "%ld\n", InterlockedCompareExchange(&g_BlockIpv6, 0, 0));
+            write_str(pipe, buf);
+            break;
+        }
+
+        case MSG_SET_IPV6_BLOCK: {
+            char* data = newline ? newline + 1 : buffer + strlen(buffer);
+            if (strcmp(data, "0") != 0 && strcmp(data, "1") != 0) {
+                write_error(pipe, "expected value 0 or 1");
+                break;
+            }
+            InterlockedExchange(&g_BlockIpv6, data[0] == '1');
+            write_ok(pipe);
+            break;
+        }
+
         default:
             write_error(pipe, "unknown command");
             return -1;
@@ -206,7 +225,12 @@ static DWORD WINAPI ipc_server_thread(LPVOID param) {
     HANDLE stop_event = (HANDLE)(uintptr_t)param;
     HANDLE pipes[16];
     int num_pipes = 0;
-    
+
+    // Restrict the pipe to SYSTEM + Administrators + Owner so local processes
+    // can't flip filtration or replace the whitelist (e.g. block-all DoS).
+    SECURITY_ATTRIBUTES sec_attrs;
+    int have_sec = (bb_restrict_pipe_security(&sec_attrs) == 0);
+
     while (1) {
         if (num_pipes < 16) {
             HANDLE pipe = CreateNamedPipe(
@@ -217,7 +241,7 @@ static DWORD WINAPI ipc_server_thread(LPVOID param) {
                 IPC_MAX_MESSAGE_SIZE,
                 IPC_MAX_MESSAGE_SIZE,
                 0,
-                NULL
+                have_sec ? &sec_attrs : NULL
             );
 
             if (pipe != INVALID_HANDLE_VALUE) {
@@ -263,6 +287,9 @@ static DWORD WINAPI ipc_server_thread(LPVOID param) {
         }
     }
 
+    if (have_sec) {
+        LocalFree(sec_attrs.lpSecurityDescriptor);
+    }
     return 0;
 }
 
@@ -294,13 +321,14 @@ int IpcSetWhitelist(const char* data, size_t size) {
     }
 
     AcquireSRWLockExclusive(&g_AllowlistLock);
-    WhitelistLoadFromData(&g_Whitelist, &g_Blacklist, data, size);
-    // Purge allowlist entries for domains that are no longer whitelisted, so a
-    // removed domain stops being reachable immediately instead of lingering for
-    // the TTL. Existing still-whitelisted connections keep working.
-    IpAllowlistPurgeUnowned(&g_IpAllowlist, &g_Whitelist);
-    // The blocklist is exception-derived and rebuilt by PreResolveWhitelist.
-    IpAllowlistClear(&g_IpBlocklist);
+    if (WhitelistLoadFromData(&g_Whitelist, &g_Blacklist, data, size) != 0) {
+        ReleaseSRWLockExclusive(&g_AllowlistLock);
+        return -1;
+    }
+    // Keep DNS associations while either policy still matches, so priority
+    // changes take effect without waiting for another DNS lookup.
+    IpAllowlistPurgeUnowned(&g_IpAllowlist, &g_Whitelist, &g_Blacklist);
+    IpAllowlistPurgeUnowned(&g_IpBlocklist, &g_Blacklist, &g_Whitelist);
     ReleaseSRWLockExclusive(&g_AllowlistLock);
 
     PreResolveWhitelist();

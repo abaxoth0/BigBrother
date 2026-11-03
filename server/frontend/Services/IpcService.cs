@@ -2,8 +2,10 @@ using System.IO;
 using System.IO.Pipes;
 using System.Linq;
 using System.Text;
+using System.Text.Json;
 using System.Threading;
 using frontend.Models;
+using frontend.Validation;
 
 namespace frontend.Services;
 
@@ -11,6 +13,14 @@ public class IpcService : IDisposable
 {
     private const string PipeName = "BigBrother.Server.Frontend";
     private const int MaxRetries = 3;
+    private readonly string _pipeName;
+
+    public IpcService() : this(PipeName) { }
+
+    internal IpcService(string pipeName)
+    {
+        _pipeName = pipeName;
+    }
     private NamedPipeClientStream? _pipe;
     private bool _isConnected;
     private string _lastError = "";
@@ -49,7 +59,7 @@ public class IpcService : IDisposable
         {
             try
             {
-                using var pipe = new NamedPipeClientStream(".", PipeName, PipeDirection.InOut);
+                using var pipe = new NamedPipeClientStream(".", _pipeName, PipeDirection.InOut);
                 // Non-blocking probe: fails instantly when the server is not running
                 // (a timed ConnectAsync busy-waits for the full timeout, burning CPU).
                 await pipe.ConnectAsync(0, ct);
@@ -147,7 +157,7 @@ public class IpcService : IDisposable
             {
                 try
                 {
-                    _pipe = new NamedPipeClientStream(".", PipeName, PipeDirection.InOut);
+                    _pipe = new NamedPipeClientStream(".", _pipeName, PipeDirection.InOut);
                     await _pipe.ConnectAsync(0);
                     _isConnected = true;
                     _lastError = "";
@@ -280,55 +290,46 @@ public class IpcService : IDisposable
 
     public async Task<ServerStatus> GetServerStatusAsync()
     {
+        // An independent, bounded request keeps health checks responsive even
+        // while another command holds the normal request connection.
         var status = new ServerStatus { IsRunning = false };
-
-        await _connectionLock.WaitAsync();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(1500));
+        var ct = timeout.Token;
         try
         {
-            if (!await ConnectAsync())
-            {
+            using var pipe = new NamedPipeClientStream(".", _pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+            await pipe.ConnectAsync(0, ct).ConfigureAwait(false);
+            using var writer = new StreamWriter(pipe, leaveOpen: true);
+            using var reader = new StreamReader(pipe, leaveOpen: true);
+            await writer.WriteAsync("GET_SERVER_STATUS\n\n".AsMemory(), ct).ConfigureAwait(false);
+            await writer.FlushAsync(ct).ConfigureAwait(false);
+            if (await reader.ReadLineAsync(ct).ConfigureAwait(false) != "OK") return status;
+
+            var lengthLine = await reader.ReadLineAsync(ct).ConfigureAwait(false);
+            if (!int.TryParse(lengthLine, out int length) || length <= 0 || length > 65536)
                 return status;
-            }
+            var value = await reader.ReadLineAsync(ct).ConfigureAwait(false);
+            if (value == null || Encoding.UTF8.GetByteCount(value) != length ||
+                await reader.ReadLineAsync(ct).ConfigureAwait(false) != "")
+                return status;
 
-            try
-            {
-                var (responseStatus, data) = SendCommand("GET_SERVER_STATUS");
-                status.IsRunning = responseStatus == "OK";
-                if (status.IsRunning && data.Count > 0)
-                {
-                    var parts = data[0].Split(':');
-                    for (int i = 0; i < parts.Length - 1; i += 2)
-                    {
-                        switch (parts[i])
-                        {
-                            case "uptime":
-                                status.UptimeText = parts[i + 1];
-                                break;
-                            case "clients":
-                                if (int.TryParse(parts[i + 1], out var clients))
-                                    status.ConnectedClients = clients;
-                                break;
-                            case "pending":
-                                if (int.TryParse(parts[i + 1], out var pending))
-                                    status.PendingCount = pending;
-                                break;
-                            case "filtration":
-                                status.FiltrationEnabled = parts[i + 1] == "1";
-                                break;
-                        }
-                    }
-                }
-            }
-            finally
-            {
-                Disconnect();
-            }
+            var parts = value.Split(':');
+            if (parts.Length != 8 || parts[0] != "uptime" || parts[2] != "clients" ||
+                parts[4] != "pending" || parts[6] != "filtration" ||
+                !int.TryParse(parts[3], out int clients) || clients < 0 ||
+                !int.TryParse(parts[5], out int pending) || pending < 0 ||
+                (parts[7] != "0" && parts[7] != "1"))
+                return status;
+            status.IsRunning = true;
+            status.UptimeText = parts[1];
+            status.ConnectedClients = clients;
+            status.PendingCount = pending;
+            status.FiltrationEnabled = parts[7] == "1";
         }
-        finally
+        catch (Exception ex) when (ex is IOException || ex is TimeoutException || ex is OperationCanceledException)
         {
-            _connectionLock.Release();
+            // An absent, stalled, or closed pipe means the backend is unavailable.
         }
-
         return status;
     }
 
@@ -346,23 +347,13 @@ public class IpcService : IDisposable
 
             try
             {
-                var (status, data) = SendCommand("GET_CLIENTS");
-                if (status == "OK")
-                {
-                    foreach (var line in data)
-                    {
-                        var parts = line.Split(':');
-                        if (parts.Length >= 2)
-                        {
-                            clients.Add(new ConnectedClient
-                            {
-                                Name = parts[0],
-                                Address = parts[1],
-                                Status = parts.Length > 2 ? parts[2] : "Active"
-                            });
-                        }
-                    }
-                }
+                var (status, data) = SendCommand("GET_CLIENTS_DETAILS");
+                if (status != "OK" || data.Count != 1) throw new IOException("Не удалось загрузить клиентов");
+                clients = JsonSerializer.Deserialize<List<ConnectedClient>>(data[0],
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+                    ?? throw new InvalidDataException("Некорректный ответ при загрузке клиентов");
+                foreach (var client in clients)
+                    client.LastActivity = client.LastActivity?.ToLocalTime();
             }
             finally
             {
@@ -375,6 +366,25 @@ public class IpcService : IDisposable
         }
 
         return clients;
+    }
+
+    public async Task<List<ConnectedClient>> GetRegisteredUsersAsync()
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) throw new IOException(_lastError);
+            try
+            {
+                var (status, data) = SendCommand("GET_REGISTERED_USERS");
+                if (status != "OK" || data.Count != 1) throw new IOException("Не удалось загрузить всех пользователей");
+                return JsonSerializer.Deserialize<List<ConnectedClient>>(data[0],
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+                    ?? throw new InvalidDataException("Некорректный список пользователей");
+            }
+            finally { Disconnect(); }
+        }
+        finally { _connectionLock.Release(); }
     }
 
     public async Task<List<PendingRegistration>> GetPendingAsync()
@@ -448,6 +458,50 @@ public class IpcService : IDisposable
         }
     }
 
+    public async Task<string> GetUserTokenAsync(string name)
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return "";
+            try
+            {
+                var (status, data) = SendCommand("GET_USER_TOKEN", name);
+                return status == "OK" && data.Count > 0 ? data[0] : "";
+            }
+            finally
+            {
+                Disconnect();
+            }
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
+    public async Task<string> RegenerateUserTokenAsync(string name)
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return "";
+            try
+            {
+                var (status, data) = SendCommand("REGENERATE_TOKEN", name);
+                return status == "OK" && data.Count > 0 ? data[0] : "";
+            }
+            finally
+            {
+                Disconnect();
+            }
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
     public async Task<bool> RejectUserAsync(string name)
     {
         await _connectionLock.WaitAsync();
@@ -492,6 +546,23 @@ public class IpcService : IDisposable
         }
     }
 
+    public async Task SetClientIpv6BlockAsync(string name, bool enabled)
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) throw new IOException(_lastError);
+            try
+            {
+                var (status, _) = await Task.Run(() => SendCommand("SET_CLIENT_IPV6_BLOCK", name, enabled ? "1" : "0"));
+                if (status != "OK") throw new IOException(string.IsNullOrEmpty(_lastError)
+                    ? "Не удалось изменить блокировку IPv6" : _lastError);
+            }
+            finally { Disconnect(); }
+        }
+        finally { _connectionLock.Release(); }
+    }
+
     public async Task<List<WhitelistInfo>> GetWhitelistsAsync()
     {
         var whitelists = new List<WhitelistInfo>();
@@ -501,26 +572,22 @@ public class IpcService : IDisposable
         {
             if (!await ConnectAsync())
             {
-                return whitelists;
+                throw new IOException(_lastError);
             }
 
             try
             {
-                var (status, data) = SendCommand("GET_WHITELISTS");
-                if (status == "OK")
+                var (status, data) = SendCommand("GET_WHITELISTS_DETAILS");
+                if (status != "OK" || data.Count != 1) throw new IOException("Не удалось загрузить белые списки");
+                var rows = JsonSerializer.Deserialize<List<WhitelistInfo>>(data[0],
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new();
+                foreach (var row in rows) row.UpdateTimer(row.Temporary, row.IsActive);
+                foreach (var row in rows)
                 {
-                    foreach (var line in data)
-                    {
-                        var parts = line.Split(':');
-                        if (parts.Length >= 1)
-                        {
-                            whitelists.Add(new WhitelistInfo
-                            {
-                                Name = parts[0],
-                                EntryCount = parts.Length > 1 && int.TryParse(parts[1], out var count) ? count : 0
-                            });
-                        }
-                    }
+                    var (entriesStatus, entries) = SendCommand("GET_WHITELIST", row.Name);
+                    if (entriesStatus != "OK") throw new IOException($"Не удалось загрузить записи списка «{row.Name}»");
+                    row.EntryCount = WhitelistRules.Analyze(string.Join("\n", entries)).Rules.Count;
+                    whitelists.Add(row);
                 }
             }
             finally
@@ -534,6 +601,56 @@ public class IpcService : IDisposable
         }
 
         return whitelists;
+    }
+
+    public async Task<List<WhitelistPreset>> GetWhitelistPresetsAsync()
+    {
+        var data = await WhitelistPresetCommandAsync("GET_WHITELIST_PRESETS");
+        if (data.Count != 1) throw new IOException("Не удалось загрузить пресеты");
+        return JsonSerializer.Deserialize<List<WhitelistPreset>>(data[0],
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+            ?? throw new IOException("Не удалось загрузить пресеты");
+    }
+
+    public Task SaveWhitelistPresetAsync(string name, bool replace, IEnumerable<string> activeWhitelists) =>
+        WhitelistPresetCommandAsync("SAVE_WHITELIST_PRESET", new[] { name, replace ? "1" : "0" }.Concat(activeWhitelists).ToArray());
+
+    public Task LoadWhitelistPresetAsync(string name) => WhitelistPresetCommandAsync("LOAD_WHITELIST_PRESET", name);
+    public Task DeleteWhitelistPresetAsync(string name) => WhitelistPresetCommandAsync("DELETE_WHITELIST_PRESET", name);
+    public Task<List<string>> GetWhitelistPreviewEntriesAsync(string name) => WhitelistPresetCommandAsync("GET_WHITELIST", name);
+
+    private async Task<List<string>> WhitelistPresetCommandAsync(string command, params string[] args)
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) throw new IOException(_lastError);
+            try
+            {
+                var (status, data) = await Task.Run(() => SendCommand(command, args));
+                if (status != "OK") throw new IOException(string.IsNullOrEmpty(_lastError) ? "Не удалось выполнить действие с пресетом" : _lastError);
+                return data;
+            }
+            finally { Disconnect(); }
+        }
+        finally { _connectionLock.Release(); }
+    }
+
+    public async Task<List<string>> TemporaryWhitelistCommandAsync(string command, params string[] args)
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) throw new IOException(_lastError);
+            try
+            {
+                var (status, data) = await Task.Run(() => SendCommand(command, args));
+                if (status != "OK") throw new IOException(string.IsNullOrEmpty(_lastError) ? "Не удалось изменить временный список" : _lastError);
+                return data;
+            }
+            finally { Disconnect(); }
+        }
+        finally { _connectionLock.Release(); }
     }
 
     public async Task<List<string>> GetWhitelistEntriesAsync(string whitelistName)
@@ -567,6 +684,30 @@ public class IpcService : IDisposable
         }
 
         return entries;
+    }
+
+    public async Task<List<ComposedWhitelistEntry>> GetComposedWhitelistAsync()
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) throw new IOException(_lastError);
+            try
+            {
+                var (status, data) = SendCommand("GET_COMPOSED_WHITELIST_DETAILS");
+                if (status != "OK" || data.Count != 1) throw new IOException("Не удалось загрузить общий белый список");
+                return JsonSerializer.Deserialize<List<ComposedWhitelistEntry>>(data[0],
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new();
+            }
+            finally
+            {
+                Disconnect();
+            }
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
     }
 
     public async Task<bool> CreateWhitelistAsync(string name)
@@ -613,7 +754,7 @@ public class IpcService : IDisposable
         }
     }
 
-    public async Task<bool> SetActiveWhitelistAsync(string name)
+    public async Task<bool> SyncWhitelistsAsync()
     {
         await _connectionLock.WaitAsync();
         try
@@ -621,7 +762,30 @@ public class IpcService : IDisposable
             if (!await ConnectAsync()) return false;
             try
             {
-                var (status, _) = SendCommand("SET_ACTIVE_WHITELIST", name);
+                var (status, _) = SendCommand("SYNC_WHITELISTS");
+                return status == "OK";
+            }
+            finally
+            {
+                Disconnect();
+            }
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
+    public async Task<bool> SetWhitelistsActiveAsync(IReadOnlyDictionary<string, bool> states)
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return false;
+            try
+            {
+                var (status, _) = SendCommand("SET_WHITELISTS_ACTIVE",
+                    states.SelectMany(pair => new[] { pair.Key, pair.Value ? "1" : "0" }).ToArray());
                 return status == "OK";
             }
             finally
@@ -681,6 +845,24 @@ public class IpcService : IDisposable
         }
     }
 
+    public async Task<string> ClientUpdateAsync(string? metadata = null)
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) throw new IOException("Нет соединения с сервером.");
+            try
+            {
+                var (status, data) = await Task.Run(() => metadata == null
+                    ? SendCommand("GET_CLIENT_UPDATE") : SendCommand("SET_CLIENT_UPDATE", metadata));
+                if (status != "OK") throw new IOException(data.FirstOrDefault() ?? "Не удалось изменить обновление клиентов.");
+                return data.FirstOrDefault() ?? "";
+            }
+            finally { Disconnect(); }
+        }
+        finally { _connectionLock.Release(); }
+    }
+
     public async Task<string> GetServerPortAsync()
     {
         await _connectionLock.WaitAsync();
@@ -725,16 +907,18 @@ public class IpcService : IDisposable
         }
     }
 
-    public async Task<string> GetActiveWhitelistAsync()
+    public async Task<List<WhitelistConflict>> GetWhitelistConflictsAsync()
     {
         await _connectionLock.WaitAsync();
         try
         {
-            if (!await ConnectAsync()) return "";
+            if (!await ConnectAsync()) throw new IOException(_lastError);
             try
             {
-                var (status, data) = SendCommand("GET_ACTIVE_WHITELIST");
-                return status == "OK" && data.Count > 0 ? data[0] : "";
+                var (status, data) = SendCommand("GET_WHITELIST_CONFLICTS");
+                if (status != "OK" || data.Count != 1) throw new IOException("Не удалось загрузить конфликты списков");
+                return JsonSerializer.Deserialize<List<WhitelistConflict>>(data[0],
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new();
             }
             finally
             {
@@ -854,6 +1038,76 @@ public class IpcService : IDisposable
         finally
         {
             _connectionLock.Release();
+        }
+    }
+
+    public async Task<bool?> GetWindowsNotificationsAsync()
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return null;
+            try
+            {
+                var (status, data) = SendCommand("GET_WINDOWS_NOTIFICATIONS");
+                return status == "OK" && data.Count > 0 && (data[0] == "0" || data[0] == "1")
+                    ? data[0] == "1" : null;
+            }
+            finally
+            {
+                Disconnect();
+            }
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
+    public async Task<bool> SetWindowsNotificationsAsync(bool enabled)
+    {
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return false;
+            try
+            {
+                var (status, _) = SendCommand("SET_WINDOWS_NOTIFICATIONS", enabled ? "1" : "0");
+                return status == "OK";
+            }
+            finally
+            {
+                Disconnect();
+            }
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
+    public async Task<string> GetCertificateFingerprintAsync()
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(1500));
+        var ct = timeout.Token;
+        try
+        {
+            using var pipe = new NamedPipeClientStream(".", _pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+            await pipe.ConnectAsync(0, ct).ConfigureAwait(false);
+            using var writer = new StreamWriter(pipe, leaveOpen: true);
+            using var reader = new StreamReader(pipe, leaveOpen: true);
+            await writer.WriteAsync("GET_CERTIFICATE_FINGERPRINT\n\n".AsMemory(), ct).ConfigureAwait(false);
+            await writer.FlushAsync(ct).ConfigureAwait(false);
+            if (await reader.ReadLineAsync(ct).ConfigureAwait(false) != "OK" ||
+                await reader.ReadLineAsync(ct).ConfigureAwait(false) != "64") return "";
+            var fingerprint = await reader.ReadLineAsync(ct).ConfigureAwait(false);
+            return fingerprint?.Length == 64 && fingerprint.All(char.IsAsciiHexDigit) &&
+                await reader.ReadLineAsync(ct).ConfigureAwait(false) == ""
+                ? fingerprint.ToUpperInvariant() : "";
+        }
+        catch (Exception ex) when (ex is IOException || ex is TimeoutException || ex is OperationCanceledException)
+        {
+            return "";
         }
     }
 
