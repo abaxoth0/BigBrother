@@ -78,7 +78,11 @@ public class MainViewModel : ViewModelBase
     public NavigationSection SelectedSection
     {
         get => _selectedSection;
-        set => SetProperty(ref _selectedSection, value);
+        set
+        {
+            if (value != NavigationSection.Main && !IsConnected) return;
+            SetProperty(ref _selectedSection, value);
+        }
     }
 
     private UsersFilterMode _usersFilter = UsersFilterMode.Connected;
@@ -352,6 +356,7 @@ public class MainViewModel : ViewModelBase
         {
             if (SetProperty(ref _isConnected, value))
             {
+                if (!value) SelectedSection = NavigationSection.Main;
                 OnPropertyChanged(nameof(NotConnectedVisibility));
                 OnPropertyChanged(nameof(ConnectedVisibility));
                 OnPropertyChanged(nameof(CanUseWhitelistPresets));

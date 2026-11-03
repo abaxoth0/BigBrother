@@ -5,11 +5,20 @@
     <UserControl.Resources>
         <vm:WhitelistPresetMenuViewModel x:Key="PresetMenu"/>
     </UserControl.Resources>
-    <StackPanel Orientation="Horizontal">
-        <Button Content="Сохранить пресет" Command="{Binding SaveWhitelistPresetCommand}" Margin="2" Padding="10,5"
+    <WrapPanel>
+        <Button x:Name="SaveButton" Content="Сохранить" Command="{Binding SaveWhitelistPresetCommand}" Margin="2" Padding="10,5"
+                AutomationProperties.Name="Сохранить пресет"
                 ToolTip="Сохранить текущий выбор активных списков, включая несохранённые изменения"/>
-        <Button x:Name="LoadButton" Content="Загрузить пресет ▾" Click="Load_Click" Margin="2" Padding="10,5"
-                IsEnabled="{Binding CanUseWhitelistPresets}" ToolTip="Посмотреть активные списки пресета и применить его одним нажатием"/>
+        <Button x:Name="LoadButton" Click="Load_Click" Margin="2" Padding="10,5"
+                AutomationProperties.Name="Загрузить пресет"
+                IsEnabled="{Binding CanUseWhitelistPresets}" ToolTip="Посмотреть активные списки пресета и применить его одним нажатием">
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Text="Загрузить"/>
+                <Path Data="M 0,0 L 4,4 L 8,0" StrokeThickness="1.2" Stretch="None"
+                      Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                      VerticalAlignment="Center" Margin="8,0,0,0"/>
+            </StackPanel>
+        </Button>
         <Popup x:Name="PresetPopup" PlacementTarget="{Binding ElementName=LoadButton}" Placement="Bottom" StaysOpen="False" AllowsTransparency="True">
             <Border Background="{StaticResource Surface}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
                     CornerRadius="4" Width="480" Padding="10" DataContext="{StaticResource PresetMenu}">
@@ -45,5 +54,5 @@
                 </StackPanel>
             </Border>
         </Popup>
-    </StackPanel>
+    </WrapPanel>
 </UserControl>

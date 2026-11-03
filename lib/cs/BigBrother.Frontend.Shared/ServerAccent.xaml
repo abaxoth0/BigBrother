@@ -40,6 +40,9 @@
                                           TextElement.Foreground="{TemplateBinding Foreground}"/>
                     </Border>
                     <ControlTemplate.Triggers>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="Bg" Property="Opacity" Value="0.4"/>
+                        </Trigger>
                         <Trigger Property="IsMouseOver" Value="True">
                             <Setter TargetName="Bg" Property="Background" Value="{StaticResource SurfaceAlt}"/>
                         </Trigger>
@@ -71,6 +74,7 @@
 
     <!-- Dark context menu -->
     <Style TargetType="ContextMenu">
+        <Setter Property="FontSize" Value="{DynamicResource FontSize14}"/>
         <Setter Property="Background" Value="{StaticResource Surface}"/>
         <Setter Property="Foreground" Value="{StaticResource TitleBarText}"/>
         <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
@@ -95,7 +99,7 @@
         <Setter Property="Foreground" Value="{StaticResource TitleBarText}"/>
         <Setter Property="Background" Value="Transparent"/>
         <Setter Property="Padding" Value="10,5"/>
-        <Setter Property="FontSize" Value="13"/>
+        <Setter Property="FontSize" Value="{DynamicResource FontSize13}"/>
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="MenuItem">
@@ -121,10 +125,12 @@
 
 <!-- Dark DataGrid column headers -->
     <Style x:Key="GridColumnHeaderStyle" TargetType="prim:DataGridColumnHeader">
+        <Setter Property="FontSize" Value="{DynamicResource FontSize14}"/>
+        <Setter Property="MinHeight" Value="{DynamicResource TableHeaderMinHeight}"/>
         <Setter Property="Background" Value="{StaticResource SurfaceAlt}"/>
         <Setter Property="Foreground" Value="{StaticResource TitleBarText}"/>
         <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
-        <Setter Property="Padding" Value="6,4"/>
+        <Setter Property="Padding" Value="{DynamicResource TableHeaderPadding}"/>
         <Setter Property="FontWeight" Value="SemiBold"/>
         <Setter Property="HorizontalContentAlignment" Value="Center"/>
         <Setter Property="VerticalContentAlignment" Value="Center"/>
@@ -133,11 +139,12 @@
 
     <!-- Dark DataGrid cells: replaces the default blue selection highlight -->
     <Style TargetType="DataGridCell">
+        <Setter Property="FontSize" Value="{DynamicResource TextFontSize14}"/>
         <Setter Property="Background" Value="Transparent"/>
         <Setter Property="Foreground" Value="{StaticResource TitleBarText}"/>
         <Setter Property="BorderThickness" Value="0"/>
         <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
-        <Setter Property="Padding" Value="4,3"/>
+        <Setter Property="Padding" Value="{DynamicResource RowPadding}"/>
         <Setter Property="HorizontalContentAlignment" Value="Center"/>
         <Setter Property="VerticalContentAlignment" Value="Center"/>
         <Setter Property="Template">

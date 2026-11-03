@@ -102,11 +102,24 @@ public class MainViewModel : ViewModelBase, IDisposable
     };
 
     private NavigationSection _selectedSection = NavigationSection.Main;
+    private bool _backendConnected;
+
+    public bool BackendConnected
+    {
+        get => _backendConnected;
+        private set
+        {
+            if (SetProperty(ref _backendConnected, value) && !value)
+                SelectedSection = NavigationSection.Main;
+        }
+    }
+
     public NavigationSection SelectedSection
     {
         get => _selectedSection;
         set
         {
+            if (value != NavigationSection.Main && !BackendConnected) return;
             if (SetProperty(ref _selectedSection, value) && value == NavigationSection.Settings)
             {
                 _ = RefreshSavedFingerprintAsync();
@@ -499,6 +512,8 @@ public class MainViewModel : ViewModelBase, IDisposable
                     {
                         if (_disposed) return;
                         FirewallRunning = false;
+                        BackendConnected = false;
+                        SettingsAvailable = false;
                         ServerConnected = false;
                         FiltrationEnabled = false;
                         OverallHealth = HealthState.Critical;
@@ -983,6 +998,7 @@ public class MainViewModel : ViewModelBase, IDisposable
 
     private void UpdateStatus(ClientStatus status)
     {
+        BackendConnected = status.IsConnected;
         var daemonRunning = status.DaemonStatus == "RUNNING";
         var serverConnected = status.IsServerSessionActive;
         FirewallRunning = daemonRunning;

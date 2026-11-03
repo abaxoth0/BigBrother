@@ -7,6 +7,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../frontend/Services/IpcService.cs" Link="IpcService.cs" />
+    <Compile Include="../frontend/Models/WhitelistPreset.cs" Link="WhitelistPreset.cs" />
     <Compile Include="../frontend/ViewModels/UserTableView.cs" Link="UserTableView.cs" />
     <Compile Include="../frontend/ViewModels/UserOverview.cs" Link="UserOverview.cs" />
     <Compile Include="../frontend/ViewModels/CheckboxSelection.cs" Link="CheckboxSelection.cs" />

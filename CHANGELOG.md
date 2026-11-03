@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Client/server frontends: separate persistent text and interface font sizes (10–28 px, 14 px by default), with compact numeric inputs, −/+ buttons and keyboard controls. Text size scales logs, whitelist entries, table contents and editable fields, including table/log row heights with compact log padding; interface size scales labels, buttons, menus and headers. Both preview immediately and use the common settings Save action; the previous base size initializes both settings; maximize/restore buttons in resizable window title bars
+
 - Server whitelist presets: save the current regular and temporary activation selection and apply a preset in two clicks; search presets by name, show compact whitelist counts and open a searchable preview with each list's current saved rules; persist presets across restarts, follow whitelist renames and confirm replacement or deletion of existing presets
 
 - Firewall priority matching: sort rule arrays with `qsort` on policy load, then stop at the first matching rule while traversing priorities from highest to lowest; exclusions win ties and DNS cache lookups happen once per cache per packet
@@ -56,7 +58,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Server whitelist editor: line numbers stay aligned with entries while editing, resizing and scrolling; long rules scroll horizontally
 - Server whitelist editor: live validation rejects malformed entries, duplicate rules and directly conflicting exceptions before saving; overlapping exceptions show warnings, and imports use the same validation
 
+### Changed
+
+- Client/server Settings: open with a category overview and show only the selected category's sections; preserve drafts across back navigation and use one common Save button in the overview and every category, including font-size changes; retain certificate and update actions
+
+- Client/server main windows: start maximized within the monitor work area; increase restored dimensions by 30% to 1560×910 for the client and 1430×910 for the server
+
+- Server whitelist tab: group list management, presets and tools in a wrapping toolbar; show Save/Cancel below the table only while activation changes are pending
+
 ### Fixed
+
+- Client/server custom windows: add a contrasting grey outline with matching square corners so overlapping restored windows and dialogs are easier to distinguish; hide the outline while maximized and restore it on returning to floating mode
+
+- Client/server frontends: disable all navigation except Main while the local backend is unavailable and return to Main on disconnect; refresh client status when its backend event connection closes
 
 - Server preset preview: align whitelist rules at the top of the text area
 

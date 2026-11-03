@@ -1,4 +1,4 @@
-﻿using System.Windows;
+using System.Windows;
 
 namespace frontend;
 
@@ -12,6 +12,7 @@ public partial class App : Application
             Shutdown(1);
             return;
         }
+        AppearanceSettings.Current.Initialize("Server");
         base.OnStartup(e);
     }
 }

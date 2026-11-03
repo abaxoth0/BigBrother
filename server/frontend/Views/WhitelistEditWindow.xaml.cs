@@ -11,10 +11,17 @@ public partial class WhitelistEditWindow : ChromeWindow
 {
     private readonly WhitelistEditViewModel _viewModel;
     private bool _lineAdornmentUpdatePending;
+    private double _editorFontSize;
 
     public WhitelistEditWindow()
     {
         InitializeComponent();
+        EntriesEditor.LayoutUpdated += (_, _) =>
+        {
+            if (_editorFontSize == EntriesEditor.FontSize) return;
+            _editorFontSize = EntriesEditor.FontSize;
+            QueueLineAdornmentUpdate();
+        };
         _viewModel = new WhitelistEditViewModel();
         _viewModel.PropertyChanged += (_, e) =>
         {

@@ -49,8 +49,9 @@ that initial manual upgrade.
 
 Copy the update file and its `.manifest.json` to the already configured shared
 directory. The manifest name replaces `.exe` with `.manifest.json`; when renaming
-the update file, rename its manifest to match. In server settings,
-click **Обзор…** under **Обновления клиентов**, select the EXE, then click
+the update file, rename its manifest to match. In the server frontend,
+open **Настройки → Обновления**, click **Обзор…** under
+**Обновления клиентов**, select the EXE, then click
 **Опубликовать**. The path can still be edited when needed. The frontend converts
 mapped drives to UNC paths before publication: `Y:\release\update.exe` becomes,
 for example, `\\fileserver\updates\release\update.exe`. Clients use that UNC
