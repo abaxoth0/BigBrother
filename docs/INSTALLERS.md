@@ -102,6 +102,15 @@ They keep the existing default locations (`Program Files\BigBrother` for the
 client, `Program Files\BigBrother Server` for the server), with frontends in `GUI`.
 Desktop and Start menu shortcuts launch the corresponding frontend.
 
+> [!CAUTION]
+> **Configure browser DNS before enabling filtration on a client.** In Firefox,
+> use Default Protection or turn DoH off; Increased/Max Protection ignores the
+> canary. In Chrome, Edge and other Chromium/Blink browsers, turn Secure DNS off:
+> explicitly selecting a provider or custom DoH URL enforces encrypted DNS without
+> ordinary DNS fallback. Automatic mode can fall back but does not honor Firefox's
+> canary. Also check OS-level encrypted DNS, DNS apps, VPNs and proxies. See the
+> [browser setup and compatibility guide](guide/usage-ru.md#sec-browser-dns).
+
 Both backends launch `BigBrother Notifications.exe` from their installation
 directory to deliver Windows notifications independently of the frontends.
 When running as a LocalSystem service, the helper starts a display process with
