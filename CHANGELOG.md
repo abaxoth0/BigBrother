@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Client/server frontends: separate persistent text and interface font sizes (10–28 px, 14 px by default), with compact numeric inputs, −/+ buttons and keyboard controls. Text size scales logs, whitelist entries, table contents and editable fields; interface size scales labels, buttons, menus and headers. Both preview immediately and use the common settings Save action; the previous base size initializes both settings; maximize/restore buttons in resizable window title bars
+- Client/server frontends: separate persistent text and interface font sizes (10–28 px, 14 px by default), with compact numeric inputs, −/+ buttons and keyboard controls. Text size scales logs, whitelist entries, table contents and editable fields, including table/log row heights with compact log padding; interface size scales labels, buttons, menus and headers. Both preview immediately and use the common settings Save action; the previous base size initializes both settings; maximize/restore buttons in resizable window title bars
 
 - Server whitelist presets: save the current regular and temporary activation selection and apply a preset in two clicks; search presets by name, show compact whitelist counts and open a searchable preview with each list's current saved rules; persist presets across restarts, follow whitelist renames and confirm replacement or deletion of existing presets
 
