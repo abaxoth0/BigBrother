@@ -45,14 +45,14 @@ public partial class WhitelistPresetButtons : UserControl
         var owner = Window.GetWindow(this);
         try
         {
-            if (MessageBox.Show(owner, $"Удалить пресет «{preset.Name}»?", "Удаление пресета",
+            if (MessageDialog.Show(owner, $"Удалить пресет «{preset.Name}»?", "Удаление пресета",
                 MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) != MessageBoxResult.Yes) return;
             await vm.DeleteWhitelistPresetAsync(preset.Name);
             _menu.RemovePreset(preset.Name);
         }
         catch (Exception ex)
         {
-            MessageBox.Show(owner, $"Не удалось удалить пресет.\n{ex.Message}", "Удаление пресета", MessageBoxButton.OK, MessageBoxImage.Error);
+            MessageDialog.Show(owner, $"Не удалось удалить пресет.\n{ex.Message}", "Удаление пресета", MessageBoxButton.OK, MessageBoxImage.Error);
         }
         finally
         {

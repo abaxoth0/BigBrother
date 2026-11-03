@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Security;
 using System.Text;
 using Microsoft.Win32;
 
@@ -18,7 +19,7 @@ public static class NetworkShareAccess
     [DllImport("mpr.dll", CharSet = CharSet.Unicode)]
     private static extern int WNetGetConnection(string localName, StringBuilder remoteName, ref int length);
     [DllImport("mpr.dll", CharSet = CharSet.Unicode)]
-    private static extern int WNetAddConnection3(IntPtr owner, ref NetworkResource resource, string? password, string? user, int flags);
+    private static extern int WNetAddConnection2(ref NetworkResource resource, IntPtr password, string? user, int flags);
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
     private static extern uint GetDriveType(string root);
 
@@ -92,10 +93,13 @@ public static class NetworkShareAccess
         (ex is IOException or Win32Exception && (ex is Win32Exception win32 ? win32.NativeErrorCode : ex.HResult & 0xffff)
             is 5 or 65 or 86 or 1244 or 1326 or 1327 or 1328 or 1329 or 1330 or 1331 or 1907 or 2202);
 
-    public static void Connect(string share, IntPtr owner)
+    public static void Connect(string share, string user, SecureString password)
     {
         var resource = new NetworkResource { Type = 1, RemoteName = ShareRoot(share) };
-        var error = WNetAddConnection3(owner, ref resource, null, null, 0x08 | 0x10);
+        int error;
+        var secret = Marshal.SecureStringToGlobalAllocUnicode(password);
+        try { error = WNetAddConnection2(ref resource, secret, user, 0); }
+        finally { Marshal.ZeroFreeGlobalAllocUnicode(secret); }
         if (error == 0) return;
         if (error == 1223) throw new OperationCanceledException("Подключение к общей папке отменено.");
         if (error == 1219)

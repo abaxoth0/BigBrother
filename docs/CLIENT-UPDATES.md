@@ -76,12 +76,15 @@ must be entered as UNC paths manually. Republish existing drive-letter update
 references to convert them to UNC.
 
 The server first reads the share using its existing credentials. On an access or
-login failure, Windows opens its native network credential dialog for that share
-and the frontend retries once. The client does the same when opening the package
-for an explicitly requested installation. Accessible shares do not cause prompts;
+login failure, the frontend opens a themed credential dialog for that share.
+Enter a username (optionally `DOMAIN\user`) and password; authentication errors
+remain in the dialog for correction, and Cancel closes it without retrying the read.
+After a successful connection the frontend retries the read once. The client does
+the same when opening the package for an explicitly requested installation. Accessible shares do not cause prompts;
 startup and checking update metadata do not connect to SMB shares. Credentials
-are handled by Windows and are never included in update metadata or application
-settings. Existing SMB connections are not disconnected automatically; Windows
+are passed to Windows for the connection and are never included in update metadata
+or application settings; the password field is cleared when the dialog closes.
+Existing SMB connections are not disconnected automatically; Windows
 error 1219 indicates a conflicting account connection that must be resolved by
 the administrator. Network reachability and share/file permissions still apply;
 offline shares and missing files are reported without authentication loops.

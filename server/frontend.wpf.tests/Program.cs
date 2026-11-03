@@ -76,6 +76,11 @@ internal static partial class Program
                     "Table content and header heights must scale independently");
             }
             TestWindowFrames();
+            TestDialogs();
+            var networkShare = new NetworkShareWindow("");
+            networkShare.Show();
+            try { CheckWindowFrame(networkShare); }
+            finally { networkShare.Close(); }
             TestSettingsNavigation(server: true);
             TestWhitelistToolbar();
             Console.WriteLine("PASS: server whitelist editor startup, live text/interface scaling, line numbers and table styles");

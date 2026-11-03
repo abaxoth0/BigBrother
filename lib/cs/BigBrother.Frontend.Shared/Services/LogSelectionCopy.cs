@@ -25,7 +25,7 @@ public static class LogSelectionCopy
             {
                 const string message = "Не удалось скопировать записи. Повторите попытку.";
                 if (copyFailed != null) copyFailed(message);
-                else MessageBox.Show(Window.GetWindow(listBox), message, "Копирование логов",
+                else MessageDialog.Show(Window.GetWindow(listBox), message, "Копирование логов",
                     MessageBoxButton.OK, MessageBoxImage.Warning);
             }
             e.Handled = true;

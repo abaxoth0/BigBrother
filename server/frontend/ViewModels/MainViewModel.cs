@@ -1214,7 +1214,7 @@ public class MainViewModel : ViewModelBase
             var token = await _ipcService.GetUserTokenAsync(user.Name);
             tokens.Add($"Клиент «{user.Name}»:\n{(string.IsNullOrEmpty(token) ? "Токен не установлен или недоступен." : token)}");
         }
-        MessageBox.Show(string.Join("\n\n", tokens), "Токены доступа", MessageBoxButton.OK, MessageBoxImage.Information);
+        MessageDialog.Show(string.Join("\n\n", tokens), "Токены доступа", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
     private async Task RegenerateUserTokenAsync(string? name)
@@ -1231,7 +1231,7 @@ public class MainViewModel : ViewModelBase
         }
         if (updated.Count > 0)
         {
-            MessageBox.Show($"Токены обновлены: {string.Join(", ", updated)}. Клиенты получат новые токены автоматически после повторной проверки своих ключевых пар. Редактировать настройки клиентов не требуется.",
+            MessageDialog.Show($"Токены обновлены: {string.Join(", ", updated)}. Клиенты получат новые токены автоматически после повторной проверки своих ключевых пар. Редактировать настройки клиентов не требуется.",
                 "Токен доступа", MessageBoxButton.OK, MessageBoxImage.Information);
         }
     }
@@ -1312,7 +1312,7 @@ public class MainViewModel : ViewModelBase
         if (selected.Count == 0 && whitelist != null) selected.Add(whitelist.Name);
         if (selected.Count == 0) return;
 
-        var result = MessageBox.Show($"Удалить выбранные списки ({selected.Count})?",
+        var result = MessageDialog.Show($"Удалить выбранные списки ({selected.Count})?",
             "Удаление списков", MessageBoxButton.YesNo, MessageBoxImage.Question);
         if (result != MessageBoxResult.Yes) return;
 
@@ -1414,7 +1414,7 @@ public class MainViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
-            MessageBox.Show($"Не удалось открыть сохранение пресета.\n{ex.Message}", "Сохранить пресет", MessageBoxButton.OK, MessageBoxImage.Error);
+            MessageDialog.Show($"Не удалось открыть сохранение пресета.\n{ex.Message}", "Сохранить пресет", MessageBoxButton.OK, MessageBoxImage.Error);
         }
         finally
         {
@@ -1437,7 +1437,7 @@ public class MainViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
-            MessageBox.Show($"Не удалось загрузить пресет.\n{ex.Message}", "Загрузить пресет", MessageBoxButton.OK, MessageBoxImage.Error);
+            MessageDialog.Show($"Не удалось загрузить пресет.\n{ex.Message}", "Загрузить пресет", MessageBoxButton.OK, MessageBoxImage.Error);
         }
         finally
         {
@@ -1491,7 +1491,7 @@ public class MainViewModel : ViewModelBase
         catch (Exception ex)
         {
             AddLog("ERROR", $"Ошибка проверки домена: {ex.Message}");
-            MessageBox.Show($"Не удалось загрузить общий белый список.\n{ex.Message}",
+            MessageDialog.Show($"Не удалось загрузить общий белый список.\n{ex.Message}",
                 "Проверка домена", MessageBoxButton.OK, MessageBoxImage.Error);
         }
         finally
@@ -1662,7 +1662,7 @@ public class MainViewModel : ViewModelBase
 
         if (errors.Count > 0)
         {
-            MessageBox.Show(
+            MessageDialog.Show(
                 $"Импортировано: {imported.Count}\nОшибок: {errors.Count}\n\n{string.Join("\n", errors)}",
                 "Импорт списков",
                 MessageBoxButton.OK,
@@ -1770,7 +1770,7 @@ public class MainViewModel : ViewModelBase
         catch (Exception ex)
         {
             AddLog("ERROR", $"Ошибка экспорта: {ex.Message}");
-            MessageBox.Show($"Ошибка экспорта: {ex.Message}", "Экспорт списков",
+            MessageDialog.Show($"Ошибка экспорта: {ex.Message}", "Экспорт списков",
                 MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }

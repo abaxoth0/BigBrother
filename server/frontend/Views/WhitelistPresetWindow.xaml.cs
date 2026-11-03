@@ -26,12 +26,12 @@ public partial class WhitelistPresetWindow : ChromeWindow
         if (_saving) return;
         if (string.IsNullOrWhiteSpace(name) || name.IndexOfAny(new[] { '\r', '\n', '\0' }) >= 0)
         {
-            MessageBox.Show(this, "Введите название пресета без переносов строк.", "Сохранить пресет", MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageDialog.Show(this, "Введите название пресета без переносов строк.", "Сохранить пресет", MessageBoxButton.OK, MessageBoxImage.Information);
             PresetName.Focus();
             return;
         }
         var replace = _existing.Contains(name);
-        if (replace && MessageBox.Show(this, $"Заменить пресет «{name}» текущим выбором списков?", "Сохранить пресет",
+        if (replace && MessageDialog.Show(this, $"Заменить пресет «{name}» текущим выбором списков?", "Сохранить пресет",
             MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
         _saving = true;
         EditorPanel.IsEnabled = false;
@@ -43,7 +43,7 @@ public partial class WhitelistPresetWindow : ChromeWindow
         }
         catch (Exception ex)
         {
-            MessageBox.Show(this, $"Не удалось сохранить пресет.\n{ex.Message}", "Сохранить пресет", MessageBoxButton.OK, MessageBoxImage.Error);
+            MessageDialog.Show(this, $"Не удалось сохранить пресет.\n{ex.Message}", "Сохранить пресет", MessageBoxButton.OK, MessageBoxImage.Error);
         }
         finally { _saving = false; EditorPanel.IsEnabled = true; }
     }

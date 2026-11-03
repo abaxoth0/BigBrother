@@ -24,6 +24,8 @@ internal static partial class Program
         try
         {
             TestAppearance();
+            TestDialogs();
+            TestUpdateProgress();
             TestSettingsNavigation(server: false);
             var timestamp = new DateTimeOffset(2026, 10, 20, 13, 14, 15, TimeSpan.Zero);
             string path = Path.Combine(directory, "history.binlog");
