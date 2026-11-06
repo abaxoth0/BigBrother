@@ -5,7 +5,6 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
-using System.Windows.Shapes;
 using System.Windows.Threading;
 using frontend;
 using frontend.Models;
@@ -51,21 +50,20 @@ internal static partial class Program
             var client = model.Clients[0];
             Border Node(NetworkNode node) => VisualChildren<Border>(items).First(b => ReferenceEquals(b.DataContext, node) && b.Focusable);
             var border = Node(client);
-            var line = VisualChildren<Line>(view).Single(l => ReferenceEquals(l.DataContext, client));
-            Check(Math.Abs(line.X1 - model.Server.CenterX) < 0.1 && Math.Abs(line.X2 - client.CenterX) < 0.1,
-                "Connection lines must bind to server and client positions");
-            Check(Equals(line.Stroke, Application.Current.FindResource("StatusRunning")) && line.StrokeDashArray == null,
-                "Connected clients must have solid green links");
-            var offlineLine = VisualChildren<Line>(view).Single(l => l.DataContext is NetworkNode { Name: "Переговорная" });
-            Check(Equals(offlineLine.Stroke, Application.Current.FindResource("StatusDisconnected")) && offlineLine.StrokeDashArray is { Count: > 0 },
-                "Disconnected clients must have dashed red links");
+            var status = VisualChildren<TextBlock>(border).Single(t => t.Text == "Подключён");
+            Check(Equals(status.Foreground, Application.Current.FindResource("StatusRunning")),
+                "Connected clients must have green status labels");
+            var offlineStatus = VisualChildren<TextBlock>(Node(model.Clients.Single(n => n.Name == "Переговорная")))
+                .Single(t => t.Text == "Не подключён");
+            Check(Equals(offlineStatus.Foreground, Application.Current.FindResource("StatusDisconnected")),
+                "Disconnected clients must have red status labels");
             border.Focus();
             double previousX = client.X;
             border.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(border), 0, Key.Right)
                 { RoutedEvent = Keyboard.KeyDownEvent });
             FlushLayout(window);
-            Check(client.X == previousX + 10 && store.Load()[client.Key].X == client.X && line.X2 == client.CenterX,
-                "Keyboard movement must move the node, save its position and update the line");
+            Check(client.X == previousX + 10 && store.Load()[client.Key].X == client.X,
+                "Keyboard movement must move the node and save its position");
 
             var zoomLevel = (TextBlock)view.FindName("ZoomLevel");
             Check(!VisualChildren<Slider>(view).Any() && zoomLevel.Text == view.Zoom.ToString("P0"),
@@ -170,15 +168,16 @@ internal static partial class Program
             }
             model.Move(model.Server, 80, 320);
             FlushLayout(window);
-            Check(line.X1 == model.Server.CenterX && line.Y1 == model.Server.CenterY,
-                "Moving the server must update connection endpoints");
+            var serverPosition = Node(model.Server).TranslatePoint(new Point(), canvas);
+            Check(Math.Abs(serverPosition.X - model.Server.X) < 0.1 && Math.Abs(serverPosition.Y - model.Server.Y) < 0.1,
+                "Moving the server must update its displayed position");
             ((Button)view.FindName("FitButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             FlushLayout(window);
             Check(view.Zoom < 1, "Fit must reduce the zoom when the map exceeds the viewport");
             model.SetAvailable(false);
             FlushLayout(window);
             Check(Node(client).IsVisible && VisualChildren<TextBlock>(border).Any(t => t.Text == "Статус неизвестен") &&
-                Equals(line.Stroke, Application.Current.FindResource("TextDim")) && line.StrokeDashArray is { Count: > 0 },
+                Equals(status.Foreground, Application.Current.FindResource("TextDim")),
                 "Backend loss must retain the map and show unknown status");
             model.SetAvailable(true);
             model.Refresh([online, offline, pending], true);
@@ -197,7 +196,7 @@ internal static partial class Program
                 using var file = File.Create(path);
                 encoder.Save(file);
             }
-            Console.WriteLine("PASS: network map rendering, Shift-wheel zoom, bounded background panning, node dragging, keyboard movement, live lines and font scaling");
+            Console.WriteLine("PASS: network map rendering, Shift-wheel zoom, bounded background panning, node dragging, keyboard movement, live status labels and font scaling");
         }
         finally
         {

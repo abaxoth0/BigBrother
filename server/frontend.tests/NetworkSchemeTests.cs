@@ -66,8 +66,8 @@ internal static class NetworkSchemeTests
             restored.Move(restoredAlice, double.NaN, 15);
             Check(restoredAlice.X == 0 && restoredAlice.Y == 0, "Invalid drag coordinates were accepted");
             restored.SetNodeScale(2);
-            Check(restoredAlice.Width == 500 && restoredAlice.CenterX == 250 && restoredAlice.Height == 300,
-                "Font scaling must resize nodes and update connection endpoints");
+            Check(restoredAlice.Width == 500 && restoredAlice.Height == 300,
+                "Font scaling must resize nodes");
             restored.ResetLayout();
             Check(restored.Nodes.Select(n => (n.X, n.Y)).Distinct().Count() == 4 &&
                 store.Load()["client:Alice"].X == restoredAlice.X, "Reset must arrange nodes and persist positions");

@@ -29,8 +29,6 @@ public sealed class NetworkNode(string key, bool isServer, bool isPending) : Vie
     public double Y => _y;
     public double Width => _width;
     public double Height => _height;
-    public double CenterX => X + Width / 2;
-    public double CenterY => Y + Height / 2;
 
     internal void SetState(bool online, bool known)
     {
@@ -43,16 +41,12 @@ public sealed class NetworkNode(string key, bool isServer, bool isPending) : Vie
     {
         SetProperty(ref _x, x, nameof(X));
         SetProperty(ref _y, y, nameof(Y));
-        OnPropertyChanged(nameof(CenterX));
-        OnPropertyChanged(nameof(CenterY));
     }
 
     internal void SetSize(double scale)
     {
         SetProperty(ref _width, 250 * scale, nameof(Width));
         SetProperty(ref _height, 150 * scale, nameof(Height));
-        OnPropertyChanged(nameof(CenterX));
-        OnPropertyChanged(nameof(CenterY));
     }
 }
 

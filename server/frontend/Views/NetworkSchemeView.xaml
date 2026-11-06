@@ -3,29 +3,6 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              FontSize="{DynamicResource FontSize14}">
     <UserControl.Resources>
-        <Style x:Key="ConnectionLine" TargetType="Line">
-            <Setter Property="Stroke" Value="{DynamicResource TextDim}"/>
-            <Setter Property="StrokeThickness" Value="2"/>
-            <Setter Property="StrokeDashArray" Value="4,3"/>
-            <Style.Triggers>
-                <MultiDataTrigger>
-                    <MultiDataTrigger.Conditions>
-                        <Condition Binding="{Binding StatusKnown}" Value="True"/>
-                        <Condition Binding="{Binding IsOnline}" Value="True"/>
-                    </MultiDataTrigger.Conditions>
-                    <Setter Property="Stroke" Value="{DynamicResource StatusRunning}"/>
-                    <Setter Property="StrokeDashArray" Value="{x:Null}"/>
-                </MultiDataTrigger>
-                <MultiDataTrigger>
-                    <MultiDataTrigger.Conditions>
-                        <Condition Binding="{Binding StatusKnown}" Value="True"/>
-                        <Condition Binding="{Binding IsOnline}" Value="False"/>
-                        <Condition Binding="{Binding IsPending}" Value="False"/>
-                    </MultiDataTrigger.Conditions>
-                    <Setter Property="Stroke" Value="{DynamicResource StatusDisconnected}"/>
-                </MultiDataTrigger>
-            </Style.Triggers>
-        </Style>
         <Style x:Key="NodeStatus" TargetType="TextBlock">
             <Setter Property="Foreground" Value="{DynamicResource TextDim}"/>
             <Setter Property="FontSize" Value="{DynamicResource FontSize12}"/>
@@ -94,17 +71,6 @@
                     <Grid.LayoutTransform>
                         <ScaleTransform x:Name="MapZoom"/>
                     </Grid.LayoutTransform>
-                    <ItemsControl ItemsSource="{Binding Clients}" IsHitTestVisible="False">
-                        <ItemsControl.ItemsPanel><ItemsPanelTemplate><Canvas/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <Line Style="{StaticResource ConnectionLine}"
-                                      X1="{Binding DataContext.Server.CenterX, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                      Y1="{Binding DataContext.Server.CenterY, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                      X2="{Binding CenterX}" Y2="{Binding CenterY}"/>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
                     <ItemsControl x:Name="NodeItems" ItemsSource="{Binding Nodes}">
                         <ItemsControl.ItemsPanel><ItemsPanelTemplate><Canvas/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
                         <ItemsControl.ItemContainerStyle>
