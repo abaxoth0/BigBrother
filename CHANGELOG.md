@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Server frontend: «Схема сети» displays the server's local addresses and all registered/connected clients, including offline clients and pending registrations, with live status labels and connection lines. Drag nodes to match the office layout; positions persist per Windows user across refreshes and restarts. Includes keyboard movement, Shift + mouse wheel zoom around the pointer with a percentage indicator, bounded background panning with the left mouse button, fit and reset controls, and explicit unknown client statuses when the backend or client query is unavailable
+- Server frontend: «Схема сети» displays the server's local addresses and all registered/connected clients, including offline clients and pending registrations, with live status labels and connection lines over a dark dotted grid that follows panning and zoom. Drag nodes to match the office layout; positions persist per Windows user across refreshes and restarts. Includes keyboard movement, Shift + mouse wheel zoom around the pointer with a percentage indicator, bounded background panning with the left mouse button, fit and reset controls, and explicit unknown client statuses when the backend or client query is unavailable
 
 ## [2.1.1] - 03-11-2026
 

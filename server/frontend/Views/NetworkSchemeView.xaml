@@ -70,12 +70,27 @@
             <ScrollViewer x:Name="MapScroll" HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Hidden"
                           CanContentScroll="False" Focusable="False" SizeChanged="MapScroll_SizeChanged"
                           PreviewMouseWheel="MapScroll_MouseWheel">
-                <Border x:Name="MapFrame" Background="{DynamicResource WindowBackground}" Cursor="Hand" Focusable="True"
+                <Border x:Name="MapFrame" Cursor="Hand" Focusable="True"
                         HorizontalAlignment="Left" VerticalAlignment="Top"
                         MouseLeftButtonDown="Map_MouseDown" MouseMove="Map_MouseMove" MouseLeftButtonUp="Map_MouseUp"
                         LostMouseCapture="Map_LostCapture" KeyDown="Map_KeyDown">
+                    <Border.Background>
+                        <DrawingBrush x:Name="MapGridBrush" TileMode="Tile" ViewportUnits="Absolute" Viewport="0,0,15,15"
+                                      ViewboxUnits="Absolute" Viewbox="0,0,15,15">
+                            <DrawingBrush.Drawing>
+                                <DrawingGroup>
+                                    <GeometryDrawing Brush="#211F22">
+                                        <GeometryDrawing.Geometry><RectangleGeometry Rect="0,0,15,15"/></GeometryDrawing.Geometry>
+                                    </GeometryDrawing>
+                                    <GeometryDrawing Brush="#3D393E">
+                                        <GeometryDrawing.Geometry><EllipseGeometry Center="7.5,7.5" RadiusX="1" RadiusY="1"/></GeometryDrawing.Geometry>
+                                    </GeometryDrawing>
+                                </DrawingGroup>
+                            </DrawingBrush.Drawing>
+                        </DrawingBrush>
+                    </Border.Background>
                 <Grid x:Name="MapCanvas" Width="{Binding CanvasWidth}" Height="{Binding CanvasHeight}"
-                      Background="{DynamicResource WindowBackground}">
+                      Background="Transparent">
                     <Grid.LayoutTransform>
                         <ScaleTransform x:Name="MapZoom"/>
                     </Grid.LayoutTransform>

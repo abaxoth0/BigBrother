@@ -53,6 +53,7 @@ public partial class NetworkSchemeView : UserControl
         var previous = MapFrame.Padding;
         MapFrame.Padding = new Thickness(e.NewSize.Width / 2, e.NewSize.Height / 2,
             e.NewSize.Width / 2, e.NewSize.Height / 2);
+        UpdateGrid();
         MapScroll.ScrollToHorizontalOffset(MapScroll.HorizontalOffset + MapFrame.Padding.Left - previous.Left);
         MapScroll.ScrollToVerticalOffset(MapScroll.VerticalOffset + MapFrame.Padding.Top - previous.Top);
     }
@@ -62,6 +63,7 @@ public partial class NetworkSchemeView : UserControl
         var anchor = _zoomAnchor ?? new Point(MapScroll.ViewportWidth / 2, MapScroll.ViewportHeight / 2);
         var world = MapScroll.TranslatePoint(anchor, MapCanvas);
         MapZoom.ScaleX = MapZoom.ScaleY = Zoom;
+        UpdateGrid();
         MapScroll.UpdateLayout();
         MapScroll.ScrollToHorizontalOffset(MapFrame.Padding.Left + world.X * Zoom - anchor.X);
         MapScroll.ScrollToVerticalOffset(MapFrame.Padding.Top + world.Y * Zoom - anchor.Y);
@@ -75,6 +77,8 @@ public partial class NetworkSchemeView : UserControl
         finally { _zoomAnchor = null; }
         e.Handled = true;
     }
+
+    private void UpdateGrid() => MapGridBrush.Viewport = new Rect(MapFrame.Padding.Left, MapFrame.Padding.Top, 15 * Zoom, 15 * Zoom);
 
     private void Map_MouseDown(object sender, MouseButtonEventArgs e)
     {
