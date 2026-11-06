@@ -55,24 +55,29 @@
             <TextBlock Text="Схема сети" FontWeight="SemiBold" FontSize="{DynamicResource FontSize18}"
                        VerticalAlignment="Center" Margin="0,0,18,6"/>
             <Button x:Name="FitButton" Content="Вписать" Click="Fit_Click" Margin="0,0,6,6"/>
-            <Button Content="100%" Click="ActualSize_Click" Margin="0,0,6,6"/>
+            <Button x:Name="ActualSizeButton" Content="100%" Click="ActualSize_Click" Margin="0,0,6,6"/>
             <Button x:Name="ResetButton" Content="Сбросить расположение" Click="Reset_Click" Margin="0,0,16,6"/>
-            <TextBlock Text="Масштаб" VerticalAlignment="Center" Margin="0,0,6,6"/>
-            <Slider x:Name="ZoomSlider" Minimum="0.1" Maximum="2" Value="1" Width="110"
-                    SmallChange="0.1" LargeChange="0.25" VerticalAlignment="Center" Margin="0,0,6,6"/>
+            <TextBlock Text="Масштаб:" VerticalAlignment="Center" Margin="0,0,6,6"/>
+            <TextBlock x:Name="ZoomLevel" Text="{Binding Zoom, RelativeSource={RelativeSource AncestorType=UserControl}, StringFormat={}{0:P0}}"
+                       VerticalAlignment="Center" Margin="0,0,6,6" ToolTip="Shift + колесо мыши — изменить масштаб"/>
         </WrapPanel>
         <StackPanel Grid.Row="1" Margin="0,0,0,8">
             <TextBlock Text="{Binding Summary}" TextWrapping="Wrap"/>
-            <TextBlock Text="Перетаскивайте узлы мышью. Стрелки — перемещение выбранного узла. Расположение сохраняется автоматически."
+            <TextBlock Text="ЛКМ по фону — перемещение схемы. Shift + колесо — масштаб. Узлы можно перетаскивать мышью или перемещать стрелками; расположение сохраняется автоматически."
                        Foreground="{DynamicResource TextDim}" FontSize="{DynamicResource FontSize12}" TextWrapping="Wrap" Margin="0,4,0,0"/>
         </StackPanel>
         <Border Grid.Row="2" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4">
-            <ScrollViewer x:Name="MapScroll" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
-                          CanContentScroll="False" Focusable="False">
+            <ScrollViewer x:Name="MapScroll" HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Hidden"
+                          CanContentScroll="False" Focusable="False" SizeChanged="MapScroll_SizeChanged"
+                          PreviewMouseWheel="MapScroll_MouseWheel">
+                <Border x:Name="MapFrame" Background="{DynamicResource WindowBackground}" Cursor="Hand" Focusable="True"
+                        HorizontalAlignment="Left" VerticalAlignment="Top"
+                        MouseLeftButtonDown="Map_MouseDown" MouseMove="Map_MouseMove" MouseLeftButtonUp="Map_MouseUp"
+                        LostMouseCapture="Map_LostCapture" KeyDown="Map_KeyDown">
                 <Grid x:Name="MapCanvas" Width="{Binding CanvasWidth}" Height="{Binding CanvasHeight}"
                       Background="{DynamicResource WindowBackground}">
                     <Grid.LayoutTransform>
-                        <ScaleTransform ScaleX="{Binding Value, ElementName=ZoomSlider}" ScaleY="{Binding Value, ElementName=ZoomSlider}"/>
+                        <ScaleTransform x:Name="MapZoom"/>
                     </Grid.LayoutTransform>
                     <ItemsControl ItemsSource="{Binding Clients}" IsHitTestVisible="False">
                         <ItemsControl.ItemsPanel><ItemsPanelTemplate><Canvas/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
@@ -140,6 +145,7 @@
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
                 </Grid>
+                </Border>
             </ScrollViewer>
         </Border>
         <TextBlock Grid.Row="3" Text="{Binding SaveStatus}" Foreground="{DynamicResource TextDim}"

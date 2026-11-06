@@ -19,6 +19,8 @@ internal static partial class Program
     private static extern bool SetCursorPos(int x, int y);
     [DllImport("user32.dll")]
     private static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extra);
+    [DllImport("user32.dll")]
+    private static extern void keybd_event(byte key, byte scan, uint flags, UIntPtr extra);
 
     private static void TestNetworkScheme()
     {
@@ -65,10 +67,39 @@ internal static partial class Program
             Check(client.X == previousX + 10 && store.Load()[client.Key].X == client.X && line.X2 == client.CenterX,
                 "Keyboard movement must move the node, save its position and update the line");
 
-            var zoom = (Slider)view.FindName("ZoomSlider");
+            var zoomLevel = (TextBlock)view.FindName("ZoomLevel");
+            Check(!VisualChildren<Slider>(view).Any() && zoomLevel.Text == view.Zoom.ToString("P0"),
+                "Zoom must be shown as a percentage without a slider");
+            var scroll = (ScrollViewer)view.FindName("MapScroll");
+            var canvas = (Grid)view.FindName("MapCanvas");
+            var frame = (Border)view.FindName("MapFrame");
+            var anchor = new Point(scroll.ViewportWidth * 0.75, scroll.ViewportHeight * 0.75);
+            var world = scroll.TranslatePoint(anchor, canvas);
+            var wheelPosition = scroll.PointToScreen(anchor);
+            SetCursorPos((int)wheelPosition.X, (int)wheelPosition.Y);
+            PumpNetworkInput();
+            keybd_event(0x10, 0, 0, UIntPtr.Zero);
+            PumpNetworkInput();
+            mouse_event(0x0800, 0, 0, 120, UIntPtr.Zero);
+            PumpNetworkInput();
+            Check(Math.Abs(view.Zoom - 1.1) < 0.001 && zoomLevel.Text == view.Zoom.ToString("P0"),
+                "Shift + wheel up must zoom in and update the displayed percentage");
+            var afterZoom = scroll.TranslatePoint(anchor, canvas);
+            Check((afterZoom - world).Length < 3, "Wheel zoom must preserve the world point under the pointer");
+            mouse_event(0x0800, 0, 0, unchecked((uint)-120), UIntPtr.Zero);
+            PumpNetworkInput();
+            Check(view.Zoom == 1, "Shift + wheel down must zoom out");
+            keybd_event(0x10, 0, 2, UIntPtr.Zero);
+            PumpNetworkInput();
+            mouse_event(0x0800, 0, 0, unchecked((uint)-120), UIntPtr.Zero);
+            PumpNetworkInput();
+            Check(view.Zoom == 1, "Wheel scrolling without Shift must not zoom");
+
             foreach (double scale in new[] { 1d, 0.6 })
             {
-                zoom.Value = scale;
+                view.Zoom = scale;
+                scroll.ScrollToHorizontalOffset(frame.Padding.Left);
+                scroll.ScrollToVerticalOffset(frame.Padding.Top);
                 FlushLayout(window);
                 var start = border.PointToScreen(new Point(25, 25));
                 double x = client.X, y = client.Y;
@@ -84,7 +115,45 @@ internal static partial class Program
                 Check(!border.IsMouseCaptured && Math.Abs(client.X - x - 60 / scale) < 3 && Math.Abs(client.Y - y - 36 / scale) < 3,
                     "Mouse dragging must follow the pointer at the current zoom");
                 Check(Math.Abs(store.Load()[client.Key].X - client.X) < 0.1, "Mouse release must save the dragged position");
+
+                var positions = model.Nodes.Select(n => (n.X, n.Y)).ToList();
+                var panStart = scroll.PointToScreen(new Point(scroll.ViewportWidth - 100, scroll.ViewportHeight - 80));
+                double horizontal = scroll.HorizontalOffset, vertical = scroll.VerticalOffset;
+                SetCursorPos((int)panStart.X, (int)panStart.Y);
+                PumpNetworkInput();
+                mouse_event(0x0002, 0, 0, 0, UIntPtr.Zero);
+                PumpNetworkInput();
+                Check(frame.IsMouseCaptured && !border.IsMouseCaptured, "Dragging the background must capture the map");
+                SetCursorPos((int)panStart.X - 80, (int)panStart.Y - 50);
+                PumpNetworkInput();
+                mouse_event(0x0004, 0, 0, 0, UIntPtr.Zero);
+                PumpNetworkInput();
+                Check(!frame.IsMouseCaptured && Math.Abs(scroll.HorizontalOffset - horizontal - 80) < 3 &&
+                    Math.Abs(scroll.VerticalOffset - vertical - 50) < 3 && positions.SequenceEqual(model.Nodes.Select(n => (n.X, n.Y))),
+                    "Background dragging must pan in screen pixels at any zoom without moving nodes");
             }
+
+            view.Zoom = 0.1;
+            FlushLayout(window);
+            Check(scroll.ScrollableWidth > 0 && scroll.ScrollableHeight > 0,
+                "A map smaller than the viewport must still allow panning");
+            scroll.ScrollToHorizontalOffset(double.MaxValue);
+            scroll.ScrollToVerticalOffset(double.MaxValue);
+            FlushLayout(window);
+            Check(scroll.HorizontalOffset == scroll.ScrollableWidth && scroll.VerticalOffset == scroll.ScrollableHeight &&
+                scroll.HorizontalOffset < canvas.ActualWidth * view.Zoom + scroll.ViewportWidth + 1,
+                "Panning must stop at the padded map boundaries");
+            scroll.ScrollToHorizontalOffset(-100000);
+            scroll.ScrollToVerticalOffset(-100000);
+            FlushLayout(window);
+            Check(scroll.HorizontalOffset == 0 && scroll.VerticalOffset == 0, "Panning must stop at the opposite boundaries");
+            view.Zoom = 100;
+            Check(view.Zoom == 2, "Zoom must have a reasonable upper bound");
+            view.Zoom = -100;
+            Check(view.Zoom == 0.1, "Zoom must have a reasonable lower bound");
+            ((Button)view.FindName("ActualSizeButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            FlushLayout(window);
+            Check(view.Zoom == 1 && zoomLevel.Text == view.Zoom.ToString("P0"), "100% must restore the original zoom");
 
             foreach (var (text, ui) in new[] { (10, 28), (28, 10), (14, 14) })
             {
@@ -105,7 +174,7 @@ internal static partial class Program
                 "Moving the server must update connection endpoints");
             ((Button)view.FindName("FitButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             FlushLayout(window);
-            Check(zoom.Value < 1, "Fit must reduce the zoom when the map exceeds the viewport");
+            Check(view.Zoom < 1, "Fit must reduce the zoom when the map exceeds the viewport");
             model.SetAvailable(false);
             FlushLayout(window);
             Check(Node(client).IsVisible && VisualChildren<TextBlock>(border).Any(t => t.Text == "Статус неизвестен") &&
@@ -119,7 +188,7 @@ internal static partial class Program
                 "Reset must restore and save the default arrangement");
             if (Environment.GetEnvironmentVariable("BIGBROTHER_NETWORK_SCREENSHOT") is { Length: > 0 } path)
             {
-                zoom.Value = 0.9;
+                view.Zoom = 0.9;
                 FlushLayout(window);
                 var bitmap = new RenderTargetBitmap((int)view.ActualWidth, (int)view.ActualHeight, 96, 96, PixelFormats.Pbgra32);
                 bitmap.Render(view);
@@ -128,11 +197,12 @@ internal static partial class Program
                 using var file = File.Create(path);
                 encoder.Save(file);
             }
-            Console.WriteLine("PASS: network map rendering, pointer dragging at two zoom levels, keyboard movement, live lines, font scaling and controls");
+            Console.WriteLine("PASS: network map rendering, Shift-wheel zoom, bounded background panning, node dragging, keyboard movement, live lines and font scaling");
         }
         finally
         {
             mouse_event(0x0004, 0, 0, 0, UIntPtr.Zero);
+            keybd_event(0x10, 0, 2, UIntPtr.Zero);
             window.Close();
             AppearanceSettings.Current.TextFontSize = textSize;
             AppearanceSettings.Current.InterfaceFontSize = interfaceSize;

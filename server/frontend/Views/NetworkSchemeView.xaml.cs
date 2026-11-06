@@ -11,8 +11,17 @@ public partial class NetworkSchemeView : UserControl
     private Border? _dragged;
     private Point _offset;
     private Point _start;
+    private Point? _panStart;
+    private Point _panOffset;
+    private Point? _zoomAnchor;
     private int _zIndex;
     private NetworkSchemeViewModel? Model => DataContext as NetworkSchemeViewModel;
+
+    public static readonly DependencyProperty ZoomProperty = DependencyProperty.Register(nameof(Zoom), typeof(double),
+        typeof(NetworkSchemeView), new PropertyMetadata(1d, (sender, _) => ((NetworkSchemeView)sender).ApplyZoom(),
+            (_, value) => double.IsFinite((double)value) ? Math.Clamp((double)value, 0.1, 2) : 1d));
+
+    public double Zoom { get => (double)GetValue(ZoomProperty); set => SetValue(ZoomProperty, value); }
 
     public NetworkSchemeView()
     {
@@ -25,6 +34,7 @@ public partial class NetworkSchemeView : UserControl
         Unloaded += (_, _) =>
         {
             EndDrag();
+            EndPan();
             AppearanceSettings.Current.PropertyChanged -= AppearanceChanged;
         };
         DataContextChanged += (_, _) => ApplyNodeSize();
@@ -37,6 +47,81 @@ public partial class NetworkSchemeView : UserControl
 
     private void ApplyNodeSize() => Model?.SetNodeScale(Math.Max(AppearanceSettings.Current.TextFontSize,
         AppearanceSettings.Current.InterfaceFontSize) / 14.0);
+
+    private void MapScroll_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        var previous = MapFrame.Padding;
+        MapFrame.Padding = new Thickness(e.NewSize.Width / 2, e.NewSize.Height / 2,
+            e.NewSize.Width / 2, e.NewSize.Height / 2);
+        MapScroll.ScrollToHorizontalOffset(MapScroll.HorizontalOffset + MapFrame.Padding.Left - previous.Left);
+        MapScroll.ScrollToVerticalOffset(MapScroll.VerticalOffset + MapFrame.Padding.Top - previous.Top);
+    }
+
+    private void ApplyZoom()
+    {
+        var anchor = _zoomAnchor ?? new Point(MapScroll.ViewportWidth / 2, MapScroll.ViewportHeight / 2);
+        var world = MapScroll.TranslatePoint(anchor, MapCanvas);
+        MapZoom.ScaleX = MapZoom.ScaleY = Zoom;
+        MapScroll.UpdateLayout();
+        MapScroll.ScrollToHorizontalOffset(MapFrame.Padding.Left + world.X * Zoom - anchor.X);
+        MapScroll.ScrollToVerticalOffset(MapFrame.Padding.Top + world.Y * Zoom - anchor.Y);
+    }
+
+    private void MapScroll_MouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        if (!Keyboard.Modifiers.HasFlag(ModifierKeys.Shift)) return;
+        _zoomAnchor = e.GetPosition(MapScroll);
+        try { Zoom = Math.Round(Zoom + e.Delta / 120d * 0.1, 3); }
+        finally { _zoomAnchor = null; }
+        e.Handled = true;
+    }
+
+    private void Map_MouseDown(object sender, MouseButtonEventArgs e)
+    {
+        if (_dragged != null) return;
+        MapFrame.Focus();
+        _panStart = e.GetPosition(MapScroll);
+        _panOffset = new Point(MapScroll.HorizontalOffset, MapScroll.VerticalOffset);
+        MapFrame.CaptureMouse();
+        MapFrame.Cursor = Cursors.ScrollAll;
+        e.Handled = true;
+    }
+
+    private void Map_MouseMove(object sender, MouseEventArgs e)
+    {
+        if (_panStart is not Point start) return;
+        if (e.LeftButton != MouseButtonState.Pressed) { EndPan(); return; }
+        var point = e.GetPosition(MapScroll);
+        MapScroll.ScrollToHorizontalOffset(_panOffset.X + start.X - point.X);
+        MapScroll.ScrollToVerticalOffset(_panOffset.Y + start.Y - point.Y);
+        e.Handled = true;
+    }
+
+    private void Map_MouseUp(object sender, MouseButtonEventArgs e)
+    {
+        if (_panStart == null) return;
+        EndPan();
+        e.Handled = true;
+    }
+
+    private void Map_LostCapture(object sender, MouseEventArgs e) => EndPan();
+
+    private void Map_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Escape || _panStart == null) return;
+        MapScroll.ScrollToHorizontalOffset(_panOffset.X);
+        MapScroll.ScrollToVerticalOffset(_panOffset.Y);
+        EndPan();
+        e.Handled = true;
+    }
+
+    private void EndPan()
+    {
+        if (_panStart == null) return;
+        _panStart = null;
+        MapFrame.ReleaseMouseCapture();
+        MapFrame.Cursor = Cursors.Hand;
+    }
 
     private void Node_MouseDown(object sender, MouseButtonEventArgs e)
     {
@@ -103,11 +188,12 @@ public partial class NetworkSchemeView : UserControl
     private void Fit_Click(object sender, RoutedEventArgs e)
     {
         if (Model == null) return;
-        ZoomSlider.Value = Math.Clamp(Math.Min(MapScroll.ViewportWidth / Model.CanvasWidth,
-            MapScroll.ViewportHeight / Model.CanvasHeight), ZoomSlider.Minimum, 1);
-        MapScroll.ScrollToHome();
+        Zoom = Math.Clamp(Math.Min(MapScroll.ViewportWidth / Model.CanvasWidth,
+            MapScroll.ViewportHeight / Model.CanvasHeight), 0.1, 1);
+        MapScroll.ScrollToHorizontalOffset(MapFrame.Padding.Left - Math.Max(0, (MapScroll.ViewportWidth - Model.CanvasWidth * Zoom) / 2));
+        MapScroll.ScrollToVerticalOffset(MapFrame.Padding.Top - Math.Max(0, (MapScroll.ViewportHeight - Model.CanvasHeight * Zoom) / 2));
     }
 
-    private void ActualSize_Click(object sender, RoutedEventArgs e) => ZoomSlider.Value = 1;
+    private void ActualSize_Click(object sender, RoutedEventArgs e) => Zoom = 1;
     private void Reset_Click(object sender, RoutedEventArgs e) => Model?.ResetLayout();
 }
