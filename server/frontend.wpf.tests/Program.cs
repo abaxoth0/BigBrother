@@ -83,6 +83,7 @@ internal static partial class Program
             finally { networkShare.Close(); }
             TestSettingsNavigation(server: true);
             TestWhitelistToolbar();
+            TestNetworkScheme();
             Console.WriteLine("PASS: server whitelist editor startup, live text/interface scaling, line numbers and table styles");
         }
         finally

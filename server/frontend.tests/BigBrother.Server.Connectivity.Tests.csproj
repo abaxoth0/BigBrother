@@ -10,6 +10,9 @@
     <Compile Include="../frontend/Models/WhitelistPreset.cs" Link="WhitelistPreset.cs" />
     <Compile Include="../frontend/ViewModels/UserTableView.cs" Link="UserTableView.cs" />
     <Compile Include="../frontend/ViewModels/UserOverview.cs" Link="UserOverview.cs" />
+    <Compile Include="../frontend/ViewModels/NetworkSchemeViewModel.cs" Link="NetworkSchemeViewModel.cs" />
+    <Compile Include="../frontend/Services/NetworkLayoutStore.cs" Link="NetworkLayoutStore.cs" />
+    <Compile Include="../../lib/cs/BigBrother.Frontend.Shared/ViewModels/ViewModelBase.cs" Link="ViewModelBase.cs" />
     <Compile Include="../frontend/ViewModels/CheckboxSelection.cs" Link="CheckboxSelection.cs" />
     <Compile Include="../../lib/cs/BigBrother.Frontend.Shared/Models/SharedModels.cs" Link="SharedModels.cs" />
     <Compile Include="../../lib/cs/BigBrother.Frontend.Shared/Lib/LogParser.cs" Link="LogParser.cs" />

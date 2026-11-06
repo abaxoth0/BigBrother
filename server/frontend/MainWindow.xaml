@@ -519,6 +519,19 @@
                     </DataGrid>
                 </Grid>
 
+                <views:NetworkSchemeView DataContext="{Binding NetworkScheme}">
+                    <views:NetworkSchemeView.Style>
+                        <Style TargetType="views:NetworkSchemeView">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding DataContext.SelectedSection, RelativeSource={RelativeSource AncestorType=Window}}" Value="Network">
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </views:NetworkSchemeView.Style>
+                </views:NetworkSchemeView>
+
                 <!-- SECTION: Lists -->
                 <Grid>
                     <Grid.Style>
@@ -636,6 +649,9 @@
                         <RadioButton Content="Пользователи" GroupName="Nav" IsEnabled="{Binding IsConnected}"
                                      Style="{StaticResource NavItem}"
                                      IsChecked="{Binding SelectedSection, Converter={StaticResource EnumToBool}, ConverterParameter=Users}"/>
+                        <RadioButton Content="Схема сети" GroupName="Nav"
+                                     Style="{StaticResource NavItem}"
+                                     IsChecked="{Binding SelectedSection, Converter={StaticResource EnumToBool}, ConverterParameter=Network}"/>
                         <RadioButton Content="Списки" GroupName="Nav" IsEnabled="{Binding IsConnected}"
                                      Style="{StaticResource NavItem}"
                                      IsChecked="{Binding SelectedSection, Converter={StaticResource EnumToBool}, ConverterParameter=Lists}"/>

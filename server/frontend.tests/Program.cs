@@ -53,6 +53,12 @@ using (var pipe = new NamedPipeServerStream(name, PipeDirection.InOut, 1,
 }
 await Reply(name, validReply, true);
 Check(!(await ipc.GetServerStatusAsync()).IsRunning, "Disconnected pipe appeared connected");
+try
+{
+    await ipc.GetClientsAsync();
+    throw new Exception("Disconnected client query returned a successful empty snapshot");
+}
+catch (IOException) { }
 var fingerprint = new string('A', 64);
 foreach (var (reply, expected) in new[]
 {
@@ -253,4 +259,5 @@ try
 catch (IOException) { }
 UserTableViewTests.Run();
 UserOverviewTests.Run();
+NetworkSchemeTests.Run();
 Console.WriteLine("Connectivity, certificate fingerprint, client policy, user overview/selection and whitelist pipe tests passed.");
