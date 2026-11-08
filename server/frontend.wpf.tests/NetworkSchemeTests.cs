@@ -26,7 +26,7 @@ internal static partial class Program
         string directory = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "bb-map-wpf-" + Guid.NewGuid().ToString("N"));
         var store = new NetworkLayoutStore(System.IO.Path.Combine(directory, "layout.json"));
         var model = new NetworkSchemeViewModel(store);
-        model.SetServer("Сервер офиса", "192.168.1.10, 2001:db8::10");
+        model.SetServer("Сервер офиса", "192.168.1.10");
         model.SetAvailable(true);
         using var online = new UserOverview(new ConnectedClient { Name = "Бухгалтерия", Address = "192.168.1.21" });
         using var offline = new UserOverview(new ConnectedClient { Name = "Переговорная", Address = "192.168.1.22" });
@@ -57,6 +57,10 @@ internal static partial class Program
                 .Single(t => t.Text == "Не подключён");
             Check(Equals(offlineStatus.Foreground, Application.Current.FindResource("StatusDisconnected")),
                 "Disconnected clients must have red status labels");
+            Check(border.ActualWidth == 220 && border.ActualHeight == 104, "Nodes must use compact dimensions");
+            Check(Equals(border.BorderBrush, Application.Current.FindResource("StatusRunning")) &&
+                Equals(Node(model.Clients.Single(n => n.Name == "Переговорная")).BorderBrush, Application.Current.FindResource("StatusDisconnected")),
+                "Client borders must show connected/disconnected state");
             border.Focus();
             double previousX = client.X;
             border.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(border), 0, Key.Right)
@@ -76,22 +80,28 @@ internal static partial class Program
             var wheelPosition = scroll.PointToScreen(anchor);
             SetCursorPos((int)wheelPosition.X, (int)wheelPosition.Y);
             PumpNetworkInput();
-            keybd_event(0x10, 0, 0, UIntPtr.Zero);
+            keybd_event(0x11, 0, 0, UIntPtr.Zero);
             PumpNetworkInput();
             mouse_event(0x0800, 0, 0, 120, UIntPtr.Zero);
             PumpNetworkInput();
             Check(Math.Abs(view.Zoom - 1.1) < 0.001 && zoomLevel.Text == view.Zoom.ToString("P0"),
-                "Shift + wheel up must zoom in and update the displayed percentage");
+                "Ctrl + wheel up must zoom in and update the displayed percentage");
             var afterZoom = scroll.TranslatePoint(anchor, canvas);
             Check((afterZoom - world).Length < 3, "Wheel zoom must preserve the world point under the pointer");
             mouse_event(0x0800, 0, 0, unchecked((uint)-120), UIntPtr.Zero);
             PumpNetworkInput();
-            Check(view.Zoom == 1, "Shift + wheel down must zoom out");
-            keybd_event(0x10, 0, 2, UIntPtr.Zero);
+            Check(view.Zoom == 1, "Ctrl + wheel down must zoom out");
+            keybd_event(0x11, 0, 2, UIntPtr.Zero);
             PumpNetworkInput();
             mouse_event(0x0800, 0, 0, unchecked((uint)-120), UIntPtr.Zero);
             PumpNetworkInput();
-            Check(view.Zoom == 1, "Wheel scrolling without Shift must not zoom");
+            Check(view.Zoom == 1, "Wheel scrolling without Ctrl must not zoom");
+            keybd_event(0x10, 0, 0, UIntPtr.Zero);
+            PumpNetworkInput();
+            mouse_event(0x0800, 0, 0, 120, UIntPtr.Zero);
+            PumpNetworkInput();
+            keybd_event(0x10, 0, 2, UIntPtr.Zero);
+            Check(view.Zoom == 1, "Shift + wheel must no longer change zoom");
 
             foreach (double scale in new[] { 1d, 0.6 })
             {
@@ -131,6 +141,27 @@ internal static partial class Program
                     "Background dragging must pan in screen pixels at any zoom without moving nodes");
             }
 
+            view.Zoom = 1;
+            model.Move(client, 20, 20);
+            scroll.ScrollToHorizontalOffset(frame.Padding.Left - 160);
+            scroll.ScrollToVerticalOffset(frame.Padding.Top - 160);
+            FlushLayout(window);
+            var signedStart = border.PointToScreen(new Point(25, 25));
+            SetCursorPos((int)signedStart.X, (int)signedStart.Y);
+            PumpNetworkInput();
+            mouse_event(0x0002, 0, 0, 0, UIntPtr.Zero);
+            PumpNetworkInput();
+            SetCursorPos((int)signedStart.X - 120, (int)signedStart.Y - 100);
+            PumpNetworkInput();
+            mouse_event(0x0004, 0, 0, 0, UIntPtr.Zero);
+            PumpNetworkInput();
+            var signedEnd = border.PointToScreen(new Point(25, 25));
+            Check(Math.Abs(client.X + 100) < 3 && Math.Abs(client.Y + 80) < 3 &&
+                Math.Abs(signedEnd.X - signedStart.X + 120) < 3 && Math.Abs(signedEnd.Y - signedStart.Y + 100) < 3,
+                "Dragging above and left of zero must follow the pointer without a wall or viewport jump");
+            Check(store.Load()[client.Key].X < 0 && store.Load()[client.Key].Y < 0,
+                "Negative dragged coordinates must be saved");
+
             view.Zoom = 0.1;
             FlushLayout(window);
             Check(scroll.ScrollableWidth > 0 && scroll.ScrollableHeight > 0,
@@ -153,7 +184,7 @@ internal static partial class Program
             FlushLayout(window);
             Check(view.Zoom == 1 && zoomLevel.Text == view.Zoom.ToString("P0"), "100% must restore the original zoom");
 
-            foreach (var (text, ui) in new[] { (10, 28), (28, 10), (14, 14) })
+            foreach (var (text, ui) in new[] { (10, 10), (10, 28), (28, 10), (28, 28), (14, 14) })
             {
                 AppearanceSettings.Current.TextFontSize = text;
                 AppearanceSettings.Current.InterfaceFontSize = ui;
@@ -169,7 +200,7 @@ internal static partial class Program
             model.Move(model.Server, 80, 320);
             FlushLayout(window);
             var serverPosition = Node(model.Server).TranslatePoint(new Point(), canvas);
-            Check(Math.Abs(serverPosition.X - model.Server.X) < 0.1 && Math.Abs(serverPosition.Y - model.Server.Y) < 0.1,
+            Check(Math.Abs(serverPosition.X - model.Server.X + model.CanvasLeft) < 0.1 && Math.Abs(serverPosition.Y - model.Server.Y + model.CanvasTop) < 0.1,
                 "Moving the server must update its displayed position");
             ((Button)view.FindName("FitButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             FlushLayout(window);
@@ -181,9 +212,19 @@ internal static partial class Program
                 "Backend loss must retain the map and show unknown status");
             model.SetAvailable(true);
             model.Refresh([online, offline, pending], true);
+            online.SetOnline(false);
+            model.Refresh([online, offline, pending], true);
+            FlushLayout(window);
+            Check(Equals(border.BorderBrush, Application.Current.FindResource("StatusDisconnected")),
+                "Disconnect must turn an existing node border red, including while focused");
+            online.SetOnline(true);
+            model.Refresh([online, offline, pending], true);
+            FlushLayout(window);
+            Check(Equals(border.BorderBrush, Application.Current.FindResource("StatusRunning")),
+                "Reconnect must turn the existing node border green");
             ((Button)view.FindName("ResetButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             FlushLayout(window);
-            Check(model.Server.X == 380 && model.Server.Y == 60 && store.Load()["server"].X == 380,
+            Check(model.Server.X == 350 && model.Server.Y == 60 && store.Load()["server"].X == 350,
                 "Reset must restore and save the default arrangement");
             if (Environment.GetEnvironmentVariable("BIGBROTHER_NETWORK_SCREENSHOT") is { Length: > 0 } path)
             {
@@ -196,12 +237,12 @@ internal static partial class Program
                 using var file = File.Create(path);
                 encoder.Save(file);
             }
-            Console.WriteLine("PASS: network map rendering, Shift-wheel zoom, bounded background panning, node dragging, keyboard movement, live status labels and font scaling");
+            Console.WriteLine("PASS: network map rendering, Ctrl-wheel zoom, bounded background panning, node dragging, keyboard movement, live status labels and font scaling");
         }
         finally
         {
             mouse_event(0x0004, 0, 0, 0, UIntPtr.Zero);
-            keybd_event(0x10, 0, 2, UIntPtr.Zero);
+            keybd_event(0x11, 0, 2, UIntPtr.Zero);
             window.Close();
             AppearanceSettings.Current.TextFontSize = textSize;
             AppearanceSettings.Current.InterfaceFontSize = interfaceSize;
@@ -216,5 +257,43 @@ internal static partial class Program
         timer.Tick += (_, _) => { timer.Stop(); frame.Continue = false; };
         timer.Start();
         Dispatcher.PushFrame(frame);
+    }
+
+    private static void TestOfflineNavigation()
+    {
+        string layoutPath = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "BigBrother", "Server", "network-layout.json");
+        byte[]? previousLayout = File.Exists(layoutPath) ? File.ReadAllBytes(layoutPath) : null;
+        MainWindow? window = null;
+        try
+        {
+            window = new MainWindow { WindowState = WindowState.Normal, Width = 1180, Height = 800 };
+            var model = (MainViewModel)window.DataContext;
+            model.Dispose();
+            window.Show();
+            FlushLayout(window);
+            var tabs = VisualChildren<RadioButton>(window).Where(tab => tab.GroupName == "Nav").ToList();
+            Check(tabs.Count == 5 && tabs.All(tab => !tab.IsEnabled),
+                "Every menu tab, including Main and Network, must be disabled while offline");
+            model.SelectedSection = NavigationSection.Network;
+            Check(model.SelectedSection == NavigationSection.Main, "Offline navigation must reject opening the network scheme");
+            model.IsConnected = true;
+            model.SelectedSection = NavigationSection.Network;
+            FlushLayout(window);
+            Check(tabs.All(tab => tab.IsEnabled) && VisualChildren<NetworkSchemeView>(window).Single().IsVisible,
+                "Reconnection must enable all tabs and allow opening the network scheme");
+            model.IsConnected = false;
+            FlushLayout(window);
+            Check(model.SelectedSection == NavigationSection.Main && tabs.All(tab => !tab.IsEnabled) &&
+                !VisualChildren<NetworkSchemeView>(window).Single().IsVisible,
+                "Backend loss must leave the network scheme and disable every menu tab");
+            Console.WriteLine("PASS: offline menu gating, network navigation rejection, reconnect and disconnect");
+        }
+        finally
+        {
+            window?.Close();
+            if (previousLayout != null) File.WriteAllBytes(layoutPath, previousLayout);
+            else if (File.Exists(layoutPath)) File.Delete(layoutPath);
+        }
     }
 }

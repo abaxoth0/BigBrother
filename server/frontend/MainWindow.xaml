@@ -643,13 +643,13 @@
                         <TextBlock Text="Меню" FontWeight="Bold" Foreground="{StaticResource TextDim}"
                                    FontSize="{DynamicResource FontSize11}" Margin="6,0,0,8"/>
 
-                        <RadioButton Content="Главная" GroupName="Nav"
+                        <RadioButton Content="Главная" GroupName="Nav" IsEnabled="{Binding IsConnected}"
                                      Style="{StaticResource NavItem}"
                                      IsChecked="{Binding SelectedSection, Converter={StaticResource EnumToBool}, ConverterParameter=Main}"/>
                         <RadioButton Content="Пользователи" GroupName="Nav" IsEnabled="{Binding IsConnected}"
                                      Style="{StaticResource NavItem}"
                                      IsChecked="{Binding SelectedSection, Converter={StaticResource EnumToBool}, ConverterParameter=Users}"/>
-                        <RadioButton Content="Схема сети" GroupName="Nav"
+                        <RadioButton Content="Схема сети" GroupName="Nav" IsEnabled="{Binding IsConnected}"
                                      Style="{StaticResource NavItem}"
                                      IsChecked="{Binding SelectedSection, Converter={StaticResource EnumToBool}, ConverterParameter=Network}"/>
                         <RadioButton Content="Списки" GroupName="Nav" IsEnabled="{Binding IsConnected}"

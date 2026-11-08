@@ -84,6 +84,7 @@ internal static partial class Program
             TestSettingsNavigation(server: true);
             TestWhitelistToolbar();
             TestNetworkScheme();
+            TestOfflineNavigation();
             Console.WriteLine("PASS: server whitelist editor startup, live text/interface scaling, line numbers and table styles");
         }
         finally

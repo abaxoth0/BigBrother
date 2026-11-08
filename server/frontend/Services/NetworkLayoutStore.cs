@@ -5,7 +5,7 @@ namespace frontend.Services;
 
 public sealed record NetworkPosition(double X, double Y)
 {
-    public bool IsValid => double.IsFinite(X) && double.IsFinite(Y) && X is >= 0 and <= 100000 && Y is >= 0 and <= 100000;
+    public bool IsValid => double.IsFinite(X) && double.IsFinite(Y) && X is >= -100000 and <= 100000 && Y is >= -100000 and <= 100000;
 }
 
 public sealed class NetworkLayoutStore(string path)

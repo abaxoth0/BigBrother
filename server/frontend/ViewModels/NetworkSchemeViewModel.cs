@@ -12,8 +12,8 @@ public sealed class NetworkNode(string key, bool isServer, bool isPending) : Vie
     private bool _statusKnown;
     private double _x;
     private double _y;
-    private double _width = 250;
-    private double _height = 150;
+    private double _width = 220;
+    private double _height = 104;
 
     public string Key { get; } = key;
     public bool IsServer { get; } = isServer;
@@ -45,8 +45,8 @@ public sealed class NetworkNode(string key, bool isServer, bool isPending) : Vie
 
     internal void SetSize(double scale)
     {
-        SetProperty(ref _width, 250 * scale, nameof(Width));
-        SetProperty(ref _height, 150 * scale, nameof(Height));
+        SetProperty(ref _width, 220 * scale, nameof(Width));
+        SetProperty(ref _height, 104 * scale, nameof(Height));
     }
 }
 
@@ -65,8 +65,12 @@ public sealed class NetworkSchemeViewModel : ViewModelBase
     public string Summary => !_available ? "Нет связи с сервером. Статусы клиентов неизвестны."
         : !_clientsCurrent ? "Статусы клиентов недоступны."
         : $"Подключено: {Clients.Count(n => n.IsOnline)} · Не подключено: {Clients.Count(n => !n.IsOnline && !n.IsPending)} · Ожидают: {Clients.Count(n => n.IsPending)}";
-    public double CanvasWidth => Math.Max(1100, Nodes.Max(n => n.X + n.Width) + 80);
-    public double CanvasHeight => Math.Max(700, Nodes.Max(n => n.Y + n.Height) + 80);
+    public double CanvasLeft => Math.Min(0, Nodes.Min(n => n.X));
+    public double CanvasTop => Math.Min(0, Nodes.Min(n => n.Y));
+    public double CanvasOffsetX => -CanvasLeft;
+    public double CanvasOffsetY => -CanvasTop;
+    public double CanvasWidth => Math.Max(1100, Nodes.Max(n => n.X + n.Width) + 80 - CanvasLeft);
+    public double CanvasHeight => Math.Max(700, Nodes.Max(n => n.Y + n.Height) + 80 - CanvasTop);
 
     public NetworkSchemeViewModel() : this(new NetworkLayoutStore(Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BigBrother", "Server", "network-layout.json"))) { }
@@ -156,7 +160,7 @@ public sealed class NetworkSchemeViewModel : ViewModelBase
     public void Move(NetworkNode node, double x, double y)
     {
         if (!Nodes.Contains(node) || !double.IsFinite(x) || !double.IsFinite(y)) return;
-        node.SetPosition(Math.Clamp(x, 0, 100000), Math.Clamp(y, 0, 100000));
+        node.SetPosition(Math.Clamp(x, -100000, 100000), Math.Clamp(y, -100000, 100000));
         _positions[node.Key] = new(node.X, node.Y);
         NotifyLayout();
     }
@@ -186,6 +190,10 @@ public sealed class NetworkSchemeViewModel : ViewModelBase
 
     private void NotifyLayout()
     {
+        OnPropertyChanged(nameof(CanvasLeft));
+        OnPropertyChanged(nameof(CanvasTop));
+        OnPropertyChanged(nameof(CanvasOffsetX));
+        OnPropertyChanged(nameof(CanvasOffsetY));
         OnPropertyChanged(nameof(CanvasWidth));
         OnPropertyChanged(nameof(CanvasHeight));
     }

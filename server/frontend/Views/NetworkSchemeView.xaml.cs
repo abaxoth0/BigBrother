@@ -14,6 +14,8 @@ public partial class NetworkSchemeView : UserControl
     private Point? _panStart;
     private Point _panOffset;
     private Point? _zoomAnchor;
+    private double _canvasLeft;
+    private double _canvasTop;
     private int _zIndex;
     private NetworkSchemeViewModel? Model => DataContext as NetworkSchemeViewModel;
 
@@ -29,6 +31,11 @@ public partial class NetworkSchemeView : UserControl
         Loaded += (_, _) =>
         {
             AppearanceSettings.Current.PropertyChanged += AppearanceChanged;
+            if (Model != null)
+            {
+                Model.PropertyChanged -= ModelChanged;
+                Model.PropertyChanged += ModelChanged;
+            }
             ApplyNodeSize();
         };
         Unloaded += (_, _) =>
@@ -36,8 +43,33 @@ public partial class NetworkSchemeView : UserControl
             EndDrag();
             EndPan();
             AppearanceSettings.Current.PropertyChanged -= AppearanceChanged;
+            if (Model != null) Model.PropertyChanged -= ModelChanged;
         };
-        DataContextChanged += (_, _) => ApplyNodeSize();
+        DataContextChanged += (_, e) =>
+        {
+            if (e.OldValue is NetworkSchemeViewModel previous) previous.PropertyChanged -= ModelChanged;
+            if (Model != null)
+            {
+                _canvasLeft = Model.CanvasLeft;
+                _canvasTop = Model.CanvasTop;
+                Model.PropertyChanged += ModelChanged;
+            }
+            ApplyNodeSize();
+        };
+    }
+
+    private void ModelChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(NetworkSchemeViewModel.CanvasHeight) || Model == null) return;
+        double dx = _canvasLeft - Model.CanvasLeft, dy = _canvasTop - Model.CanvasTop;
+        _canvasLeft = Model.CanvasLeft;
+        _canvasTop = Model.CanvasTop;
+        UpdateGrid();
+        if (dx == 0 && dy == 0) return;
+        double horizontal = MapScroll.HorizontalOffset + dx * Zoom, vertical = MapScroll.VerticalOffset + dy * Zoom;
+        MapScroll.UpdateLayout();
+        MapScroll.ScrollToHorizontalOffset(horizontal);
+        MapScroll.ScrollToVerticalOffset(vertical);
     }
 
     private void AppearanceChanged(object? sender, PropertyChangedEventArgs e)
@@ -71,14 +103,15 @@ public partial class NetworkSchemeView : UserControl
 
     private void MapScroll_MouseWheel(object sender, MouseWheelEventArgs e)
     {
-        if (!Keyboard.Modifiers.HasFlag(ModifierKeys.Shift)) return;
+        if (!Keyboard.Modifiers.HasFlag(ModifierKeys.Control)) return;
         _zoomAnchor = e.GetPosition(MapScroll);
         try { Zoom = Math.Round(Zoom + e.Delta / 120d * 0.1, 3); }
         finally { _zoomAnchor = null; }
         e.Handled = true;
     }
 
-    private void UpdateGrid() => MapGridBrush.Viewport = new Rect(MapFrame.Padding.Left, MapFrame.Padding.Top, 15 * Zoom, 15 * Zoom);
+    private void UpdateGrid() => MapGridBrush.Viewport = new Rect(MapFrame.Padding.Left - _canvasLeft * Zoom,
+        MapFrame.Padding.Top - _canvasTop * Zoom, 15 * Zoom, 15 * Zoom);
 
     private void Map_MouseDown(object sender, MouseButtonEventArgs e)
     {
@@ -132,7 +165,7 @@ public partial class NetworkSchemeView : UserControl
         if (sender is not Border { DataContext: NetworkNode node } border || Model == null) return;
         border.Focus();
         var point = e.GetPosition(MapCanvas);
-        _offset = new Point(point.X - node.X, point.Y - node.Y);
+        _offset = new Point(point.X + Model.CanvasLeft - node.X, point.Y + Model.CanvasTop - node.Y);
         _start = new Point(node.X, node.Y);
         _dragged = border;
         if (NodeItems.ItemContainerGenerator.ContainerFromItem(node) is UIElement container)
@@ -146,7 +179,7 @@ public partial class NetworkSchemeView : UserControl
         if (_dragged?.DataContext is not NetworkNode node || Model == null) return;
         if (e.LeftButton != MouseButtonState.Pressed) { EndDrag(); return; }
         var point = e.GetPosition(MapCanvas);
-        Model.Move(node, point.X - _offset.X, point.Y - _offset.Y);
+        Model.Move(node, point.X + Model.CanvasLeft - _offset.X, point.Y + Model.CanvasTop - _offset.Y);
         var viewportPoint = e.GetPosition(MapScroll);
         if (viewportPoint.X < 24) MapScroll.ScrollToHorizontalOffset(MapScroll.HorizontalOffset - 20);
         else if (viewportPoint.X > MapScroll.ViewportWidth - 24) MapScroll.ScrollToHorizontalOffset(MapScroll.HorizontalOffset + 20);
@@ -199,5 +232,9 @@ public partial class NetworkSchemeView : UserControl
     }
 
     private void ActualSize_Click(object sender, RoutedEventArgs e) => Zoom = 1;
-    private void Reset_Click(object sender, RoutedEventArgs e) => Model?.ResetLayout();
+    private void Reset_Click(object sender, RoutedEventArgs e)
+    {
+        Model?.ResetLayout();
+        Fit_Click(sender, e);
+    }
 }

@@ -36,11 +36,11 @@
             <Button x:Name="ResetButton" Content="Сбросить расположение" Click="Reset_Click" Margin="0,0,16,6"/>
             <TextBlock Text="Масштаб:" VerticalAlignment="Center" Margin="0,0,6,6"/>
             <TextBlock x:Name="ZoomLevel" Text="{Binding Zoom, RelativeSource={RelativeSource AncestorType=UserControl}, StringFormat={}{0:P0}}"
-                       VerticalAlignment="Center" Margin="0,0,6,6" ToolTip="Shift + колесо мыши — изменить масштаб"/>
+                       VerticalAlignment="Center" Margin="0,0,6,6" ToolTip="Ctrl + колесо мыши — изменить масштаб"/>
         </WrapPanel>
         <StackPanel Grid.Row="1" Margin="0,0,0,8">
             <TextBlock Text="{Binding Summary}" TextWrapping="Wrap"/>
-            <TextBlock Text="ЛКМ по фону — перемещение схемы. Shift + колесо — масштаб. Узлы можно перетаскивать мышью или перемещать стрелками; расположение сохраняется автоматически."
+            <TextBlock Text="ЛКМ по фону — перемещение схемы. Ctrl + колесо — масштаб. Узлы можно перетаскивать мышью или перемещать стрелками; расположение сохраняется автоматически."
                        Foreground="{DynamicResource TextDim}" FontSize="{DynamicResource FontSize12}" TextWrapping="Wrap" Margin="0,4,0,0"/>
         </StackPanel>
         <Border Grid.Row="2" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4">
@@ -72,6 +72,9 @@
                         <ScaleTransform x:Name="MapZoom"/>
                     </Grid.LayoutTransform>
                     <ItemsControl x:Name="NodeItems" ItemsSource="{Binding Nodes}">
+                        <ItemsControl.RenderTransform>
+                            <TranslateTransform X="{Binding CanvasOffsetX}" Y="{Binding CanvasOffsetY}"/>
+                        </ItemsControl.RenderTransform>
                         <ItemsControl.ItemsPanel><ItemsPanelTemplate><Canvas/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
                         <ItemsControl.ItemContainerStyle>
                             <Style TargetType="ContentPresenter">
@@ -81,7 +84,7 @@
                         </ItemsControl.ItemContainerStyle>
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
-                                <Border Width="{Binding Width}" Height="{Binding Height}" Padding="14,10" CornerRadius="6"
+                                <Border Width="{Binding Width}" Height="{Binding Height}" Padding="10,7" CornerRadius="6"
                                         Cursor="SizeAll" Focusable="True"
                                         MouseLeftButtonDown="Node_MouseDown" MouseMove="Node_MouseMove"
                                         MouseLeftButtonUp="Node_MouseUp" LostMouseCapture="Node_LostCapture" KeyDown="Node_KeyDown"
@@ -106,19 +109,37 @@
                                                 <Trigger Property="IsKeyboardFocused" Value="True">
                                                     <Setter Property="BorderBrush" Value="{DynamicResource AccentText}"/>
                                                 </Trigger>
+                                                <MultiDataTrigger>
+                                                    <MultiDataTrigger.Conditions>
+                                                        <Condition Binding="{Binding IsServer}" Value="False"/>
+                                                        <Condition Binding="{Binding IsPending}" Value="False"/>
+                                                        <Condition Binding="{Binding StatusKnown}" Value="True"/>
+                                                        <Condition Binding="{Binding IsOnline}" Value="True"/>
+                                                    </MultiDataTrigger.Conditions>
+                                                    <Setter Property="BorderBrush" Value="{DynamicResource StatusRunning}"/>
+                                                </MultiDataTrigger>
+                                                <MultiDataTrigger>
+                                                    <MultiDataTrigger.Conditions>
+                                                        <Condition Binding="{Binding IsServer}" Value="False"/>
+                                                        <Condition Binding="{Binding IsPending}" Value="False"/>
+                                                        <Condition Binding="{Binding StatusKnown}" Value="True"/>
+                                                        <Condition Binding="{Binding IsOnline}" Value="False"/>
+                                                    </MultiDataTrigger.Conditions>
+                                                    <Setter Property="BorderBrush" Value="{DynamicResource StatusDisconnected}"/>
+                                                </MultiDataTrigger>
                                             </Style.Triggers>
                                         </Style>
                                     </Border.Style>
-                                    <Grid>
+                                    <Grid VerticalAlignment="Center">
                                         <Grid.RowDefinitions>
                                             <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
-                                            <RowDefinition Height="*"/><RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
                                         </Grid.RowDefinitions>
                                         <TextBlock Text="{Binding Kind}" FontSize="{DynamicResource FontSize11}" Foreground="{DynamicResource TextDim}"/>
                                         <TextBlock Grid.Row="1" Text="{Binding Name}" FontWeight="SemiBold" FontSize="{DynamicResource TextFontSize14}"
                                                    TextTrimming="CharacterEllipsis" Margin="0,4,0,2"/>
                                         <TextBlock Grid.Row="2" Text="{Binding Address}" FontSize="{DynamicResource TextFontSize12}"
-                                                   TextWrapping="Wrap" TextTrimming="CharacterEllipsis" Margin="0,0,0,4"/>
+                                                   TextTrimming="CharacterEllipsis" Margin="0,0,0,4"/>
                                         <TextBlock Grid.Row="3" Text="{Binding Status}" Style="{StaticResource NodeStatus}" TextTrimming="CharacterEllipsis"/>
                                     </Grid>
                                 </Border>

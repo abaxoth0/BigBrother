@@ -1,3 +1,4 @@
+using System.Net;
 using frontend.Models;
 using frontend.Services;
 using frontend.ViewModels;
@@ -13,7 +14,7 @@ internal static class NetworkSchemeTests
         {
             var store = new NetworkLayoutStore(path);
             var map = new NetworkSchemeViewModel(store);
-            map.SetServer("Офис", "10.0.0.1, 2001:db8::1");
+            map.SetServer("Офис", "10.0.0.1");
             map.SetAvailable(true);
             var alice = new UserOverview(new ConnectedClient { Name = "Alice", Address = "10.0.0.2" });
             var offline = new UserOverview(new ConnectedClient { Name = "Offline", Address = "[2001:db8::2]:1984" });
@@ -31,7 +32,7 @@ internal static class NetworkSchemeTests
             map.Move(map.Server, 400, 500);
             map.Move(request, 2000, 1000);
             map.SaveLayout();
-            Check(File.Exists(path) && map.CanvasWidth >= 2330 && map.CanvasHeight >= 1230,
+            Check(File.Exists(path) && map.CanvasWidth >= 2300 && map.CanvasHeight >= 1184,
                 "Dragging must save the layout and extend the scrollable area");
             Check(Directory.GetFiles(directory).Length == 1, "Atomic saving left temporary files behind");
             var changes = new List<string?>();
@@ -62,11 +63,17 @@ internal static class NetworkSchemeTests
             Check(restoredAlice.X == 1350 && restoredAlice.Y == 800 && restored.Server.X == 400 && restored.Server.Y == 500,
                 "Restart or changed client order lost saved positions");
             restored.Move(restoredAlice, -100, -1);
-            Check(restoredAlice.X == 0 && restoredAlice.Y == 0, "Nodes must stay inside the canvas");
+            Check(restoredAlice.X == -100 && restoredAlice.Y == -1 && restored.CanvasLeft == -100 && restored.CanvasTop == -1,
+                "Nodes must move left and above the original origin, extending the canvas");
+            restored.SaveLayout();
+            var signed = new NetworkSchemeViewModel(store);
+            signed.Refresh([alice], true);
+            Check(signed.Clients.Single().X == -100 && signed.Clients.Single().Y == -1,
+                "Negative coordinates must survive restart");
             restored.Move(restoredAlice, double.NaN, 15);
-            Check(restoredAlice.X == 0 && restoredAlice.Y == 0, "Invalid drag coordinates were accepted");
+            Check(restoredAlice.X == -100 && restoredAlice.Y == -1, "Invalid drag coordinates were accepted");
             restored.SetNodeScale(2);
-            Check(restoredAlice.Width == 500 && restoredAlice.Height == 300,
+            Check(restoredAlice.Width == 440 && restoredAlice.Height == 208,
                 "Font scaling must resize nodes");
             restored.ResetLayout();
             Check(restored.Nodes.Select(n => (n.X, n.Y)).Distinct().Count() == 4 &&
@@ -87,13 +94,19 @@ internal static class NetworkSchemeTests
 
             File.WriteAllText(path, "{broken");
             Check(new NetworkSchemeViewModel(store).Nodes.Count == 1, "Corrupted layout must fall back without blocking startup");
-            File.WriteAllText(path, """{"server":{"X":-1,"Y":1},"null":null,"valid":{"X":3,"Y":4},"huge":{"X":100001,"Y":1}}""");
-            Check(store.Load().Count == 1 && store.Load()["valid"].X == 3, "Invalid stored positions were accepted");
+            File.WriteAllText(path, """{"server":{"X":-100001,"Y":1},"null":null,"valid":{"X":-3,"Y":-4},"huge":{"X":100001,"Y":1}}""");
+            Check(store.Load().Count == 1 && store.Load()["valid"].X == -3, "Invalid stored positions were accepted");
             File.WriteAllText(path, "null");
             Check(store.Load().Count == 0, "Null layout did not fall back safely");
             var failed = new NetworkSchemeViewModel(new NetworkLayoutStore(directory));
             failed.SaveLayout();
             Check(failed.SaveStatus.StartsWith("Не удалось"), "Save failures must be visible without crashing");
+            Check(ServerNetworkAddresses.SelectLocalIpv4([IPAddress.IPv6Loopback, IPAddress.Parse("2001:db8::1"), IPAddress.Parse("192.168.1.10")]) == "192.168.1.10",
+                "Server must display only one local IPv4 address");
+            Check(ServerNetworkAddresses.SelectLocalIpv4([IPAddress.Parse("203.0.113.10"), IPAddress.Parse("10.0.0.5"), IPAddress.Parse("192.168.1.10")]) == "10.0.0.5",
+                "Server should prefer a LAN address over a public interface");
+            Check(ServerNetworkAddresses.SelectLocalIpv4([IPAddress.IPv6Loopback, IPAddress.Any, IPAddress.Broadcast]) == "127.0.0.1",
+                "Server IPv4 fallback must not return IPv6, unspecified or broadcast addresses");
             foreach (var user in new[] { alice, offline, pending, approved, waiting }) user.Dispose();
             Console.WriteLine("PASS: network map identity, status refresh, movement, layout persistence, scaling and recovery");
         }

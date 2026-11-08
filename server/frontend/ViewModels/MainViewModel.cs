@@ -81,7 +81,7 @@ public class MainViewModel : ViewModelBase
         get => _selectedSection;
         set
         {
-            if (value is not NavigationSection.Main and not NavigationSection.Network && !IsConnected) return;
+            if (value != NavigationSection.Main && !IsConnected) return;
             SetProperty(ref _selectedSection, value);
         }
     }
@@ -359,7 +359,7 @@ public class MainViewModel : ViewModelBase
             if (SetProperty(ref _isConnected, value))
             {
                 NetworkScheme.SetAvailable(value);
-                if (!value && SelectedSection != NavigationSection.Network) SelectedSection = NavigationSection.Main;
+                if (!value) SelectedSection = NavigationSection.Main;
                 OnPropertyChanged(nameof(NotConnectedVisibility));
                 OnPropertyChanged(nameof(ConnectedVisibility));
                 OnPropertyChanged(nameof(CanUseWhitelistPresets));
@@ -861,7 +861,7 @@ public class MainViewModel : ViewModelBase
         await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
         {
             ServerName = name;
-            NetworkScheme.SetServer(name, ServerNetworkAddresses.GetLocalAddresses());
+            NetworkScheme.SetServer(name, ServerNetworkAddresses.GetLocalIpv4Address());
         });
     }
 
@@ -880,7 +880,7 @@ public class MainViewModel : ViewModelBase
         if (string.IsNullOrEmpty(name)) return;
         if (await _ipcService.SetServerNameAsync(name))
         {
-            NetworkScheme.SetServer(name, ServerNetworkAddresses.GetLocalAddresses());
+            NetworkScheme.SetServer(name, ServerNetworkAddresses.GetLocalIpv4Address());
             AddLog("INFO", $"Имя сервера сохранено: {name}");
         }
         else
@@ -952,7 +952,7 @@ public class MainViewModel : ViewModelBase
                 if (_disposed) return;
                 reconnected = !IsConnected && serverStatus.IsRunning;
                 IsConnected = serverStatus.IsRunning;
-                NetworkScheme.Server.Address = ServerNetworkAddresses.GetLocalAddresses();
+                NetworkScheme.Server.Address = ServerNetworkAddresses.GetLocalIpv4Address();
                 ServerStatus = serverStatus.IsRunning ? "Запущен" : "Не подключен";
                 Uptime = serverStatus.IsRunning && !string.IsNullOrEmpty(serverStatus.UptimeText)
                     ? $"Аптайм: {serverStatus.UptimeText}" : "";

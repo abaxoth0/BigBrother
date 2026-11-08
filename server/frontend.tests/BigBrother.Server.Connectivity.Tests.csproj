@@ -12,6 +12,7 @@
     <Compile Include="../frontend/ViewModels/UserOverview.cs" Link="UserOverview.cs" />
     <Compile Include="../frontend/ViewModels/NetworkSchemeViewModel.cs" Link="NetworkSchemeViewModel.cs" />
     <Compile Include="../frontend/Services/NetworkLayoutStore.cs" Link="NetworkLayoutStore.cs" />
+    <Compile Include="../frontend/Services/ServerNetworkAddresses.cs" Link="ServerNetworkAddresses.cs" />
     <Compile Include="../../lib/cs/BigBrother.Frontend.Shared/ViewModels/ViewModelBase.cs" Link="ViewModelBase.cs" />
     <Compile Include="../frontend/ViewModels/CheckboxSelection.cs" Link="CheckboxSelection.cs" />
     <Compile Include="../../lib/cs/BigBrother.Frontend.Shared/Models/SharedModels.cs" Link="SharedModels.cs" />
