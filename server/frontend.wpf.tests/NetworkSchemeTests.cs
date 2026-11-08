@@ -28,7 +28,8 @@ internal static partial class Program
         var model = new NetworkSchemeViewModel(store);
         model.SetServer("Сервер офиса", "192.168.1.10");
         model.SetAvailable(true);
-        using var online = new UserOverview(new ConnectedClient { Name = "Бухгалтерия", Address = "192.168.1.21" });
+        using var online = new UserOverview(new ConnectedClient { Name = "Бухгалтерия", Address = "192.168.1.21",
+            Policy = new ClientPolicyStatus { FiltrationEnabled = true } });
         using var offline = new UserOverview(new ConnectedClient { Name = "Переговорная", Address = "192.168.1.22" });
         using var pending = new UserOverview(new PendingRegistration { Name = "Новый компьютер", Address = "192.168.1.23" });
         online.SetOnline(true);
@@ -57,7 +58,16 @@ internal static partial class Program
                 .Single(t => t.Text == "Не подключён");
             Check(Equals(offlineStatus.Foreground, Application.Current.FindResource("StatusDisconnected")),
                 "Disconnected clients must have red status labels");
-            Check(border.ActualWidth == 220 && border.ActualHeight == 104, "Nodes must use compact dimensions");
+            Check(border.ActualWidth == 220 && border.ActualHeight == 120, "Client nodes must fit filtration in compact dimensions");
+            var filtration = VisualChildren<TextBlock>(border).Single(t => t.Text == "Фильтрация: Вкл");
+            Check(filtration.IsVisible && VisualChildren<TextBlock>(Node(model.Server)).All(t => !t.IsVisible || !t.Text.StartsWith("Фильтрация:")),
+                "Filtration must be shown on client cards only");
+            online.Client!.Policy = new ClientPolicyStatus { FiltrationEnabled = false };
+            model.Refresh([online, offline, pending], true);
+            FlushLayout(window);
+            Check(filtration.Text == "Фильтрация: Выкл", "Filtration labels must update in place");
+            online.Client.Policy = new ClientPolicyStatus { FiltrationEnabled = true };
+            model.Refresh([online, offline, pending], true);
             Check(Equals(border.BorderBrush, Application.Current.FindResource("StatusRunning")) &&
                 Equals(Node(model.Clients.Single(n => n.Name == "Переговорная")).BorderBrush, Application.Current.FindResource("StatusDisconnected")),
                 "Client borders must show connected/disconnected state");
@@ -192,9 +202,9 @@ internal static partial class Program
                 Check(border.ActualWidth == client.Width && border.ActualHeight == client.Height,
                     "Node bounds must follow font settings");
                 var labels = VisualChildren<TextBlock>(border).Where(t => t.IsVisible).ToList();
-                Check(labels.Count == 4 && labels.All(t => t.ActualHeight > 0 &&
+                Check(labels.Count == 5 && labels.All(t => t.ActualHeight > 0 &&
                     t.TranslatePoint(new Point(0, t.ActualHeight), border).Y < border.ActualHeight),
-                    "Names, addresses and status labels must fit at mixed font sizes");
+                    "Names, addresses, connection and filtration labels must fit at mixed font sizes");
                 CheckControlsFit(view, "network toolbar");
             }
             model.Move(model.Server, 80, 320);
@@ -208,7 +218,7 @@ internal static partial class Program
             model.SetAvailable(false);
             FlushLayout(window);
             Check(Node(client).IsVisible && VisualChildren<TextBlock>(border).Any(t => t.Text == "Статус неизвестен") &&
-                Equals(status.Foreground, Application.Current.FindResource("TextDim")),
+                Equals(status.Foreground, Application.Current.FindResource("TextDim")) && filtration.Text == "Фильтрация: Нет данных",
                 "Backend loss must retain the map and show unknown status");
             model.SetAvailable(true);
             model.Refresh([online, offline, pending], true);

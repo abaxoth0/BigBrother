@@ -3,6 +3,16 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              FontSize="{DynamicResource FontSize14}">
     <UserControl.Resources>
+        <Style x:Key="NodeFiltration" TargetType="TextBlock">
+            <Setter Property="Visibility" Value="Collapsed"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextDim}"/>
+            <Setter Property="FontSize" Value="{DynamicResource TextFontSize12}"/>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsClient}" Value="True">
+                    <Setter Property="Visibility" Value="Visible"/>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
         <Style x:Key="NodeStatus" TargetType="TextBlock">
             <Setter Property="Foreground" Value="{DynamicResource TextDim}"/>
             <Setter Property="FontSize" Value="{DynamicResource FontSize12}"/>
@@ -94,6 +104,7 @@
                                             <TextBlock Text="{Binding Name}" TextWrapping="Wrap" FontWeight="Bold"/>
                                             <TextBlock Text="{Binding Address}" TextWrapping="Wrap"/>
                                             <TextBlock Text="{Binding Status}"/>
+                                            <TextBlock Text="{Binding FiltrationText}" Style="{StaticResource NodeFiltration}"/>
                                         </StackPanel>
                                     </Border.ToolTip>
                                     <Border.Style>
@@ -134,6 +145,7 @@
                                         <Grid.RowDefinitions>
                                             <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
                                             <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
                                         </Grid.RowDefinitions>
                                         <TextBlock Text="{Binding Kind}" FontSize="{DynamicResource FontSize11}" Foreground="{DynamicResource TextDim}"/>
                                         <TextBlock Grid.Row="1" Text="{Binding Name}" FontWeight="SemiBold" FontSize="{DynamicResource TextFontSize14}"
@@ -141,6 +153,8 @@
                                         <TextBlock Grid.Row="2" Text="{Binding Address}" FontSize="{DynamicResource TextFontSize12}"
                                                    TextTrimming="CharacterEllipsis" Margin="0,0,0,4"/>
                                         <TextBlock Grid.Row="3" Text="{Binding Status}" Style="{StaticResource NodeStatus}" TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Row="4" Text="{Binding FiltrationText}" Style="{StaticResource NodeFiltration}"
+                                                   TextTrimming="CharacterEllipsis" Margin="0,2,0,0"/>
                                     </Grid>
                                 </Border>
                             </DataTemplate>

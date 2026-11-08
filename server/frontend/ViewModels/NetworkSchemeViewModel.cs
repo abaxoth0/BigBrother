@@ -10,19 +10,24 @@ public sealed class NetworkNode(string key, bool isServer, bool isPending) : Vie
     private string _address = "";
     private bool _isOnline;
     private bool _statusKnown;
+    private bool? _filtrationEnabled;
     private double _x;
     private double _y;
     private double _width = 220;
-    private double _height = 104;
+    private double _height = isServer || isPending ? 104 : 120;
 
     public string Key { get; } = key;
     public bool IsServer { get; } = isServer;
     public bool IsPending { get; } = isPending;
+    public bool IsClient => !IsServer && !IsPending;
     public string Kind => IsServer ? "СЕРВЕР" : IsPending ? "ЗАЯВКА" : "КЛИЕНТ";
     public string Name { get => _name; set => SetProperty(ref _name, value); }
     public string Address { get => _address; set => SetProperty(ref _address, value); }
     public bool IsOnline => _isOnline;
     public bool StatusKnown => _statusKnown;
+    public bool? FiltrationEnabled => _filtrationEnabled;
+    public string FiltrationText => IsClient
+        ? "Фильтрация: " + (FiltrationEnabled is true ? "Вкл" : FiltrationEnabled is false ? "Выкл" : "Нет данных") : "";
     public string Status => !StatusKnown ? "Статус неизвестен" : IsPending ? "Ожидает регистрации"
         : IsServer ? IsOnline ? "Запущен" : "Остановлен / недоступен" : IsOnline ? "Подключён" : "Не подключён";
     public double X => _x;
@@ -30,11 +35,13 @@ public sealed class NetworkNode(string key, bool isServer, bool isPending) : Vie
     public double Width => _width;
     public double Height => _height;
 
-    internal void SetState(bool online, bool known)
+    internal void SetState(bool online, bool known, bool? filtrationEnabled = null)
     {
         SetProperty(ref _isOnline, online, nameof(IsOnline));
         SetProperty(ref _statusKnown, known, nameof(StatusKnown));
+        SetProperty(ref _filtrationEnabled, online && known ? filtrationEnabled : null, nameof(FiltrationEnabled));
         OnPropertyChanged(nameof(Status));
+        OnPropertyChanged(nameof(FiltrationText));
     }
 
     internal void SetPosition(double x, double y)
@@ -46,7 +53,7 @@ public sealed class NetworkNode(string key, bool isServer, bool isPending) : Vie
     internal void SetSize(double scale)
     {
         SetProperty(ref _width, 220 * scale, nameof(Width));
-        SetProperty(ref _height, 104 * scale, nameof(Height));
+        SetProperty(ref _height, (IsClient ? 120 : 104) * scale, nameof(Height));
     }
 }
 
@@ -123,7 +130,8 @@ public sealed class NetworkSchemeViewModel : ViewModelBase
             }
             node.Name = user.Name;
             node.Address = user.Address;
-            node.SetState(user.IsOnline && _available && _clientsCurrent, _available && (node.IsPending || _clientsCurrent));
+            node.SetState(user.IsOnline && _available && _clientsCurrent, _available && (node.IsPending || _clientsCurrent),
+                user.Client?.Policy?.FiltrationEnabled);
             current.Add(node);
         }
         if (!_clientsCurrent)

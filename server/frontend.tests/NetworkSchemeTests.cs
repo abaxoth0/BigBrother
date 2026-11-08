@@ -16,7 +16,8 @@ internal static class NetworkSchemeTests
             var map = new NetworkSchemeViewModel(store);
             map.SetServer("Офис", "10.0.0.1");
             map.SetAvailable(true);
-            var alice = new UserOverview(new ConnectedClient { Name = "Alice", Address = "10.0.0.2" });
+            var alice = new UserOverview(new ConnectedClient { Name = "Alice", Address = "10.0.0.2",
+                Policy = new ClientPolicyStatus { FiltrationEnabled = true } });
             var offline = new UserOverview(new ConnectedClient { Name = "Offline", Address = "[2001:db8::2]:1984" });
             var pending = new UserOverview(new PendingRegistration { Name = "Alice", Address = "10.0.0.3" });
             alice.SetOnline(true);
@@ -25,6 +26,19 @@ internal static class NetworkSchemeTests
                 "Map must include the server, connected, offline and pending clients");
             var node = map.Clients.Single(n => n.Key == "client:Alice");
             var request = map.Clients.Single(n => n.IsPending);
+            Check(node.FiltrationText == "Фильтрация: Вкл" && node.FiltrationEnabled == true &&
+                map.Clients.Single(n => n.Name == "Offline").FiltrationText == "Фильтрация: Нет данных" &&
+                request.FiltrationText == "" && map.Server.FiltrationText == "",
+                "Only client nodes must show filtration, using reported policy and no invented offline state");
+            alice.Client!.Policy = new ClientPolicyStatus { FiltrationEnabled = false };
+            map.Refresh([alice, offline, pending], true);
+            Check(node.FiltrationText == "Фильтрация: Выкл", "Reported filtration changes must update the existing node");
+            alice.Client.Policy = null;
+            map.Refresh([alice, offline, pending], true);
+            Check(node.FiltrationEnabled == null && node.FiltrationText == "Фильтрация: Нет данных",
+                "Connected clients without policy must show unavailable filtration");
+            alice.Client.Policy = new ClientPolicyStatus { FiltrationEnabled = true };
+            map.Refresh([alice, offline, pending], true);
             Check(node.IsOnline && request.Key != node.Key && map.Clients.Single(n => n.Name == "Offline").Status == "Не подключён",
                 "Offline clients or pending requests sharing a name must remain distinct");
             Check(map.Nodes.Select(n => (n.X, n.Y)).Distinct().Count() == 4, "Default positions must not overlap");
@@ -41,7 +55,7 @@ internal static class NetworkSchemeTests
             alice.SetOnline(false);
             map.Refresh([alice, offline, pending], true);
             Check(ReferenceEquals(node, map.Clients[0]) && node.X == 1350 && node.Y == 800 &&
-                node.Address == "10.0.0.22" && !node.IsOnline && changes.Contains(nameof(NetworkNode.Status)),
+                node.Address == "10.0.0.22" && !node.IsOnline && node.FiltrationEnabled == null && changes.Contains(nameof(NetworkNode.Status)),
                 "Status and address refreshes must update existing nodes without changing positions");
             map.SetAvailable(false);
             Check(map.Nodes.Count == 4 && map.Clients.All(n => !n.StatusKnown && !n.IsOnline) &&
@@ -54,7 +68,8 @@ internal static class NetworkSchemeTests
             map.Refresh([alice, offline, pending], true);
             Check(node.IsOnline && node.StatusKnown && map.Summary.Contains("Подключено: 1"), "Reconnect must restore live status");
             map.MarkClientsUnknown();
-            Check(map.Clients.All(n => !n.StatusKnown) && map.Server.IsOnline, "Failed client refresh must not display stale statuses");
+            Check(map.Clients.All(n => !n.StatusKnown && n.FiltrationEnabled == null) && map.Server.IsOnline,
+                "Failed client refresh must not display stale connection or filtration statuses");
 
             var restored = new NetworkSchemeViewModel(store);
             restored.SetAvailable(true);
@@ -73,7 +88,7 @@ internal static class NetworkSchemeTests
             restored.Move(restoredAlice, double.NaN, 15);
             Check(restoredAlice.X == -100 && restoredAlice.Y == -1, "Invalid drag coordinates were accepted");
             restored.SetNodeScale(2);
-            Check(restoredAlice.Width == 440 && restoredAlice.Height == 208,
+            Check(restoredAlice.Width == 440 && restoredAlice.Height == 240,
                 "Font scaling must resize nodes");
             restored.ResetLayout();
             Check(restored.Nodes.Select(n => (n.X, n.Y)).Distinct().Count() == 4 &&
