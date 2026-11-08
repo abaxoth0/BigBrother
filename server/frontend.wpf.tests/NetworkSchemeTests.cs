@@ -65,9 +65,13 @@ internal static partial class Program
             online.Client!.Policy = new ClientPolicyStatus { FiltrationEnabled = false };
             model.Refresh([online, offline, pending], true);
             FlushLayout(window);
-            Check(filtration.Text == "Фильтрация: Выкл", "Filtration labels must update in place");
+            border.Focus();
+            FlushLayout(window);
+            Check(filtration.Text == "Фильтрация: Выкл" && Equals(border.BorderBrush, Application.Current.FindResource("StatusWarning")),
+                "Disabled filtration must update the label and turn the client border orange, including while focused");
             online.Client.Policy = new ClientPolicyStatus { FiltrationEnabled = true };
             model.Refresh([online, offline, pending], true);
+            FlushLayout(window);
             Check(Equals(border.BorderBrush, Application.Current.FindResource("StatusRunning")) &&
                 Equals(Node(model.Clients.Single(n => n.Name == "Переговорная")).BorderBrush, Application.Current.FindResource("StatusDisconnected")),
                 "Client borders must show connected/disconnected state");
@@ -283,8 +287,10 @@ internal static partial class Program
             window.Show();
             FlushLayout(window);
             var tabs = VisualChildren<RadioButton>(window).Where(tab => tab.GroupName == "Nav").ToList();
-            Check(tabs.Count == 5 && tabs.All(tab => !tab.IsEnabled),
-                "Every menu tab, including Main and Network, must be disabled while offline");
+            var mainTab = tabs.Single(tab => Equals(tab.Content, "Главная"));
+            bool OnlyMainEnabled() => mainTab.IsEnabled && tabs.Where(tab => tab != mainTab).All(tab => !tab.IsEnabled);
+            Check(tabs.Count == 5 && OnlyMainEnabled(),
+                "Main must be the only enabled menu tab while offline");
             model.SelectedSection = NavigationSection.Network;
             Check(model.SelectedSection == NavigationSection.Main, "Offline navigation must reject opening the network scheme");
             model.IsConnected = true;
@@ -294,9 +300,9 @@ internal static partial class Program
                 "Reconnection must enable all tabs and allow opening the network scheme");
             model.IsConnected = false;
             FlushLayout(window);
-            Check(model.SelectedSection == NavigationSection.Main && tabs.All(tab => !tab.IsEnabled) &&
+            Check(model.SelectedSection == NavigationSection.Main && OnlyMainEnabled() &&
                 !VisualChildren<NetworkSchemeView>(window).Single().IsVisible,
-                "Backend loss must leave the network scheme and disable every menu tab");
+                "Backend loss must leave the network scheme and keep only Main enabled");
             Console.WriteLine("PASS: offline menu gating, network navigation rejection, reconnect and disconnect");
         }
         finally

@@ -138,6 +138,15 @@
                                                     </MultiDataTrigger.Conditions>
                                                     <Setter Property="BorderBrush" Value="{DynamicResource StatusDisconnected}"/>
                                                 </MultiDataTrigger>
+                                                <MultiDataTrigger>
+                                                    <MultiDataTrigger.Conditions>
+                                                        <Condition Binding="{Binding IsClient}" Value="True"/>
+                                                        <Condition Binding="{Binding StatusKnown}" Value="True"/>
+                                                        <Condition Binding="{Binding IsOnline}" Value="True"/>
+                                                        <Condition Binding="{Binding FiltrationEnabled}" Value="False"/>
+                                                    </MultiDataTrigger.Conditions>
+                                                    <Setter Property="BorderBrush" Value="{DynamicResource StatusWarning}"/>
+                                                </MultiDataTrigger>
                                             </Style.Triggers>
                                         </Style>
                                     </Border.Style>
