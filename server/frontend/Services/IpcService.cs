@@ -342,7 +342,7 @@ public class IpcService : IDisposable
         {
             if (!await ConnectAsync())
             {
-                return clients;
+                throw new IOException(_lastError);
             }
 
             try

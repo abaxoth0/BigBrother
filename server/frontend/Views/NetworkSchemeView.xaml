@@ -1,0 +1,179 @@
+<UserControl x:Class="frontend.Views.NetworkSchemeView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             FontSize="{DynamicResource FontSize14}">
+    <UserControl.Resources>
+        <Style x:Key="NodeFiltration" TargetType="TextBlock">
+            <Setter Property="Visibility" Value="Collapsed"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextDim}"/>
+            <Setter Property="FontSize" Value="{DynamicResource TextFontSize12}"/>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsClient}" Value="True">
+                    <Setter Property="Visibility" Value="Visible"/>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="NodeStatus" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource TextDim}"/>
+            <Setter Property="FontSize" Value="{DynamicResource FontSize12}"/>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsOnline}" Value="True">
+                    <Setter Property="Foreground" Value="{DynamicResource StatusRunning}"/>
+                </DataTrigger>
+                <MultiDataTrigger>
+                    <MultiDataTrigger.Conditions>
+                        <Condition Binding="{Binding StatusKnown}" Value="True"/>
+                        <Condition Binding="{Binding IsOnline}" Value="False"/>
+                        <Condition Binding="{Binding IsPending}" Value="False"/>
+                    </MultiDataTrigger.Conditions>
+                    <Setter Property="Foreground" Value="{DynamicResource StatusDisconnected}"/>
+                </MultiDataTrigger>
+            </Style.Triggers>
+        </Style>
+    </UserControl.Resources>
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <WrapPanel Margin="0,0,0,6">
+            <TextBlock Text="Схема сети" FontWeight="SemiBold" FontSize="{DynamicResource FontSize18}"
+                       VerticalAlignment="Center" Margin="0,0,18,6"/>
+            <Button x:Name="FitButton" Content="Вписать" Click="Fit_Click" Margin="0,0,6,6"/>
+            <Button x:Name="ActualSizeButton" Content="100%" Click="ActualSize_Click" Margin="0,0,6,6"/>
+            <Button x:Name="ResetButton" Content="Сбросить расположение" Click="Reset_Click" Margin="0,0,16,6"/>
+            <TextBlock Text="Масштаб:" VerticalAlignment="Center" Margin="0,0,6,6"/>
+            <TextBlock x:Name="ZoomLevel" Text="{Binding Zoom, RelativeSource={RelativeSource AncestorType=UserControl}, StringFormat={}{0:P0}}"
+                       VerticalAlignment="Center" Margin="0,0,6,6" ToolTip="Ctrl + колесо мыши — изменить масштаб"/>
+        </WrapPanel>
+        <StackPanel Grid.Row="1" Margin="0,0,0,8">
+            <TextBlock Text="{Binding Summary}" TextWrapping="Wrap"/>
+            <TextBlock Text="ЛКМ по фону — перемещение схемы. Ctrl + колесо — масштаб. Узлы можно перетаскивать мышью или перемещать стрелками; расположение сохраняется автоматически."
+                       Foreground="{DynamicResource TextDim}" FontSize="{DynamicResource FontSize12}" TextWrapping="Wrap" Margin="0,4,0,0"/>
+        </StackPanel>
+        <Border Grid.Row="2" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4">
+            <ScrollViewer x:Name="MapScroll" HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Hidden"
+                          CanContentScroll="False" Focusable="False" SizeChanged="MapScroll_SizeChanged"
+                          PreviewMouseWheel="MapScroll_MouseWheel">
+                <Border x:Name="MapFrame" Cursor="Hand" Focusable="True"
+                        HorizontalAlignment="Left" VerticalAlignment="Top"
+                        MouseLeftButtonDown="Map_MouseDown" MouseMove="Map_MouseMove" MouseLeftButtonUp="Map_MouseUp"
+                        LostMouseCapture="Map_LostCapture" KeyDown="Map_KeyDown">
+                    <Border.Background>
+                        <DrawingBrush x:Name="MapGridBrush" TileMode="Tile" ViewportUnits="Absolute" Viewport="0,0,15,15"
+                                      ViewboxUnits="Absolute" Viewbox="0,0,15,15">
+                            <DrawingBrush.Drawing>
+                                <DrawingGroup>
+                                    <GeometryDrawing Brush="#211F22">
+                                        <GeometryDrawing.Geometry><RectangleGeometry Rect="0,0,15,15"/></GeometryDrawing.Geometry>
+                                    </GeometryDrawing>
+                                    <GeometryDrawing Brush="#3D393E">
+                                        <GeometryDrawing.Geometry><EllipseGeometry Center="7.5,7.5" RadiusX="1" RadiusY="1"/></GeometryDrawing.Geometry>
+                                    </GeometryDrawing>
+                                </DrawingGroup>
+                            </DrawingBrush.Drawing>
+                        </DrawingBrush>
+                    </Border.Background>
+                <Grid x:Name="MapCanvas" Width="{Binding CanvasWidth}" Height="{Binding CanvasHeight}"
+                      Background="Transparent">
+                    <Grid.LayoutTransform>
+                        <ScaleTransform x:Name="MapZoom"/>
+                    </Grid.LayoutTransform>
+                    <ItemsControl x:Name="NodeItems" ItemsSource="{Binding Nodes}">
+                        <ItemsControl.RenderTransform>
+                            <TranslateTransform X="{Binding CanvasOffsetX}" Y="{Binding CanvasOffsetY}"/>
+                        </ItemsControl.RenderTransform>
+                        <ItemsControl.ItemsPanel><ItemsPanelTemplate><Canvas/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemContainerStyle>
+                            <Style TargetType="ContentPresenter">
+                                <Setter Property="Canvas.Left" Value="{Binding X}"/>
+                                <Setter Property="Canvas.Top" Value="{Binding Y}"/>
+                            </Style>
+                        </ItemsControl.ItemContainerStyle>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Width="{Binding Width}" Height="{Binding Height}" Padding="10,7" CornerRadius="6"
+                                        Cursor="SizeAll" Focusable="True"
+                                        MouseLeftButtonDown="Node_MouseDown" MouseMove="Node_MouseMove"
+                                        MouseLeftButtonUp="Node_MouseUp" LostMouseCapture="Node_LostCapture" KeyDown="Node_KeyDown"
+                                        AutomationProperties.Name="{Binding Name}" ToolTipService.ShowDuration="30000">
+                                    <Border.ToolTip>
+                                        <StackPanel MaxWidth="600">
+                                            <TextBlock Text="{Binding Name}" TextWrapping="Wrap" FontWeight="Bold"/>
+                                            <TextBlock Text="{Binding Address}" TextWrapping="Wrap"/>
+                                            <TextBlock Text="{Binding Status}"/>
+                                            <TextBlock Text="{Binding FiltrationText}" Style="{StaticResource NodeFiltration}"/>
+                                        </StackPanel>
+                                    </Border.ToolTip>
+                                    <Border.Style>
+                                        <Style TargetType="Border">
+                                            <Setter Property="Background" Value="{DynamicResource SurfaceAlt}"/>
+                                            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+                                            <Setter Property="BorderThickness" Value="2"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsServer}" Value="True">
+                                                    <Setter Property="Background" Value="{DynamicResource SelectedBackground}"/>
+                                                    <Setter Property="BorderBrush" Value="{DynamicResource Accent}"/>
+                                                </DataTrigger>
+                                                <Trigger Property="IsKeyboardFocused" Value="True">
+                                                    <Setter Property="BorderBrush" Value="{DynamicResource AccentText}"/>
+                                                </Trigger>
+                                                <MultiDataTrigger>
+                                                    <MultiDataTrigger.Conditions>
+                                                        <Condition Binding="{Binding IsServer}" Value="False"/>
+                                                        <Condition Binding="{Binding IsPending}" Value="False"/>
+                                                        <Condition Binding="{Binding StatusKnown}" Value="True"/>
+                                                        <Condition Binding="{Binding IsOnline}" Value="True"/>
+                                                    </MultiDataTrigger.Conditions>
+                                                    <Setter Property="BorderBrush" Value="{DynamicResource StatusRunning}"/>
+                                                </MultiDataTrigger>
+                                                <MultiDataTrigger>
+                                                    <MultiDataTrigger.Conditions>
+                                                        <Condition Binding="{Binding IsServer}" Value="False"/>
+                                                        <Condition Binding="{Binding IsPending}" Value="False"/>
+                                                        <Condition Binding="{Binding StatusKnown}" Value="True"/>
+                                                        <Condition Binding="{Binding IsOnline}" Value="False"/>
+                                                    </MultiDataTrigger.Conditions>
+                                                    <Setter Property="BorderBrush" Value="{DynamicResource StatusDisconnected}"/>
+                                                </MultiDataTrigger>
+                                                <MultiDataTrigger>
+                                                    <MultiDataTrigger.Conditions>
+                                                        <Condition Binding="{Binding IsClient}" Value="True"/>
+                                                        <Condition Binding="{Binding StatusKnown}" Value="True"/>
+                                                        <Condition Binding="{Binding IsOnline}" Value="True"/>
+                                                        <Condition Binding="{Binding FiltrationEnabled}" Value="False"/>
+                                                    </MultiDataTrigger.Conditions>
+                                                    <Setter Property="BorderBrush" Value="{DynamicResource StatusWarning}"/>
+                                                </MultiDataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Border.Style>
+                                    <Grid VerticalAlignment="Center">
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
+                                        </Grid.RowDefinitions>
+                                        <TextBlock Text="{Binding Kind}" FontSize="{DynamicResource FontSize11}" Foreground="{DynamicResource TextDim}"/>
+                                        <TextBlock Grid.Row="1" Text="{Binding Name}" FontWeight="SemiBold" FontSize="{DynamicResource TextFontSize14}"
+                                                   TextTrimming="CharacterEllipsis" Margin="0,4,0,2"/>
+                                        <TextBlock Grid.Row="2" Text="{Binding Address}" FontSize="{DynamicResource TextFontSize12}"
+                                                   TextTrimming="CharacterEllipsis" Margin="0,0,0,4"/>
+                                        <TextBlock Grid.Row="3" Text="{Binding Status}" Style="{StaticResource NodeStatus}" TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Row="4" Text="{Binding FiltrationText}" Style="{StaticResource NodeFiltration}"
+                                                   TextTrimming="CharacterEllipsis" Margin="0,2,0,0"/>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </Grid>
+                </Border>
+            </ScrollViewer>
+        </Border>
+        <TextBlock Grid.Row="3" Text="{Binding SaveStatus}" Foreground="{DynamicResource TextDim}"
+                   FontSize="{DynamicResource FontSize12}" TextWrapping="Wrap" Margin="0,6,0,0"/>
+    </Grid>
+</UserControl>

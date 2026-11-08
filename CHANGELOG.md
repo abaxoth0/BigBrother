@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+
+- Server frontend: «Схема сети» displays the server's local IPv4 address and all registered/connected clients, including offline clients and pending registrations, in compact movable nodes over a dark dotted grid. Client nodes show their reported filtration state (on/off or unavailable), refreshing it with connection and policy changes. Client borders turn orange when connected with filtration disabled, green for other connected clients and red when disconnected; status labels retain their connection colors. Positions, including those above/left of the original origin, persist per Windows user across refreshes and restarts. Includes keyboard movement, Ctrl + mouse wheel zoom around the pointer with a percentage indicator, bounded background panning with the left mouse button, fit and reset controls. All menu tabs except Main are disabled while the frontend is disconnected from the backend; disconnection returns to the main service controls
+
 ## [2.1.1] - 03-11-2026
 
 ### Added

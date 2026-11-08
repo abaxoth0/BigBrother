@@ -20,6 +20,7 @@ public enum NavigationSection
 {
     Main,
     Users,
+    Network,
     Lists,
     Settings
 }
@@ -123,6 +124,7 @@ public class MainViewModel : ViewModelBase
     public ObservableCollection<ConnectedClient> RegisteredUsers { get; } = new();
     public ObservableCollection<UserOverview> AllUsers { get; } = new();
     public ObservableCollection<UserOverview> FilteredAllUsers { get; } = new();
+    public NetworkSchemeViewModel NetworkScheme { get; } = new();
 
     private string _usersSearchText = "";
     public string UsersSearchText
@@ -356,6 +358,7 @@ public class MainViewModel : ViewModelBase
         {
             if (SetProperty(ref _isConnected, value))
             {
+                NetworkScheme.SetAvailable(value);
                 if (!value) SelectedSection = NavigationSection.Main;
                 OnPropertyChanged(nameof(NotConnectedVisibility));
                 OnPropertyChanged(nameof(ConnectedVisibility));
@@ -858,6 +861,7 @@ public class MainViewModel : ViewModelBase
         await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
         {
             ServerName = name;
+            NetworkScheme.SetServer(name, ServerNetworkAddresses.GetLocalIpv4Address());
         });
     }
 
@@ -875,7 +879,10 @@ public class MainViewModel : ViewModelBase
         var name = ServerName?.Trim() ?? "";
         if (string.IsNullOrEmpty(name)) return;
         if (await _ipcService.SetServerNameAsync(name))
+        {
+            NetworkScheme.SetServer(name, ServerNetworkAddresses.GetLocalIpv4Address());
             AddLog("INFO", $"Имя сервера сохранено: {name}");
+        }
         else
             AddLog("ERROR", "Ошибка сохранения имени сервера");
     }
@@ -945,6 +952,7 @@ public class MainViewModel : ViewModelBase
                 if (_disposed) return;
                 reconnected = !IsConnected && serverStatus.IsRunning;
                 IsConnected = serverStatus.IsRunning;
+                NetworkScheme.Server.Address = ServerNetworkAddresses.GetLocalIpv4Address();
                 ServerStatus = serverStatus.IsRunning ? "Запущен" : "Не подключен";
                 Uptime = serverStatus.IsRunning && !string.IsNullOrEmpty(serverStatus.UptimeText)
                     ? $"Аптайм: {serverStatus.UptimeText}" : "";
@@ -1035,12 +1043,14 @@ public class MainViewModel : ViewModelBase
             var clients = await _ipcService.GetClientsAsync();
             await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
             {
+                if (_disposed || !IsConnected) return;
                 var previous = RegisteredUsers.ToHashSet();
                 UserTableView.UpdateRegistered(RegisteredUsers, ConnectedClients, registered, clients);
                 foreach (var removed in previous.Except(RegisteredUsers)) removed.PropertyChanged -= OnUserSelectionChanged;
                 foreach (var added in RegisteredUsers.Except(previous)) added.PropertyChanged += OnUserSelectionChanged;
                 ConnectedClientsCount = ConnectedClients.Count;
                 RebuildUsersView();
+                NetworkScheme.Refresh(AllUsers, clientsCurrent: true);
                 CommandManager.InvalidateRequerySuggested();
             });
         }
@@ -1048,6 +1058,7 @@ public class MainViewModel : ViewModelBase
         {
             await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
             {
+                NetworkScheme.MarkClientsUnknown();
                 AddLog("ERROR", $"Ошибка загрузки клиентов: {ex.Message}");
             });
         }
@@ -1060,6 +1071,7 @@ public class MainViewModel : ViewModelBase
             var pending = await _ipcService.GetPendingAsync();
             await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
             {
+                if (_disposed || !IsConnected) return;
                 // Update in place to keep DataGrid rows stable (preserves context menu focus)
                 var toRemove = PendingRegistrations.Where(p => !pending.Any(n => n.Name == p.Name)).ToList();
                 foreach (var p in toRemove)
@@ -1084,6 +1096,7 @@ public class MainViewModel : ViewModelBase
                 }
                 PendingCount = PendingRegistrations.Count;
                 RebuildUsersView();
+                NetworkScheme.Refresh(AllUsers);
             });
         }
         catch (Exception ex)
@@ -1793,6 +1806,7 @@ public class MainViewModel : ViewModelBase
     {
         if (_disposed) return;
         _disposed = true;
+        NetworkScheme.SaveLayout();
         _countdownTimer.Stop();
         foreach (var user in AllUsers) user.Dispose();
         _logUpdates.Dispose();
