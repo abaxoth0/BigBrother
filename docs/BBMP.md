@@ -94,15 +94,21 @@ Each TLV argument/value uses:
 
 ### Client Backend (`\\.\pipe\BigBrother.Client.Backend`)
 
-Used by the daemon client frontend to communicate with the client backend.
+Used by the client frontend, backend command-line tool and backend-owned update
+preparation worker. See [client backend architecture](CLIENT-BACKEND.md).
 
 | Command | Arguments | Response Data | Description |
 |---------|-----------|---------------|-------------|
 | `GET_STATUS` | none | `STATUS:<name>:<ip>:<status>:<pid>:<revision>` | Get client status |
 | `GET_WHITELIST` | none | Whitelist entries (one per line) | Get current whitelist |
-| `RESTART_CLIENT` | none | none | Restart the client |
+| `RESTART_CLIENT` | none | none | Restart the backend service; dependent apps stop and the firewall stays stopped |
 | `PING` | none | none | Ping the client |
 | `GET_LOG_PATH` | none | `LOG_PATH:<client_log>\|<firewall_log>` | Get log file paths |
+| START_FIREWALL / STOP_FIREWALL / RESTART_FIREWALL | none | none | Explicit service controls; only Start/Restart launch a stopped firewall |
+| SET_WHITELIST | whitelist text | none | Replace firewall rules through the backend |
+| READ_LOG | client or firewall, decimal offset, previous file identity (empty initially) | identity, next offset, file length, hex bytes | At most 64 KiB; offset -1 starts within the last 512 KiB; replacement/truncation resets the cursor |
+| INSTALL_CLIENT_UPDATE | approved update metadata JSON | none | Launch one backend-owned preparation worker in the requesting user's session |
+| GET_APPROVED_UPDATE | none | approved metadata JSON | Restricted to the worker launched by INSTALL_CLIENT_UPDATE |
 | `GET_CLIENT_UPDATE` | none | One JSON metadata value, or no data | Explicitly request the server update reference and release notes; never execute a shared file |
 | `GET_SAVED_SERVER_FINGERPRINT` | none | saved SHA-256 fingerprint, or empty if unset | Read the persisted pin locally without connecting to the server or changing trust |
 | `INSPECT_SERVER_CERTIFICATE` | none | address, port, saved pin, observed SHA-256 fingerprint | Inspect the configured server with TLS only; no credentials are sent and trust is unchanged |
@@ -324,7 +330,10 @@ The client<->server TCP channel (:1984) is **TLS 1.2+**:
 
 Local pipes (`BigBrother.Client.Backend`, `BigBrother.Firewall`,
 `BigBrother.Server.Frontend`) are DACL-restricted to SYSTEM/Administrators/Owner,
-and the client backend additionally verifies the peer executable is the client GUI.
+and the client backend additionally verifies the peer executable is the client GUI
+or backend command-line executable. The firewall additionally verifies that the
+peer PID belongs to the running BigBrother.Client service. Both local pipes
+reject remote clients. New requests are rejected during backend shutdown.
 
 ---
 

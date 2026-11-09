@@ -26,13 +26,14 @@ int bb_probe_certificate(const char* address, int port, const char* expected,
     if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) return -1;
     SOCKET sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     int result = -1;
+    u_long nonblocking = 1;
+    bb_tls_t tls;
+    const char* ip = strcmp(address, ".") == 0 ? "127.0.0.1" : address;
+    struct sockaddr_in target = {};
     if (sock == INVALID_SOCKET) goto done;
-    struct sockaddr_in target = {0};
     target.sin_family = AF_INET;
     target.sin_port = htons((unsigned short)port);
-    const char* ip = strcmp(address, ".") == 0 ? "127.0.0.1" : address;
     if (inet_pton(AF_INET, ip, &target.sin_addr) != 1) goto close_socket;
-    u_long nonblocking = 1;
     if (ioctlsocket(sock, FIONBIO, &nonblocking) != 0) goto close_socket;
     if (connect(sock, (struct sockaddr*)&target, sizeof(target)) != 0) {
         if (WSAGetLastError() != WSAEWOULDBLOCK) goto close_socket;
@@ -46,7 +47,6 @@ int bb_probe_certificate(const char* address, int port, const char* expected,
         if (getsockopt(sock, SOL_SOCKET, SO_ERROR, (char*)&error, &error_len) != 0 || error)
             goto close_socket;
     }
-    bb_tls_t tls;
     if (bb_tls_init(&tls) != 0) goto close_socket;
     result = bb_tls_connect(&tls, sock, expected, fingerprint, 65);
     bb_tls_free(&tls);

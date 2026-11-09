@@ -1,5 +1,5 @@
 /**
- * @file ipc_client.c
+ * @file ipc_client.cpp
  * @brief Named pipe server for Client Frontend & Backend communication.
  */
 
@@ -13,6 +13,11 @@
 #include <string.h>
 #include <stdlib.h>
 #include <wchar.h>
+#include "hub.h"
+#include "resource.h"
+#include "runtime.h"
+#include <algorithm>
+#include <charconv>
 
 #define CLIENT_PIPE_NAME "\\\\.\\pipe\\BigBrother.Client.Backend"
 #define CLIENT_PIPE_BUFFER_SIZE 4096
@@ -20,6 +25,8 @@
 #define MAX_EVENT_SUBSCRIBERS 8
 
 static HANDLE g_shutdown_event = NULL;
+static HANDLE g_listener = NULL;
+static std::vector<HANDLE> g_handlers;
 
 // State change notification. SRWLOCK is statically initializable, so
 // NotifyStateChanged can be called from DaemonRun before client_server_thread
@@ -166,9 +173,8 @@ static int pipe_reader_readline(PipeByteReader* r, char* out, size_t out_size) {
             return 1;
         }
         if (c == '\r') continue;
-        if (used + 1 < out_size) {
-            out[used++] = c;
-        }
+        if (used + 1 >= out_size) return 0;
+        out[used++] = c;
     }
 }
 
@@ -188,85 +194,32 @@ static int pipe_reader_read(PipeByteReader* r, char* out, size_t n) {
     return 1;
 }
 
-// Read TLV request: command\n<len>\n<arg>\n...\n<empty line>
-// Returns command in buffer, args in args array (caller must free)
-// Returns number of args, or -1 on error
-static int read_tlv_request(HANDLE pipe, char* cmd_buf, size_t cmd_size,
-                                char*** args_out) {
+static int read_tlv_request(HANDLE pipe, char* command, size_t capacity,
+                            std::vector<std::string>& arguments) {
     PipeByteReader reader;
     pipe_reader_init(&reader, pipe);
-    size_t arg_count = 0;
-    char** args = NULL;
-
-    // Read command line until newline
-    if (!pipe_reader_readline(&reader, cmd_buf, cmd_size)) {
-        return -1;
+    if (!pipe_reader_readline(&reader, command, capacity) || !command[0]) return -1;
+    size_t total = 0;
+    for (;;) {
+        char line[32]{};
+        if (!pipe_reader_readline(&reader, line, sizeof(line))) return -1;
+        if (!line[0]) return static_cast<int>(arguments.size());
+        size_t length = 0;
+        auto end = line + strlen(line);
+        auto parsed = std::from_chars(line, end, length);
+        if (parsed.ec != std::errc{} || parsed.ptr != end ||
+            length > DAEMON_MAX_MESSAGE_SIZE - total || arguments.size() >= 64) return -1;
+        std::string value(length, '\0');
+        if (!pipe_reader_read(&reader, value.data(), length) || value.find('\0') != std::string::npos) return -1;
+        char separator;
+        if (!pipe_reader_getc(&reader, &separator)) return -1;
+        if (separator == '\r' && !pipe_reader_getc(&reader, &separator)) return -1;
+        if (separator != '\n') return -1;
+        total += length;
+        arguments.push_back(std::move(value));
     }
-
-    // Read arguments until empty line
-    while (1) {
-        // Read length line (bounds-checked)
-        char len_line[32] = {0};
-        char* p = len_line;
-        char* len_end = len_line + sizeof(len_line) - 1;
-        while (p < len_end) {
-            char c;
-            if (!pipe_reader_getc(&reader, &c)) {
-                goto error;
-            }
-            if (c == '\r') continue;
-            if (c == '\n') break;
-            *p++ = c;
-        }
-        *p = '\0';
-
-        // Empty line terminates request
-        if (len_line[0] == '\0') break;
-
-        int expected_len = atoi(len_line);
-        if (expected_len < 0) goto error;
-        if ((size_t)expected_len > DAEMON_MAX_MESSAGE_SIZE) goto error;
-
-        // Read value bytes
-        char* value = malloc(expected_len + 1);
-        if (!value) goto error;
-        if (!pipe_reader_read(&reader, value, (size_t)expected_len)) {
-            free(value);
-            goto error;
-        }
-        value[expected_len] = '\0';
-
-        // Consume newline after value (may be \n or \r\n)
-        {
-            char nl;
-            if (!pipe_reader_getc(&reader, &nl)) { free(value); goto error; }
-            if (nl == '\r') {
-                if (!pipe_reader_getc(&reader, &nl)) { free(value); goto error; }
-            }
-        }
-
-        // Add to args
-        char** new_args = realloc(args, (arg_count + 1) * sizeof(char*));
-        if (!new_args) {
-            free(value);
-            goto error;
-        }
-        args = new_args;
-        args[arg_count++] = value;
-    }
-
-    *args_out = args;
-    return (int)arg_count;
-
-error:
-    if (args) {
-        for (size_t i = 0; i < arg_count; i++) free(args[i]);
-        free(args);
-    }
-    return -1;
 }
 
-// The only clients allowed on the frontend pipe are instances of the client
 // GUI executable ("BigBrother Client.exe"). Compare by file name (case
 // insensitive) so the GUI can run from any directory during development.
 static int peer_is_client_gui(HANDLE pipe) {
@@ -287,33 +240,45 @@ static int peer_is_client_gui(HANDLE pipe) {
     size_t cut = len;
     while (cut > 0 && path[cut - 1] != L'\\' && path[cut - 1] != L'/') cut--;
     const wchar_t* name = path + cut;
-    return _wcsicmp(name, L"BigBrother Client.exe") == 0;
+    return _wcsicmp(name, L"BigBrother Client.exe") == 0 ||
+        _wcsicmp(name, L"BigBrother Client Daemon.exe") == 0;
 }
 
-DWORD WINAPI client_handler(LPVOID param) {
+static DWORD handle_client(LPVOID param) {
     HANDLE pipe = (HANDLE)param;
+    client::Handle connection(pipe);
     char buffer[CLIENT_PIPE_BUFFER_SIZE];
 
     // Reject unknown peer processes (defense-in-depth on top of the DACL).
     if (!peer_is_client_gui(pipe)) {
-        CloseHandle(pipe);
         return 1;
     }
 
     // Read TLV request
-    char** args = NULL;
-    int arg_count = read_tlv_request(pipe, buffer, sizeof(buffer), &args);
+    std::vector<std::string> arguments;
+    int arg_count = read_tlv_request(pipe, buffer, sizeof(buffer), arguments);
+    std::vector<char*> pointers;
+    for (auto& argument : arguments) pointers.push_back(argument.data());
+    char** args = pointers.data();
 
     if (arg_count < 0) {
         write_error_tlv(pipe, "failed to parse request");
-        CloseHandle(pipe);
         return 1;
     }
 
-    // Parse command
-    if (strcmp(buffer, "GET_CLIENT_UPDATE") == 0) {
+    if (g_ServiceStopEvent != INVALID_HANDLE_VALUE &&
+        WaitForSingleObject(g_ServiceStopEvent, 0) == WAIT_OBJECT_0) return 0;
+
+    std::vector<std::string_view> values;
+    for (int i = 0; i < arg_count; ++i) values.emplace_back(args[i]);
+    auto reply = client::hub().dispatch(buffer, values, pipe);
+    if (reply) {
+        std::vector<const char*> fields;
+        for (const auto& value : reply->values) fields.push_back(value.c_str());
+        write_response_tlv(pipe, reply->ok ? "OK" : "ERROR", fields.data(), fields.size());
+    } else if (strcmp(buffer, "GET_CLIENT_UPDATE") == 0) {
         size_t capacity = 128 * 1024;
-        char* response = calloc(1, capacity);
+        char* response = static_cast<char*>(calloc(1, capacity));
         if (!response || arg_count != 0 || ServerGetUpdate(response, capacity) != 0) {
             write_error_tlv(pipe, "could not fetch client update");
         } else if (!response[0]) {
@@ -327,7 +292,7 @@ DWORD WINAPI client_handler(LPVOID param) {
         int daemon_ok = (PingDaemon() == 0);
         int server_ok = IsServerSessionActive();
 
-        char client_name[128] = {0};
+        char client_name[128] = {};
         LoadUserName(client_name, sizeof(client_name));
 
         // data[0] = ClientName, data[1] = IpAddress, data[2] = DaemonStatus
@@ -358,58 +323,12 @@ DWORD WINAPI client_handler(LPVOID param) {
         };
         write_response_tlv(pipe, "OK", data, 9);
 
-    } else if (strcmp(buffer, "GET_WHITELIST") == 0) {
-        char* whitelist_buf = malloc(DAEMON_MAX_MESSAGE_SIZE);
-        if (!whitelist_buf) {
-            write_error_tlv(pipe, "out of memory");
-        } else if (DaemonGetWhitelist(whitelist_buf, DAEMON_MAX_MESSAGE_SIZE) != 0) {
-            free(whitelist_buf);
-            write_error_tlv(pipe, "failed to get whitelist");
-        } else {
-            // Parse firewall response: "WHITELIST\ndomain1\ndomain2\n..."
-            // Skip "WHITELIST" header line
-            char* line = strchr(whitelist_buf, '\n');
-            if (strcmp(whitelist_buf, "WHITELIST") == 0) {
-                free(whitelist_buf);
-                write_ok(pipe);
-            } else if (!line || strncmp(whitelist_buf, "WHITELIST\n", 10) != 0) {
-                free(whitelist_buf);
-                write_error_tlv(pipe, "invalid whitelist format");
-            } else {
-                size_t max_domains = DAEMON_MAX_MESSAGE_SIZE / 2;
-                char** domains = malloc(max_domains * sizeof(char*));
-                if (!domains) {
-                    free(whitelist_buf);
-                    write_error_tlv(pipe, "out of memory");
-                } else {
-                    int domain_count = 0;
-                    line++; // skip past newline
-
-                    while (line && *line && domain_count < (int)max_domains) {
-                        char* next_line = strchr(line, '\n');
-                        if (next_line) *next_line = '\0';
-                        if (strlen(line) > 0) {
-                            domains[domain_count++] = line;
-                        }
-                        line = next_line ? next_line + 1 : NULL;
-                    }
-
-                    write_response_tlv(pipe, "OK", (const char**)domains, domain_count);
-                    free(domains);
-                    free(whitelist_buf);
-                }
-            }
-        }
-
-    } else if (strcmp(buffer, "RELOAD_WHITELIST") == 0) {
-        char response[256];
-        DaemonReloadWhitelist(response, sizeof(response));
-        write_ok(pipe);
-
     } else if (strcmp(buffer, "RESTART_CLIENT") == 0) {
-        write_ok(pipe);
-        CloseHandle(pipe);
-        ExitProcess(0);
+        if (!RequestBackendRestart()) write_error_tlv(pipe, "failed to schedule backend restart");
+        else {
+            write_ok(pipe);
+            SetEvent(g_ServiceStopEvent);
+        }
 
     } else if (strcmp(buffer, "PING") == 0) {
         write_ok(pipe);
@@ -475,19 +394,6 @@ DWORD WINAPI client_handler(LPVOID param) {
             write_ok(pipe);
         }
 
-    } else if (strcmp(buffer, "SET_FALLBACK_WHITELIST") == 0) {
-        if (arg_count < 1 || !args[0]) {
-            write_error_tlv(pipe, "missing value (0 or 1)");
-        } else {
-            SetFallbackWhitelistEnabled(args[0][0] == '1');
-            write_ok(pipe);
-        }
-
-    } else if (strcmp(buffer, "GET_FALLBACK_WHITELIST") == 0) {
-        const char* val = IsFallbackWhitelistEnabled() ? "1" : "0";
-        const char* data[1] = {val};
-        write_response_tlv(pipe, "OK", data, 1);
-
     } else if (strcmp(buffer, "SET_SERVER_ADDR") == 0) {
         if (arg_count < 1 || !args[0] || strlen(args[0]) == 0) {
             write_error_tlv(pipe, "missing server address");
@@ -495,7 +401,7 @@ DWORD WINAPI client_handler(LPVOID param) {
             const char* new_ip = args[0];
             // If this is the local machine's IP, use "." (localhost TCP)
             if (strcmp(new_ip, "127.0.0.1") != 0 && strcmp(new_ip, ".") != 0) {
-                char local_ip[64] = {0};
+                char local_ip[64] = {};
                 GetLocalIp(new_ip, local_ip, sizeof(local_ip));
                 if (local_ip[0] && strcmp(new_ip, local_ip) == 0) {
                     SetServerIp(".");
@@ -521,7 +427,7 @@ DWORD WINAPI client_handler(LPVOID param) {
         }
 
     } else if (strcmp(buffer, "GET_USERNAME") == 0) {
-        char buf[128] = {0};
+        char buf[128] = {};
         const char* data[1] = {buf};
         if (LoadUserName(buf, sizeof(buf)) == 0) {
             write_response_tlv(pipe, "OK", data, 1);
@@ -538,29 +444,10 @@ DWORD WINAPI client_handler(LPVOID param) {
         }
 
     } else if (strcmp(buffer, "GET_TOKEN") == 0) {
-        char buf[256] = {0};
+        char buf[256] = {};
         ini_get_string("client", "token", buf, sizeof(buf));
         const char* data[1] = {buf};
         write_response_tlv(pipe, "OK", data, 1);
-
-    } else if (strcmp(buffer, "GET_FILTRATION") == 0) {
-        char val[8];
-        int enabled = RefreshFiltrationEffective();
-        snprintf(val, sizeof(val), "%d", enabled);
-        const char* data[1] = {val};
-        write_response_tlv(pipe, "OK", data, 1);
-
-    } else if (strcmp(buffer, "SET_FILTRATION") == 0) {
-        if (arg_count < 1 || !args[0]) {
-            write_error_tlv(pipe, "missing value (0 or 1)");
-        } else {
-            int enabled = (args[0][0] == '1');
-            if (DaemonSetFiltration(enabled) == 0) {
-                write_ok(pipe);
-            } else {
-                write_error_tlv(pipe, "failed to set filtration");
-            }
-        }
 
     } else if (strcmp(buffer, "GET_WINDOWS_NOTIFICATIONS") == 0) {
         const char* data[] = {IsWindowsNotificationsEnabled() ? "1" : "0"};
@@ -576,34 +463,6 @@ DWORD WINAPI client_handler(LPVOID param) {
             write_ok(pipe);
         }
 
-    } else if (strcmp(buffer, "GET_IPV6_BLOCK") == 0) {
-        const char* data[] = {IsIpv6BlockEnabled() ? "1" : "0"};
-        write_response_tlv(pipe, "OK", data, 1);
-
-    } else if (strcmp(buffer, "SET_IPV6_BLOCK") == 0) {
-        if (arg_count != 1 || !args[0] ||
-            (strcmp(args[0], "0") != 0 && strcmp(args[0], "1") != 0)) {
-            write_error_tlv(pipe, "expected value 0 or 1");
-        } else if (SetIpv6BlockEnabled(args[0][0] == '1') != 0) {
-            write_error_tlv(pipe, "failed to save IPv6 blocking preference");
-        } else {
-            write_ok(pipe);
-        }
-
-    } else if (strcmp(buffer, "GET_FILTRATION_AUTO_DISABLE") == 0) {
-        char val[8];
-        snprintf(val, sizeof(val), "%d", IsFiltrationAutoDisableEnabled());
-        const char* data[1] = {val};
-        write_response_tlv(pipe, "OK", data, 1);
-
-    } else if (strcmp(buffer, "SET_FILTRATION_AUTO_DISABLE") == 0) {
-        if (arg_count < 1 || !args[0]) {
-            write_error_tlv(pipe, "missing value (0 or 1)");
-        } else {
-            SetFiltrationAutoDisableEnabled(args[0][0] == '1');
-            write_ok(pipe);
-        }
-
     } else if (strcmp(buffer, "DISCOVER_SERVERS") == 0) {
         int timeout_ms = 2000;
         if (arg_count >= 1 && args[0]) {
@@ -611,12 +470,12 @@ DWORD WINAPI client_handler(LPVOID param) {
             if (timeout_ms <= 0) timeout_ms = 2000;
         }
 
-        char local_ip[64] = {0};
-        char bcast_list[4096] = {0};
+        char local_ip[64] = {};
+        char bcast_list[4096] = {};
 
         GetAllBroadcastAddresses(local_ip, sizeof(local_ip), bcast_list, sizeof(bcast_list));
         {
-            char response[8192] = {0};
+            char response[8192] = {};
             int count = DiscoverServers(bcast_list, 42069, timeout_ms, response, sizeof(response));
             if (count == 0) {
                 LOGF("[Discovery] UDP returned 0, trying TCP subnet scan...");
@@ -678,7 +537,7 @@ DWORD WINAPI client_handler(LPVOID param) {
         }
 
     } else if (strcmp(buffer, "GET_SERVER_PORT") == 0) {
-        char buf[16] = {0};
+        char buf[16] = {};
         int port = get_server_port();
         snprintf(buf, sizeof(buf), "%d", port);
         const char* data[1] = {buf};
@@ -706,7 +565,7 @@ DWORD WINAPI client_handler(LPVOID param) {
         }
 
     } else if (strcmp(buffer, "GET_NETWORK_AUTO") == 0) {
-        char buf[8] = {0};
+        char buf[8] = {};
         int auto_val = 1;
         if (ini_get_string("network", "auto", buf, sizeof(buf)) && buf[0])
             auto_val = (buf[0] == '1' || buf[0] == 't' || buf[0] == 'y');
@@ -722,7 +581,7 @@ DWORD WINAPI client_handler(LPVOID param) {
         }
 
     } else if (strcmp(buffer, "GET_NETWORK_GATEWAY") == 0) {
-        char buf[64] = {0};
+        char buf[64] = {};
         ini_get_string("network", "gateway", buf, sizeof(buf));
         const char* data[1] = {buf};
         write_response_tlv(pipe, "OK", data, 1);
@@ -736,13 +595,13 @@ DWORD WINAPI client_handler(LPVOID param) {
         }
 
     } else if (strcmp(buffer, "GET_NETWORK_MASK") == 0) {
-        char buf[64] = {0};
+        char buf[64] = {};
         ini_get_string("network", "mask", buf, sizeof(buf));
         const char* data[1] = {buf};
         write_response_tlv(pipe, "OK", data, 1);
 
     } else if (strcmp(buffer, "GET_SAVED_SERVER_FINGERPRINT") == 0) {
-        char pinned[65] = {0};
+        char pinned[65] = {};
         ini_get_string("server", "fingerprint", pinned, sizeof(pinned));
         const char* data[] = {pinned};
         write_response_tlv(pipe, "OK", data, 1);
@@ -781,7 +640,7 @@ DWORD WINAPI client_handler(LPVOID param) {
         }
 
     } else if (strcmp(buffer, "GET_SERVER_NAME") == 0) {
-        char buf[128] = {0};
+        char buf[128] = {};
         if (ini_get_string("server", "name", buf, sizeof(buf)) && buf[0]) {
             const char* data[1] = {buf};
             write_response_tlv(pipe, "OK", data, 1);
@@ -861,42 +720,36 @@ DWORD WINAPI client_handler(LPVOID param) {
                 CloseHandle(sub_event);
             }
         }
-        CloseHandle(pipe);
-        if (args) {
-            for (int i = 0; i < arg_count; i++) free(args[i]);
-            free(args);
-        }
         return 0;
 
     } else {
         write_error_tlv(pipe, "unknown command");
     }
 
-    // Free args
-    if (args) {
-        for (int i = 0; i < arg_count; i++) free(args[i]);
-        free(args);
-    }
 
-    CloseHandle(pipe);
     return 0;
+}
+
+DWORD WINAPI client_handler(LPVOID param) {
+    try { return handle_client(param); }
+    catch (...) { return 1; }
 }
 
 DWORD WINAPI client_server_thread(LPVOID param) {
     (void)param;
 
-    g_shutdown_event = CreateEvent(NULL, TRUE, FALSE, NULL);
 
     // Restrict the pipe to SYSTEM + Administrators + Owner so local processes
     // can't drive the client daemon through its frontend pipe.
     SECURITY_ATTRIBUTES sec_attrs;
     int have_sec = (bb_restrict_pipe_security(&sec_attrs) == 0);
+    if (!have_sec) return 1;
 
     while (1) {
         HANDLE pipe = CreateNamedPipe(
             CLIENT_PIPE_NAME,
             PIPE_ACCESS_DUPLEX,
-            PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
+            PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
             PIPE_UNLIMITED_INSTANCES,
             CLIENT_PIPE_BUFFER_SIZE,
             CLIENT_PIPE_BUFFER_SIZE,
@@ -923,9 +776,13 @@ DWORD WINAPI client_server_thread(LPVOID param) {
                 break;
             }
             HANDLE thread = CreateThread(NULL, 0, client_handler, pipe, 0, NULL);
-            if (thread) {
-                CloseHandle(thread);
-            }
+            if (thread) g_handlers.push_back(thread);
+            else CloseHandle(pipe);
+            std::erase_if(g_handlers, [](HANDLE worker) {
+                if (WaitForSingleObject(worker, 0) != WAIT_OBJECT_0) return false;
+                CloseHandle(worker);
+                return true;
+            });
         } else {
             CloseHandle(pipe);
         }
@@ -940,9 +797,28 @@ DWORD WINAPI client_server_thread(LPVOID param) {
     return 0;
 }
 
-void StartClientServer(void) {
-    HANDLE thread = CreateThread(NULL, 0, client_server_thread, NULL, 0, NULL);
-    if (thread) {
-        CloseHandle(thread);
+int StartClientServer(void) {
+    g_shutdown_event = CreateEvent(NULL, TRUE, FALSE, NULL);
+    if (!g_shutdown_event) return -1;
+    g_listener = CreateThread(NULL, 0, client_server_thread, NULL, 0, NULL);
+    return g_listener ? 0 : -1;
+}
+
+void StopClientServer(void) {
+    SignalClientServerShutdown();
+    if (g_listener) {
+        WaitForSingleObject(g_listener, INFINITE);
+        CloseHandle(g_listener);
+        g_listener = NULL;
+    }
+    for (HANDLE worker : g_handlers) CancelSynchronousIo(worker);
+    for (HANDLE worker : g_handlers) {
+        WaitForSingleObject(worker, INFINITE);
+        CloseHandle(worker);
+    }
+    g_handlers.clear();
+    if (g_shutdown_event) {
+        CloseHandle(g_shutdown_event);
+        g_shutdown_event = NULL;
     }
 }

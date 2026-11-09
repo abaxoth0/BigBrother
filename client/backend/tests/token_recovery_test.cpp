@@ -1,5 +1,5 @@
 #define BB_TOKEN_TEST
-#include "../src/ipc_daemon.c"
+#include "../src/ipc_daemon.cpp"
 #include <assert.h>
 
 HANDLE g_ServiceStopEvent = INVALID_HANDLE_VALUE;

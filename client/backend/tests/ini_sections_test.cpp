@@ -1,4 +1,4 @@
-#include "../src/ipc_daemon.c"
+#include "../src/ipc_daemon.cpp"
 #include <assert.h>
 
 HANDLE g_ServiceStopEvent = INVALID_HANDLE_VALUE;
@@ -16,7 +16,7 @@ static void fixture(const char* content) {
     assert(fclose(file) == 0);
 }
 static void value(const char* section, const char* key, const char* expected) {
-    char out[128] = {0};
+    char out[128] = {};
     assert(ini_get_string(section, key, out, sizeof(out)));
     assert(strcmp(out, expected) == 0);
 }

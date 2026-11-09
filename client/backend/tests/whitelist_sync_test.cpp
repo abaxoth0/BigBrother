@@ -1,5 +1,5 @@
 #define BB_TOKEN_TEST
-#include "../src/ipc_daemon.c"
+#include "../src/ipc_daemon.cpp"
 #include <assert.h>
 
 HANDLE g_ServiceStopEvent = INVALID_HANDLE_VALUE;
@@ -44,7 +44,7 @@ static DWORD WINAPI firewall(LPVOID context) {
     SetEvent(ready);
     for (size_t i = 0; i < sizeof(requests) / sizeof(requests[0]); i++) {
         assert(ConnectNamedPipe(pipe, NULL) || GetLastError() == ERROR_PIPE_CONNECTED);
-        char request[256] = {0};
+        char request[256] = {};
         DWORD size;
         assert(ReadFile(pipe, request, sizeof(request) - 1, &size, NULL));
         if (strcmp(request, requests[i].command) != 0) {
@@ -70,7 +70,7 @@ static DWORD WINAPI watchdog(LPVOID context) {
 }
 
 static int sync_event(const char* data) {
-    SrvLineReader reader = {0};
+    SrvLineReader reader = {};
     if (data)
         reader.len = (size_t)snprintf(reader.buf, sizeof(reader.buf), "%zu\n%s\n\n", strlen(data), data);
     else

@@ -4,8 +4,8 @@
 #define ProductName "BigBrother Client"
 #define InstallFolder "BigBrother"
 #define DaemonName "BigBrother Client Daemon.exe"
-#define ServiceName "BigBrother Firewall"
-#define ServiceExe "BigBrother Firewall.exe"
+#define ServiceName "BigBrother.Client"
+#define ServiceExe "BigBrother Client Daemon.exe"
 #include "installer\version.iss"
 #ifndef PayloadDir
   #define PayloadDir SourcePath + "dist"

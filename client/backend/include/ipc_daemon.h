@@ -23,6 +23,8 @@
 extern uint32_t g_whitelist_revision;
 extern HANDLE g_ServiceStopEvent;
 
+void ResetFirewallSync(void);
+
 /**
  * @brief Connect to the daemon and get status.
  *

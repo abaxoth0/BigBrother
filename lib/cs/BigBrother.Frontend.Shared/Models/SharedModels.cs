@@ -231,6 +231,7 @@ public class ClientStatus
 
 public class LogFileSource
 {
+    public Func<CancellationToken, Task<List<Lib.LogEntry>>>? LoadAsync { get; set; }
     public string Label { get; set; } = "";
     public string FilePath { get; set; } = "";
     public Lib.LogSource Source { get; set; } = Lib.LogSource.Unknown;

@@ -13,6 +13,10 @@
 
 #include <stddef.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define ENCODING_MAX_LINE_LENGTH 256
 #define ENCODING_BUFFER_SIZE 4096
 
@@ -73,5 +77,9 @@ int EncodingFormatOk(char* buffer, size_t size);
  * @return Number of bytes written, or -1 on error.
  */
 int EncodingFormatError(char* buffer, size_t size, const char* error);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // ENCODING_H

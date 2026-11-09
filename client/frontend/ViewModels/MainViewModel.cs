@@ -35,16 +35,13 @@ public class MainViewModel : ViewModelBase, IDisposable
 
     // Services
     private readonly IpcService _ipcService = new IpcService();
-    private readonly ServiceManager _serviceManager = new("BigBrother Firewall");
-    private readonly LogReader _clientLogReader = new();
-    private readonly LogReader _firewallLogReader = new();
+    private readonly BrokerLogReader _clientLogReader = new("client", Lib.LogSource.Client);
+    private readonly BrokerLogReader _firewallLogReader = new("firewall", Lib.LogSource.Firewall);
 
     /// <summary>Shared pipe service used by the ViewModel and the main window.</summary>
     public IpcService IpcService => _ipcService;
 
     private int _lastClientPid;
-    private string _lastClientLogPath = "";
-    private string _lastFirewallLogPath = "";
 
     // Status
     private bool _filtrationEnabled = false;
@@ -1044,7 +1041,7 @@ public class MainViewModel : ViewModelBase, IDisposable
         AddLog("INFO", "Запуск демона...");
         try
         {
-            var result = await _serviceManager.StartServiceAsync();
+            var result = await _ipcService.ControlFirewallAsync("start");
             AddLog(result ? "INFO" : "ERROR", result ? "Демон запущен" : "Не удалось запустить демон");
             await Task.Delay(2000);
             await RefreshStateAsync();
@@ -1060,7 +1057,7 @@ public class MainViewModel : ViewModelBase, IDisposable
         AddLog("INFO", "Остановка демона...");
         try
         {
-            var result = await _serviceManager.StopServiceAsync();
+            var result = await _ipcService.ControlFirewallAsync("stop");
             AddLog(result ? "INFO" : "ERROR", result ? "Демон остановлен" : "Не удалось остановить демон");
             await RefreshStateAsync();
         }
@@ -1075,7 +1072,7 @@ public class MainViewModel : ViewModelBase, IDisposable
         AddLog("INFO", "Рестарт демона...");
         try
         {
-            var result = await _serviceManager.RestartServiceAsync();
+            var result = await _ipcService.ControlFirewallAsync("restart");
             AddLog(result ? "INFO" : "ERROR", result ? "Демон перезапущен" : "Не удалось перезапустить демон");
             await Task.Delay(3000);
             await RefreshStateAsync();
@@ -1110,51 +1107,15 @@ public class MainViewModel : ViewModelBase, IDisposable
         _lastClientPid = status.ClientPid;
     }
 
-    private async Task StartLogReadersAsync()
+    private Task StartLogReadersAsync()
     {
-        string clientLog = "";
-        string firewallLog = "";
-
-        try
-        {
-            var paths = await _ipcService.GetLogPathAsync();
-            clientLog = paths.clientLog;
-            firewallLog = paths.firewallLog;
-        }
-        catch { }
-
-        // If IPC failed, try to use previous paths
-        if (string.IsNullOrEmpty(clientLog))
-            clientLog = _lastClientLogPath;
-        if (string.IsNullOrEmpty(firewallLog))
-            firewallLog = _lastFirewallLogPath;
-
-        // Save for next time
-        if (!string.IsNullOrEmpty(clientLog))
-            _lastClientLogPath = clientLog;
-        if (!string.IsNullOrEmpty(firewallLog))
-            _lastFirewallLogPath = firewallLog;
-
-        if (!string.IsNullOrEmpty(clientLog) && File.Exists(clientLog))
-        {
-            _clientLogReader.Stop();
-            _clientLogReader.OnNewLine -= OnLogLineReceived;
-            _clientLogReader.OnNewLine += OnLogLineReceived;
-            _clientLogReader.Start(clientLog, Lib.LogSource.Client);
-        }
-
-        if (!string.IsNullOrEmpty(firewallLog) && File.Exists(firewallLog))
-        {
-            _firewallLogReader.Stop();
-            _firewallLogReader.OnNewLine -= OnLogLineReceived;
-            _firewallLogReader.OnNewLine += OnLogLineReceived;
-            _firewallLogReader.Start(firewallLog, Lib.LogSource.Firewall);
-        }
-
-        if (!string.IsNullOrEmpty(clientLog) || !string.IsNullOrEmpty(firewallLog))
-        {
-            AddLog("INFO", $"Чтение логов: client={clientLog}, firewall={firewallLog}");
-        }
+        _clientLogReader.OnNewLine -= OnLogLineReceived;
+        _clientLogReader.OnNewLine += OnLogLineReceived;
+        _firewallLogReader.OnNewLine -= OnLogLineReceived;
+        _firewallLogReader.OnNewLine += OnLogLineReceived;
+        _clientLogReader.Start();
+        _firewallLogReader.Start();
+        return Task.CompletedTask;
     }
 
     private void OnLogLineReceived(string line)
@@ -1172,59 +1133,18 @@ public class MainViewModel : ViewModelBase, IDisposable
         AddLog(level, line);
     }
 
-    public async Task OpenHistoryAsync()
+    public Task OpenHistoryAsync()
     {
-        string clientLog = _lastClientLogPath;
-        string firewallLog = _lastFirewallLogPath;
-
-        if (_lastClientPid != 0 && (string.IsNullOrEmpty(clientLog) || string.IsNullOrEmpty(firewallLog)))
-        {
-            try
-            {
-                var paths = await _ipcService.GetLogPathAsync();
-                if (!string.IsNullOrEmpty(paths.clientLog))
-                    clientLog = paths.clientLog;
-                if (!string.IsNullOrEmpty(paths.firewallLog))
-                    firewallLog = paths.firewallLog;
-            }
-            catch { }
-        }
-
-        if (_disposed) return;
-
-        // Save for next time
-        if (!string.IsNullOrEmpty(clientLog))
-            _lastClientLogPath = clientLog;
-        if (!string.IsNullOrEmpty(firewallLog))
-            _lastFirewallLogPath = firewallLog;
-
-        if (string.IsNullOrEmpty(clientLog) && string.IsNullOrEmpty(firewallLog))
-        {
-            MessageDialog.Show("Нет доступных логов", "Ошибка", MessageBoxButton.OK, MessageBoxImage.Warning);
-            return;
-        }
-
         var sources = new List<LogFileSource>();
-        if (!string.IsNullOrEmpty(firewallLog))
+        foreach (var source in new[] { "firewall", "client" })
         {
-            sources.Add(new LogFileSource
-            {
-                Label = "Firewall",
-                FilePath = firewallLog,
-                Source = Lib.LogSource.Firewall
+            sources.Add(new LogFileSource {
+                Label = source == "firewall" ? "Firewall" : "Client",
+                LoadAsync = token => _ipcService.ReadLogHistoryAsync(source, token)
             });
         }
-        if (!string.IsNullOrEmpty(clientLog))
-        {
-            sources.Add(new LogFileSource
-            {
-                Label = "Client",
-                FilePath = clientLog,
-                Source = Lib.LogSource.Client
-            });
-        }
-
         LogViewRequested?.Invoke(sources);
+        return Task.CompletedTask;
     }
 
     public void OpenArchivedLogs()
