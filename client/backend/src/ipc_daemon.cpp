@@ -71,8 +71,9 @@ static int apply_filtration_sync(void);
 
 static std::mutex g_whitelist_mutex;
 static std::optional<std::string> g_last_whitelist;
-static int g_blocked_all_pushed = 0;
+static std::atomic<int> g_blocked_all_pushed{0};
 static std::atomic<bool> g_whitelist_sync_pending{true};
+static void block_all_if_no_fallback(void);
 
 static void wl_last_set(const char* value) {
     std::lock_guard guard(g_whitelist_mutex);
@@ -91,7 +92,9 @@ static int wl_last_equals(const char* value) {
 
 void ResetFirewallSync(void) {
     wl_last_clear();
+    g_blocked_all_pushed = 0;
     g_whitelist_sync_pending = true;
+    if (!IsServerSessionActive()) block_all_if_no_fallback();
     RefreshFiltrationEffective();
 }
 

@@ -69,7 +69,7 @@ static void wait_state(SC_HANDLE service, DWORD expected) {
     }
 }
 
-static std::string request(const std::string& command) {
+static client::Handle connect_backend() {
     HANDLE raw = INVALID_HANDLE_VALUE;
     auto deadline = GetTickCount64() + 10000;
     do {
@@ -80,6 +80,12 @@ static std::string request(const std::string& command) {
     } while (GetTickCount64() < deadline);
     client::Handle connection(raw);
     assert(connection);
+    return connection;
+}
+
+static std::string request(const std::string& command) {
+    auto connection = connect_backend();
+    HANDLE raw = connection.get();
     DWORD count;
     assert(WriteFile(raw, command.data(), static_cast<DWORD>(command.size()), &count, nullptr));
     std::string response;
@@ -160,7 +166,20 @@ int main(int argc, char** argv) {
     client::Handle worker(OpenProcess(SYNCHRONIZE, FALSE, worker_pid));
     assert(worker && WaitForSingleObject(worker.get(), 0) == WAIT_TIMEOUT);
     assert(request("GET_APPROVED_UPDATE\n\n").starts_with("ERROR\n"));
-    stop_service(backend.get());
+    {
+        auto unfinished = connect_backend();
+        DWORD count;
+        assert(WriteFile(unfinished.get(), "PING\n", 5, &count, nullptr));
+        auto unread = connect_backend();
+        std::filesystem::create_directories(directory / "logs");
+        { std::ofstream log(directory / "logs/firewall.binlog", std::ios::binary); log << std::string(70000, 'x'); }
+        const std::string command = "READ_LOG\n8\nfirewall\n1\n0\n0\n\n\n";
+        assert(WriteFile(unread.get(), command.data(), command.size(), &count, nullptr));
+        assert(request("PING\n\n") == "OK\n\n");
+        auto stopped_at = GetTickCount64();
+        stop_service(backend.get());
+        assert(GetTickCount64() - stopped_at < 10000);
+    }
     wait_state(firewall.get(), SERVICE_STOPPED);
     assert(WaitForSingleObject(worker.get(), 5000) == WAIT_OBJECT_0);
     assert(StartServiceW(backend.get(), 0, nullptr));
@@ -187,5 +206,5 @@ int main(int argc, char** argv) {
     wait_state(backend.get(), SERVICE_STOPPED);
     assert(DeleteService(firewall.get()));
     assert(DeleteService(backend.get()));
-    puts("PASS: real backend service, explicit controls, no respawn, worker approval/lifetime, backend restart, graceful stop and crash cascade");
+    puts("PASS: real backend lifecycle, worker approval/lifetime, restart, shutdown with unfinished requests/unread replies and crash cascade");
 }

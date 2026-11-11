@@ -6,6 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="../frontend/Services/ClientStartup.cs" Link="ClientStartup.cs" />
     <Compile Include="../frontend/Services/UpdateFiles.cs" Link="UpdateFiles.cs" />
     <Compile Include="../frontend/Services/UpdateMetadata.cs" Link="UpdateMetadata.cs" />
     <Compile Include="../frontend/ViewModels/UpdatesViewModel.cs" Link="UpdatesViewModel.cs" />

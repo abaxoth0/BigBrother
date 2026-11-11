@@ -33,10 +33,17 @@ processes belong to backend-owned jobs, and notification children watch their
 parent. Restarting the backend closes its applications and leaves the firewall
 stopped.
 
+Starting or restarting the firewall invalidates its cached policy state. When
+offline with fallback disabled, the backend reapplies the empty whitelist before
+refreshing filtration. Shutdown cancels unfinished pipe requests and unread
+responses before joining their handlers.
+
 The separately staged updater runs independently so it can stop and replace the
 backend itself. It restores the previous backend and firewall running states
 after installation or rollback. Restarting the firewall during an approved
 update is an explicit maintenance operation.
+Normal frontend startup checks for an interrupted update before starting or
+attaching to the backend, so recovery also works when the backend cannot start.
 
 Use the full Client Setup installer once to migrate an installation where the
 firewall launched the backend. It replaces both service definitions. The old

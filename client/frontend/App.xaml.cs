@@ -32,8 +32,15 @@ public partial class App : System.Windows.Application
         {
             int? expectedPid = e.Args.Length == 2 && e.Args[0] == "--prepare-update"
                 ? int.Parse(e.Args[1], System.Globalization.CultureInfo.InvariantCulture) : null;
-            _backendLifetime = await BackendLifetime.AttachAsync(
-                () => Dispatcher.BeginInvoke(() => Shutdown()), expectedPid);
+            if (!await ClientStartup.StartAsync(
+                () => expectedPid == null ? Task.Run(ClientUpdates.PendingRecovery) : Task.FromResult<string?>(null),
+                ClientUpdates.Launch,
+                async () => { _backendLifetime = await BackendLifetime.AttachAsync(
+                    () => Dispatcher.BeginInvoke(() => Shutdown()), expectedPid); }))
+            {
+                Shutdown();
+                return;
+            }
             if (expectedPid != null)
             {
                 var progress = new UpdateProgressWindow();
@@ -52,7 +59,6 @@ public partial class App : System.Windows.Application
         ShutdownMode = ShutdownMode.OnLastWindowClose;
         MainWindow = new MainWindow();
         MainWindow.Show();
-        _ = RecoverInterruptedUpdateAsync();
     }
 
     private static async Task ApplyUpdateAsync(string work, UpdateProgressWindow progress)
@@ -65,23 +71,6 @@ public partial class App : System.Windows.Application
         catch (Exception ex)
         {
             progress.Finish("Не удалось обновить клиент.\n" + ex.Message);
-        }
-    }
-
-    private async Task RecoverInterruptedUpdateAsync()
-    {
-        try
-        {
-            var work = await Task.Run(ClientUpdates.PendingRecovery);
-            if (work == null) return;
-            ClientUpdates.Launch(work);
-            Shutdown();
-        }
-        catch (Exception ex)
-        {
-            var progress = new UpdateProgressWindow();
-            progress.Show();
-            progress.Finish("Не удалось восстановить прерванное обновление.\n" + ex.Message);
         }
     }
 

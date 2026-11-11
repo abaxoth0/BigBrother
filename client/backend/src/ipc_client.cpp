@@ -28,6 +28,16 @@ static HANDLE g_shutdown_event = NULL;
 static HANDLE g_listener = NULL;
 static std::vector<HANDLE> g_handlers;
 
+static bool client_server_stopping() {
+    return g_shutdown_event && WaitForSingleObject(g_shutdown_event, 0) == WAIT_OBJECT_0;
+}
+
+static bool write_pipe(HANDLE pipe, const char* data, DWORD length) {
+    if (client_server_stopping()) return false;
+    DWORD written;
+    return WriteFile(pipe, data, length, &written, nullptr) && written == length;
+}
+
 // State change notification. SRWLOCK is statically initializable, so
 // NotifyStateChanged can be called from DaemonRun before client_server_thread
 // runs (which would be a race with a runtime-initialized CRITICAL_SECTION).
@@ -64,7 +74,7 @@ void NotifyStateChanged(void) {
 // Assembles into a fixed buffer when it fits; otherwise streams field-by-field
 // so large responses (e.g. a full whitelist) are never truncated.
 static void write_response_tlv(HANDLE pipe, const char* status, const char** data, size_t data_count) {
-    DWORD written;
+    if (client_server_stopping()) return;
 
     // Compute total size first.
     size_t total = strlen(status) + 2; // status + \n + trailing \n
@@ -99,24 +109,20 @@ static void write_response_tlv(HANDLE pipe, const char* status, const char** dat
         if (pos < sizeof(buffer)) {
             buffer[pos++] = '\n';
         }
-        WriteFile(pipe, buffer, (DWORD)pos, &written, NULL);
-        FlushFileBuffers(pipe);
+        if (write_pipe(pipe, buffer, (DWORD)pos) && !client_server_stopping()) FlushFileBuffers(pipe);
         return;
     }
 
     // Streaming path: large payloads (whitelist relays). Write per field.
-    WriteFile(pipe, status, (DWORD)strlen(status), &written, NULL);
-    WriteFile(pipe, "\n", 1, &written, NULL);
+    if (!write_pipe(pipe, status, (DWORD)strlen(status)) || !write_pipe(pipe, "\n", 1)) return;
     for (size_t i = 0; i < data_count; i++) {
         if (!data[i]) continue;
         char len_buf[32];
         int len = snprintf(len_buf, sizeof(len_buf), "%zu\n", strlen(data[i]));
-        WriteFile(pipe, len_buf, (DWORD)len, &written, NULL);
-        WriteFile(pipe, data[i], (DWORD)strlen(data[i]), &written, NULL);
-        WriteFile(pipe, "\n", 1, &written, NULL);
+        if (!write_pipe(pipe, len_buf, (DWORD)len) ||
+            !write_pipe(pipe, data[i], (DWORD)strlen(data[i])) || !write_pipe(pipe, "\n", 1)) return;
     }
-    WriteFile(pipe, "\n", 1, &written, NULL);
-    FlushFileBuffers(pipe);
+    if (write_pipe(pipe, "\n", 1) && !client_server_stopping()) FlushFileBuffers(pipe);
 }
 
 static void write_error_tlv(HANDLE pipe, const char* error) {
@@ -145,6 +151,7 @@ static void pipe_reader_init(PipeByteReader* r, HANDLE pipe) {
 }
 
 static int pipe_reader_fill(PipeByteReader* r) {
+    if (client_server_stopping()) return 0;
     r->pos = 0;
     r->len = 0;
     DWORD bytes_read;
@@ -669,7 +676,6 @@ static DWORD handle_client(LPVOID param) {
             write_error_tlv(pipe, "failed to create subscriber event");
         } else {
             write_ok(pipe);
-            FlushFileBuffers(pipe);
 
             AcquireSRWLockExclusive(&g_sub_lock);
             int slot = -1;
@@ -696,9 +702,7 @@ static DWORD handle_client(LPVOID param) {
                             last_generation = g_state_generation;
                             ResetEvent(sub_event);
                             const char* payload = "EVENT\n13\nSTATE_CHANGED\n\n";
-                            DWORD written = 0;
-                            if (!WriteFile(pipe, payload, (DWORD)strlen(payload), &written, NULL) ||
-                                written != (DWORD)strlen(payload)) {
+                            if (!write_pipe(pipe, payload, (DWORD)strlen(payload))) {
                                 keep_going = 0;
                             }
                         }
@@ -811,12 +815,15 @@ void StopClientServer(void) {
         CloseHandle(g_listener);
         g_listener = NULL;
     }
-    for (HANDLE worker : g_handlers) CancelSynchronousIo(worker);
-    for (HANDLE worker : g_handlers) {
-        WaitForSingleObject(worker, INFINITE);
-        CloseHandle(worker);
+    while (!g_handlers.empty()) {
+        for (HANDLE worker : g_handlers) CancelSynchronousIo(worker);
+        std::erase_if(g_handlers, [](HANDLE worker) {
+            if (WaitForSingleObject(worker, 0) != WAIT_OBJECT_0) return false;
+            CloseHandle(worker);
+            return true;
+        });
+        if (!g_handlers.empty()) Sleep(10);
     }
-    g_handlers.clear();
     if (g_shutdown_event) {
         CloseHandle(g_shutdown_event);
         g_shutdown_event = NULL;

@@ -110,7 +110,8 @@ Click **Установить обновление** to copy and install the revi
 client rechecks its version, hash, size and location before copying; if the server
 changed the package, check again to review the current release. Background update
 polling, automatic installation and backend update announcements are disabled.
-Recovery of an already interrupted installation still runs at startup.
+Recovery of an already interrupted installation runs at startup, before starting
+or attaching to the backend, so a damaged backend cannot prevent rollback.
 
 The update runs with required administrator rights and an explicit `runas`
 launch. Windows may reuse elevation when the launching GUI is already elevated.
