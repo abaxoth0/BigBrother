@@ -23,6 +23,7 @@
 #include "../include/ipc.h"
 #include "../../common/log/log.h"
 #include "../../common/version.h"
+#include "../../common/backend_lifetime.h"
 
 SERVICE_STATUS g_ServiceStatus = {0};
 SERVICE_STATUS_HANDLE g_StatusHandle = NULL;
@@ -58,12 +59,7 @@ StringView g_FilterExpr = {0};
 // TODO: Allow user to specify whitelist path
 static char g_WhitelistPath[MAX_PATH] = "whitelist.txt";
 static char g_ConfigPath[MAX_PATH] = "config\\config.ini";
-static char g_ServerIp[64] = {0};
-static char g_ClientExePath[MAX_PATH] = {0};
-static DWORD g_ClientPid = 0;
-static HANDLE g_ClientProcess = NULL;
-static HANDLE g_ClientStopEvent = NULL;
-
+static char g_InstallPath[MAX_PATH] = {0};
 static void get_exe_path(char* buf, size_t size) {
     char* name = buf + GetModuleFileName(NULL, buf, (DWORD)size);
     // Find last backslash
@@ -72,14 +68,14 @@ static void get_exe_path(char* buf, size_t size) {
 }
 
 static void init_paths(void) {
-    get_exe_path(g_ClientExePath, sizeof(g_ClientExePath));
-    snprintf(g_WhitelistPath, sizeof(g_WhitelistPath), "%s\\whitelist.txt", g_ClientExePath);
-    snprintf(g_ConfigPath, sizeof(g_ConfigPath), "%s\\config\\config.ini", g_ClientExePath);
+    get_exe_path(g_InstallPath, sizeof(g_InstallPath));
+    snprintf(g_WhitelistPath, sizeof(g_WhitelistPath), "%s\\whitelist.txt", g_InstallPath);
+    snprintf(g_ConfigPath, sizeof(g_ConfigPath), "%s\\config\\config.ini", g_InstallPath);
 }
 
 static void init_logging(void) {
     char logs_dir[LOG_PATH_MAX];
-    snprintf(logs_dir, sizeof(logs_dir), "%s\\logs", g_ClientExePath);
+    snprintf(logs_dir, sizeof(logs_dir), "%s\\logs", g_InstallPath);
     CreateDirectory(logs_dir, NULL);
 
     char log_path[LOG_PATH_MAX];
@@ -114,163 +110,7 @@ static void init_logging(void) {
     }
 }
 
-static void ensure_config_dir(const char* full_path) {
-    char dir[MAX_PATH];
-    strncpy(dir, full_path, sizeof(dir) - 1);
-    dir[sizeof(dir) - 1] = '\0';
-    char* p = strrchr(dir, '\\');
-    if (p) {
-        *p = '\0';
-        CreateDirectory(dir, NULL);
-    }
-}
 
-static void load_config(const char* path) {
-    get_exe_path(g_ClientExePath, sizeof(g_ClientExePath));
-    strncat(g_ClientExePath, "\\BigBrother Client Daemon.exe", sizeof(g_ClientExePath) - strlen(g_ClientExePath) - 1);
-    LOGF("[Config] Default client exe: %s", g_ClientExePath);
-
-    ensure_config_dir(path);
-
-    FILE* f = fopen(path, "r");
-    if (!f) {
-        // Create default config file
-        f = fopen(path, "w");
-        if (f) {
-            fprintf(f, "; BigBrother configuration file\n");
-            fclose(f);
-        }
-        LOGF("[Config] Created default config file: %s", path);
-        return;
-    }
-
-    int section_matched = 0;
-    char line[256];
-    while (fgets(line, sizeof(line), f)) {
-        char* p = line;
-        while (*p == ' ' || *p == '\t') p++;
-        char* end = p + strlen(p) - 1;
-        while (end > p && (*end == '\n' || *end == '\r' || *end == ' ' || *end == '\t')) *end-- = '\0';
-        if (*p == '\0' || *p == ';' || *p == '#') continue;
-
-        if (*p == '[') {
-            char* close = strchr(p, ']');
-            if (!close) continue;
-            *close = '\0';
-            section_matched = (_stricmp(p + 1, "filtration") == 0) ? 2 :
-                (_stricmp(p + 1, "server") == 0 || _stricmp(p + 1, "daemon") == 0);
-            continue;
-        }
-
-        if (!section_matched) continue;
-
-        char* eq = strchr(p, '=');
-        if (!eq) continue;
-        *eq = '\0';
-        char* key = p;
-        char* value = eq + 1;
-        while (*value == ' ' || *value == '\t') value++;
-
-        if (section_matched == 2) {
-            if (strcmp(key, "block_ipv6") == 0) {
-                InterlockedExchange(&g_BlockIpv6, strcmp(value, "0") != 0);
-            }
-            continue;
-        }
-
-        if (strcmp(key, "address") == 0 && section_matched) {
-            // [server] address
-            strncpy(g_ServerIp, value, sizeof(g_ServerIp) - 1);
-            LOGF("[Config] Server IP: %s", g_ServerIp);
-        } else if (strcmp(key, "client_exe") == 0) {
-            strncpy(g_ClientExePath, value, sizeof(g_ClientExePath) - 1);
-            LOGF("[Config] Client exe: %s", g_ClientExePath);
-        }
-    }
-
-    fclose(f);
-}
-
-static int spawn_client_backend(void) {
-    STARTUPINFO si = {0};
-    PROCESS_INFORMATION pi = {0};
-    si.cb = sizeof(si);
-    si.dwFlags = STARTF_USESHOWWINDOW;
-    si.wShowWindow = SW_HIDE;
-
-    // Re-discover client exe path from own exe directory
-    get_exe_path(g_ClientExePath, sizeof(g_ClientExePath));
-    strncat(g_ClientExePath, "\\BigBrother Client Daemon.exe", sizeof(g_ClientExePath) - strlen(g_ClientExePath) - 1);
-
-    char cmd[512];
-    if (g_ServerIp[0] != '\0') {
-        snprintf(cmd, sizeof(cmd), "\"%s\" -d %s", g_ClientExePath, g_ServerIp);
-    } else {
-        snprintf(cmd, sizeof(cmd), "\"%s\" -d", g_ClientExePath);
-    }
-
-    LOGF("[ServiceMain] Spawning: %s", cmd);
-
-    if (CreateProcess(NULL, cmd, NULL, NULL, FALSE, CREATE_NO_WINDOW | INHERIT_PARENT_AFFINITY, NULL, NULL, &si, &pi)) {
-        if (g_ClientProcess) {
-            CloseHandle(g_ClientProcess);
-        }
-        g_ClientProcess = pi.hProcess;
-        g_ClientPid = pi.dwProcessId;
-        CloseHandle(pi.hThread);
-        LOGF("[ServiceMain] Client backend started, pid: %lu", g_ClientPid);
-        return 0;
-    } else {
-        LOGF("[ServiceMain] CreateProcess failed: cmd=%s err=%lu", cmd, GetLastError());
-        return -1;
-    }
-}
-
-static void stop_client_backend(void) {
-    if (g_ClientProcess) {
-        TerminateProcess(g_ClientProcess, 0);
-        CloseHandle(g_ClientProcess);
-        g_ClientProcess = NULL;
-        g_ClientPid = 0;
-    }
-    if (g_ClientStopEvent) {
-        SetEvent(g_ClientStopEvent);
-    }
-}
-
-static int is_client_running(void) {
-    if (!g_ClientProcess || !g_ClientPid) {
-        return 0;
-    }
-
-    DWORD exit_code;
-    if (GetExitCodeProcess(g_ClientProcess, &exit_code) && exit_code == STILL_ACTIVE) {
-        return 1;
-    }
-
-    return 0;
-}
-
-static DWORD WINAPI client_monitor_thread(LPVOID param) {
-    // Guard against a NULL stop event (CreateEvent failure) so we don't busy-loop
-    // on WAIT_FAILED. When NULL, fall back to a plain 5s sleep.
-    while (1) {
-        DWORD wait;
-        if (g_ClientStopEvent) {
-            wait = WaitForSingleObject(g_ClientStopEvent, 5000);
-        } else {
-            Sleep(5000);
-            wait = WAIT_TIMEOUT;
-        }
-        if (wait == WAIT_OBJECT_0) break;
-
-        if (!is_client_running() && g_ServerIp[0] != '\0') {
-            LOGF("[ClientMonitor] Client died, restarting...");
-            spawn_client_backend();
-        }
-    }
-    return 0;
-}
 
 // Resolved IP + whether it came from an exception rule.
 typedef struct {
@@ -929,26 +769,22 @@ void WINAPI ServiceMain(DWORD argc, LPTSTR *argv) {
         return;
     }
 
-    load_config(g_ConfigPath);
-
-    DLOGF("[ServiceMain] Starting IPC");
+    HANDLE monitor_thread = CreateThread(NULL, 0, bb_watch_backend, g_ServiceStopEvent, 0, NULL);
+    if (!monitor_thread) {
+        SetEvent(g_ServiceStopEvent);
+        g_ServiceStatus.dwCurrentState = SERVICE_STOPPED;
+        UpdateServiceStatus();
+        CloseHandle(g_ServiceStopEvent);
+        return;
+    }
     IpcStart(g_ServiceStopEvent);
 
-    g_ClientStopEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
-
-    LOGF("[ServiceMain] Starting client backend, server: %s", g_ServerIp[0] ? g_ServerIp : "(not set)");
-    spawn_client_backend();
-
-    HANDLE monitor_thread = CreateThread(NULL, 0, client_monitor_thread, NULL, 0, NULL);
-    if (monitor_thread) {
-        LOGF("[ServiceMain] Client monitor thread started");
-    }
-
-    DLOGF("[ServiceMain] Creating worker thread");
     HANDLE hThread = CreateThread(NULL, 0, FirewallServiceThread, NULL, 0, NULL);
     if (!hThread) {
         DLOGF("[ServiceMain] CreateThread failed");
-        if (monitor_thread) CloseHandle(monitor_thread);
+        SetEvent(g_ServiceStopEvent);
+        WaitForSingleObject(monitor_thread, INFINITE);
+        CloseHandle(monitor_thread);
         CloseHandle(g_ServiceStopEvent);
         g_ServiceStatus.dwCurrentState = SERVICE_STOPPED;
         UpdateServiceStatus();
@@ -962,18 +798,16 @@ void WINAPI ServiceMain(DWORD argc, LPTSTR *argv) {
     UpdateServiceStatus();
     DLOGF("[ServiceMain] Running");
 
-    // Wait for the firewall thread to exit (stop event set by SCM), then stop the
-    // client backend and join the monitor thread BEFORE closing shared event handles.
+    // Join both workers before closing their shared stop event.
     WaitForSingleObject(hThread, INFINITE);
     CloseHandle(hThread);
+    SetEvent(g_ServiceStopEvent);
 
-    stop_client_backend();
     if (monitor_thread) {
-        WaitForSingleObject(monitor_thread, 5000);
+        WaitForSingleObject(monitor_thread, INFINITE);
         CloseHandle(monitor_thread);
     }
 
-    if (g_ClientStopEvent) CloseHandle(g_ClientStopEvent);
     CloseHandle(g_ServiceStopEvent);
 
     g_ServiceStatus.dwCurrentState = SERVICE_STOPPED;

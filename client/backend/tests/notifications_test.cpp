@@ -28,7 +28,7 @@ static DWORD WINAPI firewall(LPVOID context) {
     SetEvent(ready);
     for (;;) {
         assert(ConnectNamedPipe(pipe, NULL) || GetLastError() == ERROR_PIPE_CONNECTED);
-        char request[4096] = {0};
+        char request[4096] = {};
         DWORD count;
         assert(ReadFile(pipe, request, sizeof(request) - 1, &count, NULL));
         HANDLE next = new_pipe();

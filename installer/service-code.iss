@@ -46,7 +46,7 @@ begin
     Result := ExtractFileDir(RemoveQuotes(OldUninstaller));
 end;
 
-procedure StopAndRemoveService;
+procedure StopAndRemoveService(const ServiceName: String);
 var
   Manager, Service: LongWord;
   Status: TServiceStatus;
@@ -56,39 +56,39 @@ begin
   if Manager = 0 then
     RaiseException('Cannot open the Windows service manager: ' + SysErrorMessage(DLLGetLastError));
   try
-    Service := OpenService(Manager, '{#ServiceName}', $10024);
+    Service := OpenService(Manager, ServiceName, $10024);
     if Service = 0 then
     begin
       Error := DLLGetLastError;
       if Error = 1060 then Exit;
-      RaiseException('Cannot open {#ServiceName}: ' + SysErrorMessage(Error));
+      RaiseException('Cannot open ' + ServiceName + ': ' + SysErrorMessage(Error));
     end;
     try
       if not QueryServiceStatus(Service, Status) then
-        RaiseException('Cannot query {#ServiceName}.');
+        RaiseException('Cannot query ' + ServiceName + '.');
       if Status.CurrentState <> 1 then
       begin
         if Status.CurrentState <> 3 then
           if not ControlService(Service, 1, Status) then
-            RaiseException('Cannot stop {#ServiceName}: ' + SysErrorMessage(DLLGetLastError));
+            RaiseException('Cannot stop ' + ServiceName + ': ' + SysErrorMessage(DLLGetLastError));
         for Attempt := 1 to 300 do
         begin
           if not QueryServiceStatus(Service, Status) then
-            RaiseException('Cannot query {#ServiceName}.');
+            RaiseException('Cannot query ' + ServiceName + '.');
           if Status.CurrentState = 1 then Break;
           Sleep(100);
         end;
         if Status.CurrentState <> 1 then
-          RaiseException('{#ServiceName} did not stop within 30 seconds.');
+          RaiseException(ServiceName + ' did not stop within 30 seconds.');
       end;
       if not DeleteService(Service) then
-        RaiseException('Cannot delete {#ServiceName}: ' + SysErrorMessage(DLLGetLastError));
+        RaiseException('Cannot delete ' + ServiceName + ': ' + SysErrorMessage(DLLGetLastError));
     finally
       CloseServiceHandle(Service);
     end;
     for Attempt := 1 to 300 do
     begin
-      Service := OpenService(Manager, '{#ServiceName}', 4);
+      Service := OpenService(Manager, ServiceName, 4);
       if Service = 0 then
       begin
         Error := DLLGetLastError;
@@ -100,7 +100,7 @@ begin
         CloseServiceHandle(Service);
       Sleep(100);
     end;
-    RaiseException('{#ServiceName} is still marked for deletion. Close Services and retry.');
+    RaiseException(ServiceName + ' is still marked for deletion. Close Services and retry.');
   finally
     CloseServiceHandle(Manager);
   end;
@@ -130,7 +130,11 @@ function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
   Result := '';
   try
-    StopAndRemoveService;
+    StopAndRemoveService('{#ServiceName}');
+#if Product == "Client"
+    StopAndRemoveService('BigBrother.Client');
+    StopAndRemoveService('BigBrother Firewall');
+#endif
   except
     Result := GetExceptionMessage;
   end;
@@ -154,8 +158,15 @@ begin
     'Cannot create {#ServiceName}.');
 #if Product == "Client"
   RunRequired(ExpandConstant('{sys}\sc.exe'),
-    'description "{#ServiceName}" "Distributed firewall. Filters traffic based on whitelisted domains."',
+    'description "{#ServiceName}" "Coordinates client applications, server communication and firewall controls."',
     'Cannot set the service description.');
+  RunRequired(ExpandConstant('{sys}\sc.exe'),
+    'create "BigBrother Firewall" binPath= "\"' + ExpandConstant('{app}\BigBrother Firewall.exe') +
+    '\"" start= demand DisplayName= "BigBrother Firewall"',
+    'Cannot create BigBrother Firewall.');
+  RunRequired(ExpandConstant('{sys}\sc.exe'),
+    'description "BigBrother Firewall" "Filters traffic under control of BigBrother Client."',
+    'Cannot set the firewall service description.');
   RemoveFirewallRule('BigBrother Server (TCP 1984)');
   RemoveFirewallRule('BigBrother Discovery (UDP 42069)');
   RunRequired(ExpandConstant('{sys}\netsh.exe'),
@@ -183,7 +194,10 @@ var
 begin
   if CurUninstallStep = usUninstall then
   begin
-    StopAndRemoveService;
+    StopAndRemoveService('{#ServiceName}');
+#if Product == "Client"
+    StopAndRemoveService('BigBrother Firewall');
+#endif
     if FileExists(ExpandConstant('{app}\BigBrother Notifications.exe')) then
       if not Exec(ExpandConstant('{app}\BigBrother Notifications.exe'),
         '--unregister-all {#Product}', ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ExitCode) then

@@ -1,6 +1,6 @@
 #ifndef COMMON_H
 #define COMMON_H
 
-void log_init(void);
+extern "C" void log_init(void);
 
 #endif // COMMON_H

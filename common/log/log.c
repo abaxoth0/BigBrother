@@ -293,7 +293,7 @@ static void archive_current_log(LoggerContext* ctx) {
     // Re-open handles on the (fresh) file
     ctx->batch_file = fopen(ctx->log_path, "ab");
     if (!ctx->batch_file) {
-        LOGF("[LogRotation] Failed to reopen log file: %s", ctx->log_path);
+        LOGF("[LogRotation] Failed to reopen log file: %.4000s", ctx->log_path);
         ctx->running = 0;
         return;
     }
@@ -414,7 +414,7 @@ void log_write_async(uint16_t type, uint8_t level, const char* msg) {
             contig = rb->capacity - head;
             if (contig >= total_size) {
                 // fits before the end
-            } else if (tail >= total_size + 1) {
+            } else if (tail >= (uint32_t)total_size + 1) {
                 // wrap to the start (tail is behind head, so the space [0, tail) is free)
                 contig = tail;
             } else {

@@ -8,6 +8,10 @@
 #include <string.h>
 #include <windows.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 extern FILE* LogFile;
 
 #define LOGF_BUF_SIZE 4096
@@ -106,6 +110,10 @@ void log_write_sync(uint16_t type, uint8_t level, const char* msg);
 
 #define DLOGF(...) do {} while(0)
 
+#endif
+
+#ifdef __cplusplus
+}
 #endif
 
 #endif // LOG_H

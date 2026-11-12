@@ -1,5 +1,17 @@
 # Client updates from a shared directory
 
+The client frontend submits approved metadata to INSTALL_CLIENT_UPDATE. The
+backend launches a preparation worker in that user's session. The worker gets
+its approval through GET_APPROVED_UPDATE and rechecks the server publication
+before downloading. It exits if its original backend stops. The separately
+staged replacement executor can run while the backend is stopped and preserves
+both backend and firewall running states.
+
+Migrating from a firewall-launched backend requires the full Client Setup
+installer once; the legacy update executor cannot create BigBrother Client.
+See [client backend architecture](CLIENT-BACKEND.md).
+
+
 The server publishes a package location; it does not configure a Windows share,
 copy the package, or serve the executable. The source can be a UNC path or a
 mapped drive, for example `Z:\shared\tmp\BigBrother Updater.exe`. The same path
@@ -98,7 +110,8 @@ Click **Установить обновление** to copy and install the revi
 client rechecks its version, hash, size and location before copying; if the server
 changed the package, check again to review the current release. Background update
 polling, automatic installation and backend update announcements are disabled.
-Recovery of an already interrupted installation still runs at startup.
+Recovery of an already interrupted installation runs before the normal frontend
+opens and does not require a running backend, so a damaged backend cannot prevent rollback.
 
 The update runs with required administrator rights and an explicit `runas`
 launch. Windows may reuse elevation when the launching GUI is already elevated.
@@ -113,7 +126,7 @@ The package runs with a protected local temporary directory and cannot reboot
 the machine automatically.
 
 After extraction and payload validation, the updater closes installed client
-processes, stops the firewall service, and backs up the entire installation,
+processes, stops the backend and firewall services, and backs up the entire installation,
 including configuration, identity keys and whitelist. Backups are flushed and
 hashed before the journal permits any replacement. It saves file/directory
 permissions, ownership, attributes and last-write times. Unchanged files, including unchanged driver files, are left in place. Changed

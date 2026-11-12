@@ -9,7 +9,8 @@
 
 static inline int bb_enable_restore_privilege(void) {
     HANDLE token;
-    TOKEN_PRIVILEGES privileges = {0};
+    TOKEN_PRIVILEGES privileges;
+    memset(&privileges, 0, sizeof(privileges));
     if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &token)) return -1;
     privileges.PrivilegeCount = 1;
     if (!LookupPrivilegeValueA(NULL, "SeRestorePrivilege", &privileges.Privileges[0].Luid)) {

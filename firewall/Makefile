@@ -65,3 +65,9 @@ test-build:
 	cp include/third-party/WinDivert-2.2.2-A/x64/WinDivert.dll build/
 
 .PHONY: test-build
+
+lifetime-test-build:
+	mkdir -p build
+	$(CC) $(COMMON_FLAGS) $(DEBUG_FLAGS) -o build/backend_lifetime_test.exe tests/backend_lifetime_test.c -ladvapi32 -static
+
+.PHONY: lifetime-test-build

@@ -1,5 +1,5 @@
 #define BB_CERTIFICATE_TEST
-#include "../src/ipc_daemon.c"
+#include "../src/ipc_daemon.cpp"
 #include <assert.h>
 
 HANDLE g_ServiceStopEvent = INVALID_HANDLE_VALUE;
@@ -15,7 +15,7 @@ static int certificate_probe(const char* address, int port, const char* expected
 }
 static void pin(char output[65], char digit) { memset(output, digit, 64); output[64] = '\0'; }
 static void check_pin(const char* expected) {
-    char stored[65] = {0};
+    char stored[65] = {};
     ini_get_string("server", "fingerprint", stored, sizeof(stored));
     assert(strcmp(stored, expected) == 0);
 }

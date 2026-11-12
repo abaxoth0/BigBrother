@@ -3,6 +3,7 @@ using System.Text.Json;
 
 await ManualUpdateTests.RunAsync();
 await NetworkShareTests.RunAsync();
+await StartupRecoveryTests.RunAsync();
 
 static void Assert(bool condition, string message)
 {

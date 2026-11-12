@@ -130,7 +130,7 @@ shortcut and protocol when machine-wide registration is absent. Run
 `"BigBrother Notifications.exe" --unregister Client` (or `Server`) as that user
 to remove these standalone registrations before deleting or moving the build.
 The helper and C API are built with MinGW C++17; the runtime is linked statically,
-so no additional C++ runtime DLLs need to be shipped. The C backend links
+so no additional C++ runtime DLLs need to be shipped. The C++20 client backend links
 `notifications/build/libbbnotify.a` through the shared `common/notify.h` interface.
 The notification app lives in the top-level `notifications/` directory, with its
 internal headers in `include/`, implementation files in `src/`, Windows resources
@@ -186,11 +186,19 @@ Upgrades reuse the previous Inno installation directory, or the directory record
 by the legacy NSIS uninstall entry. They stop and remove the existing service
 before replacing binaries, then recreate the service with a quoted executable
 path. Both installers offer Manual (on demand) and Automatic (when Windows
-starts) startup modes. The client firewall service defaults to Automatic; the
-server service defaults to Manual. Subsequent installs remember the selected
+starts) startup modes. The client backend service (BigBrother Client) defaults to Automatic; the
+server service defaults to Manual. The client firewall is always Manual and
+follows the backend service lifetime through a status/process monitor. Subsequent installs remember the selected
 mode. Both installers leave the service stopped, including after upgrades and
-silent installs. Start it from the frontend when ready; Automatic takes effect
-at the next Windows startup.
+silent installs. Opening the client frontend does not start either service; it
+shows the disconnected state when the backend is unavailable. Start the backend
+using **Клиентская служба → Старт** in the frontend (or Windows Services);
+use the separate **Firewall → Старт/Рестарт** controls to start the firewall.
+Automatic takes effect at the next Windows startup.
+The firewall stops when the backend stops or crashes; the frontend stays open. A backend
+restart leaves the firewall stopped. See [client backend architecture](CLIENT-BACKEND.md).
+For the initial migration from the firewall-owned backend, use the full Client
+Setup installer rather than an update-only payload.
 
 For unattended installs, select the startup mode with `/TASKS="servicemanual"`
 or `/TASKS="serviceautomatic"`. These options do not start the service during

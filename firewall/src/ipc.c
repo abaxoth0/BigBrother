@@ -167,8 +167,25 @@ static int parse_and_execute(HANDLE pipe, char* buffer, size_t size) {
     return 0;
 }
 
+static int peer_is_backend(HANDLE pipe) {
+    ULONG pid = 0;
+    if (!GetNamedPipeClientProcessId(pipe, &pid)) return 0;
+    SC_HANDLE manager = OpenSCManagerW(NULL, NULL, SC_MANAGER_CONNECT);
+    if (!manager) return 0;
+    SC_HANDLE service = OpenServiceW(manager, L"BigBrother Client", SERVICE_QUERY_STATUS);
+    SERVICE_STATUS_PROCESS status;
+    DWORD bytes;
+    int allowed = service && QueryServiceStatusEx(service, SC_STATUS_PROCESS_INFO,
+        (BYTE*)&status, sizeof(status), &bytes) &&
+        status.dwCurrentState == SERVICE_RUNNING && status.dwProcessId == pid;
+    if (service) CloseServiceHandle(service);
+    CloseServiceHandle(manager);
+    return allowed;
+}
+
 static DWORD WINAPI ipc_client_handler(LPVOID param) {
     HANDLE pipe = (HANDLE)param;
+    if (!peer_is_backend(pipe)) { CloseHandle(pipe); return 1; }
 
     // Message-mode named pipes report ERROR_MORE_DATA when a message is larger
     // than the read buffer. Grow the buffer as needed (up to IPC_MAX_MESSAGE_SIZE)
@@ -230,13 +247,14 @@ static DWORD WINAPI ipc_server_thread(LPVOID param) {
     // can't flip filtration or replace the whitelist (e.g. block-all DoS).
     SECURITY_ATTRIBUTES sec_attrs;
     int have_sec = (bb_restrict_pipe_security(&sec_attrs) == 0);
+    if (!have_sec) return 1;
 
     while (1) {
         if (num_pipes < 16) {
             HANDLE pipe = CreateNamedPipe(
                 IPC_PIPE_PREFIX,
                 PIPE_ACCESS_DUPLEX,
-                PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT,
+                PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
                 PIPE_UNLIMITED_INSTANCES,
                 IPC_MAX_MESSAGE_SIZE,
                 IPC_MAX_MESSAGE_SIZE,

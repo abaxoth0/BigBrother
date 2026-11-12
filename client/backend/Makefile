@@ -2,13 +2,14 @@ include ../../common/version.mk
 include ../../common/build.mk
 
 CC = x86_64-w64-mingw32-gcc
+CXX = x86_64-w64-mingw32-g++
 AR = x86_64-w64-mingw32-ar
 WINDRES = x86_64-w64-mingw32-windres
 ICON_OBJ = build/app-icon.o
 
 ROOT = $(CURDIR)/../..
 MBEDTLS_DIR = $(ROOT)/lib/mbedtls
-COMMON_FLAGS = $(BB_VERSION_FLAGS) -Wall -Wno-format-truncation -mconsole \
+COMMON_FLAGS = $(BB_VERSION_FLAGS) -Wall -Wextra -mconsole \
 	-I$(CURDIR)/include \
 	-I$(ROOT)/common \
 	-I$(MBEDTLS_DIR)/include
@@ -16,8 +17,9 @@ COMMON_FLAGS = $(BB_VERSION_FLAGS) -Wall -Wno-format-truncation -mconsole \
 DEBUG_FLAGS = -DDEBUG -g3 -O0
 RELEASE_FLAGS = -DNDEBUG -O2
 
-t-units = src/main.c src/common.c src/ipc_daemon.c src/ipc_client.c src/net_client.c src/tls_client.c src/client_key.c src/certificate_pin.c $(ROOT)/common/encoding/encoding.c $(ROOT)/common/log/log.c
-OBJECTS = $(addprefix build/$(BUILD_MODE)/,$(patsubst %.c,%.o,$(patsubst $(ROOT)/%,%,$(t-units))))
+t-units = src/backend_client.cpp src/runtime.cpp src/hub.cpp src/firewall.cpp src/logs.cpp src/updates.cpp src/main.cpp src/common.cpp src/ipc_daemon.cpp src/ipc_client.cpp src/net_client.cpp src/tls_client.cpp src/client_key.cpp src/certificate_pin.cpp $(ROOT)/common/encoding/encoding.c $(ROOT)/common/log/log.c
+OBJECTS = $(addprefix build/$(BUILD_MODE)/,$(patsubst %.cpp,%.o,$(patsubst %.c,%.o,$(patsubst $(ROOT)/%,%,$(t-units)))))
+CXXFLAGS = $(COMMON_FLAGS) $(if $(filter release,$(BUILD_MODE)),$(RELEASE_FLAGS),$(DEBUG_FLAGS)) -std=c++20
 
 # mbedTLS library sources (excluding the ARM-only AESCE accelerator).
 MB_UNITS := $(wildcard $(MBEDTLS_DIR)/library/*.c)
@@ -30,7 +32,8 @@ CB_NAME = BigBrother Client Daemon
 CB_EXE = build/$(BUILD_MODE)/BigBrother\ Client\ Daemon.exe
 NOTIFY_DIR = $(ROOT)/notifications
 NOTIFY_A = $(NOTIFY_DIR)/build/$(BUILD_MODE)/libbbnotify.a
-CLIENT_LIBS = $(NOTIFY_A) -Wl,-Bstatic -lstdc++ -lwinpthread -Wl,-Bdynamic $(MBED_A) -lws2_32 -liphlpapi -lbcrypt -lwinmm -ladvapi32
+CLIENT_LIBS = $(NOTIFY_A) -Wl,-Bstatic -lstdc++ -lwinpthread -Wl,-Bdynamic $(MBED_A) -lws2_32 -liphlpapi -lbcrypt -lwinmm -ladvapi32 -luserenv
+SHARED_OBJECTS = $(filter %/common/log/log.o %/common/encoding/encoding.o,$(OBJECTS))
 all: $(BUILD_MODE)
 
 debug: CFLAGS = $(COMMON_FLAGS) $(DEBUG_FLAGS)
@@ -51,13 +54,13 @@ build/mbedtls/obj/%.o: $(MBEDTLS_DIR)/library/%.c
 	mkdir -p $(@D)
 	$(CC) $(MBED_CFLAGS) -MMD -MP -c $< -o $@
 
-build/$(BUILD_MODE)/src/%.o: src/%.c $(BB_VERSION_DEPS) $(BB_BUILD_DEPS)
+build/$(BUILD_MODE)/src/%.o: src/%.cpp $(BB_VERSION_DEPS) $(BB_BUILD_DEPS)
 	mkdir -p $(@D)
-	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
+	$(CXX) $(CXXFLAGS) -MMD -MP -c $< -o $@
 
 build/$(BUILD_MODE)/common/%.o: $(ROOT)/common/%.c $(BB_VERSION_DEPS) $(BB_BUILD_DEPS)
 	mkdir -p $(@D)
-	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
+	$(CC) $(COMMON_FLAGS) $(if $(filter release,$(BUILD_MODE)),$(RELEASE_FLAGS),$(DEBUG_FLAGS)) -MMD -MP -c $< -o $@
 
 $(ICON_OBJ): $(BB_VERSION_DEPS) app.rc $(ROOT)/assets/icons/BigBrother_Client_Backend.ico
 	mkdir -p build
@@ -65,7 +68,7 @@ $(ICON_OBJ): $(BB_VERSION_DEPS) app.rc $(ROOT)/assets/icons/BigBrother_Client_Ba
 
 $(CB_EXE): $(BB_VERSION_DEPS) $(OBJECTS) $(MBED_A) $(ICON_OBJ) $(NOTIFY_A)
 	mkdir -p build
-	$(CC) $(CFLAGS) -o "$@" $(OBJECTS) $(ICON_OBJ) $(CLIENT_LIBS)
+	$(CXX) $(CXXFLAGS) -static-libgcc -static-libstdc++ -o "$@" $(OBJECTS) $(ICON_OBJ) $(CLIENT_LIBS)
 
 -include $(OBJECTS:.o=.d) $(MB_OBJECTS:.o=.d)
 
@@ -75,57 +78,76 @@ clean:
 .PHONY: all debug release clean
 
 # Run build/ipv6-setting-test/test.exe --write, then --read in a new process.
-test-build: $(MBED_A) $(NOTIFY_A)
+test-build: $(MBED_A) $(NOTIFY_A) $(SHARED_OBJECTS)
 	mkdir -p build/ipv6-setting-test
-	$(CC) $(COMMON_FLAGS) $(DEBUG_FLAGS) -o build/ipv6-setting-test/test.exe tests/ipv6_setting_test.c $(filter-out src/main.c,$(t-units)) $(CLIENT_LIBS)
+	$(CXX) $(COMMON_FLAGS) $(DEBUG_FLAGS) -std=c++20 -static-libgcc -static-libstdc++ -o build/ipv6-setting-test/test.exe tests/ipv6_setting_test.cpp $(filter %.cpp,$(filter-out src/main.cpp,$(t-units))) $(SHARED_OBJECTS) $(CLIENT_LIBS)
 
 .PHONY: test-build
 
-token-test-build: $(MBED_A) $(NOTIFY_A)
+token-test-build: $(MBED_A) $(NOTIFY_A) $(SHARED_OBJECTS)
 	mkdir -p build/token-recovery-test
-	$(CC) $(COMMON_FLAGS) $(DEBUG_FLAGS) -o build/token-recovery-test/test.exe tests/token_recovery_test.c $(filter-out src/main.c src/ipc_daemon.c,$(t-units)) $(CLIENT_LIBS)
+	$(CXX) $(COMMON_FLAGS) $(DEBUG_FLAGS) -std=c++20 -static-libgcc -static-libstdc++ -o build/token-recovery-test/test.exe tests/token_recovery_test.cpp $(filter %.cpp,$(filter-out src/main.cpp src/ipc_daemon.cpp,$(t-units))) $(SHARED_OBJECTS) $(CLIENT_LIBS)
 
 .PHONY: token-test-build
 
-certificate-test-build: $(MBED_A) $(NOTIFY_A)
+certificate-test-build: $(MBED_A) $(NOTIFY_A) $(SHARED_OBJECTS)
 	mkdir -p build/certificate-state-test
-	$(CC) $(COMMON_FLAGS) $(DEBUG_FLAGS) -o build/certificate-state-test/test.exe tests/certificate_state_test.c $(filter-out src/main.c src/ipc_daemon.c,$(t-units)) $(CLIENT_LIBS)
-	$(CC) $(COMMON_FLAGS) $(DEBUG_FLAGS) -o build/certificate-probe-test.exe tests/certificate_probe_test.c src/certificate_pin.c src/tls_client.c $(ROOT)/common/log/log.c $(CLIENT_LIBS)
+	$(CXX) $(COMMON_FLAGS) $(DEBUG_FLAGS) -std=c++20 -static-libgcc -static-libstdc++ -o build/certificate-state-test/test.exe tests/certificate_state_test.cpp $(filter %.cpp,$(filter-out src/main.cpp src/ipc_daemon.cpp,$(t-units))) $(SHARED_OBJECTS) $(CLIENT_LIBS)
+	$(CXX) $(COMMON_FLAGS) $(DEBUG_FLAGS) -std=c++20 -static-libgcc -static-libstdc++ -o build/certificate-probe-test.exe tests/certificate_probe_test.cpp src/certificate_pin.cpp src/tls_client.cpp $(SHARED_OBJECTS) $(CLIENT_LIBS)
 
 .PHONY: certificate-test-build
 
-ini-test-build: $(MBED_A) $(NOTIFY_A)
+ini-test-build: $(MBED_A) $(NOTIFY_A) $(SHARED_OBJECTS)
 	mkdir -p build/ini-sections-test
-	$(CC) $(COMMON_FLAGS) $(DEBUG_FLAGS) -o build/ini-sections-test/test.exe tests/ini_sections_test.c $(filter-out src/main.c src/ipc_daemon.c,$(t-units)) $(CLIENT_LIBS)
+	$(CXX) $(COMMON_FLAGS) $(DEBUG_FLAGS) -std=c++20 -static-libgcc -static-libstdc++ -o build/ini-sections-test/test.exe tests/ini_sections_test.cpp $(filter %.cpp,$(filter-out src/main.cpp src/ipc_daemon.cpp,$(t-units))) $(SHARED_OBJECTS) $(CLIENT_LIBS)
 
 .PHONY: ini-test-build
 
 permissions-test-build:
 	mkdir -p build/secret-permissions-test
-	$(CC) $(COMMON_FLAGS) $(DEBUG_FLAGS) -o build/secret-permissions-test/test.exe tests/secret_permissions_test.c -ladvapi32
+	$(CXX) $(COMMON_FLAGS) $(DEBUG_FLAGS) -std=c++20 -static-libgcc -static-libstdc++ -o build/secret-permissions-test/test.exe tests/secret_permissions_test.cpp -ladvapi32
 
 .PHONY: permissions-test-build
 
-notifications-test-build: $(MBED_A) $(NOTIFY_A)
+notifications-test-build: $(MBED_A) $(NOTIFY_A) $(SHARED_OBJECTS)
 	mkdir -p build/notifications-test
-	$(CC) $(COMMON_FLAGS) $(DEBUG_FLAGS) -o build/notifications-test/test.exe tests/notifications_test.c $(filter-out src/main.c,$(t-units)) $(CLIENT_LIBS)
+	$(CXX) $(COMMON_FLAGS) $(DEBUG_FLAGS) -std=c++20 -static-libgcc -static-libstdc++ -o build/notifications-test/test.exe tests/notifications_test.cpp $(filter %.cpp,$(filter-out src/main.cpp,$(t-units))) $(SHARED_OBJECTS) $(CLIENT_LIBS)
 
 .PHONY: notifications-test-build
 
-whitelist-test-build: $(MBED_A) $(NOTIFY_A)
+whitelist-test-build: $(MBED_A) $(NOTIFY_A) $(SHARED_OBJECTS)
 	mkdir -p build/whitelist-test
-	$(CC) $(COMMON_FLAGS) $(DEBUG_FLAGS) -o "build/whitelist-test/BigBrother Client.exe" tests/whitelist_test.c $(filter-out src/main.c,$(t-units)) $(CLIENT_LIBS)
+	$(CXX) $(COMMON_FLAGS) $(DEBUG_FLAGS) -std=c++20 -static-libgcc -static-libstdc++ -o "build/whitelist-test/BigBrother Client.exe" tests/whitelist_test.cpp $(filter %.cpp,$(filter-out src/main.cpp,$(t-units))) $(SHARED_OBJECTS) $(CLIENT_LIBS)
 
 .PHONY: whitelist-test-build
 
-policy-test-build: $(MBED_A) $(NOTIFY_A)
+policy-test-build: $(MBED_A) $(NOTIFY_A) $(SHARED_OBJECTS)
 	mkdir -p build/policy-test
-	$(CC) $(COMMON_FLAGS) $(DEBUG_FLAGS) -o build/policy-test/test.exe tests/policy_test.c $(filter-out src/main.c src/ipc_daemon.c,$(t-units)) $(CLIENT_LIBS)
+	$(CXX) $(COMMON_FLAGS) $(DEBUG_FLAGS) -std=c++20 -static-libgcc -static-libstdc++ -o build/policy-test/test.exe tests/policy_test.cpp $(filter %.cpp,$(filter-out src/main.cpp src/ipc_daemon.cpp,$(t-units))) $(SHARED_OBJECTS) $(CLIENT_LIBS)
 
 .PHONY: policy-test-build
 
-whitelist-sync-test-build: $(MBED_A) $(NOTIFY_A)
+whitelist-sync-test-build: $(MBED_A) $(NOTIFY_A) $(SHARED_OBJECTS)
 	mkdir -p build/whitelist-sync-test
-	$(CC) $(COMMON_FLAGS) $(DEBUG_FLAGS) -o build/whitelist-sync-test/test.exe tests/whitelist_sync_test.c $(filter-out src/main.c src/ipc_daemon.c,$(t-units)) $(CLIENT_LIBS)
+	$(CXX) $(COMMON_FLAGS) $(DEBUG_FLAGS) -std=c++20 -static-libgcc -static-libstdc++ -o build/whitelist-sync-test/test.exe tests/whitelist_sync_test.cpp $(filter %.cpp,$(filter-out src/main.cpp src/ipc_daemon.cpp,$(t-units))) $(SHARED_OBJECTS) $(CLIENT_LIBS)
 
 .PHONY: whitelist-sync-test-build
+
+hub-test-build: $(MBED_A) $(NOTIFY_A) $(SHARED_OBJECTS)
+	mkdir -p build/hub-test
+	$(CXX) $(COMMON_FLAGS) $(DEBUG_FLAGS) -std=c++20 -static-libgcc -static-libstdc++ -o build/hub-test/test.exe tests/hub_test.cpp $(filter %.cpp,$(filter-out src/main.cpp,$(t-units))) $(SHARED_OBJECTS) $(CLIENT_LIBS)
+
+.PHONY: hub-test-build
+
+lifecycle-test-build: debug
+	mkdir -p build/service-lifecycle-test
+	cp "build/debug/BigBrother Client Daemon.exe" build/service-lifecycle-test/
+	$(CXX) $(COMMON_FLAGS) $(DEBUG_FLAGS) -std=c++20 -static -o "build/service-lifecycle-test/BigBrother Client.exe" tests/service_lifecycle_test.cpp -ladvapi32
+	mkdir -p build/service-lifecycle-test/GUI
+	cp "build/service-lifecycle-test/BigBrother Client.exe" build/service-lifecycle-test/GUI/
+
+.PHONY: lifecycle-test-build
+
+regression-build: test-build token-test-build certificate-test-build ini-test-build permissions-test-build notifications-test-build whitelist-test-build policy-test-build whitelist-sync-test-build hub-test-build
+
+.PHONY: regression-build

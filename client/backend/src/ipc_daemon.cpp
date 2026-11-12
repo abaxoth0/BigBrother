@@ -1,5 +1,5 @@
 /**
- * @file ipc_daemon.c
+ * @file ipc_daemon.cpp
  * @brief IPC client implementation for connecting to BigBrother Daemon.
  */
 
@@ -15,6 +15,11 @@
 #include "../../../common/log/log.h"
 #include "../../../common/file_security.h"
 #include "notify.h"
+#include "firewall.h"
+#include <atomic>
+#include <mutex>
+#include <optional>
+#include <string>
 #include <windows.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -49,58 +54,52 @@ static void config_lock_init(void) {
 static int ini_get_string_locked(const char* section, const char* key, char* out, size_t out_size);
 static int ini_set_string_locked(const char* section, const char* key, const char* value);
 
-static char g_server_ip[64] = {0};
+static char g_server_ip[64] = {};
 static volatile LONG g_server_session_active = 0;
 static volatile LONG g_server_connection_paused = 0;
 static volatile LONG g_server_connection_revision = 0;
 static int g_registration_tried = 0;
-static int g_fallback_whitelist_enabled = 1;
+static std::atomic<int> g_fallback_whitelist_enabled{1};
 // Desired filtration state (set explicitly by the user via the "Вкл/Выкл"
 // button, or by the server). The effective state applied to the firewall also
 // depends on the server connection when connection-sync is enabled.
-static int g_filtration_requested = 1;
+static std::atomic<int> g_filtration_requested{1};
 // Effective filtration state last pushed to the firewall.
-static int g_filtration_enabled = 1;
+static std::atomic<int> g_filtration_enabled{1};
 
 static int apply_filtration_sync(void);
 
-// Last whitelist pushed to the firewall (heap-allocated, grows on demand so a
-// large server whitelist is not truncated at a fixed size).
-static char* g_last_whitelist = NULL;
-static size_t g_last_whitelist_cap = 0;
-static int g_blocked_all_pushed = 0;
-static int g_whitelist_sync_pending = 1;
+static std::mutex g_whitelist_mutex;
+static std::optional<std::string> g_last_whitelist;
+static std::atomic<int> g_blocked_all_pushed{0};
+static std::atomic<bool> g_whitelist_sync_pending{true};
+static void block_all_if_no_fallback(void);
 
-static int wl_last_reserve(size_t need) {
-    if (need + 1 <= g_last_whitelist_cap) return 0;
-    size_t cap = need + 1;
-    if (cap < 4096) cap = 4096;
-    char* nb = realloc(g_last_whitelist, cap);
-    if (!nb) return -1;
-    g_last_whitelist = nb;
-    g_last_whitelist_cap = cap;
-    return 0;
-}
-
-static void wl_last_set(const char* s) {
-    size_t len = strlen(s);
-    if (wl_last_reserve(len) == 0 && g_last_whitelist) {
-        memcpy(g_last_whitelist, s, len + 1);
-    }
+static void wl_last_set(const char* value) {
+    std::lock_guard guard(g_whitelist_mutex);
+    g_last_whitelist = value;
 }
 
 static void wl_last_clear(void) {
-    free(g_last_whitelist);
-    g_last_whitelist = NULL;
-    g_last_whitelist_cap = 0;
+    std::lock_guard guard(g_whitelist_mutex);
+    g_last_whitelist.reset();
 }
 
-static int wl_last_equals(const char* s) {
-    return g_last_whitelist && strcmp(g_last_whitelist, s) == 0;
+static int wl_last_equals(const char* value) {
+    std::lock_guard guard(g_whitelist_mutex);
+    return g_last_whitelist && *g_last_whitelist == value;
+}
+
+void ResetFirewallSync(void) {
+    wl_last_clear();
+    g_blocked_all_pushed = 0;
+    g_whitelist_sync_pending = true;
+    if (!IsServerSessionActive()) block_all_if_no_fallback();
+    RefreshFiltrationEffective();
 }
 
 int IsWindowsNotificationsEnabled(void) {
-    char value[8] = {0};
+    char value[8] = {};
     return !ini_get_string("notifications", "enabled", value, sizeof(value)) || strcmp(value, "0") != 0;
 }
 
@@ -176,7 +175,8 @@ int PrepareClientSecretPermissions(void) {
     DWORD attributes = GetFileAttributesA(directory);
     if (attributes == INVALID_FILE_ATTRIBUTES || !(attributes & FILE_ATTRIBUTE_DIRECTORY) ||
         (attributes & FILE_ATTRIBUTE_REPARSE_POINT)) return -1;
-    for (const char** name = (const char*[]){"WINDIR", "PROGRAMFILES", "PROGRAMDATA", "USERPROFILE", NULL}; *name; name++) {
+    const char* roots[] = {"WINDIR", "PROGRAMFILES", "PROGRAMDATA", "USERPROFILE", NULL};
+    for (const char** name = roots; *name; name++) {
         char root[MAX_PATH];
         if (GetEnvironmentVariableA(*name, root, sizeof(root)) && _stricmp(root, directory) == 0) return -1;
     }
@@ -276,7 +276,7 @@ static int ini_get_string_locked(const char* section, const char* key, char* out
     // Recover one unambiguous, valid value before normal TLS can fall back to TOFU.
     f = fopen(ini_path, "r");
     if (!f) return 0;
-    char recovered[65] = {0};
+    char recovered[65] = {};
     size_t expected = _stricmp(key, "fingerprint") == 0 ? 64 : 48;
     int conflict = 0, invalid = 0;
     while (fgets(line, sizeof(line), f)) {
@@ -341,7 +341,7 @@ static int ini_set_string_locked(const char* section, const char* key, const cha
         while (fgets(buf, sizeof(buf), f)) {
             char* copy = _strdup(buf);
             if (copy) {
-                char** new_lines = realloc(lines, (line_count + 1) * sizeof(char*));
+                char** new_lines = static_cast<char**>(realloc(lines, (line_count + 1) * sizeof(char*)));
                 if (new_lines) {
                     lines = new_lines;
                     lines[line_count++] = copy;
@@ -452,21 +452,29 @@ static int ini_set_string_locked(const char* section, const char* key, const cha
 }
 
 void load_server_ip(void) {
-    char buf[64] = {0};
+    char buf[64] = {};
     if (ini_get_string("server", "address", buf, sizeof(buf)) && buf[0]) {
-        strncpy(g_server_ip, buf, sizeof(g_server_ip) - 1);
-        DLOGF("load_server_ip: loaded IP = '%s'", g_server_ip);
+        config_lock_init();
+        EnterCriticalSection(&g_config_lock);
+        snprintf(g_server_ip, sizeof(g_server_ip), "%s", buf);
+        LeaveCriticalSection(&g_config_lock);
+        DLOGF("load_server_ip: loaded IP = '%s'", buf);
     } else {
         DLOGF("load_server_ip: no config or empty");
     }
 }
 
 const char* GetServerIp(void) {
-    return g_server_ip;
+    thread_local char snapshot[64];
+    config_lock_init();
+    EnterCriticalSection(&g_config_lock);
+    snprintf(snapshot, sizeof(snapshot), "%s", g_server_ip);
+    LeaveCriticalSection(&g_config_lock);
+    return snapshot;
 }
 
 int HasServerIp(void) {
-    return g_server_ip[0] != '\0';
+    return GetServerIp()[0] != '\0';
 }
 
 void SetServerIp(const char* ip) {
@@ -494,104 +502,9 @@ int SaveUserName(const char* name) {
 
 #include "../include/net_client.h"
 
-// Send command to local daemon (firewall) using old protocol format
-static int send_command_tlv(const char* command, const char** args, size_t arg_count,
-                           char* out_buffer, size_t buffer_size) {
-    if (!command || !out_buffer || buffer_size == 0) {
-        return -1;
-    }
-
-    char pipe_name[MAX_PATH];
-    snprintf(pipe_name, sizeof(pipe_name), "%s%s", DAEMON_PIPE_PREFIX, DAEMON_PIPE_NAME);
-
-    HANDLE pipe = CreateFile(
-        pipe_name,
-        GENERIC_READ | GENERIC_WRITE,
-        0,
-        NULL,
-        OPEN_EXISTING,
-        0,
-        NULL
-    );
-
-    if (pipe == INVALID_HANDLE_VALUE) {
-        return -1;
-    }
-
-    // Build old-format request: command\n[args...]\n
-    // For SET_WHITELIST: command + newline + data + newline
-    size_t req_len = strlen(command) + 1; // command + newline
-    for (size_t i = 0; i < arg_count; i++) {
-        if (args[i]) {
-            req_len += strlen(args[i]); // arg data directly appended
-        }
-    }
-
-    char* send_buf = malloc(req_len);
-    if (!send_buf) {
-        CloseHandle(pipe);
-        return -1;
-    }
-
-    char* p = send_buf;
-    memcpy(p, command, strlen(command));
-    p += strlen(command);
-    *p++ = '\n';
-
-    for (size_t i = 0; i < arg_count; i++) {
-        if (args[i]) {
-            memcpy(p, args[i], strlen(args[i]));
-            p += strlen(args[i]);
-        }
-    }
-
-    DWORD written;
-    if (!WriteFile(pipe, send_buf, (DWORD)(p - send_buf), &written, NULL)) {
-        free(send_buf);
-        CloseHandle(pipe);
-        return -1;
-    }
-    free(send_buf);
-
-    FlushFileBuffers(pipe);
-
-    // Read response using old firewall format. The firewall pipe is message
-    // mode with up to 64KB messages; a single byte-mode ReadFile truncates
-    // large responses (e.g. a >8KB whitelist dump). Switch to message read
-    // mode and loop on ERROR_MORE_DATA to assemble the full response.
-    DWORD pipe_mode = PIPE_READMODE_MESSAGE;
-    SetNamedPipeHandleState(pipe, &pipe_mode, NULL, NULL);
-
-    size_t total = 0;
-    DWORD bytes_read = 0;
-    BOOL ok = FALSE;
-
-    for (;;) {
-        if (total >= buffer_size - 1) break;
-        ok = ReadFile(pipe, out_buffer + total, (DWORD)(buffer_size - 1 - total), &bytes_read, NULL);
-        if (ok) {
-            total += bytes_read;
-            break; // complete message read
-        }
-        if (GetLastError() != ERROR_MORE_DATA) break;
-        if (bytes_read == 0) break;
-        total += bytes_read;
-        if (total >= buffer_size - 1) break;
-    }
-
-    if (!ok) {
-        CloseHandle(pipe);
-        return -1;
-    }
-    out_buffer[total] = '\0';
-
-    // Remove trailing newlines
-    while (total > 0 && (out_buffer[total - 1] == '\n' || out_buffer[total - 1] == '\r')) {
-        out_buffer[--total] = '\0';
-    }
-
-    CloseHandle(pipe);
-    return 0;
+static int send_command_tlv(const char* command, const char** args, size_t count,
+                           char* output, size_t capacity) {
+    return client::FirewallModule::request(command, args, count, output, capacity);
 }
 
 int DaemonGetStatus(char* out_buffer, size_t buffer_size) {
@@ -602,7 +515,7 @@ int DaemonGetWhitelist(char* out_buffer, size_t buffer_size) {
     return send_command_tlv("GET_WHITELIST", NULL, 0, out_buffer, buffer_size);
 }
 
-int DaemonSetWhitelist(const char* data, size_t size, char* out_buffer, size_t buffer_size) {
+int DaemonSetWhitelist(const char* data, size_t, char* out_buffer, size_t buffer_size) {
     const char* args[1] = {data};
     int result = send_command_tlv("SET_WHITELIST", args, 1, out_buffer, buffer_size);
     if (result == 0 && strcmp(out_buffer, "OK") == 0 &&
@@ -640,7 +553,7 @@ static void notify_filtration(int enabled) {
 }
 
 int DaemonGetFiltration(void) {
-    char buf[16] = {0};
+    char buf[16] = {};
     if (send_command_tlv("GET_FILTRATION", NULL, 0, buf, sizeof(buf)) == 0) {
         g_filtration_enabled = (buf[0] == '1');
     } else {
@@ -654,7 +567,7 @@ int DaemonGetFiltration(void) {
 // Push the already-gated effective state to the firewall and cache it.
 static int daemon_set_filtration_effective(int effective) {
     const char* args[1] = {effective ? "1" : "0"};
-    char buf[16] = {0};
+    char buf[16] = {};
     if (send_command_tlv("SET_FILTRATION", args, 1, buf, sizeof(buf)) == 0 && strcmp(buf, "OK") == 0) {
         g_filtration_enabled = effective;
         notify_filtration(effective);
@@ -682,7 +595,7 @@ int IsFiltrationEnabled(void) {
 }
 
 int IsIpv6BlockEnabled(void) {
-    char buf[8] = {0};
+    char buf[8] = {};
     if (ini_get_string("filtration", "block_ipv6", buf, sizeof(buf)) && buf[0])
         return strcmp(buf, "0") != 0;
     return 1;
@@ -692,7 +605,7 @@ static SRWLOCK g_ipv6_sync_lock = SRWLOCK_INIT;
 
 static int sync_ipv6_block_locked(void) {
     int desired = IsIpv6BlockEnabled();
-    char buf[32] = {0};
+    char buf[32] = {};
     if (send_command_tlv("GET_IPV6_BLOCK", NULL, 0, buf, sizeof(buf)) != 0)
         return -1;
     if (strcmp(buf, desired ? "1" : "0") == 0) return 0;
@@ -725,7 +638,7 @@ int SetIpv6BlockEnabled(int enabled) {
 }
 
 int IsFiltrationAutoDisableEnabled(void) {
-    char buf[8] = {0};
+    char buf[8] = {};
     if (ini_get_string("filtration", "auto_disable", buf, sizeof(buf)) && buf[0])
         return buf[0] == '1';
     return 1; // enabled by default
@@ -741,10 +654,10 @@ void SetFiltrationAutoDisableEnabled(int enabled) {
 // explicit choice (g_filtration_requested) is never overridden.
 static int apply_filtration_sync(void) {
     int effective = (IsFiltrationAutoDisableEnabled() && !IsServerSessionActive())
-                        ? 0 : g_filtration_requested;
+                        ? 0 : g_filtration_requested.load();
     if (effective != g_filtration_enabled) {
         LOGF("[Daemon] Filtration sync: requested=%d connected=%d -> effective=%d",
-             g_filtration_requested, IsServerSessionActive(), effective);
+             g_filtration_requested.load(), IsServerSessionActive(), effective);
         return daemon_set_filtration_effective(effective);
     }
     return 0;
@@ -760,7 +673,7 @@ int RefreshFiltrationEffective(void) {
     apply_filtration_sync();
     int actual = DaemonGetFiltration();
     int effective = (IsFiltrationAutoDisableEnabled() && !IsServerSessionActive())
-                        ? 0 : g_filtration_requested;
+                        ? 0 : g_filtration_requested.load();
     if (actual != effective) {
         if (daemon_set_filtration_effective(effective) == 0) {
             return effective;
@@ -776,7 +689,8 @@ static void get_client_token(char* buf, size_t size);
 
 static int send_to_server_tlv(const char* command, const char** args, size_t arg_count,
                               char* out_buffer, size_t buffer_size) {
-    if (!g_server_ip[0] || !command || !out_buffer || buffer_size == 0) {
+    const std::string server_address = GetServerIp();
+    if (!server_address.c_str()[0] || !command || !out_buffer || buffer_size == 0) {
         printf("[send_to_server] Error: invalid parameters or empty server IP\n");
         return -1;
     }
@@ -791,8 +705,8 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
     }
 
     // Resolve target IP: "." or "127.0.0.1" means localhost
-    const char* target_ip = g_server_ip;
-    if (strcmp(g_server_ip, ".") == 0 || strcmp(g_server_ip, "127.0.0.1") == 0) {
+    const char* target_ip = server_address.c_str();
+    if (strcmp(server_address.c_str(), ".") == 0 || strcmp(server_address.c_str(), "127.0.0.1") == 0) {
         target_ip = "127.0.0.1";
     }
 
@@ -859,7 +773,7 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
     }
     total_size += 1; // empty line
 
-    char* send_buf = malloc(total_size);
+    char* send_buf = static_cast<char*>(malloc(total_size));
     if (!send_buf) {
         bb_tls_free(&tls);
         closesocket(sock);
@@ -896,7 +810,7 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
     }
 
     // Read response: status\n[TLV data...\n]<empty line>
-    char status_buf[32] = {0};
+    char status_buf[32] = {};
     char* status_out = status_buf;
     size_t status_remaining = sizeof(status_buf) - 1;
     while (status_remaining > 0) {
@@ -920,7 +834,7 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
         int first = 1;
 
         while (1) {
-            char len_line[32] = {0};
+            char len_line[32] = {};
             char* lp = len_line;
             while (1) {
                 char c;
@@ -968,7 +882,7 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
         }
         result = 0;
     } else if (strcmp(status_buf, "ERROR") == 0) {
-        char len_line[32] = {0};
+        char len_line[32] = {};
         size_t len_pos = 0;
         int complete_length = 0;
         while (len_pos < sizeof(len_line) - 1) {
@@ -1004,7 +918,7 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
 
 // Protect both caches; rejected persisted credentials stay ignored even if a
 // config write fails, so they cannot override a replacement held in memory.
-static char g_client_token[256] = {0};
+static char g_client_token[256] = {};
 static int g_ignore_persisted_token = 0;
 static SRWLOCK g_token_lock = SRWLOCK_INIT;
 static SRWLOCK g_token_fetch_lock = SRWLOCK_INIT;
@@ -1052,7 +966,7 @@ static int token_request(const char*, const char**, size_t, char*, size_t);
 
 static void certificate_state_locked(char address[64], int* port, char pinned[65]) {
     snprintf(address, 64, "%s", g_server_ip);
-    char value[16] = {0};
+    char value[16] = {};
     ini_get_string_locked("server", "port", value, sizeof(value));
     *port = value[0] ? atoi(value) : 1984;
     if (*port < 1 || *port > 65535) *port = 1984;
@@ -1106,7 +1020,7 @@ int UpdateServerFingerprint(const char* address, int port, const char* original_
 // Inspection never calls this helper: only normal connections may establish
 // initial trust. Recheck the current pin before accepting concurrent changes.
 static int tls_connect_socket(SOCKET sock, bb_tls_t* tls) {
-    char pinned[65] = {0}, got[65] = {0};
+    char pinned[65] = {0}, got[65] = {};
     ini_get_string("server", "fingerprint", pinned, sizeof(pinned));
     if (bb_tls_init(tls) != 0) return -1;
     if (bb_tls_connect(tls, sock, pinned, got, sizeof(got)) != 0) {
@@ -1115,7 +1029,7 @@ static int tls_connect_socket(SOCKET sock, bb_tls_t* tls) {
     }
     config_lock_init();
     EnterCriticalSection(&g_config_lock);
-    char current[65] = {0};
+    char current[65] = {};
     ini_get_string_locked("server", "fingerprint", current, sizeof(current));
     int accepted = current[0] ? _stricmp(current, got) == 0 :
         ini_set_string_locked("server", "fingerprint", got) == 0;
@@ -1126,7 +1040,7 @@ static int tls_connect_socket(SOCKET sock, bb_tls_t* tls) {
 
 // Path of the client's persistent ECDSA identity key (beside the executable).
 static const char* sig_key_path(void) {
-    static char p[MAX_PATH] = {0};
+    static char p[MAX_PATH] = {};
     if (p[0] == '\0') {
         char exe[MAX_PATH];
         get_exe_path(exe, sizeof(exe));
@@ -1175,16 +1089,17 @@ static int fetch_token_if_needed(const char* username) {
         return -1;
     }
     const char* chal_args[] = {username};
-    char nonce[256] = {0};
+    char nonce[256] = {};
+    char msg[384], sighex[300];
+    int len = 0;
+    const char* tok_args[] = {username, nonce, sighex};
+    char response[128] = {};
     if (token_request("GET_TOKEN_CHALLENGE", chal_args, 1, nonce, sizeof(nonce)) != 0 || !nonce[0])
         goto done;
-    char msg[384], sighex[300];
-    int len = snprintf(msg, sizeof(msg), "%s%s", username, nonce);
+    len = snprintf(msg, sizeof(msg), "%s%s", username, nonce);
     if (len < 0 || (size_t)len >= sizeof(msg) ||
         client_key_sign(&pk, (const unsigned char*)msg, (size_t)len, sighex, sizeof(sighex)) != 0)
         goto done;
-    const char* tok_args[] = {username, nonce, sighex};
-    char response[128] = {0};
     if (token_request("GET_TOKEN", tok_args, 3, response, sizeof(response)) != 0 ||
         !response[0] || strcmp(response, "NOT_SET") == 0)
         goto done;
@@ -1224,7 +1139,7 @@ static int send_authenticated_request(const char* command, const char* username,
 }
 
 int ServerGetUpdate(char* output, size_t size) {
-    char username[128] = {0}, token[256] = {0};
+    char username[128] = {0}, token[256] = {};
     if (LoadUserName(username, sizeof(username)) != 0 || !username[0]) return -1;
     get_client_token(token, sizeof(token));
     const char* args[] = { username, token };
@@ -1239,12 +1154,12 @@ int ServerGetUpdate(char* output, size_t size) {
 int ServerRegister(const char* name) {
     if (!name) return -1;
 
-    char local_ip[64] = {0};
-    GetLocalIp(g_server_ip, local_ip, sizeof(local_ip));
+    char local_ip[64] = {};
+    GetLocalIp(GetServerIp(), local_ip, sizeof(local_ip));
 
     // Client identity public key (ECDSA P-256 point, hex), bound server-side at
     // approval and later used to authorize automatic token delivery.
-    char sigpub[160] = {0};
+    char sigpub[160] = {};
     client_identity_pub_hex(sigpub, sizeof(sigpub));
 
     const char* args[3] = {name, local_ip, sigpub};
@@ -1267,12 +1182,12 @@ int ServerRegister(const char* name) {
 
 int ServerConnect(const char* name) {
     if (!name || is_server_connection_paused()) return -1;
-    char local_ip[64] = {0};
-    GetLocalIp(g_server_ip, local_ip, sizeof(local_ip));
-    char token[256] = {0};
+    char local_ip[64] = {};
+    GetLocalIp(GetServerIp(), local_ip, sizeof(local_ip));
+    char token[256] = {};
     get_client_token(token, sizeof(token));
     const char* args[3] = {name, local_ip, token};
-    char response[256] = {0};
+    char response[256] = {};
     LOGF("[Daemon] CONNECT with token len=%zu (ip='%s')", strlen(token), local_ip);
     int result = send_authenticated_request("CONNECT", name, args, 3, 2, response, sizeof(response));
     if (result == 0 || strstr(response, "already connected") != NULL) {
@@ -1282,14 +1197,14 @@ int ServerConnect(const char* name) {
     if (response[0]) {
         LOGF("[ServerConnect] Server error: '%s'", response);
     } else {
-        LOGF("[ServerConnect] TCP connection to %s:%d failed", g_server_ip, get_server_port());
+        LOGF("[ServerConnect] TCP connection to %s:%d failed", GetServerIp(), get_server_port());
     }
     return result;
 }
 
 int ServerDisconnect(const char* name) {
     if (!name) return -1;
-    char token[256] = {0};
+    char token[256] = {};
     get_client_token(token, sizeof(token));
     const char* args[2] = {name, token};
     char response[256];
@@ -1300,7 +1215,7 @@ int ServerDisconnect(const char* name) {
 
 int ServerRefresh(const char* name) {
     if (!name || is_server_connection_paused()) return -1;
-    char token[256] = {0};
+    char token[256] = {};
     get_client_token(token, sizeof(token));
     const char* args[2] = {name, token};
     char response[256];
@@ -1311,7 +1226,7 @@ int ServerRefresh(const char* name) {
 
 int ServerChangeName(const char* oldName, const char* newName) {
     if (!oldName || !newName) return -1;
-    char token[256] = {0};
+    char token[256] = {};
     get_client_token(token, sizeof(token));
     const char* args[3] = {oldName, newName, token};
     char response[256];
@@ -1408,13 +1323,13 @@ static int srv_read_tlv(SrvLineReader* r, char* out, size_t out_size) {
 // Fetches and applies the whitelist from the server.
 static void sync_whitelist_from_server(const char* username) {
     g_whitelist_sync_pending = 1;
-    char token[256] = {0};
+    char token[256] = {};
     get_client_token(token, sizeof(token));
     const char* wl_args[2] = {username, token};
 
     // Server whitelist can be large; read it into a heap buffer (bounded only by
     // the DAEMON_MAX_MESSAGE_SIZE soft cap).
-    char* response = malloc(DAEMON_MAX_MESSAGE_SIZE);
+    char* response = static_cast<char*>(malloc(DAEMON_MAX_MESSAGE_SIZE));
     if (!response) {
         LOGF("[Daemon] Out of memory fetching whitelist");
         return;
@@ -1476,7 +1391,7 @@ static int compare_rules(const void* a, const void* b) {
 static int whitelist_revision(char* rules, char revision[65]) {
     size_t capacity = 1;
     for (char* p = rules; *p; p++) if (*p == '\n') capacity++;
-    char** entries = malloc(capacity * sizeof(*entries));
+    char** entries = static_cast<char**>(malloc(capacity * sizeof(*entries)));
     if (!entries) return -1;
     size_t count = 0;
     char* context;
@@ -1509,7 +1424,7 @@ static int whitelist_revision(char* rules, char revision[65]) {
 static int firewall_whitelist_revision(char revision[65]) {
     revision[0] = '\0';
     int result = -1;
-    char* whitelist = malloc(DAEMON_MAX_MESSAGE_SIZE);
+    char* whitelist = static_cast<char*>(malloc(DAEMON_MAX_MESSAGE_SIZE));
     if (whitelist) {
         if (DaemonGetWhitelist(whitelist, DAEMON_MAX_MESSAGE_SIZE) == 0) {
             if (strcmp(whitelist, "WHITELIST") == 0)
@@ -1539,7 +1454,7 @@ static int send_policy_heartbeat(bb_tls_t* tls) {
 
 // Syncs filtration state from the server.
 static void sync_filtration_from_server(void) {
-    char filt_buf[16] = {0};
+    char filt_buf[16] = {};
     if (send_to_server_tlv("GET_FILTRATION", NULL, 0, filt_buf, sizeof(filt_buf)) != 0) return;
     int server_filt = (filt_buf[0] == '1');
     // With connection-sync enabled the user's explicit choice survives
@@ -1565,15 +1480,15 @@ static void block_all_if_no_fallback(void) {
 
 // Tries to rediscover the configured server. Returns 1 if found.
 static int try_discover_server(void) {
-    char expected_name[128] = {0};
+    char expected_name[128] = {};
     ini_get_string("server", "name", expected_name, sizeof(expected_name));
     if (expected_name[0] == '\0') return 0;
 
-    char local_ip[64] = {0}, bcast_list[4096] = {0};
+    char local_ip[64] = {0}, bcast_list[4096] = {};
     GetAllBroadcastAddresses(local_ip, sizeof(local_ip), bcast_list, sizeof(bcast_list));
     if (bcast_list[0] == '\0') return 0;
 
-    char disco_resp[8192] = {0};
+    char disco_resp[8192] = {};
     int found = DiscoverServers(bcast_list, 42069, 2000, disco_resp, sizeof(disco_resp));
     if (found <= 0) return 0;
 
@@ -1587,7 +1502,8 @@ static int try_discover_server(void) {
         if (strcmp(name, expected_name) == 0) {
             char* second_pipe = strchr(rest, '|');
             char* server_ip = rest;
-            char* server_port = "1984";
+            char default_port[] = "1984";
+            char* server_port = default_port;
             if (second_pipe) {
                 *second_pipe = '\0';
                 server_port = second_pipe + 1;
@@ -1624,7 +1540,7 @@ static int handle_server_event(const char* event_type, SrvLineReader* reader, co
         char line[256];
         if (srv_readline(reader, line, sizeof(line)) != 1) return 0;
         if (line[0] == '\0') break; // empty line terminates event
-        strncpy(data[data_count], line, sizeof(data[data_count]) - 1);
+        snprintf(data[data_count], sizeof(data[data_count]), "%s", line);
         data[data_count][sizeof(data[data_count]) - 1] = '\0';
         data_count++;
     }
@@ -1709,13 +1625,14 @@ static int handle_server_event(const char* event_type, SrvLineReader* reader, co
 // Runs the server subscription loop. Returns 0 on connection loss, 1 on service stop.
 // Blocks until the connection drops or the service should shut down.
 static int server_subscribe_loop(const char* username, int* consecutive_failures, int allow_auth_retry) {
+    const std::string server_address = GetServerIp();
     if (is_server_connection_paused()) return 0;
     LONG connection_revision = InterlockedCompareExchange(&g_server_connection_revision, 0, 0);
     WSADATA wsa;
     if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) return 0;
 
-    const char* target_ip = g_server_ip;
-    if (strcmp(g_server_ip, ".") == 0 || strcmp(g_server_ip, "127.0.0.1") == 0) {
+    const char* target_ip = server_address.c_str();
+    if (strcmp(server_address.c_str(), ".") == 0 || strcmp(server_address.c_str(), "127.0.0.1") == 0) {
         target_ip = "127.0.0.1";
     }
     int port = get_server_port();
@@ -1751,7 +1668,7 @@ static int server_subscribe_loop(const char* username, int* consecutive_failures
     }
 
     // Send SUBSCRIBE with username + client token
-    char token[256] = {0};
+    char token[256] = {};
     get_client_token(token, sizeof(token));
     char sub_req[128 + 512];
     int sub_len = snprintf(sub_req, sizeof(sub_req), "SUBSCRIBE\n%zu\n%s\n%zu\n%s\n\n",
@@ -1766,9 +1683,9 @@ static int server_subscribe_loop(const char* username, int* consecutive_failures
     // Read OK response
     SrvLineReader reader;
     srv_line_reader_init(&reader, &subscription_tls);
-    char status[32] = {0};
+    char status[32] = {};
     if (!srv_readline(&reader, status, sizeof(status)) || strcmp(status, "OK") != 0) {
-        char emsg[256] = {0};
+        char emsg[256] = {};
         int rejected = strcmp(status, "ERROR") == 0 &&
             srv_read_tlv(&reader, emsg, sizeof(emsg)) && strcmp(emsg, "invalid token") == 0;
         if (emsg[0] != '\0') {
@@ -1913,30 +1830,13 @@ static void notification_failed(DWORD error) {
     LOGF("[Notifications] Windows toast delivery failed: 0x%08lX", error);
 }
 
-int DaemonRun(const char* server_ip) {
+int DaemonRun(const char*) {
     bb_notifications_set_error_handler(notification_failed);
     HANDLE notification_thread = CreateThread(NULL, 0, notification_monitor, NULL, 0, NULL);
-    if (notification_thread) CloseHandle(notification_thread);
-    else LOGF("[Notifications] Could not start firewall state monitor");
-    char username[128] = {0};
+    if (!notification_thread) LOGF("[Notifications] Could not start firewall state monitor");
+    char username[128] = {};
     int consecutive_failures = 0;
-    int startup_retries = 30;
-
-    LOGF("[Daemon] Waiting for local daemon to be ready...");
-    int local_ready = 0;
-    while (startup_retries > 0) {
-        if (PingDaemon() == 0) {
-            LOGF("[Daemon] Local daemon is ready");
-            local_ready = 1;
-            break;
-        }
-        startup_retries--;
-        Sleep(1000);
-    }
-
-    if (!local_ready) {
-        LOGF("[Daemon] Local daemon not available, continuing without it (pid: %lu)", GetCurrentProcessId());
-    }
+    int local_ready = (PingDaemon() == 0);
 
     // Try to connect to server on startup
     if (LoadUserName(username, sizeof(username)) == 0 && username[0] != '\0') {
@@ -2022,5 +1922,9 @@ int DaemonRun(const char* server_ip) {
         sleep_with_stop_check(5000);
     }
 
+    if (notification_thread) {
+        WaitForSingleObject(notification_thread, INFINITE);
+        CloseHandle(notification_thread);
+    }
     return 0;
 }

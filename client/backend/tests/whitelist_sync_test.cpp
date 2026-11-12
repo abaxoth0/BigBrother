@@ -1,5 +1,5 @@
 #define BB_TOKEN_TEST
-#include "../src/ipc_daemon.c"
+#include "../src/ipc_daemon.cpp"
 #include <assert.h>
 
 HANDLE g_ServiceStopEvent = INVALID_HANDLE_VALUE;
@@ -28,6 +28,14 @@ static const struct { const char* command; const char* response; } requests[] = 
     {"GET_WHITELIST\n", "ERROR\nunavailable\n"},
     {"SET_WHITELIST\n", "ERROR\nunavailable\n"},
     {"SET_WHITELIST\n", "OK\n"},
+    {"SET_WHITELIST\n", "OK\n"},
+    {"SET_WHITELIST\n", "OK\n"},
+    {"GET_IPV6_BLOCK\n", "1\n"},
+    {"GET_FILTRATION\n", "1\n"},
+    {"SET_WHITELIST\n", "ERROR\nunavailable\n"},
+    {"GET_IPV6_BLOCK\n", "1\n"},
+    {"GET_FILTRATION\n", "1\n"},
+    {"SET_WHITELIST\n", "OK\n"},
 };
 
 static HANDLE new_pipe(void) {
@@ -44,7 +52,7 @@ static DWORD WINAPI firewall(LPVOID context) {
     SetEvent(ready);
     for (size_t i = 0; i < sizeof(requests) / sizeof(requests[0]); i++) {
         assert(ConnectNamedPipe(pipe, NULL) || GetLastError() == ERROR_PIPE_CONNECTED);
-        char request[256] = {0};
+        char request[256] = {};
         DWORD size;
         assert(ReadFile(pipe, request, sizeof(request) - 1, &size, NULL));
         if (strcmp(request, requests[i].command) != 0) {
@@ -70,7 +78,7 @@ static DWORD WINAPI watchdog(LPVOID context) {
 }
 
 static int sync_event(const char* data) {
-    SrvLineReader reader = {0};
+    SrvLineReader reader = {};
     if (data)
         reader.len = (size_t)snprintf(reader.buf, sizeof(reader.buf), "%zu\n%s\n\n", strlen(data), data);
     else
@@ -116,9 +124,22 @@ int main(void) {
     assert(fetches == 5 && g_whitelist_sync_pending && !wl_last_equals(""));
     sync_whitelist_from_server("alice");
     assert(fetches == 6 && !g_whitelist_sync_pending && wl_last_equals(""));
+    assert(ini_set_string("filtration", "auto_disable", "0") == 0);
+    assert(ini_set_string("filtration", "block_ipv6", "1") == 0);
+    SetFallbackWhitelistEnabled(0);
+    assert(!IsServerSessionActive());
+    block_all_if_no_fallback();
+    assert(g_blocked_all_pushed);
+    ResetFirewallSync();
+    assert(g_blocked_all_pushed && g_whitelist_sync_pending);
+    block_all_if_no_fallback();
+    ResetFirewallSync();
+    assert(!g_blocked_all_pushed);
+    block_all_if_no_fallback();
+    assert(g_blocked_all_pushed);
     assert(WaitForSingleObject(thread, 5000) == WAIT_OBJECT_0);
     CloseHandle(thread);
     CloseHandle(ready);
-    puts("PASS: matching rules skip downloads; drift bypasses cache; empty rules and failed fetch/application retry");
+    puts("PASS: whitelist synchronization, offline blocking after firewall restart and failed reset retry");
     return 0;
 }

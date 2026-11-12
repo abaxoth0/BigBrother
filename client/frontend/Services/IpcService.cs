@@ -1121,6 +1121,71 @@ public class IpcService : IDisposable
         finally { _connectionLock.Release(); }
     }
 
+    public async Task<bool> ControlFirewallAsync(string action)
+    {
+        var command = action switch {
+            "start" => "START_FIREWALL", "stop" => "STOP_FIREWALL", "restart" => "RESTART_FIREWALL",
+            _ => throw new ArgumentException("Unknown firewall action.", nameof(action))
+        };
+        await _connectionLock.WaitAsync();
+        try
+        {
+            if (!await ConnectAsync()) return false;
+            try { return (await SendCommandWithTimeoutAsync(command, 75000)).status == "OK"; }
+            finally { Disconnect(); }
+        }
+        finally { _connectionLock.Release(); }
+    }
+
+    public async Task<bool> InstallClientUpdateAsync(string approvedMetadata)
+        => (await CertificateCommandAsync("INSTALL_CLIENT_UPDATE", approvedMetadata)).status == "OK";
+
+    public async Task<string?> GetApprovedUpdateAsync()
+    {
+        var (status, data, _) = await CertificateCommandAsync("GET_APPROVED_UPDATE");
+        return status == "OK" && data.Count == 1 ? data[0] : null;
+    }
+
+    public async Task<(string Identity, long Offset, long Length, byte[] Bytes)?> ReadLogChunkAsync(
+        string source, long offset, string identity = "")
+    {
+        var (status, data, _) = await CertificateCommandAsync("READ_LOG", source,
+            offset.ToString(System.Globalization.CultureInfo.InvariantCulture), identity);
+        if (status != "OK" || data.Count != 4 ||
+            !long.TryParse(data[1], out var next) || !long.TryParse(data[2], out var length) || next < 0 || length < 0)
+            return null;
+        try { return (data[0], next, length, Convert.FromHexString(data[3])); }
+        catch (FormatException) { return null; }
+    }
+
+    public async Task<List<Lib.LogEntry>> ReadLogHistoryAsync(string source, CancellationToken token)
+    {
+        using var data = new MemoryStream();
+        string identity = "";
+        long offset = 0, length = -1;
+        for (int resets = 0; ;)
+        {
+            token.ThrowIfCancellationRequested();
+            var chunk = await ReadLogChunkAsync(source, offset, identity)
+                ?? throw new IOException("Не удалось загрузить журнал через клиентский сервис.");
+            if (identity.Length > 0 && chunk.Identity != identity)
+            {
+                if (++resets > 3) throw new IOException("Журнал изменяется во время чтения.");
+                data.SetLength(0);
+                data.Position = 0;
+                length = -1;
+            }
+            identity = chunk.Identity;
+            if (length < 0) length = chunk.Length;
+            long start = chunk.Offset - chunk.Bytes.Length;
+            if (start < data.Length) { data.SetLength(start); data.Position = start; }
+            await data.WriteAsync(chunk.Bytes, token);
+            offset = chunk.Offset;
+            if (offset >= length || chunk.Bytes.Length == 0) break;
+        }
+        return await Task.Run(() => Lib.LogParser.ParseAll(data.ToArray(), token), token);
+    }
+
     public string SavedFingerprintError { get; private set; } = "";
 
     public async Task<string?> GetSavedServerFingerprintAsync()

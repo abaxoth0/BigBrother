@@ -77,35 +77,37 @@ internal static partial class Program
         using var ipc = (IpcService)Activator.CreateInstance(typeof(IpcService),
             BindingFlags.Instance | BindingFlags.NonPublic, null, [pipeName], null)!;
         var uiResponsive = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var record = Record("broker history");
         var reply = Task.Run(async () =>
         {
             await server.WaitForConnectionAsync(timeout.Token);
             using var input = new StreamReader(server, leaveOpen: true);
-            Check(await input.ReadLineAsync(timeout.Token) == "GET_LOG_PATH", "Unexpected history request");
+            Check(await input.ReadLineAsync(timeout.Token) == "READ_LOG", "History must read through the broker");
+            foreach (var argument in new[] { "firewall", "0", "" })
+            {
+                Check(await input.ReadLineAsync(timeout.Token) == argument.Length.ToString(), "Incorrect log argument length");
+                Check(await input.ReadLineAsync(timeout.Token) == argument, "Incorrect log argument");
+            }
             Check(await input.ReadLineAsync(timeout.Token) == "", "Missing request terminator");
             await uiResponsive.Task.WaitAsync(timeout.Token);
-            int length = Encoding.UTF8.GetByteCount(path);
-            await server.WriteAsync(Encoding.UTF8.GetBytes($"OK\n{length}\n{path}\n{length}\n{path}\n\n"), timeout.Token);
+            var fields = new[] { "test", record.Length.ToString(), record.Length.ToString(), Convert.ToHexString(record) };
+            string payload = "OK\n" + string.Concat(fields.Select(field => field.Length + "\n" + field + "\n")) + "\n";
+            await server.WriteAsync(Encoding.UTF8.GetBytes(payload), timeout.Token);
             await server.FlushAsync(timeout.Token);
         });
 
-        // Isolate the history handler from the constructor's service subscriptions and timers.
         var vm = (MainViewModel)RuntimeHelpers.GetUninitializedObject(typeof(MainViewModel));
         typeof(MainViewModel).GetField("_ipcService", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(vm, ipc);
-        typeof(MainViewModel).GetField("_lastClientPid", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(vm, 1);
         List<LogFileSource>? opened = null;
         vm.LogViewRequested += sources => opened = sources;
-        var opening = vm.OpenHistoryAsync();
-        Check(!opening.IsCompleted, "History request must yield while waiting for the pipe");
+        Check(vm.OpenHistoryAsync().IsCompleted, "Opening history must not wait for backend I/O");
+        Check(opened?.Count == 2 && opened.All(source => source.LoadAsync != null && source.FilePath == ""),
+            "History sources must use broker readers rather than direct file paths");
+        var loading = opened![0].LoadAsync!(timeout.Token);
+        Check(!loading.IsCompleted, "Broker history must yield while waiting for the pipe");
         dispatcher.BeginInvoke(DispatcherPriority.Normal, () => uiResponsive.TrySetResult());
-        PumpUntil(() => opening.IsCompleted && reply.IsCompleted, "History request deadlocked the UI");
-        opening.GetAwaiter().GetResult();
+        PumpUntil(() => loading.IsCompleted && reply.IsCompleted, "Broker history deadlocked the UI");
         reply.GetAwaiter().GetResult();
-        Check(opened?.Count == 2 && opened.All(source => source.FilePath == path),
-            "History must open both returned log sources");
-        server.Dispose();
-        opened = null;
-        Check(vm.OpenHistoryAsync().IsCompleted && opened?.Count == 2,
-            "Cached history paths must open without waiting for the backend");
+        Check(loading.GetAwaiter().GetResult().Single().Message == "broker history", "Broker history lost log records");
     }
 }

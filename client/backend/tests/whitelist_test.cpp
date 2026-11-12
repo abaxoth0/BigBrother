@@ -32,7 +32,7 @@ static DWORD WINAPI firewall(LPVOID context) {
     SetEvent(ready);
     for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
         assert(ConnectNamedPipe(pipe, NULL) || GetLastError() == ERROR_PIPE_CONNECTED);
-        char request[64] = {0};
+        char request[64] = {};
         DWORD count;
         assert(ReadFile(pipe, request, sizeof(request) - 1, &count, NULL));
         assert(strcmp(request, "GET_WHITELIST\n") == 0);
@@ -82,7 +82,7 @@ int main(void) {
         const char* request = "GET_WHITELIST\n\n";
         DWORD count;
         assert(WriteFile(pipe, request, (DWORD)strlen(request), &count, NULL));
-        char response[4096] = {0};
+        char response[4096] = {};
         size_t total = 0;
         while (ReadFile(pipe, response + total, (DWORD)(sizeof(response) - 1 - total), &count, NULL) && count) {
             total += count;

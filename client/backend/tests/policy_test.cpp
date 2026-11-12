@@ -1,5 +1,5 @@
 #define BB_TOKEN_TEST
-#include "../src/ipc_daemon.c"
+#include "../src/ipc_daemon.cpp"
 #include <assert.h>
 
 HANDLE g_ServiceStopEvent = INVALID_HANDLE_VALUE;
@@ -46,7 +46,7 @@ static DWORD WINAPI firewall(LPVOID context) {
     SetEvent(ready);
     for (size_t i = 0; i < sizeof(requests) / sizeof(requests[0]); i++) {
         assert(ConnectNamedPipe(pipe, NULL) || GetLastError() == ERROR_PIPE_CONNECTED);
-        char request[256] = {0};
+        char request[256] = {};
         DWORD size;
         assert(ReadFile(pipe, request, sizeof(request) - 1, &size, NULL));
         assert(strcmp(request, requests[i].command) == 0);
@@ -69,7 +69,7 @@ static DWORD WINAPI watchdog(LPVOID context) {
 }
 
 static int ipv6_event(const char* name, const char* enabled) {
-    SrvLineReader reader = {0};
+    SrvLineReader reader = {};
     reader.len = (size_t)snprintf(reader.buf, sizeof(reader.buf), "%zu\n%s\n%zu\n%s\n\n",
         strlen(name), name, strlen(enabled), enabled);
     int result = handle_server_event("CLIENT_IPV6_BLOCK_CHANGED", &reader, "alice");
@@ -78,7 +78,7 @@ static int ipv6_event(const char* name, const char* enabled) {
 }
 
 static int disconnect_event(const char* name) {
-    SrvLineReader reader = {0};
+    SrvLineReader reader = {};
     reader.len = (size_t)snprintf(reader.buf, sizeof(reader.buf), "%zu\n%s\n\n", strlen(name), name);
     int result = handle_server_event("CLIENT_DISCONNECTED", &reader, "alice");
     assert(reader.pos == reader.len);

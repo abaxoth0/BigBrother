@@ -7,6 +7,7 @@ namespace frontend.ViewModels;
 
 public class LogSourceViewModel
 {
+    public Func<CancellationToken, Task<List<Lib.LogEntry>>>? LoadAsync { get; set; }
     public string Label { get; set; } = "";
     public string FilePath { get; set; } = "";
     public List<Lib.LogEntry> AllEntries { get; set; } = new();
@@ -63,6 +64,7 @@ public class LogViewViewModel : ViewModelBase, IDisposable
         {
             Sources.Add(new LogSourceViewModel
             {
+                LoadAsync = src.LoadAsync,
                 Label = src.Label,
                 FilePath = src.FilePath
             });
@@ -75,16 +77,19 @@ public class LogViewViewModel : ViewModelBase, IDisposable
         var token = _stop.Token;
         IsLoading = true;
         StatusText = "Загрузка логов…";
-        var paths = Sources.Select(src => src.FilePath).ToArray();
+        var sources = Sources.ToArray();
         try
         {
-            var loaded = await Task.Run(() => paths.Select(path => LoadLogFile(path, token)).ToArray(), token);
+            var loaded = await Task.WhenAll(sources.Select(src => src.LoadAsync != null
+                ? src.LoadAsync(token)
+                : Task.Run(() => LoadLogFile(src.FilePath, token), token)));
             if (_disposed) return;
             for (int i = 0; i < Sources.Count; i++) Sources[i].AllEntries = loaded[i];
             StatusText = $"Загружено: {loaded.Sum(entries => entries.Count)} записей из {Sources.Count} файлов";
             Filter();
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (IOException error) { if (!_disposed) StatusText = error.Message; }
         finally
         {
             if (!_disposed) IsLoading = false;

@@ -9,7 +9,8 @@
 /**
  * @brief Start client IPC server in a background thread.
  */
-void StartClientServer(void);
+int StartClientServer(void);
+void StopClientServer(void);
 
 /**
  * @brief Signal the client server to shut down.
@@ -19,7 +20,7 @@ void SignalClientServerShutdown(void);
 /**
  * @brief Initialize logging for the client backend.
  */
-void log_init(void);
+extern "C" void log_init(void);
 
 /**
  * @brief Notify subscribers that daemon state has changed.

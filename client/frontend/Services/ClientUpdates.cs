@@ -13,6 +13,7 @@ public sealed class UpdateTransaction
     public string Install { get; set; } = "";
     public string Phase { get; set; } = "downloaded";
     public bool WasRunning { get; set; }
+    public bool FirewallWasRunning { get; set; }
     public int ParentPid { get; set; }
     public ClientUpdate Update { get; set; } = null!;
     public UpdateSnapshot? Snapshot { get; set; }
@@ -312,7 +313,8 @@ public static class ClientUpdates
         if (transaction.Phase == "downloaded" && !System.IO.File.Exists(Path.Combine(transaction.Install, "BigBrother Firewall.exe")))
             throw new IOException("The client installation is missing.");
         var backup = Path.Combine(work, "backup");
-        using var service = new ServiceController("BigBrother Firewall");
+        using var service = new ServiceController("BigBrother Client");
+        using var firewall = new ServiceController("BigBrother Firewall");
         AssertPrivate(Journal(work), false);
         void Save() => UpdateSnapshot.WriteJson(Journal(work), transaction, CreatePrivateFile);
         async Task Restore()
@@ -322,9 +324,11 @@ public static class ClientUpdates
             transaction.Phase = "restoring";
             Save();
             StopService(service);
+            StopService(firewall);
             CloseInstalledProcesses(transaction.Install);
             transaction.Snapshot.Restore(transaction.Install, backup, RestoreSecurity, CreatePrivateFile);
             RestoreServiceState(service, transaction.WasRunning);
+            if (transaction.WasRunning && transaction.FirewallWasRunning) RestoreServiceState(firewall, true);
             transaction.Phase = "restored";
             Save();
             await Task.CompletedTask;
@@ -332,6 +336,7 @@ public static class ClientUpdates
         if (transaction.Phase == "backing-up")
         {
             RestoreServiceState(service, transaction.WasRunning);
+            if (transaction.WasRunning && transaction.FirewallWasRunning) RestoreServiceState(firewall, true);
             transaction.Phase = "restored";
             Save();
             return;
@@ -383,12 +388,15 @@ public static class ClientUpdates
         }
         service.Refresh();
         transaction.WasRunning = service.Status != ServiceControllerStatus.Stopped;
+        firewall.Refresh();
+        transaction.FirewallWasRunning = firewall.Status != ServiceControllerStatus.Stopped;
         try
         {
             progress("Создание резервной копии…");
             transaction.Phase = "backing-up";
             Save();
             StopService(service);
+            StopService(firewall);
             CloseInstalledProcesses(transaction.Install);
             PrivateDirectory(backup);
             transaction.Snapshot = UpdateSnapshot.Capture(transaction.Install, backup, ReadSecurity, PrivateDirectory, CreatePrivateFile);
@@ -421,11 +429,13 @@ public static class ClientUpdates
             {
                 var status = await ipc.GetStatusAsync();
                 service.Refresh();
-                if (status?.DaemonStatus == "RUNNING" && service.Status == ServiceControllerStatus.Running) { healthy = true; break; }
+                if (status?.IsConnected == true && service.Status == ServiceControllerStatus.Running) { healthy = true; break; }
                 await Task.Delay(1000);
             }
             if (!healthy) throw new IOException("The updated client did not become ready.");
             if (!transaction.WasRunning) StopService(service);
+            else if (transaction.FirewallWasRunning && !await ipc.ControlFirewallAsync("start"))
+                throw new IOException("Could not restore the firewall state.");
             transaction.Phase = "complete";
             Save();
         }
@@ -438,6 +448,7 @@ public static class ClientUpdates
                 throw new IOException("Update failed; the previous installation was restored.\n" + failure.Message);
             }
             RestoreServiceState(service, transaction.WasRunning);
+            if (transaction.WasRunning && transaction.FirewallWasRunning) RestoreServiceState(firewall, true);
             transaction.Phase = "restored";
             Save();
             throw;

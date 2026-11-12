@@ -79,7 +79,7 @@ int GetLocalIp(const char* server_ip, char* buffer, size_t buffer_size) {
 // ---------------------------------------------------------------------------
 
 int get_server_port(void) {
-    char buf[16] = {0};
+    char buf[16] = {};
     if (ini_get_string("server", "port", buf, sizeof(buf)) && buf[0]) {
         int p = atoi(buf);
         if (p > 0 && p < 65536) return p;
@@ -88,7 +88,7 @@ int get_server_port(void) {
 }
 
 int is_discovery_enabled(void) {
-    char buf[8] = {0};
+    char buf[8] = {};
     if (ini_get_string("discovery", "enabled", buf, sizeof(buf)) && buf[0]) {
         return buf[0] == '1' || buf[0] == 't' || buf[0] == 'y';
     }
@@ -246,13 +246,13 @@ int GetAllBroadcastAddresses(char* ip_str, size_t ip_size, char* bcast_out, size
     }
 
     // Check if manual network config is enabled
-    char auto_buf[8] = {0};
+    char auto_buf[8] = {};
     int auto_mode = 1;
     if (ini_get_string("network", "auto", auto_buf, sizeof(auto_buf)) && auto_buf[0])
         auto_mode = (auto_buf[0] == '1' || auto_buf[0] == 't' || auto_buf[0] == 'y');
 
     if (!auto_mode) {
-        char gw_buf[64] = {0}, mask_buf[64] = {0};
+        char gw_buf[64] = {0}, mask_buf[64] = {};
         ini_get_string("network", "gateway", gw_buf, sizeof(gw_buf));
         ini_get_string("network", "mask", mask_buf, sizeof(mask_buf));
 
@@ -373,7 +373,7 @@ int DiscoverServers(const char* bcast_list, int port, int timeout_ms, char* out,
     LOGF("[Discovery] Broadcast list: %s", bcast_list ? bcast_list : "(null)");
 
     {
-        char list_copy[4096] = {0};
+        char list_copy[4096] = {};
         strncpy(list_copy, bcast_list ? bcast_list : "127.0.0.1", sizeof(list_copy) - 1);
 
         struct sockaddr_in dest;
@@ -406,7 +406,7 @@ int DiscoverServers(const char* bcast_list, int port, int timeout_ms, char* out,
     while (count < DISCOVERY_MAX_SERVERS) {
         struct sockaddr_in from;
         int from_len = sizeof(from);
-        char buf[DISCOVERY_BUF_SIZE] = {0};
+        char buf[DISCOVERY_BUF_SIZE] = {};
         int n = recvfrom(sock, buf, sizeof(buf) - 1, 0, (struct sockaddr*)&from, &from_len);
         if (n == SOCKET_ERROR) {
             int err = WSAGetLastError();
@@ -442,7 +442,7 @@ int DiscoverServers(const char* bcast_list, int port, int timeout_ms, char* out,
             uint32_t ip_addr = parse_ip(ip);
             if (ip_addr && is_local_ip(ip_addr)) {
                 LOGF("[Discovery] Server IP %s is local, replacing with 127.0.0.1", ip);
-                ip = "127.0.0.1";
+                ip = const_cast<char*>("127.0.0.1");
             }
         }
 
@@ -528,13 +528,13 @@ int DiscoverServersTCP(char* out, size_t out_size, int timeout_ms) {
     ULONGLONG scan_end = GetTickCount64() + timeout_ms;
 
     // Check manual network config
-    char auto_buf[8] = {0};
+    char auto_buf[8] = {};
     int auto_mode = 1;
     if (ini_get_string("network", "auto", auto_buf, sizeof(auto_buf)) && auto_buf[0])
         auto_mode = (auto_buf[0] == '1' || auto_buf[0] == 't' || auto_buf[0] == 'y');
 
     if (!auto_mode) {
-        char gw_buf[64] = {0}, mask_buf[64] = {0};
+        char gw_buf[64] = {0}, mask_buf[64] = {};
         ini_get_string("network", "gateway", gw_buf, sizeof(gw_buf));
         ini_get_string("network", "mask", mask_buf, sizeof(mask_buf));
         if (gw_buf[0] && mask_buf[0]) {
@@ -587,7 +587,7 @@ int DiscoverServersTCP(char* out, size_t out_size, int timeout_ms) {
                         const char* req = "GET_SERVER_NAME\n\n";
                         int sent = send(socks[i], req, (int)strlen(req), 0);
                         if (sent <= 0) { shutdown(socks[i], SD_BOTH); closesocket(socks[i]); continue; }
-                        char resp[1024] = {0}; int tt = 0; int err_count = 0;
+                        char resp[1024] = {}; int tt = 0; int err_count = 0;
                         while (tt < (int)sizeof(resp) - 1 && err_count < 3) {
                             int nn = recv(socks[i], resp + tt, sizeof(resp) - 1 - tt, 0);
                             if (nn == SOCKET_ERROR) {
@@ -701,7 +701,7 @@ int DiscoverServersTCP(char* out, size_t out_size, int timeout_ms) {
                 int sent = send(socks[i], req, (int)strlen(req), 0);
                 if (sent <= 0) { shutdown(socks[i], SD_BOTH); closesocket(socks[i]); continue; }
 
-                char resp[1024] = {0};
+                char resp[1024] = {};
                 int t = 0;
                 int err_count = 0;
                 while (t < (int)sizeof(resp) - 1 && err_count < 3) {
@@ -779,7 +779,7 @@ probe_localhost:
                     const char* req = "GET_SERVER_NAME\n\n";
                     int sent = send(lsock, req, (int)strlen(req), 0);
                     if (sent <= 0) { shutdown(lsock, SD_BOTH); closesocket(lsock); goto done; }
-                    char resp[1024] = {0};
+                    char resp[1024] = {};
                     int t = 0;
                     while (t < (int)sizeof(resp) - 1) {
                         int n = recv(lsock, resp + t, sizeof(resp) - 1 - t, 0);
@@ -817,12 +817,14 @@ probe_localhost:
                                     LOGF("[Discovery] Skip 127.0.0.1 (already found via subnet): %s", l);
                                     goto skip_localhost_add;
                                 }
+                                {
                                 int written = snprintf(out_pos, remaining, "%s|127.0.0.1|1984\n", l);
                                 if (written > 0 && written < (int)remaining) {
                                     out_pos += written;
                                     remaining -= written;
                                     count++;
                                     LOGF("[Discovery] Found server at 127.0.0.1: %s", l);
+                                }
                                 }
                                 skip_localhost_add: ;
                             }
