@@ -57,7 +57,7 @@ public class MainViewModel : ViewModelBase, IDisposable
         set => SetProperty(ref _autoScroll, value);
     }
 
-    private bool _firewallRunning = true;
+    private bool _firewallRunning;
     private bool _serverConnected;
     private HealthState _overallHealth = HealthState.Unknown;
 
@@ -94,7 +94,7 @@ public class MainViewModel : ViewModelBase, IDisposable
         HealthState.AllOk => "Работает",
         HealthState.Degraded => "Отсутствует подключение к серверу",
         HealthState.FiltrationOff => "Фильтрация отключена",
-        HealthState.Critical => "Отсутствует подключение к Firewall'у",
+        HealthState.Critical => BackendConnected ? "Firewall остановлен" : "Нет связи с клиентской службой",
         _ => "Проверка статуса..."
     };
 
@@ -386,8 +386,9 @@ public class MainViewModel : ViewModelBase, IDisposable
     // Whitelist revision tracking for change detection
     private uint _lastWhitelistRevision = 0;
     private readonly System.Timers.Timer _statusTimer = new System.Timers.Timer(60000); // Safety fallback (events drive updates)
-    private int _refreshInProgress;
-    private int _refreshQueued;
+    private readonly object _refreshLock = new();
+    private Task? _refreshTask;
+    private bool _refreshQueued;
 
     /// <summary>Raised after each status refresh with the latest daemon status.</summary>
     public event Action<ClientStatus>? StatusRefreshed;
@@ -406,10 +407,7 @@ public class MainViewModel : ViewModelBase, IDisposable
     public ICommand InspectCertificateCommand { get; }
     public ICommand ApplyCertificateFingerprintCommand { get; }
     public ICommand ToggleFiltrationCommand { get; }
-    public ICommand StartDaemonCommand { get; }
-    public ICommand StopDaemonCommand { get; }
-    public ICommand RestartDaemonCommand { get; }
-    public ICommand RestartClientCommand { get; }
+    public ClientControlsViewModel Controls { get; }
     public ICommand RefreshStatusCommand { get; }
     public ICommand OpenHistoryCommand { get; }
     public ICommand OpenArchivedLogCommand { get; }
@@ -435,94 +433,122 @@ public class MainViewModel : ViewModelBase, IDisposable
         _ = RefreshStateAsync();
     }
 
-    public async Task RefreshStateAsync()
+    public Task RefreshStateAsync()
     {
-        // Single-flight: coalesce concurrent refreshes (event bursts + timer).
-        if (Interlocked.CompareExchange(ref _refreshInProgress, 1, 0) != 0)
+        lock (_refreshLock)
         {
-            Interlocked.Exchange(ref _refreshQueued, 1);
-            return;
+            _refreshQueued = true;
+            if (_refreshTask != null) return _refreshTask;
+            var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            _refreshTask = completion.Task;
+            _ = RefreshStateLoopAsync(completion);
+            return completion.Task;
         }
+    }
 
+    private async Task RefreshStateLoopAsync(TaskCompletionSource completion)
+    {
         try
         {
-            do
+            while (true)
             {
-                Interlocked.Exchange(ref _refreshQueued, 0);
-                try
+                lock (_refreshLock)
                 {
-                    var status = await _ipcService.GetStatusAsync().ConfigureAwait(false);
-                    if (_disposed) return;
-                    if (status.IsConnected) await RefreshIpv6BlockAsync().ConfigureAwait(false);
-
-                    System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
+                    if (!_refreshQueued || _disposed)
                     {
-                        if (_disposed) return;
-                        UpdateStatus(status);
-                        LastUpdate = DateTime.Now;
-                        StatusRefreshed?.Invoke(status);
-                    });
-
-                    UpdateLogReaders(status);
-
-                    if (!status.IsConnected && SettingsAvailable)
-                    {
-                        System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
-                        {
-                            if (_disposed) return;
-                            SettingsAvailable = false;
-                        });
+                        _refreshTask = null;
+                        completion.SetResult();
+                        return;
                     }
-                    else if (status.IsConnected && !SettingsAvailable)
-                    {
-                        await LoadSettingsAsync();
-                    }
-
-                    if (status.WhitelistRevision != 0 && status.WhitelistRevision != _lastWhitelistRevision)
-                    {
-                        var whitelist = await _ipcService.GetWhitelistAsync().ConfigureAwait(false);
-                        if (_disposed) return;
-
-                        if (whitelist != null)
-                        {
-                            _lastWhitelistRevision = status.WhitelistRevision;
-                            System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
-                            {
-                                if (_disposed) return;
-                                WhitelistEntries.Clear();
-                                foreach (var domain in whitelist)
-                                {
-                                    WhitelistEntries.Add(WhitelistEntry.Parse(domain));
-                                }
-
-                                IsWhitelistEmpty = whitelist.Count == 0;
-                                UpdateWhitelistDisplay();
-                                AddLog("INFO", $"Whitelist updated ({whitelist.Count} domains)");
-                            });
-                        }
-                    }
+                    _refreshQueued = false;
                 }
-                catch
-                {
-                    if (_disposed) return;
-                    System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
-                    {
-                        if (_disposed) return;
-                        FirewallRunning = false;
-                        BackendConnected = false;
-                        SettingsAvailable = false;
-                        ServerConnected = false;
-                        FiltrationEnabled = false;
-                        OverallHealth = HealthState.Critical;
-                        StatusRefreshed?.Invoke(new ClientStatus { ClientPid = 0 });
-                    });
-                    UpdateLogReaders(new ClientStatus { ClientPid = 0 });
-                }
-            } while (Interlocked.CompareExchange(ref _refreshQueued, 0, 1) == 1 && !_disposed);
+                await RefreshStateCoreAsync().ConfigureAwait(false);
+            }
         }
-        finally
+        catch (Exception error)
         {
-            Interlocked.Exchange(ref _refreshInProgress, 0);
+            lock (_refreshLock)
+            {
+                _refreshTask = null;
+                completion.SetException(error);
+            }
+        }
+    }
+
+    private async Task RefreshStateCoreAsync()
+    {
+        var serviceState = await ClientBackendService.GetStateAsync().ConfigureAwait(false);
+        try
+        {
+            var status = await _ipcService.GetStatusAsync().ConfigureAwait(false);
+            if (_disposed) return;
+            if (status.IsConnected) await RefreshIpv6BlockAsync().ConfigureAwait(false);
+
+            await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+            {
+                if (_disposed) return;
+                Controls.UpdateState(serviceState, status.IsConnected, status.DaemonStatus == "RUNNING");
+                UpdateStatus(status);
+                LastUpdate = DateTime.Now;
+                StatusRefreshed?.Invoke(status);
+            });
+
+            UpdateLogReaders(status);
+
+            if (!status.IsConnected && SettingsAvailable)
+            {
+                System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
+                {
+                    if (_disposed) return;
+                    SettingsAvailable = false;
+                });
+            }
+            else if (status.IsConnected && !SettingsAvailable)
+            {
+                await LoadSettingsAsync();
+            }
+
+            if (status.WhitelistRevision != 0 && status.WhitelistRevision != _lastWhitelistRevision)
+            {
+                var whitelist = await _ipcService.GetWhitelistAsync().ConfigureAwait(false);
+                if (_disposed) return;
+
+                if (whitelist != null)
+                {
+                    _lastWhitelistRevision = status.WhitelistRevision;
+                    System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
+                    {
+                        if (_disposed) return;
+                        WhitelistEntries.Clear();
+                        foreach (var domain in whitelist)
+                        {
+                            WhitelistEntries.Add(WhitelistEntry.Parse(domain));
+                        }
+
+                        IsWhitelistEmpty = whitelist.Count == 0;
+                        UpdateWhitelistDisplay();
+                        AddLog("INFO", $"Whitelist updated ({whitelist.Count} domains)");
+                    });
+                }
+            }
+        }
+        catch
+        {
+            if (_disposed) return;
+            await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+            {
+                if (_disposed) return;
+                Controls.UpdateState(serviceState, false, false);
+                FirewallRunning = false;
+                BackendConnected = false;
+                SettingsAvailable = false;
+                ServerConnected = false;
+                FiltrationEnabled = false;
+                OverallHealth = HealthState.Critical;
+                OnPropertyChanged(nameof(OverallHealthText));
+                StatusRefreshed?.Invoke(new ClientStatus { ClientPid = 0 });
+            });
+            UpdateLogReaders(new ClientStatus { ClientPid = 0 });
         }
     }
 
@@ -531,20 +557,24 @@ public class MainViewModel : ViewModelBase, IDisposable
         _logUpdates = new DispatcherLogQueue<LogEntry>(MaxLogs,
             System.Windows.Application.Current.Dispatcher, FlushPendingLogs);
 
+        Controls = new ClientControlsViewModel(ClientBackendService.ControlAsync,
+            async action => {
+                if (!await _ipcService.ControlFirewallAsync(action))
+                    throw new IOException(string.IsNullOrEmpty(_ipcService.LastError)
+                        ? "Не удалось выполнить команду." : _ipcService.LastError);
+            }, RefreshStateAsync, AddLog);
+
         ClearLogsCommand = new RelayCommand(_ => ClearLogs());
         ExportLogsCommand = new RelayCommand(_ => ExportLogs());
         RegisterCommand = new RelayCommand(async _ => await RegisterAsync());
-        ConnectCommand = new RelayCommand(async _ => await ConnectAsync());
-        DisconnectCommand = new RelayCommand(async _ => await DisconnectAsync());
+        ConnectCommand = new RelayCommand(async _ => await ConnectAsync(), _ => Controls.BackendAvailable && !ServerConnected);
+        DisconnectCommand = new RelayCommand(async _ => await DisconnectAsync(), _ => Controls.BackendAvailable && ServerConnected);
         ChangeServerCommand = new RelayCommand(async _ => await ChangeServerAsync(), _ => DiscoveryEnabled);
         SaveSettingsCommand = new RelayCommand(async _ => await SaveAllSettingsAsync());
         InspectCertificateCommand = new RelayCommand(async _ => await InspectCertificateAsync(), _ => !CertificateBusy);
         ApplyCertificateFingerprintCommand = new RelayCommand(async _ => await ApplyCertificateFingerprintAsync(), _ => CanApplyCertificateFingerprint);
-        ToggleFiltrationCommand = new RelayCommand(async _ => await ToggleFiltrationAsync());
-        StartDaemonCommand = new RelayCommand(async _ => await StartDaemonAsync());
-        StopDaemonCommand = new RelayCommand(async _ => await StopDaemonAsync());
-        RestartDaemonCommand = new RelayCommand(async _ => await RestartDaemonAsync());
-        RestartClientCommand = new RelayCommand(async _ => await RestartClientAsync());
+        ToggleFiltrationCommand = new RelayCommand(async _ => await ToggleFiltrationAsync(),
+            _ => Controls.BackendAvailable && FirewallRunning);
         RefreshStatusCommand = new RelayCommand(async _ => await RefreshStateAsync());
         OpenHistoryCommand = new RelayCommand(async _ => await OpenHistoryAsync());
         OpenArchivedLogCommand = new RelayCommand(_ => OpenArchivedLogs());
@@ -561,8 +591,6 @@ public class MainViewModel : ViewModelBase, IDisposable
 
         AddLog("INFO", "Клиент запущен");
 
-        // Load settings from backend
-        LoadSettingsAsync();
     }
 
     private async Task LoadSettingsAsync()
@@ -996,6 +1024,7 @@ public class MainViewModel : ViewModelBase, IDisposable
     private void UpdateStatus(ClientStatus status)
     {
         BackendConnected = status.IsConnected;
+        OnPropertyChanged(nameof(OverallHealthText));
         var daemonRunning = status.DaemonStatus == "RUNNING";
         var serverConnected = status.IsServerSessionActive;
         FirewallRunning = daemonRunning;
@@ -1034,62 +1063,6 @@ public class MainViewModel : ViewModelBase, IDisposable
         // Windows Toast Notification placeholder
         // Would use Windows.UI.Notifications or similar
         AddLog("INFO", $"Уведомление: {title} - {message}");
-    }
-
-    private async Task StartDaemonAsync()
-    {
-        AddLog("INFO", "Запуск демона...");
-        try
-        {
-            var result = await _ipcService.ControlFirewallAsync("start");
-            AddLog(result ? "INFO" : "ERROR", result ? "Демон запущен" : "Не удалось запустить демон");
-            await Task.Delay(2000);
-            await RefreshStateAsync();
-        }
-        catch (Exception ex)
-        {
-            AddLog("ERROR", $"Ошибка: {ex.Message}");
-        }
-    }
-
-    private async Task StopDaemonAsync()
-    {
-        AddLog("INFO", "Остановка демона...");
-        try
-        {
-            var result = await _ipcService.ControlFirewallAsync("stop");
-            AddLog(result ? "INFO" : "ERROR", result ? "Демон остановлен" : "Не удалось остановить демон");
-            await RefreshStateAsync();
-        }
-        catch (Exception ex)
-        {
-            AddLog("ERROR", $"Ошибка: {ex.Message}");
-        }
-    }
-
-    private async Task RestartDaemonAsync()
-    {
-        AddLog("INFO", "Рестарт демона...");
-        try
-        {
-            var result = await _ipcService.ControlFirewallAsync("restart");
-            AddLog(result ? "INFO" : "ERROR", result ? "Демон перезапущен" : "Не удалось перезапустить демон");
-            await Task.Delay(3000);
-            await RefreshStateAsync();
-        }
-        catch (Exception ex)
-        {
-            AddLog("ERROR", $"Ошибка: {ex.Message}");
-        }
-    }
-
-    private async Task RestartClientAsync()
-    {
-        AddLog("INFO", "Перезапуск клиента...");
-        var result = await _ipcService.RestartClientAsync();
-        AddLog(result ? "INFO" : "ERROR", result ? "Клиент перезапущен" : "Не удалось перезапустить клиент");
-        await Task.Delay(2000);
-        await RefreshStateAsync();
     }
 
     // Log reader lifecycle: start/stop the binary log tailers as the client process appears.

@@ -83,3 +83,5 @@ await Ipv6BlockPreferenceTests.RunAsync();
 await SubscriptionTests.RunAsync();
 
 await BrokerTests.RunAsync();
+
+await ClientControlsTests.RunAsync();

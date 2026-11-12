@@ -192,7 +192,8 @@ follows the backend service lifetime through a status/process monitor. Subsequen
 mode. Both installers leave the service stopped, including after upgrades and
 silent installs. Opening the client frontend does not start either service; it
 shows the disconnected state when the backend is unavailable. Start the backend
-through Windows Services; use explicit Start/Restart controls to start the firewall.
+using **Клиентская служба → Старт** in the frontend (or Windows Services);
+use the separate **Firewall → Старт/Рестарт** controls to start the firewall.
 Automatic takes effect at the next Windows startup.
 The firewall stops when the backend stops or crashes; the frontend stays open. A backend
 restart leaves the firewall stopped. See [client backend architecture](CLIENT-BACKEND.md).

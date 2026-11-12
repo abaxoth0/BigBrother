@@ -17,9 +17,14 @@ flowchart LR
 
 The frontend opens without starting or requiring the backend service. It shows
 the disconnected state while the backend is stopped or unavailable and reconnects
-when the backend becomes available. Command-line operations require a running
+when the backend becomes available. The main control panel has separate
+Start/Stop/Restart controls for **Клиентская служба** (`BigBrother Client`) and
+**Firewall**. Backend controls use Windows Service Control Manager and remain
+available without IPC; firewall controls send requests through the running
+backend. Operations disable conflicting controls until completion and status
+refresh, with errors shown in the log. Command-line operations require a running
 backend and use its pipe. Neither starting the backend nor opening the frontend
-starts the firewall. Only explicit Start/Restart requests start it. Filtration
+starts the firewall. Only explicit firewall Start/Restart requests start it. Filtration
 toggles, settings, server policy, status checks and reconnects never launch it.
 A stopped or crashed firewall stays stopped until another Start/Restart request.
 
@@ -101,4 +106,5 @@ then checks normal-stop and process-termination cascades. Packet and TLS tests
 remain separate. Actual WinDivert driver operation requires Windows.
 
 The WPF regression project tests broker-backed history loading and UI
-responsiveness alongside existing frontend checks.
+responsiveness alongside existing frontend checks, including offline service controls,
+backend/firewall command routing and control-panel layout at supported font sizes.

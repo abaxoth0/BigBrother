@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Client backend: migrate to C++20 and make BigBrother Client the client hub service, with firewall, logs and update adapters. Route frontend and command-line operations through the backend; start the firewall only on explicit Start/Restart requests. Keep the frontend available without starting services, displaying the disconnected state while the backend is unavailable. Stop dependent workers and the firewall when the backend stops or crashes. Install the firewall as a demand-started dependent service; use the full Client Setup installer to migrate the previous firewall-owned backend layout
+- Client backend: migrate to C++20 and make BigBrother Client the client hub service, with firewall, logs and update adapters. Route frontend and command-line operations through the backend; start the firewall only on explicit Start/Restart requests. Keep the frontend available without starting services, displaying the disconnected state while the backend is unavailable. Provide separate client-service and firewall Start/Stop/Restart controls; allow backend control without IPC and show operation progress and errors. Stop dependent workers and the firewall when the backend stops or crashes. Install the firewall as a demand-started dependent service; use the full Client Setup installer to migrate the previous firewall-owned backend layout
 
 ### Added
 

@@ -76,15 +76,6 @@
             </Setter>
         </Style>
 
-        <!-- Status dot -->
-        <Style x:Key="StatusDot" TargetType="Ellipse">
-            <Setter Property="Width" Value="12"/>
-            <Setter Property="Height" Value="12"/>
-            <Setter Property="VerticalAlignment" Value="Center"/>
-            <Setter Property="Fill" Value="{StaticResource StatusDisconnected}"/>
-            <Setter Property="Margin" Value="0,0,8,0"/>
-        </Style>
-
         <!-- Right-side nav item -->
         <Style x:Key="NavItem" TargetType="RadioButton">
             <Setter Property="Padding" Value="14,10"/>
@@ -357,107 +348,7 @@
                         <Expander.Header>
                             <TextBlock Text="ПАНЕЛЬ УПРАВЛЕНИЯ" FontWeight="Bold" Padding="4,3"/>
                         </Expander.Header>
-                        <Border Padding="10,6,10,8" Background="{StaticResource HeaderBackground}" CornerRadius="0,0,5,5">
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="*"/>
-                                </Grid.ColumnDefinitions>
-
-                                <!-- Firewall Control -->
-                                <StackPanel Grid.Column="0">
-                                    <StackPanel Orientation="Horizontal" Margin="0,4">
-                                        <Ellipse>
-                                            <Ellipse.Style>
-                                                <Style TargetType="Ellipse" BasedOn="{StaticResource StatusDot}">
-                                                    <Style.Triggers>
-                                                        <DataTrigger Binding="{Binding FirewallRunning}" Value="True">
-                                                            <Setter Property="Fill" Value="{StaticResource StatusRunning}"/>
-                                                        </DataTrigger>
-                                                    </Style.Triggers>
-                                                </Style>
-                                            </Ellipse.Style>
-                                        </Ellipse>
-                                        <TextBlock Text="Firewall" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                                        <TextBlock VerticalAlignment="Center">
-                                            <TextBlock.Style>
-                                                <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
-                                                    <Setter Property="Text" Value="Остановлен"/>
-                                                    <Style.Triggers>
-                                                        <DataTrigger Binding="{Binding FirewallRunning}" Value="True">
-                                                            <Setter Property="Text" Value="Запущен"/>
-                                                        </DataTrigger>
-                                                    </Style.Triggers>
-                                                </Style>
-                                            </TextBlock.Style>
-                                        </TextBlock>
-                                    </StackPanel>
-                                    <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
-                                        <Button Content="Старт" Style="{StaticResource SmallButton}" Command="{Binding StartDaemonCommand}"/>
-                                        <Button Content="Стоп" Style="{StaticResource SmallButton}" Command="{Binding StopDaemonCommand}"/>
-                                        <Button Content="Рестарт" Style="{StaticResource SmallButton}" Command="{Binding RestartDaemonCommand}"/>
-                                    </StackPanel>
-                                </StackPanel>
-
-                                <!-- Server Control -->
-                                <StackPanel Grid.Column="1">
-                                    <StackPanel Orientation="Horizontal" Margin="0,4">
-                                        <Ellipse>
-                                            <Ellipse.Style>
-                                                <Style TargetType="Ellipse" BasedOn="{StaticResource StatusDot}">
-                                                    <Style.Triggers>
-                                                        <DataTrigger Binding="{Binding ServerConnected}" Value="True">
-                                                            <Setter Property="Fill" Value="{StaticResource StatusRunning}"/>
-                                                        </DataTrigger>
-                                                    </Style.Triggers>
-                                                </Style>
-                                            </Ellipse.Style>
-                                        </Ellipse>
-                                        <TextBlock Text="Сервер" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                                        <TextBlock VerticalAlignment="Center">
-                                            <TextBlock.Style>
-                                                <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
-                                                    <Setter Property="Text" Value="Нет связи"/>
-                                                    <Style.Triggers>
-                                                        <DataTrigger Binding="{Binding ServerConnected}" Value="True">
-                                                            <Setter Property="Text" Value="Подключено"/>
-                                                        </DataTrigger>
-                                                    </Style.Triggers>
-                                                </Style>
-                                            </TextBlock.Style>
-                                        </TextBlock>
-                                    </StackPanel>
-                                    <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
-                                        <Button Content="Подключиться" Style="{StaticResource SmallButton}" Command="{Binding ConnectCommand}"/>
-                                        <Button Content="Отключиться" Style="{StaticResource SmallButton}" Command="{Binding DisconnectCommand}"/>
-                                    </StackPanel>
-                                </StackPanel>
-
-                                <!-- Filtration & Client -->
-                                <StackPanel Grid.Column="2">
-                                    <StackPanel Orientation="Horizontal" Margin="0,4">
-                                        <TextBlock Text="Фильтрация" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                                        <TextBlock VerticalAlignment="Center">
-                                            <TextBlock.Style>
-                                                <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
-                                                    <Setter Property="Text" Value="Выкл"/>
-                                                    <Style.Triggers>
-                                                        <DataTrigger Binding="{Binding FiltrationEnabled}" Value="True">
-                                                            <Setter Property="Text" Value="Вкл"/>
-                                                        </DataTrigger>
-                                                    </Style.Triggers>
-                                                </Style>
-                                            </TextBlock.Style>
-                                        </TextBlock>
-                                    </StackPanel>
-                                    <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
-                                        <Button Content="Вкл/Выкл" Style="{StaticResource SmallButton}" Command="{Binding ToggleFiltrationCommand}" Margin="0,0,10,0"/>
-                                        <Button Content="Рестарт клиента" Style="{StaticResource SmallButton}" Command="{Binding RestartClientCommand}"/>
-                                    </StackPanel>
-                                </StackPanel>
-                            </Grid>
-                        </Border>
+                        <views:ClientControlPanel/>
                     </Expander>
                 </Grid>
 

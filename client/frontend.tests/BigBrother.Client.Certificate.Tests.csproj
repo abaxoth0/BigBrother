@@ -6,6 +6,11 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="../frontend/ViewModels/ClientControlsViewModel.cs" Link="ClientControlsViewModel.cs" />
+    <Compile Include="../frontend/Services/ClientServiceState.cs" Link="ClientServiceState.cs" />
+    <Compile Include="../../lib/cs/BigBrother.Frontend.Shared/ViewModels/ViewModelBase.cs" Link="ViewModelBase.cs" />
+    <Compile Include="../../lib/cs/BigBrother.Frontend.Shared/ViewModels/RelayCommand.cs" Link="RelayCommand.cs" />
+    <Compile Include="../updates.tests/CommandManagerStub.cs" Link="CommandManagerStub.cs" />
     <Compile Include="../frontend/Services/IpcService.cs" Link="IpcService.cs" />
     <Compile Include="../frontend/Services/CertificateInspection.cs" Link="CertificateInspection.cs" />
     <Compile Include="../frontend/ViewModels/Ipv6BlockPreference.cs" Link="Ipv6BlockPreference.cs" />
