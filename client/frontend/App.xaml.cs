@@ -6,7 +6,7 @@ namespace frontend;
 public partial class App : System.Windows.Application
 {
     private bool _installingUpdate;
-    private BackendLifetime? _backendLifetime;
+    private BackendLifetime? _updateWorkerLifetime;
 
     protected override async void OnStartup(StartupEventArgs e)
     {
@@ -33,10 +33,11 @@ public partial class App : System.Windows.Application
             int? expectedPid = e.Args.Length == 2 && e.Args[0] == "--prepare-update"
                 ? int.Parse(e.Args[1], System.Globalization.CultureInfo.InvariantCulture) : null;
             if (!await ClientStartup.StartAsync(
-                () => expectedPid == null ? Task.Run(ClientUpdates.PendingRecovery) : Task.FromResult<string?>(null),
+                expectedPid,
+                () => Task.Run(ClientUpdates.PendingRecovery),
                 ClientUpdates.Launch,
-                async () => { _backendLifetime = await BackendLifetime.AttachAsync(
-                    () => Dispatcher.BeginInvoke(() => Shutdown()), expectedPid); }))
+                async pid => { _updateWorkerLifetime = await BackendLifetime.AttachAsync(
+                    () => Dispatcher.BeginInvoke(() => Shutdown()), pid); }))
             {
                 Shutdown();
                 return;
@@ -110,7 +111,7 @@ public partial class App : System.Windows.Application
 
     protected override void OnExit(ExitEventArgs e)
     {
-        _backendLifetime?.Dispose();
+        _updateWorkerLifetime?.Dispose();
         base.OnExit(e);
     }
 }

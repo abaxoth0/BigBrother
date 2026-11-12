@@ -65,7 +65,7 @@ static int run_backend(const char* server_ip) {
 }
 
 void WINAPI ServiceMain(DWORD argc, LPTSTR* argv) {
-    g_StatusHandle = RegisterServiceCtrlHandlerA("BigBrother.Client", ServiceControlHandler);
+    g_StatusHandle = RegisterServiceCtrlHandlerA("BigBrother Client", ServiceControlHandler);
     if (!g_StatusHandle) return;
     g_ServiceStatus.dwServiceType = SERVICE_WIN32_OWN_PROCESS;
     g_ServiceStatus.dwCurrentState = SERVICE_START_PENDING;
@@ -154,7 +154,7 @@ int main(int argc, char** argv) {
     }
     if (secure_storage) return 0;
     SERVICE_TABLE_ENTRY service_table[] = {
-        {const_cast<char*>("BigBrother.Client"), ServiceMain}, {nullptr, nullptr}
+        {const_cast<char*>("BigBrother Client"), ServiceMain}, {nullptr, nullptr}
     };
     if (argc == 1 && StartServiceCtrlDispatcherA(service_table)) return 0;
     if (argc >= 2) return run_backend(argc >= 3 ? argv[2] : "");

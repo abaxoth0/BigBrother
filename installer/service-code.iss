@@ -132,6 +132,7 @@ begin
   try
     StopAndRemoveService('{#ServiceName}');
 #if Product == "Client"
+    StopAndRemoveService('BigBrother.Client');
     StopAndRemoveService('BigBrother Firewall');
 #endif
   except
@@ -164,7 +165,7 @@ begin
     '\"" start= demand DisplayName= "BigBrother Firewall"',
     'Cannot create BigBrother Firewall.');
   RunRequired(ExpandConstant('{sys}\sc.exe'),
-    'description "BigBrother Firewall" "Filters traffic under control of BigBrother.Client."',
+    'description "BigBrother Firewall" "Filters traffic under control of BigBrother Client."',
     'Cannot set the firewall service description.');
   RemoveFirewallRule('BigBrother Server (TCP 1984)');
   RemoveFirewallRule('BigBrother Discovery (UDP 42069)');

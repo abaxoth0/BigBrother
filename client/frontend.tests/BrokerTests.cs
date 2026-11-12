@@ -33,6 +33,16 @@ internal static class BrokerTests
             return await pending;
         }
 
+        var offline = await ipc.GetStatusAsync();
+        if (offline.IsConnected || offline.ClientPid != 0 || offline.DaemonStatus != "NOT_RUNNING")
+            throw new Exception("Unavailable backend did not report stopped status.");
+        var online = await Exchange(ipc.GetStatusAsync, "GET_STATUS", [],
+            ["alice", "127.0.0.1", "stopped", "running", "0", "1234", "stopped", "disconnected", "0"]);
+        if (!online.IsConnected || online.ClientPid != 1234 || online.DaemonStatus != "NOT_RUNNING")
+            throw new Exception("Frontend did not reconnect to a backend with a stopped firewall.");
+        if ((await ipc.GetStatusAsync()).IsConnected)
+            throw new Exception("Backend stop did not restore disconnected status.");
+
         foreach (var action in new[] { "start", "stop", "restart" })
             if (!await Exchange(() => ipc.ControlFirewallAsync(action), action.ToUpperInvariant() + "_FIREWALL", [], []))
                 throw new Exception("Firewall control did not use the backend.");

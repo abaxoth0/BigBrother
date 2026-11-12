@@ -125,7 +125,7 @@ int main(int argc, char** argv) {
     std::wstring firewall_command = L"\"" + std::wstring(executable) + L"\" --firewall-service";
     client::ServiceHandle manager(OpenSCManagerW(nullptr, nullptr, SC_MANAGER_ALL_ACCESS));
     assert(manager);
-    client::ServiceHandle backend(CreateServiceW(manager.get(), L"BigBrother.Client", L"Backend lifecycle test",
+    client::ServiceHandle backend(CreateServiceW(manager.get(), L"BigBrother Client", L"Backend lifecycle test",
         SERVICE_ALL_ACCESS, SERVICE_WIN32_OWN_PROCESS, SERVICE_DEMAND_START, SERVICE_ERROR_NORMAL,
         backend_command.c_str(), nullptr, nullptr, nullptr, nullptr, nullptr));
     assert(backend);

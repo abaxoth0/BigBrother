@@ -26,7 +26,7 @@ int RestartBackendService(const char* process_id) {
     if (previous && WaitForSingleObject(previous.get(), 45000) != WAIT_OBJECT_0) return 1;
     client::ServiceHandle manager(OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT));
     if (!manager) return 1;
-    client::ServiceHandle service(OpenServiceW(manager.get(), L"BigBrother.Client", SERVICE_START | SERVICE_QUERY_STATUS));
+    client::ServiceHandle service(OpenServiceW(manager.get(), L"BigBrother Client", SERVICE_START | SERVICE_QUERY_STATUS));
     if (!service) return 1;
     SERVICE_STATUS status{};
     for (int attempt = 0; attempt < 100; ++attempt) {

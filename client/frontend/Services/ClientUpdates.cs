@@ -313,7 +313,7 @@ public static class ClientUpdates
         if (transaction.Phase == "downloaded" && !System.IO.File.Exists(Path.Combine(transaction.Install, "BigBrother Firewall.exe")))
             throw new IOException("The client installation is missing.");
         var backup = Path.Combine(work, "backup");
-        using var service = new ServiceController("BigBrother.Client");
+        using var service = new ServiceController("BigBrother Client");
         using var firewall = new ServiceController("BigBrother Firewall");
         AssertPrivate(Journal(work), false);
         void Save() => UpdateSnapshot.WriteJson(Journal(work), transaction, CreatePrivateFile);

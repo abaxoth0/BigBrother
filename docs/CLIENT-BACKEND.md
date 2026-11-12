@@ -1,6 +1,6 @@
 # Client backend
 
-BigBrother.Client is the Windows service for BigBrother Client Daemon.exe and
+BigBrother Client is the Windows service for BigBrother Client Daemon.exe and
 the hub for client applications. It owns the server session, settings, policy,
 notifications, firewall controls, log access and update preparation.
 
@@ -15,23 +15,24 @@ flowchart LR
     Hub --> Logs[Client and firewall logs]
 ~~~
 
-The frontend can start the backend service when opened. This bootstrap is its
-only normal direct service operation. Command-line operations require a running
+The frontend opens without starting or requiring the backend service. It shows
+the disconnected state while the backend is stopped or unavailable and reconnects
+when the backend becomes available. Command-line operations require a running
 backend and use its pipe. Neither starting the backend nor opening the frontend
 starts the firewall. Only explicit Start/Restart requests start it. Filtration
 toggles, settings, server policy, status checks and reconnects never launch it.
 A stopped or crashed firewall stays stopped until another Start/Restart request.
 
 The installer defaults the backend to Automatic, with a Manual option. The
-firewall is always Manual. Its lifetime depends on BigBrother.Client: it watches
+firewall is always Manual. Its lifetime depends on BigBrother Client: it watches
 the backend service state and holds a handle to that backend process. It exits on
 backend stop or crash, even if the backend has already restarted. There is no SCM
 dependency, so Windows can deliver a backend Stop request while the firewall is
-running. The frontend and update preparation worker follow the same lifetime rule. Backend shutdown
+running. The update preparation worker follows the same lifetime rule; the normal
+frontend stays open and displays the disconnected state. Backend shutdown
 explicitly stops the firewall and cancels and joins IPC handlers. Notification
 processes belong to backend-owned jobs, and notification children watch their
-parent. Restarting the backend closes its applications and leaves the firewall
-stopped.
+parent. Restarting the backend closes its workers and leaves the firewall stopped.
 
 Starting or restarting the firewall invalidates its cached policy state. When
 offline with fallback disabled, the backend reapplies the empty whitelist before
@@ -42,13 +43,15 @@ The separately staged updater runs independently so it can stop and replace the
 backend itself. It restores the previous backend and firewall running states
 after installation or rollback. Restarting the firewall during an approved
 update is an explicit maintenance operation.
-Normal frontend startup checks for an interrupted update before starting or
-attaching to the backend, so recovery also works when the backend cannot start.
+Normal frontend startup checks for an interrupted update before opening the main
+window, so recovery also works when the backend cannot start.
 
 Use the full Client Setup installer once to migrate an installation where the
 firewall launched the backend. It replaces both service definitions. The old
 update executor cannot create this service layout; subsequent update payloads
 work with the new backend service.
+Setup also removes the earlier feature-branch service named BigBrother.Client
+before registering BigBrother Client.
 
 ## Code
 
@@ -89,7 +92,7 @@ dotnet run --project client/updates.tests/BigBrother.Client.Updates.Tests.csproj
 dotnet run --project lib/cs/BigBrother.Frontend.Shared.Tests/BigBrother.Frontend.Shared.Tests.csproj
 ~~~
 
-The lifecycle fixture creates services named BigBrother.Client and BigBrother
+The lifecycle fixture creates services named BigBrother Client and BigBrother
 Firewall. Run it only in an isolated Wine prefix with neither service already
 installed. The default prefix is /tmp/bigbrother-client-tests-wine; WINEPREFIX
 overrides it. It runs the real backend with a simulated firewall service,

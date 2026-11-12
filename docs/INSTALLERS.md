@@ -186,13 +186,15 @@ Upgrades reuse the previous Inno installation directory, or the directory record
 by the legacy NSIS uninstall entry. They stop and remove the existing service
 before replacing binaries, then recreate the service with a quoted executable
 path. Both installers offer Manual (on demand) and Automatic (when Windows
-starts) startup modes. The client backend service (BigBrother.Client) defaults to Automatic; the
+starts) startup modes. The client backend service (BigBrother Client) defaults to Automatic; the
 server service defaults to Manual. The client firewall is always Manual and
 follows the backend service lifetime through a status/process monitor. Subsequent installs remember the selected
 mode. Both installers leave the service stopped, including after upgrades and
-silent installs. Opening the client frontend starts its backend service; use explicit Start/Restart
-controls to start the firewall. Automatic takes effect at the next Windows startup.
-The firewall and frontend stop when the backend stops or crashes. A backend
+silent installs. Opening the client frontend does not start either service; it
+shows the disconnected state when the backend is unavailable. Start the backend
+through Windows Services; use explicit Start/Restart controls to start the firewall.
+Automatic takes effect at the next Windows startup.
+The firewall stops when the backend stops or crashes; the frontend stays open. A backend
 restart leaves the firewall stopped. See [client backend architecture](CLIENT-BACKEND.md).
 For the initial migration from the firewall-owned backend, use the full Client
 Setup installer rather than an update-only payload.

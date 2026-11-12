@@ -6,7 +6,7 @@
 static inline HANDLE bb_open_backend_process(void) {
     SC_HANDLE manager = OpenSCManagerW(NULL, NULL, SC_MANAGER_CONNECT);
     if (!manager) return NULL;
-    SC_HANDLE service = OpenServiceW(manager, L"BigBrother.Client", SERVICE_QUERY_STATUS);
+    SC_HANDLE service = OpenServiceW(manager, L"BigBrother Client", SERVICE_QUERY_STATUS);
     SERVICE_STATUS_PROCESS status;
     DWORD bytes = 0;
     HANDLE process = NULL;
@@ -27,7 +27,7 @@ static inline DWORD WINAPI bb_watch_backend(LPVOID stop_event) {
     HANDLE handles[] = {(HANDLE)stop_event, backend};
     while (WaitForMultipleObjects(2, handles, FALSE, 250) == WAIT_TIMEOUT) {
         SC_HANDLE manager = OpenSCManagerW(NULL, NULL, SC_MANAGER_CONNECT);
-        SC_HANDLE service = manager ? OpenServiceW(manager, L"BigBrother.Client", SERVICE_QUERY_STATUS) : NULL;
+        SC_HANDLE service = manager ? OpenServiceW(manager, L"BigBrother Client", SERVICE_QUERY_STATUS) : NULL;
         SERVICE_STATUS status;
         BOOL running = service && QueryServiceStatus(service, &status) && status.dwCurrentState == SERVICE_RUNNING;
         if (service) CloseServiceHandle(service);

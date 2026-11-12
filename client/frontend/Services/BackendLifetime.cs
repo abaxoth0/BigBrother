@@ -15,18 +15,15 @@ public sealed class BackendLifetime : IDisposable
         _ = WatchAsync(stopped);
     }
 
-    public static async Task<BackendLifetime> AttachAsync(Action stopped, int? expectedPid = null)
+    public static async Task<BackendLifetime> AttachAsync(Action stopped, int expectedPid)
     {
-        using var manager = new ServiceManager("BigBrother.Client");
-        if (expectedPid == null && !await manager.StartServiceAsync())
-            throw new IOException("Не удалось запустить клиентский сервис BigBrother.Client.");
         using var ipc = new IpcService();
         for (int attempt = 0; attempt < 50; ++attempt)
         {
             var status = await ipc.GetStatusAsync();
             if (status.IsConnected && status.ClientPid > 0)
             {
-                if (expectedPid != null && status.ClientPid != expectedPid)
+                if (status.ClientPid != expectedPid)
                     throw new IOException("Клиентский сервис был перезапущен.");
                 return new BackendLifetime(Process.GetProcessById(status.ClientPid), stopped);
             }
@@ -39,7 +36,7 @@ public sealed class BackendLifetime : IDisposable
     {
         try
         {
-            using var service = new ServiceController("BigBrother.Client");
+            using var service = new ServiceController("BigBrother Client");
             while (!_stop.IsCancellationRequested)
             {
                 service.Refresh();

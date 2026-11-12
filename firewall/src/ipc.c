@@ -172,7 +172,7 @@ static int peer_is_backend(HANDLE pipe) {
     if (!GetNamedPipeClientProcessId(pipe, &pid)) return 0;
     SC_HANDLE manager = OpenSCManagerW(NULL, NULL, SC_MANAGER_CONNECT);
     if (!manager) return 0;
-    SC_HANDLE service = OpenServiceW(manager, L"BigBrother.Client", SERVICE_QUERY_STATUS);
+    SC_HANDLE service = OpenServiceW(manager, L"BigBrother Client", SERVICE_QUERY_STATUS);
     SERVICE_STATUS_PROCESS status;
     DWORD bytes;
     int allowed = service && QueryServiceStatusEx(service, SC_STATUS_PROCESS_INFO,

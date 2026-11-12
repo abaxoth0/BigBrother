@@ -332,7 +332,7 @@ Local pipes (`BigBrother.Client.Backend`, `BigBrother.Firewall`,
 `BigBrother.Server.Frontend`) are DACL-restricted to SYSTEM/Administrators/Owner,
 and the client backend additionally verifies the peer executable is the client GUI
 or backend command-line executable. The firewall additionally verifies that the
-peer PID belongs to the running BigBrother.Client service. Both local pipes
+peer PID belongs to the running BigBrother Client service. Both local pipes
 reject remote clients. New requests are rejected during backend shutdown.
 
 ---

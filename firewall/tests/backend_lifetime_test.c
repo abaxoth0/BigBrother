@@ -11,7 +11,8 @@ static SC_HANDLE WINAPI mock_manager(LPCWSTR machine, LPCWSTR database, DWORD ac
     return (SC_HANDLE)1;
 }
 static SC_HANDLE WINAPI mock_service(SC_HANDLE manager, LPCWSTR name, DWORD access) {
-    (void)manager; (void)name; (void)access;
+    (void)manager; (void)access;
+    assert(wcscmp(name, L"BigBrother Client") == 0);
     return unavailable ? NULL : (SC_HANDLE)2;
 }
 static BOOL WINAPI mock_query(SC_HANDLE service, SERVICE_STATUS* status) {
