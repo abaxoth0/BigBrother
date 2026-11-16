@@ -15,7 +15,7 @@ internal static partial class Program
     private sealed class SettingsState : ViewModelBase
     {
         private string _serverName = "Test server", _serverAddress = "192.0.2.1";
-        private bool _changed, _connected = true, _notifications = true;
+        private bool _changed, _connected = true, _notifications = true, _firewallPublic = true;
         public int Saves { get; private set; }
         public ICommand SaveSettingsCommand { get; }
         public ICommand SaveServerSettingsCommand => SaveSettingsCommand;
@@ -24,6 +24,8 @@ internal static partial class Program
         public string ServerName { get => _serverName; set { if (SetProperty(ref _serverName, value)) HasSettingsChanges = true; } }
         public string ServerAddress { get => _serverAddress; set { if (SetProperty(ref _serverAddress, value)) HasSettingsChanges = true; } }
         public bool WindowsNotificationsEnabled { get => _notifications; set { if (SetProperty(ref _notifications, value)) HasSettingsChanges = true; } }
+        public bool FirewallPublicEnabled { get => _firewallPublic; set { if (SetProperty(ref _firewallPublic, value)) HasSettingsChanges = true; } }
+        public bool FirewallPublicLoaded => true;
         public bool IsConnected
         {
             get => _connected;
@@ -74,7 +76,7 @@ internal static partial class Program
     {
         var expected = server
             ? new[] { ("Сервер", new[] { "Сервер", "Сертификат сервера", "Временные списки" }),
-                ("Обновления", new[] { "Обновления клиентов" }), ("Внешний вид", new[] { "Внешний вид" }),
+                ("Сеть", new[] { "Сеть" }), ("Обновления", new[] { "Обновления клиентов" }), ("Внешний вид", new[] { "Внешний вид" }),
                 ("Прочее", new[] { "Уведомления" }) }
             : new[] { ("Фильтрация", new[] { "Фильтрация", "Белый список" }),
                 ("Сервер", new[] { "Сервер", "Обнаружение сервера", "Сертификат сервера" }),
@@ -153,12 +155,22 @@ internal static partial class Program
             SettingsLayout(window);
             Check(save.IsVisible && save.IsEnabled && pendingHint.IsVisible,
                 "Pending backend edits must be saveable directly from the category overview");
+            if (server)
+            {
+                Open("Сеть");
+                var publicNetwork = SettingsVisuals<CheckBox>(browser).Single(box => box.IsVisible);
+                Check(publicNetwork.IsEnabled && publicNetwork.IsChecked == true,
+                    "Public network access must be enabled by default and editable after settings load");
+                publicNetwork.IsChecked = false;
+                Check(!state.FirewallPublicEnabled, "Public network checkbox must update the saved preference binding");
+            }
             Open("Прочее");
             var notifications = SettingsVisuals<CheckBox>(browser).Single(box => box.IsVisible);
             notifications.IsChecked = false;
             Open("Сервер");
             Check(input.Text == "draft.example" && !state.WindowsNotificationsEnabled,
                 "Switching categories must retain drafts in every category");
+            if (server) Check(!state.FirewallPublicEnabled, "Network preference must survive category navigation");
             state.IsConnected = false;
             SettingsLayout(window);
             Check(!save.IsEnabled && !input.IsVisible, "Backend settings and saving must be unavailable after disconnect");

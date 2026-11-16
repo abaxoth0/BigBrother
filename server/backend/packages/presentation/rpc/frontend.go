@@ -680,6 +680,29 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 			}
 			writeOK(conn)
 
+		case "GET_FIREWALL_PUBLIC":
+			enabled, err := settingsapplication.PublicFirewallEnabled(h.db)
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			value := "0"
+			if enabled {
+				value = "1"
+			}
+			writeTLVResponse(conn, value)
+
+		case "SET_FIREWALL_PUBLIC":
+			if len(args) != 1 || (args[0] != "0" && args[0] != "1") {
+				writeErrorTLV(conn, "Expected public firewall value 0 or 1")
+				continue
+			}
+			if err := h.db.SetSetting(settingsapplication.FirewallPublicEnabled, args[0]); err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			writeOK(conn)
+
 		case "GET_LOG_PATH":
 			writeTLVResponse(conn, h.getLogPath())
 
