@@ -190,11 +190,18 @@ deploy updated client daemons to enable manual repair.
 
 Used by the server frontend (C# WPF app) to manage the server.
 
+The server's persisted `firewall_public_enabled` setting defaults to `1` when absent,
+including existing databases. At startup, both its TCP and UDP discovery firewall
+rules use all profiles when enabled, or Private/Domain when disabled. Discovery
+remains limited to `LocalSubnet`. Port and profile changes require a server restart.
+
 | Command | Arguments | Response Data | Description |
 |---------|-----------|---------------|-------------|
 | `GET_ACTIVE_WHITELIST` | none | Active whitelist name | Get active whitelist |
 | `SET_ACTIVE_WHITELIST` | `name` | none | Set active whitelist |
 | `GET_SERVER_STATUS` | none | none | Check if server is running |
+| `GET_FIREWALL_PUBLIC` | none | 0/1 | Read Public-profile firewall access (default 1) |
+| `SET_FIREWALL_PUBLIC` | enabled (0/1) | none | Persist Public-profile access for the next server start; administrator pipe only |
 | `APPROVE` | `name` | none | Approve pending user |
 | `REJECT` | `name` | none | Reject pending user |
 | `DISCONNECT` | `name` | none | Disconnect a user |

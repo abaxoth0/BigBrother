@@ -218,6 +218,11 @@ func main() {
 			}
 		}
 	}
+	publicEnabled, err := settingsapplication.PublicFirewallEnabled(db)
+	if err != nil {
+		mainLogger.Error("Firewall preference error", err.Error(), nil)
+		return
+	}
 	backendAddr := fmt.Sprintf(":%d", backendPort)
 	discoveryListener := discovery.New(db, backendPort)
 
@@ -225,10 +230,10 @@ func main() {
 
 	if isService() {
 		mainLogger.Info("Starting as Windows service...", nil)
-		runService(backendAddr, frontendPipePath, discoveryListener, connManager, backendServer, frontendServer, shutdown)
+		runService(backendAddr, frontendPipePath, discoveryListener, connManager, backendServer, frontendServer, shutdown, publicEnabled)
 	} else {
 		mainLogger.Info("Starting in console mode...", nil)
-		runConsole(backendAddr, frontendPipePath, discoveryListener, backendServer, frontendServer, connManager)
+		runConsole(backendAddr, frontendPipePath, discoveryListener, backendServer, frontendServer, connManager, publicEnabled)
 	}
 }
 
@@ -258,8 +263,8 @@ func startAndWait(backendAddr, frontendPipePath string, discoveryListener *disco
 	connManager.Stop()
 }
 
-func runConsole(backendAddr, frontendPipePath string, discoveryListener *discovery.Listener, backendServer, frontendServer *rpc.Server, connManager *connection.MemoryResidentConnectionManager) {
-	if err := configureFirewall(backendAddr); err != nil {
+func runConsole(backendAddr, frontendPipePath string, discoveryListener *discovery.Listener, backendServer, frontendServer *rpc.Server, connManager *connection.MemoryResidentConnectionManager, publicEnabled bool) {
+	if err := configureFirewall(backendAddr, publicEnabled); err != nil {
 		mainLogger.Error("Firewall setup failed", err.Error(), nil)
 		return
 	}
@@ -273,7 +278,7 @@ func runConsole(backendAddr, frontendPipePath string, discoveryListener *discove
 	startAndWait(backendAddr, frontendPipePath, discoveryListener, backendServer, frontendServer, connManager, stopCh)
 }
 
-func configureFirewall(backendAddr string) error {
+func configureFirewall(backendAddr string, publicEnabled bool) error {
 	port, err := strconv.Atoi(backendAddr[1:])
 	if err != nil {
 		return err
@@ -282,5 +287,5 @@ func configureFirewall(backendAddr string) error {
 	if err != nil {
 		return err
 	}
-	return firewall.Sync(exe, port, discovery.Port)
+	return firewall.Sync(exe, port, discovery.Port, publicEnabled)
 }

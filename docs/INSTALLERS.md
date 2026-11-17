@@ -210,7 +210,12 @@ or service setup fail installation. Legacy NSIS
 uninstall registration and `uninstall.exe` are replaced by Inno's uninstaller.
 
 The client retains its existing firewall-rule setup. The server backend continues
-to synchronize firewall rules with its configured port on startup. Uninstall
+to synchronize firewall rules with its configured port on startup. Both server rules
+default to all Windows Firewall profiles, including on upgrade. Server Settings →
+Network can disable Public-network access, retaining Private/Domain; this preference
+is stored in the server database and applied on every service or console startup.
+Save and restart the server to apply port/profile changes. UDP discovery remains
+restricted to `LocalSubnet`. Uninstall
 stops/removes the corresponding service and removes its firewall rules.
 Server uninstall removes its `data` and `logs` directories, including server data
 in `ProgramData\BigBrother\data` when that storage location is used. Client

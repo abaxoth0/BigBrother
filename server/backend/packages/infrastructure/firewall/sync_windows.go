@@ -15,8 +15,8 @@ import (
 	"unicode/utf16"
 )
 
-func Sync(program string, tcpPort, discoveryPort int) error {
-	return syncRules(program, tcpPort, discoveryPort, func(script string) error {
+func Sync(program string, tcpPort, discoveryPort int, publicEnabled bool) error {
+	return syncRules(program, tcpPort, discoveryPort, publicEnabled, func(script string) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		units := utf16.Encode([]rune(script))

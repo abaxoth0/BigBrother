@@ -13,10 +13,6 @@
                                 <TextBlock Text="Имя сервера:" Width="{DynamicResource Scaled120}" VerticalAlignment="Center"/>
                                 <TextBox Text="{Binding ServerName, UpdateSourceTrigger=PropertyChanged}" Width="{DynamicResource Scaled220}" Margin="5,0"/>
                             </StackPanel>
-                            <StackPanel Orientation="Horizontal" Margin="0,5">
-                                <TextBlock Text="Порт:" Width="{DynamicResource Scaled120}" VerticalAlignment="Center"/>
-                                <TextBox Text="{Binding ServerPort, UpdateSourceTrigger=PropertyChanged}" Width="120" Margin="5,0"/>
-                            </StackPanel>
                         </StackPanel>
                     </GroupBox>
                     <GroupBox Header="Сертификат сервера" Margin="0,0,0,10" Padding="10">
@@ -39,6 +35,28 @@
                         </StackPanel>
                     </GroupBox>
                 </StackPanel>
+                <TextBlock Text="Нет соединения с Сервером. Настройки недоступны."
+                           Visibility="{Binding NotConnectedVisibility}"
+                           Foreground="{DynamicResource TextDim}" TextWrapping="Wrap" Margin="0,10"/>
+            </StackPanel>
+        </local:SettingsCategory>
+        <local:SettingsCategory Title="Сеть" Description="Порт сервера и доступ в общедоступных сетях">
+            <StackPanel>
+                <GroupBox Header="Сеть" Visibility="{Binding ConnectedVisibility}" Margin="0,0,0,10" Padding="10">
+                    <StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,5">
+                            <TextBlock Text="Порт:" Width="{DynamicResource Scaled120}" VerticalAlignment="Center"/>
+                            <TextBox Text="{Binding ServerPort, UpdateSourceTrigger=PropertyChanged}" Width="120" Margin="5,0"/>
+                        </StackPanel>
+                        <CheckBox IsChecked="{Binding FirewallPublicEnabled}" IsEnabled="{Binding FirewallPublicLoaded}" Margin="0,8,0,5">
+                            <TextBlock Text="Разрешать подключения в общедоступных сетях (Public)" TextWrapping="Wrap"/>
+                        </CheckBox>
+                        <TextBlock Text="Включено по умолчанию: подключения клиентов и обнаружение сервера разрешены во всех профилях Windows Firewall. Если выключить, останутся только частные и доменные сети."
+                                   TextWrapping="Wrap" Foreground="{StaticResource TextDim}"/>
+                        <TextBlock Text="Сохраните настройки и перезапустите службу сервера, чтобы применить порт и правила Windows Firewall."
+                                   TextWrapping="Wrap" Foreground="{StaticResource TextDim}" Margin="0,8,0,0"/>
+                    </StackPanel>
+                </GroupBox>
                 <TextBlock Text="Нет соединения с Сервером. Настройки недоступны."
                            Visibility="{Binding NotConnectedVisibility}"
                            Foreground="{DynamicResource TextDim}" TextWrapping="Wrap" Margin="0,10"/>

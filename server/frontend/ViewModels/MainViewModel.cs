@@ -247,6 +247,7 @@ public class MainViewModel : ViewModelBase
         _ = LoadServerNameAsync();
         _ = LoadServerPortAsync();
         _ = LoadWindowsNotificationsAsync();
+        _ = LoadFirewallPublicAsync();
         _ = LoadTemporaryWhitelistSettingsAsync();
         _ = LoadCertificateFingerprintAsync();
         _ = LoadClientUpdateAsync();
@@ -433,6 +434,20 @@ public class MainViewModel : ViewModelBase
     {
         get => _saveTemporaryWhitelistState;
         set { if (SetProperty(ref _saveTemporaryWhitelistState, value)) MarkSettingsChanged(); }
+    }
+
+    private bool _firewallPublicEnabled = true;
+    private bool _firewallPublicLoaded;
+    public bool FirewallPublicEnabled
+    {
+        get => _firewallPublicEnabled;
+        set { if (SetProperty(ref _firewallPublicEnabled, value)) MarkSettingsChanged(); }
+    }
+
+    public bool FirewallPublicLoaded
+    {
+        get => _firewallPublicLoaded;
+        private set => SetProperty(ref _firewallPublicLoaded, value);
     }
 
     private bool _windowsNotificationsEnabled = true;
@@ -901,6 +916,12 @@ public class MainViewModel : ViewModelBase
     {
         await SaveServerNameAsync();
         await SaveServerPortAsync();
+        if (!FirewallPublicLoaded || !await _ipcService.SetFirewallPublicAsync(FirewallPublicEnabled))
+        {
+            AddLog("ERROR", "Ошибка сохранения: доступ в общедоступных сетях");
+            return;
+        }
+        AddLog("INFO", "Настройка доступа в общедоступных сетях сохранена. Перезапустите службу сервера для применения");
         if (!await _ipcService.SetWindowsNotificationsAsync(WindowsNotificationsEnabled))
         {
             AddLog("ERROR", "Ошибка сохранения: уведомления Windows");
@@ -924,6 +945,22 @@ public class MainViewModel : ViewModelBase
             OnPropertyChanged(nameof(SaveTemporaryWhitelistState));
         }
         catch (Exception ex) { if (!_disposed) AddLog("ERROR", $"Ошибка загрузки настройки временных списков: {ex.Message}"); }
+    }
+
+    private async Task LoadFirewallPublicAsync()
+    {
+        var enabled = await _ipcService.GetFirewallPublicAsync();
+        await Application.Current.Dispatcher.InvokeAsync(() =>
+        {
+            if (_disposed) return;
+            if (enabled.HasValue)
+            {
+                _firewallPublicEnabled = enabled.Value;
+                OnPropertyChanged(nameof(FirewallPublicEnabled));
+            }
+            FirewallPublicLoaded = enabled.HasValue;
+            if (!enabled.HasValue) AddLog("ERROR", "Не удалось загрузить настройку доступа в общедоступных сетях");
+        });
     }
 
     private async Task LoadWindowsNotificationsAsync()
@@ -981,6 +1018,7 @@ public class MainViewModel : ViewModelBase
                 _ = LoadServerNameAsync();
                 _ = LoadServerPortAsync();
                 _ = LoadWindowsNotificationsAsync();
+                _ = LoadFirewallPublicAsync();
                 _ = LoadTemporaryWhitelistSettingsAsync();
                 _ = LoadCertificateFingerprintAsync();
                 _ = LoadClientUpdateAsync();
