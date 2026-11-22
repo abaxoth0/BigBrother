@@ -168,7 +168,7 @@ public:
         auto [parent, deadline] = delivery_report::parent(report);
         check_win32(parent != nullptr, L"Read notification parent handle");
 
-        worker_ = std::thread([parent, deadline, stop = stop_.get()] {
+        worker_ = std::thread([parent = parent, deadline = deadline, stop = stop_.get()] {
             HANDLE events[] = {stop, parent};
             ULONGLONG now = GetTickCount64();
             DWORD remaining =

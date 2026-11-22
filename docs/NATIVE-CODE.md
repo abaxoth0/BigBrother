@@ -4,6 +4,40 @@ The first-party C/C++ code lives in `firewall`, `client/backend`, `notifications
 and `common`. Third-party code under `lib` and `firewall/include/third-party`
 keeps its upstream style.
 
+## clangd
+
+From a Linux development environment with Python 3, Make and the MinGW-w64 GCC
+C/C++ toolchain on `PATH`, generate the editor compilation database:
+
+```sh
+python3 scripts/compile_commands.py
+```
+
+The root `.clangd` uses this database for the client backend, firewall,
+notifications and shared native code. The generator reads debug build and test
+commands from Make dry runs, including each target's language standard, include
+paths, Windows defines and the current `VERSION`. It queries the installed MinGW
+compilers for their system headers, so no checkout path, GCC version or editor
+`--query-driver` option needs to be hardcoded. It does not compile the applications.
+Third-party translation units are excluded so their build flags cannot be
+mistakenly inferred for similarly named project headers such as `version.h`.
+
+`compile_commands.json` contains local absolute paths and is ignored by Git.
+Regenerate it after changing build flags, source lists, `VERSION`, the toolchain
+or the checkout location, then restart clangd if diagnostics have not refreshed.
+Run the generator once on each new checkout before opening native files.
+
+Verify the setup with:
+
+```sh
+python3 -m unittest discover -s scripts/tests -p 'compile_commands_test.py'
+clangd --check=client/backend/src/ipc_client.cpp --tweaks=none
+clangd --check=firewall/src/firewall.c --tweaks=none
+```
+
+The `--tweaks=none` option skips clangd's refactoring self-tests while retaining
+compiler diagnostics, indexing and other checks.
+
 ## Readability
 
 Use the root `.clang-format` for files being cleaned up (clang-format 15 or newer,

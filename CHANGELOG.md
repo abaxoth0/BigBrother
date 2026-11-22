@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Native tooling: configure clangd across C/C++ applications using actual Make flags, the repository version and discovered MinGW headers; remove checkout-specific paths and keep notification watchdog captures compatible with C++17
+
 - Server: allow client connections and discovery on Public, Private and Domain Windows Firewall profiles by default, including existing installations. Add a persistent Public-network access option under Settings → Network; saving and restarting the server applies the selected profiles instead of resetting them to Private/Domain
 
 ### Changed
