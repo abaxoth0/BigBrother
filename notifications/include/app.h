@@ -40,7 +40,9 @@ class handle {
     HANDLE value_;
 
 public:
+    /** @brief Adopt a handle; null and INVALID_HANDLE_VALUE represent empty ownership. */
     explicit handle(HANDLE value = nullptr) : value_(value) {}
+    /** @brief Close the owned handle unless empty or moved from. */
     ~handle() {
         if (value_ && value_ != INVALID_HANDLE_VALUE) {
             CloseHandle(value_);
@@ -48,12 +50,15 @@ public:
     }
     handle(const handle&) = delete;
     handle& operator=(const handle&) = delete;
+    /** @brief Transfer ownership from other and leave it empty. */
     handle(handle&& other) noexcept : value_(other.value_) {
         other.value_ = nullptr;
     }
+    /** @brief Borrow the stored handle; the caller must not close it independently. */
     HANDLE get() const {
         return value_;
     }
+    /** @brief Expose ownership storage; only overwrite an empty or explicitly transferred handle. */
     HANDLE* put() {
         return &value_;
     }
@@ -64,15 +69,18 @@ class hstring {
     HSTRING value_{};
 
 public:
+    /** @brief Copy text into an owned HSTRING; throw failure if WindowsCreateString fails. */
     explicit hstring(std::wstring_view text) {
         check(WindowsCreateString(text.data(), static_cast<UINT32>(text.size()), &value_),
               L"WindowsCreateString");
     }
+    /** @brief Release the owned WinRT string. */
     ~hstring() {
         WindowsDeleteString(value_);
     }
     hstring(const hstring&) = delete;
     hstring& operator=(const hstring&) = delete;
+    /** @brief Borrow the HSTRING for a call; it becomes invalid when this owner is destroyed. */
     HSTRING get() const {
         return value_;
     }
@@ -85,9 +93,11 @@ struct product {
     const wchar_t* activator;
     const wchar_t* scheme;
     int icon_index;
+    /** @brief Build the human-readable product name used in shortcuts and GUI paths. */
     std::wstring display_name() const {
         return std::wstring(L"BigBrother ") + name;
     }
+    /** @brief Build the registered protocol URI used when a toast is activated. */
     std::wstring uri() const {
         return std::wstring(scheme) + L":open";
     }

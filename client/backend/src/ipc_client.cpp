@@ -28,10 +28,15 @@ static HANDLE g_shutdown_event = NULL;
 static HANDLE g_listener = NULL;
 static std::vector<HANDLE> g_handlers;
 
+/** @brief Return whether the IPC shutdown event has been created and signaled. */
 static bool client_server_stopping() {
     return g_shutdown_event && WaitForSingleObject(g_shutdown_event, 0) == WAIT_OBJECT_0;
 }
 
+/**
+ * @brief Write exactly length bytes to a borrowed synchronous pipe unless shutdown has begun.
+ * @return true only when the complete buffer was written; false on shutdown or I/O failure.
+ */
 static bool write_pipe(HANDLE pipe, const char* data, DWORD length) {
     if (client_server_stopping()) return false;
 
@@ -72,9 +77,11 @@ void NotifyStateChanged(void) {
     ReleaseSRWLockExclusive(&g_sub_lock);
 }
 
-// Write response: status\n[TLV data...\n]<empty line>
-// Assembles into a fixed buffer when it fits; otherwise streams field-by-field
-// so large responses (e.g. a full whitelist) are never truncated.
+/**
+ * @brief Write status and non-null string fields, followed by the empty-line terminator.
+ * Uses one buffer for small replies and streams large replies field by field.
+ * Borrows the pipe and strings; stops on shutdown or write failure without reporting a result.
+ */
 static void write_response_tlv(HANDLE pipe, const char* status, const char** data, size_t data_count) {
     if (client_server_stopping()) return;
 
@@ -134,6 +141,7 @@ static void write_response_tlv(HANDLE pipe, const char* status, const char** dat
     if (write_pipe(pipe, "\n", 1) && !client_server_stopping()) FlushFileBuffers(pipe);
 }
 
+/** @brief Send an ERROR reply, substituting a default message when error is null. */
 static void write_error_tlv(HANDLE pipe, const char* error) {
     if (!error) error = "Unknown error";
 
@@ -141,12 +149,12 @@ static void write_error_tlv(HANDLE pipe, const char* error) {
     write_response_tlv(pipe, "ERROR", data, 1);
 }
 
+/** @brief Send an OK reply with no fields and the final empty-line terminator. */
 static void write_ok(HANDLE pipe) {
     write_response_tlv(pipe, "OK", NULL, 0);
 }
 
-// Buffered byte reader over a pipe: reads in chunks instead of one byte per
-// ReadFile() call.
+/** @brief Buffered reader borrowing a synchronous pipe; unread bytes occupy buf[pos..len). */
 typedef struct {
     HANDLE pipe;
     char buf[4096];
@@ -154,12 +162,17 @@ typedef struct {
     size_t len;
 } PipeByteReader;
 
+/** @brief Reset a reader to borrow pipe with an empty buffer; does not close or retain ownership. */
 static void pipe_reader_init(PipeByteReader* r, HANDLE pipe) {
     r->pipe = pipe;
     r->pos = 0;
     r->len = 0;
 }
 
+/**
+ * @brief Replace the exhausted reader buffer with the next pipe chunk.
+ * @return 1 if bytes were read, 0 on shutdown, EOF or I/O failure.
+ */
 static int pipe_reader_fill(PipeByteReader* r) {
     if (client_server_stopping()) return 0;
 
@@ -175,6 +188,10 @@ static int pipe_reader_fill(PipeByteReader* r) {
     return 1;
 }
 
+/**
+ * @brief Copy the next buffered byte into out, refilling when needed.
+ * @return 1 on success, 0 on shutdown, EOF or I/O failure.
+ */
 static int pipe_reader_getc(PipeByteReader* r, char* out) {
     if (r->pos >= r->len) {
         if (!pipe_reader_fill(r)) return 0;
@@ -184,6 +201,11 @@ static int pipe_reader_getc(PipeByteReader* r, char* out) {
     return 1;
 }
 
+/**
+ * @brief Read an LF-terminated line, dropping CR bytes and adding a trailing NUL.
+ * @pre out_size is positive and out points to that many writable bytes.
+ * @return 1 on success, 0 on read failure or overflow; failure may leave partial output.
+ */
 static int pipe_reader_readline(PipeByteReader* r, char* out, size_t out_size) {
     size_t used = 0;
     for (;;) {
@@ -201,6 +223,11 @@ static int pipe_reader_readline(PipeByteReader* r, char* out, size_t out_size) {
     }
 }
 
+/**
+ * @brief Copy exactly n payload bytes across buffer boundaries without adding a terminator.
+ * @pre out has room for n bytes.
+ * @return 1 on success, 0 on read failure; partial output must be discarded on failure.
+ */
 static int pipe_reader_read(PipeByteReader* r, char* out, size_t n) {
     size_t got = 0;
     while (got < n) {
@@ -219,6 +246,17 @@ static int pipe_reader_read(PipeByteReader* r, char* out, size_t n) {
     return 1;
 }
 
+/**
+ * @brief Decode a command line and length-prefixed arguments from one borrowed pipe.
+ * Rejects empty commands, malformed lengths/separators, embedded NULs, more than
+ * 64 arguments and aggregate payloads above DAEMON_MAX_MESSAGE_SIZE.
+ * @param pipe Connected synchronous byte-mode pipe; remains owned by the caller.
+ * @param command Output for the NUL-terminated command name.
+ * @param capacity Size of command, including its terminator; must be positive.
+ * @param arguments Initially empty vector receiving owned argument strings.
+ * @return Argument count on success, -1 on framing, limit or I/O failure.
+ * @note Failure may leave partial command/arguments; discard the entire request.
+ */
 static int read_tlv_request(HANDLE pipe, char* command, size_t capacity,
                             std::vector<std::string>& arguments) {
     PipeByteReader reader;
@@ -250,8 +288,12 @@ static int read_tlv_request(HANDLE pipe, char* command, size_t capacity,
     }
 }
 
-// GUI executable ("BigBrother Client.exe"). Compare by file name (case
-// insensitive) so the GUI can run from any directory during development.
+/**
+ * @brief Check the peer executable basename against the client GUI and daemon names.
+ * Comparison is case-insensitive and permits development paths; this is a basename
+ * filter layered over the pipe DACL, not proof of executable authenticity.
+ * @return 1 for a matching peer, 0 on mismatch or process-inspection failure.
+ */
 static int peer_is_client_gui(HANDLE pipe) {
     ULONG pid = 0;
     if (!GetNamedPipeClientProcessId(pipe, &pid) || pid == 0) return 0;
@@ -274,6 +316,11 @@ static int peer_is_client_gui(HANDLE pipe) {
         _wcsicmp(name, L"BigBrother Client Daemon.exe") == 0;
 }
 
+/**
+ * @brief Own a connected pipe, validate its peer, and dispatch one request or event subscription.
+ * @param param Pipe handle transferred by the listener; closed on return or exception.
+ * @return 0 after handling, 1 for peer/request rejection; individual command errors use TLV replies.
+ */
 static DWORD handle_client(LPVOID param) {
     HANDLE pipe = (HANDLE)param;
     client::Handle connection(pipe);
@@ -762,11 +809,21 @@ static DWORD handle_client(LPVOID param) {
     return 0;
 }
 
+/**
+ * @brief Thread entry that transfers pipe ownership to handle_client() and contains exceptions.
+ * @return Handler status, or 1 if request handling throws.
+ */
 DWORD WINAPI client_handler(LPVOID param) {
     try { return handle_client(param); }
     catch (...) { return 1; }
 }
 
+/**
+ * @brief Accept local clients on a restricted pipe and retain worker handles for shutdown.
+ * Transfers each accepted pipe to a worker; only this listener modifies g_handlers
+ * until StopClientServer() has joined it. param is unused.
+ * @return 0 after shutdown, 1 if the pipe security descriptor cannot be created.
+ */
 DWORD WINAPI client_server_thread(LPVOID param) {
     (void)param;
 

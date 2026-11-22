@@ -10,13 +10,17 @@
 
 namespace client {
 
+/** @brief Requested service transition; restart stops before starting again. */
 enum class FirewallAction { start, stop, restart };
 
 /** @brief Service-control interface; start/stop report whether the requested state was reached. */
 class FirewallService {
 public:
+    /** @brief Release an implementation through the service-control interface. */
     virtual ~FirewallService() = default;
+    /** @brief Ensure the service is ready; return false if startup or readiness checks fail. */
     virtual bool start() = 0;
+    /** @brief Ensure the service is stopped; return false if the stop cannot be completed. */
     virtual bool stop() = 0;
 };
 
@@ -26,6 +30,7 @@ class FirewallModule final : public CommandModule {
     std::mutex control_;
 
 public:
+    /** @brief Borrow a service-control implementation that must outlive this module. */
     explicit FirewallModule(FirewallService& service) : service_(service) {}
     /**
      * @brief Start, stop or restart the service; reject starts during backend shutdown.

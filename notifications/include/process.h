@@ -14,6 +14,7 @@ class process_group {
     handle job_{CreateJobObjectW(nullptr, nullptr)};
 
 public:
+    /** @brief Create a kill-on-close job allowing child breakaway; throw failure on setup errors. */
     process_group() {
         check_win32(job_.get() != nullptr, L"Create notification process job");
         JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};

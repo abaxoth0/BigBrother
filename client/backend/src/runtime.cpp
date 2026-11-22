@@ -1,3 +1,8 @@
+/**
+ * @file runtime.cpp
+ * @brief Detached service-restart helper and previous-process shutdown coordination.
+ */
+
 #include "runtime.h"
 #include "resource.h"
 #include <charconv>

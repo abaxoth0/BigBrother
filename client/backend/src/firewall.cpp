@@ -1,3 +1,8 @@
+/**
+ * @file firewall.cpp
+ * @brief Windows firewall service control and bounded named-pipe request forwarding.
+ */
+
 #include "firewall.h"
 #include "resource.h"
 #include "ipc_daemon.h"
@@ -8,6 +13,10 @@
 namespace client {
 namespace {
 
+/**
+ * @brief Poll a borrowed service handle for the requested state for up to 30 seconds.
+ * @return true if reached; false on query failure or timeout, with GetLastError() set.
+ */
 bool wait_for_service(SC_HANDLE service, DWORD state) {
     const auto deadline = GetTickCount64() + 30000;
     SERVICE_STATUS status{};
@@ -24,8 +33,10 @@ bool wait_for_service(SC_HANDLE service, DWORD state) {
     return false;
 }
 
+/** @brief SCM implementation that also waits for the firewall IPC endpoint to answer. */
 class WindowsFirewallService final : public FirewallService {
 public:
+    /** @brief Start the service, wait up to 30 seconds for RUNNING and 10 seconds for IPC readiness. */
     bool start() override {
         ServiceHandle manager(OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT));
         if (!manager) {
@@ -63,6 +74,7 @@ public:
         return false;
     }
 
+    /** @brief Stop and wait up to 30 seconds; an absent or already stopped service counts as success. */
     bool stop() override {
         ServiceHandle manager(OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT));
         if (!manager) {
@@ -90,6 +102,17 @@ public:
     }
 };
 
+/**
+ * @brief Perform one overlapped pipe read or write with a three-second completion wait.
+ * Borrows pipe and buffer; cancels and drains a pending operation on timeout.
+ * @param writing true for a write, false for a read.
+ * @param transferred Receives the number of bytes transferred by the operation.
+ * @param more Optional output indicating a read ended with ERROR_MORE_DATA.
+ * @param pipe Open pipe configured for overlapped I/O.
+ * @param buffer Input or output storage valid until the operation finishes.
+ * @param length Number of bytes to write or maximum bytes to read.
+ * @return true on success, including a partial message read; false on I/O failure or timeout.
+ */
 bool transfer(HANDLE pipe, bool writing, void* buffer, DWORD length, DWORD& transferred,
               bool* more = nullptr) {
     Handle event(CreateEventW(nullptr, TRUE, FALSE, nullptr));

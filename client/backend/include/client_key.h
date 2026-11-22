@@ -16,8 +16,10 @@ extern "C" {
 
 /**
  * @brief Load a signing key, creating and persisting one only when the file is absent.
- * Existing unreadable/corrupt keys are never replaced. The caller supplies an
- * initialized context and releases it with mbedtls_pk_free().
+ * Existing unreadable/corrupt keys are never replaced. The caller supplies a
+ * context that owns no existing key; this function initializes it on the load/create
+ * path. After success the caller releases it with mbedtls_pk_free().
+ * Callers must serialize identity creation and shared RNG initialization/use.
  * @return 0 on success, -1 on key, permission or I/O failure.
  */
 int client_key_ensure(const char* path, mbedtls_pk_context* pk);

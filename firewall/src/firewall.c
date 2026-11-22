@@ -60,6 +60,10 @@ StringView g_FilterExpr = {0};
 static char g_WhitelistPath[MAX_PATH] = "whitelist.txt";
 static char g_ConfigPath[MAX_PATH] = "config\\config.ini";
 static char g_InstallPath[MAX_PATH] = {0};
+/**
+ * @brief Write the executable directory with its trailing backslash.
+ * @pre buf has room for the full module path and terminating NUL.
+ */
 static void get_exe_path(char* buf, size_t size) {
     char* name = buf + GetModuleFileName(NULL, buf, (DWORD)size);
     // Find last backslash
@@ -67,12 +71,18 @@ static void get_exe_path(char* buf, size_t size) {
     *name = '\0';
 }
 
+/** @brief Initialize installation-relative whitelist/config paths before service workers start. */
 static void init_paths(void) {
     get_exe_path(g_InstallPath, sizeof(g_InstallPath));
     snprintf(g_WhitelistPath, sizeof(g_WhitelistPath), "%s\\whitelist.txt", g_InstallPath);
     snprintf(g_ConfigPath, sizeof(g_ConfigPath), "%s\\config\\config.ini", g_InstallPath);
 }
 
+/**
+ * @brief Rotate the session log and configure the existing logger's path and rotation limits.
+ * @pre Installation paths are initialized; called during startup before packet logging.
+ * Falls back to a temporary log path if the installation log cannot be opened.
+ */
 static void init_logging(void) {
     char logs_dir[LOG_PATH_MAX];
     snprintf(logs_dir, sizeof(logs_dir), "%s\\logs", g_InstallPath);
@@ -112,7 +122,7 @@ static void init_logging(void) {
 
 
 
-// Resolved IP + whether it came from an exception rule.
+/** @brief Resolved IPv4 address with its originating domain and allow/exception classification. */
 typedef struct {
     uint32_t ip;
     int is_exception;
@@ -309,7 +319,7 @@ int LoadWhiteList(char* path) {
 /**
  * @brief Allocate a new packet buffer.
  *
- * @return Pointer to allocated buffer, or asserts on failure.
+ * @return Caller-owned PACKET_SIZE buffer to free(), or NULL after logging allocation failure.
  */
 char* NewPacketBuffer() {
     char* packet = malloc(PACKET_SIZE);
@@ -319,8 +329,10 @@ char* NewPacketBuffer() {
     return packet;
 }
 
-// Send a packet via WinDivert, logging failures and tracking dropped packets.
-// Returns non-zero on success.
+/**
+ * @brief Reinject a borrowed packet through WinDivert and rate-limit send-failure diagnostics.
+ * @return 1 on success, 0 on failure; counts drops atomically across callers.
+ */
 static int SendPacket(HANDLE handle, void* data, UINT len, WINDIVERT_ADDRESS* addr) {
     static LONG drop_count = 0;
     if (!WinDivertSend(handle, data, len, NULL, addr)) {
@@ -340,11 +352,18 @@ static int SendPacket(HANDLE handle, void* data, UINT len, WINDIVERT_ADDRESS* ad
 #define BLOCK_LOG_INTERVAL_MS 1000
 #define BLOCK_LOG_SLOTS 64
 
+/** @brief Destination key and last emitted tick used by the packet thread's log rate limiter. */
 typedef struct {
     uint32_t ip;
     DWORD last_log_ms;
 } BlockLogEntry;
 
+/**
+ * @brief Rate-limit repeated blocked destinations using a bounded round-robin cache.
+ * @param dest_ip Destination address used as an opaque key; callers must use consistent byte order.
+ * @return 1 if this destination should be logged now, 0 within BLOCK_LOG_INTERVAL_MS of its last log.
+ * @pre Called only by the packet-processing thread; the static cache is not synchronized.
+ */
 static int should_log_block(uint32_t dest_ip) {
     static BlockLogEntry entries[BLOCK_LOG_SLOTS];
     static int initialized = 0;

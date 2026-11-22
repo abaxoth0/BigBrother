@@ -1,6 +1,6 @@
 /**
  * @file ipc_daemon.h
- * @brief IPC client for connecting to BigBrother Daemon.
+ * @brief Firewall requests, persisted client settings and remote server session management.
  */
 
 #ifndef IPC_H
@@ -30,7 +30,7 @@ void ResetFirewallSync(void);
  * @brief Connect to the daemon and get status.
  *
  * @param out_buffer Output buffer for response.
- * @param buffer_size Size of output buffer.
+ * @param buffer_size Output capacity in bytes, including the trailing NUL.
  *
  * @return 0 on success, -1 on error.
  */
@@ -40,7 +40,7 @@ int DaemonGetStatus(char* out_buffer, size_t buffer_size);
  * @brief Connect to the daemon and get whitelist.
  *
  * @param out_buffer Output buffer for response.
- * @param buffer_size Size of output buffer.
+ * @param buffer_size Output capacity in bytes, including the trailing NUL.
  *
  * @return 0 on success, -1 on error.
  */
@@ -49,10 +49,10 @@ int DaemonGetWhitelist(char* out_buffer, size_t buffer_size);
 /**
  * @brief Connect to the daemon and set whitelist.
  *
- * @param data Whitelist data (domains one per line).
- * @param size Size of data in bytes.
+ * @param data NUL-terminated whitelist rules, one per line; embedded NULs are unsupported.
+ * @param size Legacy argument retained for callers; the implementation uses strlen(data).
  * @param out_buffer Output buffer for response.
- * @param buffer_size Size of output buffer.
+ * @param buffer_size Output capacity in bytes, including the trailing NUL.
  *
  * @return 0 on success, -1 on error.
  */
@@ -90,7 +90,8 @@ int UpdateServerFingerprint(const char* address, int port, const char* original_
                             const char* verified_fingerprint);
 
 /**
- * @brief Set the active session state with the server.
+ * @brief Set session state, notify on transitions and reconcile effective filtration.
+ * A paused connection cannot be marked active until ResumeServerConnection() is called.
  */
 void SetServerSessionActive(int active);
 /** @brief Clear manual disconnect state and wake the connection loop. */
@@ -106,14 +107,15 @@ int IsServerSessionActive(void);
 /**
  * @brief Get the currently configured server IP address.
  *
- * @return Pointer to static server IP string, or empty string if not set.
+ * @return Borrowed thread-local snapshot, empty when unset; overwritten by the next call
+ * on the same thread and invalid after that thread exits. Copy it for longer-lived use.
  */
 const char* GetServerIp(void);
 
 /**
- * @brief Set the server IP address for daemon mode.
+ * @brief Update the in-memory server address and attempt to persist it under the config lock.
  *
- * @param ip Server IP address.
+ * @param ip NUL-terminated address, or NULL for no change. Persistence errors are not returned.
  */
 void SetServerIp(const char* ip);
 
@@ -125,7 +127,7 @@ void load_server_ip(void);
 /**
  * @brief Run in daemon mode - event-driven subscription to server updates.
  *
- * @param server_ip Server IP address.
+ * @param server_ip Legacy argument, currently unused; configure the address with SetServerIp().
  *
  * @return 0 on exit.
  */
@@ -148,7 +150,7 @@ int PingServer(void);
 /**
  * @brief Get filtration enabled status from daemon.
  *
- * @return 1 if filtration is enabled, 0 if disabled.
+ * @return 1 if the firewall reports enabled, 0 if disabled or unreachable.
  */
 int DaemonGetFiltration(void);
 
@@ -170,7 +172,11 @@ int IsFiltrationEnabled(void);
 
 /** IPv6 blocking preference, persisted in config.ini (enabled by default). */
 int IsIpv6BlockEnabled(void);
-/** @brief Persist the IPv6 preference and request firewall synchronization; return 0 or -1 on failure. */
+/**
+ * @brief Persist the IPv6 preference and request serialized firewall synchronization.
+ * @return 0 after saving, even if the firewall is unavailable; -1 if persistence fails.
+ * Startup/status reconciliation retries a saved preference that could not yet be applied.
+ */
 int SetIpv6BlockEnabled(int enabled);
 
 /** @brief Return the persisted Windows notification preference (enabled by default). */
@@ -225,10 +231,12 @@ int IsFallbackWhitelistEnabled(void);
  *
  * @param section Section name.
  * @param key Key name.
- * @param out Output buffer.
- * @param out_size Buffer size.
+ * @param out Output buffer, NUL-terminated when non-null and out_size is positive.
+ * @param out_size Buffer capacity including NUL; long values are truncated.
  *
- * @return 1 if found, 0 if not found.
+ * @return 1 if found, 0 if missing, unreadable or given an invalid output buffer.
+ * Serializes file access and may recover misplaced legacy credentials. An ambiguous
+ * or invalid credential is returned as a nonempty rejection marker, not a missing key.
  */
 int ini_get_string(const char* section, const char* key, char* out, size_t out_size);
 
@@ -267,7 +275,7 @@ int SaveUserName(const char* name);
  *
  * @param name Username to register.
  *
- * @return 0 on success, -1 on error.
+ * @return 0 on success, -1 on request failure or -2 for an explicit invalid-token rejection.
  */
 int ServerRegister(const char* name);
 
@@ -276,7 +284,7 @@ int ServerRegister(const char* name);
  *
  * @param name Username to connect.
  *
- * @return 0 on success, -1 on error.
+ * @return 0 on success, -1 on request failure or -2 for an explicit invalid-token rejection.
  */
 int ServerConnect(const char* name);
 
@@ -285,7 +293,7 @@ int ServerConnect(const char* name);
  *
  * @param name Username to disconnect.
  *
- * @return 0 on success, -1 on error.
+ * @return 0 on success, -1 on request failure or -2 for an explicit invalid-token rejection.
  */
 int ServerDisconnect(const char* name);
 
@@ -294,7 +302,7 @@ int ServerDisconnect(const char* name);
  *
  * @param name Username to refresh.
  *
- * @return 0 on success, -1 on error.
+ * @return 0 on success, -1 on request failure or -2 for an explicit invalid-token rejection.
  */
 int ServerRefresh(const char* name);
 
@@ -304,13 +312,15 @@ int ServerRefresh(const char* name);
  * @param oldName Current username.
  * @param newName New username.
  *
- * @return 0 on success, -1 on error.
+ * @return 0 on success, -1 on request failure or -2 for an explicit invalid-token rejection.
  */
 int ServerChangeName(const char* oldName, const char* newName);
 
 /**
  * @brief Request update metadata from the server into a NUL-terminated buffer.
- * @return 0 on success, -1 on connection, protocol or output-capacity failure.
+ * @return 0 for an OK reply, SERVER_INVALID_TOKEN (-2) if token recovery is rejected again,
+ * or -1 on other request/credential failures. The current transport may truncate a reply
+ * to fit size; success alone does not guarantee complete metadata.
  */
 int ServerGetUpdate(char* output, size_t size);
 

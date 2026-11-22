@@ -1,9 +1,15 @@
+/**
+ * @file cleanup.cpp
+ * @brief Registration removal across signed-in and offline Windows profiles.
+ */
+
 #include "app.h"
 #include <shlobj.h>
 
 namespace notifications {
 namespace {
 
+/** @brief Own a profile hive handle and unload only mounts created by this instance. */
 class profile_hive {
     std::wstring mount_;
     bool writable_ = false;
@@ -11,6 +17,11 @@ class profile_hive {
 
 public:
     HKEY key = nullptr;
+    /**
+     * @brief Open a signed-in hive or temporarily load its offline file under a unique mount.
+     * Borrows status through destruction to report flush/unload failures. Missing hive
+     * files leave key null; other lookup/load/open errors throw failure.
+     */
     profile_hive(const std::wstring& sid, const std::wstring& file, REGSAM access, DWORD& status)
         : status_(status) {
         LSTATUS result = RegOpenKeyExW(HKEY_USERS, sid.c_str(), 0, access, &key);
@@ -46,6 +57,7 @@ public:
         writable_ = (access & KEY_SET_VALUE) != 0;
     }
 
+    /** @brief Flush writable temporary hives, close the key and unload our mount, reporting errors. */
     ~profile_hive() {
         if (key && writable_) {
             LSTATUS result = RegFlushKey(key);
@@ -71,6 +83,10 @@ public:
     profile_hive& operator=(const profile_hive&) = delete;
 };
 
+/**
+ * @brief Enable one privilege in the process token for offline hive cleanup.
+ * @throws failure If the token cannot be opened or the privilege cannot be assigned.
+ */
 void enable_cleanup_privilege(const wchar_t* name) {
     handle token;
     check_win32(OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, token.put()),
@@ -86,6 +102,10 @@ void enable_cleanup_privilege(const wchar_t* name) {
     check(HRESULT_FROM_WIN32(GetLastError()), L"Acquire registry cleanup privilege");
 }
 
+/**
+ * @brief Replace case-insensitive occurrences of an environment-variable spelling in a path copy.
+ * @pre name is a nonempty NUL-terminated string; inserted text is not recursively expanded.
+ */
 std::wstring replace_variable(std::wstring value, const wchar_t* name, const std::wstring& replacement) {
     size_t length = wcslen(name);
     for (size_t i = 0; i + length <= value.size();) {
@@ -99,6 +119,11 @@ std::wstring replace_variable(std::wstring value, const wchar_t* name, const std
     return value;
 }
 
+/**
+ * @brief Read a profile's shell folder, substituting that profile's user/app-data directories.
+ * Borrows the hive handle; returns fallback if the value cannot be read. Remaining
+ * variables use the current process environment, retaining the path if expansion fails.
+ */
 std::wstring shell_folder(HKEY user, const wchar_t* name, const std::wstring& fallback,
                           const std::wstring& profile, const std::wstring& roaming,
                           const std::wstring& local) {

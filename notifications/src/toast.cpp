@@ -1,3 +1,8 @@
+/**
+ * @file toast.cpp
+ * @brief WinRT toast construction, submission and asynchronous failure observation.
+ */
+
 #include "toast.h"
 #include "transport.h"
 #include <shobjidl.h>
@@ -10,6 +15,7 @@ using namespace ABI::Windows::Data::Xml::Dom;
 using failed_handler =
     ABI::Windows::Foundation::ITypedEventHandler<ToastNotification*, ToastFailedEventArgs*>;
 
+/** @brief Agile COM callback exposing a failure result after its event is signaled. */
 class toast_failure final : public failed_handler, public IAgileObject {
     std::atomic<ULONG> references_{1};
 
@@ -17,6 +23,7 @@ public:
     handle event{CreateEventW(nullptr, TRUE, FALSE, nullptr)};
     HRESULT result = E_FAIL;
 
+    /** @brief Return a supported interface with an added reference, or E_POINTER/E_NOINTERFACE. */
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID id, void** object) override {
         if (!object) {
             return E_POINTER;
@@ -35,10 +42,12 @@ public:
         return S_OK;
     }
 
+    /** @brief Atomically retain this callback and return the new reference count. */
     ULONG STDMETHODCALLTYPE AddRef() override {
         return ++references_;
     }
 
+    /** @brief Atomically release a reference, deleting this object when the count reaches zero. */
     ULONG STDMETHODCALLTYPE Release() override {
         ULONG remaining = --references_;
         if (!remaining) {
@@ -47,6 +56,7 @@ public:
         return remaining;
     }
 
+    /** @brief Store the error from borrowed event arguments, signal the waiter and return S_OK. */
     HRESULT STDMETHODCALLTYPE Invoke(IToastNotification*, IToastFailedEventArgs* args) override {
         args->get_ErrorCode(&result);
         SetEvent(event.get());
@@ -87,6 +97,12 @@ void show_toast(const product& app, const std::wstring& title, const std::wstrin
     submit_toast(notifier.Get(), toast.Get());
 }
 
+/**
+ * @brief Submit through WinRT and observe asynchronous failure events for up to five seconds.
+ * Borrows notifier/toast; removes the failure handler before reporting the submission result.
+ * @throws failure If notifications are explicitly disabled, setup fails, Show fails or a
+ * failure event arrives during the observation window. No event does not confirm display.
+ */
 void submit_toast(IToastNotifier* notifier, IToastNotification* toast) {
     NotificationSetting setting;
     HRESULT settings_result = notifier->get_Setting(&setting);

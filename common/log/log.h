@@ -40,6 +40,7 @@ extern FILE* LogFile;
 
 #define RING_BUFFER_SIZE (LOG_BUFFER_SIZE + 4096)  // buffer + header space
 
+/** @brief Byte ring shared by serialized producers and one consumer; storage extends beyond data[1]. */
 typedef struct {
     volatile uint32_t head;  // written by producer
     volatile uint32_t tail;  // written by consumer
@@ -47,6 +48,7 @@ typedef struct {
     uint8_t  data[1];  // flexible array, actual size is capacity
 } RingBuffer;
 
+/** @brief Own the logger worker, ring, batch stream and rotation state until log_shutdown(). */
 typedef struct {
     RingBuffer* rb;
     HANDLE logger_thread;
@@ -79,7 +81,7 @@ void log_shutdown(void);
 
 /**
  * @brief Archive an existing log into the sibling archive directory, then truncate it.
- * Retains the configured number of archives, or LOG_MAX_FILES without an active logger.
+ * Retains LOG_MAX_FILES archives; call before writers start using the path.
  */
 void log_rotate_file(const char* path);
 

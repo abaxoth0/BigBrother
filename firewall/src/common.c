@@ -1,3 +1,8 @@
+/**
+ * @file common.c
+ * @brief Mutable string storage, case conversion and formatted string helpers.
+ */
+
 #include "../include/common.h"
 #include <string.h>
 #include <stdarg.h>

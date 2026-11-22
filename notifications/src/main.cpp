@@ -1,3 +1,8 @@
+/**
+ * @file main.cpp
+ * @brief Notification command dispatch and supervised delivery into active user sessions.
+ */
+
 #include "app.h"
 #include "transport.h"
 #include "command_line.h"
@@ -26,6 +31,17 @@ bool is_system() {
     return IsWellKnownSid(reinterpret_cast<TOKEN_USER*>(buffer)->User.Sid, WinLocalSystemSid);
 }
 
+/**
+ * @brief Launch a suspended notification helper under a borrowed recipient token, supervise and resume it.
+ * @param report Shared result mapping; keep it alive until the child has finished.
+ * @param deadline Absolute GetTickCount64 deadline given to the child's parent watcher.
+ * @param app Product identity used in the helper command.
+ * @param title_hex Hex-encoded title validated by the caller.
+ * @param body_hex Hex-encoded body validated by the caller.
+ * @param token Primary token for the recipient session; not retained.
+ * @return Owned process handle; the thread/environment resources are released here.
+ * @throws failure On launch/supervision failure; a created child is terminated if setup fails.
+ */
 static handle launch_in_session(delivery_report& report, ULONGLONG deadline, const product& app,
                                 const std::wstring& title_hex, const std::wstring& body_hex, HANDLE token) {
     auto path = executable_path();
@@ -60,6 +76,13 @@ static handle launch_in_session(delivery_report& report, ULONGLONG deadline, con
     return child;
 }
 
+/**
+ * @brief Deliver directly in an interactive user process or through helpers in active user sessions.
+ * Decodes and validates hex text, then waits for service-launched helpers under a shared
+ * 20-second delivery deadline. A successful submission does not confirm banner display.
+ * @return ERROR_SUCCESS or a reported per-session delivery error.
+ * @throws failure On setup failure or when no eligible active user session is available.
+ */
 static DWORD send_notification(const product& app, const std::wstring& title_hex,
                                const std::wstring& body_hex) {
     auto title = decode(title_hex, 256), body = decode(body_hex, 1024);
@@ -181,6 +204,10 @@ static DWORD send_notification(const product& app, const std::wstring& title_hex
     return result;
 }
 
+/**
+ * @brief Open the product's installed GUI through ShellExecuteW().
+ * @throws failure If Windows rejects the launch; successful launch is not awaited.
+ */
 static void open_frontend(const product& app) {
     auto path = app_directory() + L"\\GUI\\" + app.display_name() + L".exe";
     auto result = reinterpret_cast<INT_PTR>(ShellExecuteW(
@@ -190,6 +217,11 @@ static void open_frontend(const product& app) {
     }
 }
 
+/**
+ * @brief Dispatch a parsed helper command with the required user identity and WinRT lifetime.
+ * @return ERROR_SUCCESS or a delivery/cleanup result.
+ * @throws failure If setup fails or a user-only operation is requested as SYSTEM.
+ */
 static DWORD run(const command& request) {
     const auto& app = request.app;
     if (request.kind == command_kind::help) {
@@ -251,6 +283,12 @@ static DWORD run(const command& request) {
 }
 }
 
+/**
+ * @brief Parse the process command line, install optional parent supervision and report failures.
+ * Contains exceptions, relays diagnostics and shows an error dialog only for an interactive
+ * manual test without console output.
+ * @return Command status or the reported failure HRESULT converted to an integer.
+ */
 int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
     int argc = 0;
     wchar_t** args = CommandLineToArgvW(GetCommandLineW(), &argc);

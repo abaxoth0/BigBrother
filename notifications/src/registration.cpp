@@ -1,3 +1,8 @@
+/**
+ * @file registration.cpp
+ * @brief Start-menu identity, activation protocol registration and installation-aware cleanup.
+ */
+
 #include "app.h"
 #include <shlobj.h>
 #include <propkey.h>
@@ -6,6 +11,10 @@
 namespace notifications {
 using Microsoft::WRL::ComPtr;
 
+/**
+ * @brief Resolve a known Start-menu folder and append the product's directory name.
+ * @throws failure If the known folder cannot be located.
+ */
 static std::wstring programs_path(REFKNOWNFOLDERID folder, const product& app) {
     PWSTR path = nullptr;
     check(SHGetKnownFolderPath(folder, KF_FLAG_DEFAULT, nullptr, &path), L"Locate Start menu");
@@ -14,10 +23,16 @@ static std::wstring programs_path(REFKNOWNFOLDERID folder, const product& app) {
     return result + L"\\" + app.display_name();
 }
 
+/** @brief Return the product shortcut path beneath the requested known Start-menu folder. */
 static std::wstring shortcut_path(REFKNOWNFOLDERID folder, const product& app) {
     return programs_path(folder, app) + L"\\" + app.display_name() + L".lnk";
 }
 
+/**
+ * @brief Create an owned shell-link COM interface.
+ * @pre The calling thread has initialized COM/WinRT.
+ * @throws failure If the COM object cannot be created.
+ */
 static ComPtr<IShellLinkW> shell_link() {
     ComPtr<IShellLinkW> link;
     check(CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&link)),
@@ -25,6 +40,11 @@ static ComPtr<IShellLinkW> shell_link() {
     return link;
 }
 
+/**
+ * @brief Check a shortcut's AppUserModelID and toast activator against the product identity.
+ * @return false for missing/unreadable shortcuts or mismatched properties.
+ * @throws failure On COM setup, folder resolution or invalid expected activator GUID.
+ */
 static bool shortcut_identity(REFKNOWNFOLDERID folder, const product& app) {
     auto link = shell_link();
     ComPtr<IPersistFile> file;
@@ -55,10 +75,15 @@ static bool shortcut_identity(REFKNOWNFOLDERID folder, const product& app) {
     return matches;
 }
 
+/** @brief Build the quoted helper command for URI activation, retaining the shell %1 placeholder. */
 static std::wstring protocol_command(const product& app) {
     return L"\"" + executable_path() + L"\" --open " + app.name + L" \"%1\"";
 }
 
+/**
+ * @brief Write a NUL-terminated REG_SZ beneath HKEY_CURRENT_USER.
+ * @throws failure If the registry value cannot be written.
+ */
 static void registry_string(const std::wstring& key, const wchar_t* name, const std::wstring& value) {
     LSTATUS result = RegSetKeyValueW(HKEY_CURRENT_USER, key.c_str(), name, REG_SZ, value.c_str(),
                                      static_cast<DWORD>((value.size() + 1) * sizeof(wchar_t)));

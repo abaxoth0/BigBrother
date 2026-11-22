@@ -35,6 +35,12 @@ class delivery_report {
 
 public:
     std::wstring name;
+    /**
+     * @brief Create and map a unique report accessible to SYSTEM and the borrowed token's user.
+     * @param token Recipient token supporting TokenUser queries; not retained.
+     * @param global Select the Global mapping namespace instead of Local.
+     * @throws failure If identity lookup, security setup, mapping creation or mapping fails.
+     */
     explicit delivery_report(HANDLE token, bool global = true) {
         DWORD size = 0;
         GetTokenInformation(token, TokenUser, nullptr, 0, &size);
@@ -77,6 +83,7 @@ public:
         std::memset(data_, 0, 4096);
     }
 
+    /** @brief Unmap the report; the member owner then closes the mapping handle. */
     ~delivery_report() {
         if (data_) {
             UnmapViewOfFile(data_);
@@ -163,6 +170,12 @@ class parent_watch {
     std::thread worker_;
 
 public:
+    /**
+     * @brief Read supervision data and start a watcher owning the duplicated parent handle.
+     * The deadline is capped at 30 seconds; parent exit or wait failure terminates this process.
+     * @throws failure If supervision data/events are unavailable.
+     * @throws std::system_error If the watcher thread cannot be created.
+     */
     explicit parent_watch(const std::wstring& report) {
         check_win32(stop_.get() != nullptr, L"Create notification watchdog event");
         auto [parent, deadline] = delivery_report::parent(report);
@@ -181,6 +194,7 @@ public:
         });
     }
 
+    /** @brief Signal normal completion and join the watcher before releasing its stop event. */
     ~parent_watch() {
         SetEvent(stop_.get());
         if (worker_.joinable()) {

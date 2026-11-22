@@ -19,6 +19,7 @@ namespace client {
 struct Reply {
     bool ok = true;
     std::vector<std::string> values;
+    /** @brief Build a failed reply owning one error-message field. */
     static Reply error(std::string message) {
         return {false, {std::move(message)}};
     }
@@ -30,6 +31,7 @@ using Arguments = std::span<const std::string_view>;
 /** @brief Backend command handler. Implementations must tolerate concurrent IPC callers. */
 class CommandModule {
 public:
+    /** @brief Destroy a module through the hub's owning base pointer. */
     virtual ~CommandModule() = default;
     /**
      * @brief Handle a command, or return std::nullopt to let the next module try.

@@ -31,9 +31,14 @@ int is_discovery_enabled(void);
  */
 int GetLocalIp(const char* server_ip, char* buffer, size_t buffer_size);
 /**
- * @brief Write the local IPv4 address and newline-separated discovery broadcast targets.
- * Optional outputs may be NULL; non-NULL outputs require positive capacities.
- * @return Number of broadcast targets; zero when disabled or unavailable.
+ * @brief List broadcast targets from the manual gateway/mask or eligible active adapters.
+ * @param ip_str Optional local address output, populated only by a manual gateway match;
+ * automatic enumeration leaves it empty. A non-null output requires positive ip_size.
+ * @param ip_size Capacity of ip_str including NUL.
+ * @param bcast_out Output for newline-separated addresses; provide writable storage for manual mode.
+ * @param bcast_size Capacity of bcast_out including NUL; allow at least 17 bytes for the fallback address.
+ * @return Target count, or zero when unavailable. The discovery toggle gates automatic
+ * enumeration; a configured manual gateway/mask is still evaluated when it is disabled.
  */
 int GetAllBroadcastAddresses(char* ip_str, size_t ip_size, char* bcast_out, size_t bcast_size);
 /**
@@ -47,8 +52,12 @@ int GetAllBroadcastAddresses(char* ip_str, size_t ip_size, char* bcast_out, size
  */
 int DiscoverServers(const char* bcast_list, int port, int timeout_ms, char* out, size_t out_size);
 /**
- * @brief Scan local subnets for TCP discovery replies within timeout_ms.
- * @return Number of discovered servers written as newline-separated records, or zero.
+ * @brief Scan local subnets for TCP discovery replies using batches of candidate connections.
+ * @param out Output for newline-separated name|address|port records, terminated by NUL.
+ * @param out_size Output capacity including NUL.
+ * @param timeout_ms Overall scan budget, clamped to at least 5000 ms. An in-flight batch
+ * may finish after the budget expires because its socket I/O has separate timeouts.
+ * @return Number of records written, or zero for invalid output, no replies or setup failure.
  */
 int DiscoverServersTCP(char* out, size_t out_size, int timeout_ms);
 

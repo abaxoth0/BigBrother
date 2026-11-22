@@ -1,3 +1,8 @@
+/**
+ * @file notify.cpp
+ * @brief Asynchronous native notification API with bounded concurrent helper processes.
+ */
+
 #include "notify.h"
 #include "transport.h"
 #include "process.h"
@@ -8,11 +13,18 @@ namespace {
 std::atomic<bb_notification_error_handler> error_handler{nullptr};
 volatile LONG active_deliveries = 0;
 
+/** @brief Own the helper and kill-on-close process group until its delivery waiter finishes. */
 struct delivery {
     notifications::process_group group;
     notifications::handle process;
 };
 
+/**
+ * @brief Own one queued delivery and wait up to 35 seconds for its helper to exit.
+ * @param context Transferred delivery allocation, including process/job ownership.
+ * On timeout terminates the helper; failures invoke the current callback or debug output.
+ * Releases supervision and decrements the active-delivery count before returning zero.
+ */
 DWORD WINAPI await_delivery(void* context) {
     std::unique_ptr<delivery> pending(static_cast<delivery*>(context));
     DWORD result = ERROR_GEN_FAILURE;

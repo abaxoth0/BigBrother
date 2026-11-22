@@ -1,6 +1,6 @@
 /**
  * @file ipc_daemon.cpp
- * @brief IPC client implementation for connecting to BigBrother Daemon.
+ * @brief Persisted settings, firewall synchronization and authenticated server subscriptions.
  */
 
 #include <winsock2.h>
@@ -41,12 +41,14 @@ static CRITICAL_SECTION g_config_lock;
 static INIT_ONCE g_config_once = INIT_ONCE_STATIC_INIT;
 static volatile LONG g_certificate_revision = 0;
 
+/** @brief Initialize the process-wide config critical section through InitOnceExecuteOnce(). */
 static BOOL CALLBACK initialize_config_lock(PINIT_ONCE once, PVOID param, PVOID* context) {
     (void)once; (void)param; (void)context;
     InitializeCriticalSection(&g_config_lock);
     return TRUE;
 }
 
+/** @brief Ensure the config critical section exists before any thread attempts to enter it. */
 static void config_lock_init(void) {
     InitOnceExecuteOnce(&g_config_once, initialize_config_lock, NULL, NULL);
 }
@@ -75,16 +77,19 @@ static std::atomic<int> g_blocked_all_pushed{0};
 static std::atomic<bool> g_whitelist_sync_pending{true};
 static void block_all_if_no_fallback(void);
 
+/** @brief Copy the last downloaded whitelist or sync marker into the mutex-protected cache. */
 static void wl_last_set(const char* value) {
     std::lock_guard guard(g_whitelist_mutex);
     g_last_whitelist = value;
 }
 
+/** @brief Invalidate the mutex-protected whitelist cache so equal downloads can be reapplied. */
 static void wl_last_clear(void) {
     std::lock_guard guard(g_whitelist_mutex);
     g_last_whitelist.reset();
 }
 
+/** @brief Compare a non-null whitelist string with the cached value while holding its mutex. */
 static int wl_last_equals(const char* value) {
     std::lock_guard guard(g_whitelist_mutex);
     return g_last_whitelist && *g_last_whitelist == value;
@@ -107,6 +112,10 @@ int SetWindowsNotificationsEnabled(int enabled) {
     return ini_set_string("notifications", "enabled", enabled ? "1" : "0");
 }
 
+/**
+ * @brief Submit a Windows notification only when the persisted preference permits it.
+ * @return 0 when disabled or submission succeeds; otherwise the notification helper error.
+ */
 static int notify_windows(const char* title, const char* message) {
     return IsWindowsNotificationsEnabled() ? bb_notify(title, message) : 0;
 }
@@ -133,10 +142,12 @@ void ResumeServerConnection(void) {
     InterlockedExchange(&g_server_connection_paused, 0);
 }
 
+/** @brief Atomically check whether manual or server-requested disconnection inhibits reconnect. */
 static int is_server_connection_paused(void) {
     return InterlockedCompareExchange(&g_server_connection_paused, 0, 0) != 0;
 }
 
+/** @brief Pause reconnect, invalidate the current subscription and mark the session inactive. */
 static void pause_server_connection(void) {
     InterlockedExchange(&g_server_connection_paused, 1);
     InterlockedIncrement(&g_server_connection_revision);
@@ -153,6 +164,10 @@ int IsFallbackWhitelistEnabled(void) {
 
 uint32_t g_whitelist_revision = 1;
 
+/**
+ * @brief Write the executable directory, retaining its trailing backslash.
+ * @pre buffer is large enough for the complete module path and its terminating NUL.
+ */
 static void get_exe_path(char* buffer, size_t size) {
     GetModuleFileName(NULL, buffer, (DWORD)size);
     char* p = buffer + strlen(buffer);
@@ -160,6 +175,10 @@ static void get_exe_path(char* buffer, size_t size) {
     *p = '\0';
 }
 
+/**
+ * @brief Append the relative config path to the executable directory.
+ * @pre buffer has room for the full executable directory and config path, including NUL.
+ */
 static void build_ini_path(char* buffer, size_t size) {
     get_exe_path(buffer, size);
     size_t len = strlen(buffer);
@@ -197,6 +216,10 @@ int PrepareClientSecretPermissions(void) {
     return bb_file_acl(directory, 1, 1);
 }
 
+/**
+ * @brief Trim leading spaces/tabs and trailing spaces/tabs/CR/LF in a mutable string.
+ * @return Borrowed pointer inside s; the trailing whitespace is replaced with NUL.
+ */
 static char* trim_ws(char* s) {
     while (*s == ' ' || *s == '\t') s++;
     char* end = s + strlen(s);
@@ -218,6 +241,13 @@ int ini_get_string(const char* section, const char* key, char* out, size_t out_s
     return found;
 }
 
+/**
+ * @brief Read a case-insensitive INI key and recover misplaced legacy credentials when possible.
+ * @pre The initialized g_config_lock is held; out_size is positive and out is writable.
+ * @return 1 if found (possibly truncated), 0 if absent or unavailable. Ambiguous or invalid
+ * legacy credentials produce a nonempty rejection marker rather than an absent value.
+ * @note May create the config file or rewrite a recovered credential into its proper section.
+ */
 static int ini_get_string_locked(const char* section, const char* key, char* out, size_t out_size) {
     char ini_path[MAX_PATH];
     build_ini_path(ini_path, sizeof(ini_path));
@@ -330,6 +360,11 @@ int ini_set_string(const char* section, const char* key, const char* value) {
     return result;
 }
 
+/**
+ * @brief Rewrite one INI value while preserving unrelated sections and keys.
+ * @pre The initialized g_config_lock is held; section, key and value are non-null strings.
+ * @return 0 after writing the file, -1 on allocation or open failure.
+ */
 static int ini_set_string_locked(const char* section, const char* key, const char* value) {
     char ini_path[MAX_PATH];
     build_ini_path(ini_path, sizeof(ini_path));
@@ -513,6 +548,12 @@ int SaveUserName(const char* name) {
 
 #include "../include/net_client.h"
 
+/**
+ * @brief Forward a legacy daemon request through FirewallModule::request().
+ * Despite the helper name, the firewall protocol concatenates string arguments after
+ * the command line; it does not use the frontend's length-prefixed framing.
+ * @return 0 with a NUL-terminated reply, -1 on invalid input, capacity or transport failure.
+ */
 static int send_command_tlv(const char* command, const char** args, size_t count,
                            char* output, size_t capacity) {
     return client::FirewallModule::request(command, args, count, output, capacity);
@@ -550,12 +591,17 @@ int PingDaemon(void) {
     return send_command_tlv("PING", NULL, 0, buffer, sizeof(buffer));
 }
 
+/**
+ * @brief Request the firewall log path into a buffer whose capacity includes NUL.
+ * @return 0 when the reply is received, -1 on transport or output-capacity failure.
+ */
 int DaemonGetLogPath(char* out_buffer, size_t buffer_size) {
     return send_command_tlv("GET_LOG_PATH", NULL, 0, out_buffer, buffer_size);
 }
 
 static volatile LONG g_notification_filtration = -1;
 
+/** @brief Notify once per effective filtration transition, suppressing the initial observation. */
 static void notify_filtration(int enabled) {
     LONG previous = InterlockedExchange(&g_notification_filtration, enabled);
     if (previous != -1 && previous != enabled &&
@@ -575,7 +621,10 @@ int DaemonGetFiltration(void) {
     return g_filtration_enabled;
 }
 
-// Push the already-gated effective state to the firewall and cache it.
+/**
+ * @brief Push an already connection-gated state and update the cache/subscribers on acknowledgement.
+ * @return 0 if the firewall replies OK, -1 on transport failure or any other reply.
+ */
 static int daemon_set_filtration_effective(int effective) {
     const char* args[1] = {effective ? "1" : "0"};
     char buf[16] = {};
@@ -614,6 +663,11 @@ int IsIpv6BlockEnabled(void) {
 
 static SRWLOCK g_ipv6_sync_lock = SRWLOCK_INIT;
 
+/**
+ * @brief Reconcile the firewall IPv6 setting with the persisted preference.
+ * @pre g_ipv6_sync_lock is held exclusively.
+ * @return 0 if already equal or successfully updated, -1 on query/update failure.
+ */
 static int sync_ipv6_block_locked(void) {
     int desired = IsIpv6BlockEnabled();
     char buf[32] = {};
@@ -626,6 +680,10 @@ static int sync_ipv6_block_locked(void) {
     return strcmp(buf, "OK") == 0 ? 0 : -1;
 }
 
+/**
+ * @brief Serialize IPv6 preference reconciliation against concurrent setting changes.
+ * @return 0 if synchronized, -1 if the firewall cannot be queried or updated.
+ */
 static int sync_ipv6_block(void) {
     AcquireSRWLockExclusive(&g_ipv6_sync_lock);
     int result = sync_ipv6_block_locked();
@@ -660,9 +718,11 @@ void SetFiltrationAutoDisableEnabled(int enabled) {
     apply_filtration_sync();
 }
 
-// Recompute the effective filtration state. With connection-sync enabled,
-// filtration is only effective while connected to the server; the user's
-// explicit choice (g_filtration_requested) is never overridden.
+/**
+ * @brief Gate the requested filtration state on the connection preference and push changes.
+ * Preserves the explicit user/server request even when the connection temporarily disables it.
+ * @return 0 if unchanged or applied, -1 if the firewall update fails.
+ */
 static int apply_filtration_sync(void) {
     int effective = (IsFiltrationAutoDisableEnabled() && !IsServerSessionActive())
                         ? 0 : g_filtration_requested.load();
@@ -698,6 +758,17 @@ int RefreshFiltrationEffective(void) {
 static int tls_connect_socket(SOCKET sock, bb_tls_t* tls);
 static void get_client_token(char* buf, size_t size);
 
+/**
+ * @brief Open a pinned TLS connection, exchange one framed command and release the connection.
+ * @param command Non-null command name without framing.
+ * @param args Borrowed NUL-terminated argument strings; null entries are skipped.
+ * @param arg_count Number of entries in args.
+ * @param out_buffer Receives reply fields joined by newlines or a server error message.
+ * @param buffer_size Output capacity including NUL; must be positive.
+ * @return 0 for an OK status, SERVER_INVALID_TOKEN for a complete invalid-token reply,
+ * or -1 for other server/connection failures.
+ * @note An OK status does not guarantee that every field fit or was read completely.
+ */
 static int send_to_server_tlv(const char* command, const char** args, size_t arg_count,
                               char* out_buffer, size_t buffer_size) {
     const std::string server_address = GetServerIp();
@@ -937,6 +1008,10 @@ static SRWLOCK g_token_lock = SRWLOCK_INIT;
 static SRWLOCK g_token_fetch_lock = SRWLOCK_INIT;
 static ULONGLONG g_next_token_fetch = 0;
 
+/**
+ * @brief Read the persisted token unless rejected, falling back to the in-memory token.
+ * @pre g_token_lock is held exclusively; buf has positive size including NUL.
+ */
 static void get_client_token_locked(char* buf, size_t size) {
     buf[0] = '\0';
     if (g_ignore_persisted_token ||
@@ -945,12 +1020,20 @@ static void get_client_token_locked(char* buf, size_t size) {
     }
 }
 
+/**
+ * @brief Copy a NUL-terminated token snapshot while serializing access to both token caches.
+ * @pre buf is writable and size is positive; a small buffer receives a truncated token.
+ */
 static void get_client_token(char* buf, size_t size) {
     AcquireSRWLockExclusive(&g_token_lock);
     get_client_token_locked(buf, size);
     ReleaseSRWLockExclusive(&g_token_lock);
 }
 
+/**
+ * @brief Cache and attempt to persist a replacement token under g_token_lock.
+ * If persistence fails, keep the replacement in memory and ignore stale disk credentials.
+ */
 static void set_client_token(const char* token) {
     AcquireSRWLockExclusive(&g_token_lock);
     snprintf(g_client_token, sizeof(g_client_token), "%s", token);
@@ -958,6 +1041,11 @@ static void set_client_token(const char* token) {
     ReleaseSRWLockExclusive(&g_token_lock);
 }
 
+/**
+ * @brief Discard a rejected token only if it still matches the current token.
+ * Serializes both caches so a late response cannot discard a newer credential;
+ * failed disk clearing still prevents reuse of the rejected persisted value.
+ */
 static void invalidate_client_token(const char* rejected) {
     AcquireSRWLockExclusive(&g_token_lock);
     char current[256];
@@ -977,6 +1065,10 @@ static int token_request(const char*, const char**, size_t, char*, size_t);
 #define token_request send_to_server_tlv
 #endif
 
+/**
+ * @brief Snapshot the configured address, validated port and stored fingerprint.
+ * @pre g_config_lock is held; address and pinned hold 64 and 65 bytes respectively.
+ */
 static void certificate_state_locked(char address[64], int* port, char pinned[65]) {
     snprintf(address, 64, "%s", g_server_ip);
     char value[16] = {};
@@ -1001,6 +1093,10 @@ int InspectServerCertificate(char address[64], int* port, char pinned[65], char 
     return certificate_probe(address, *port, "", observed);
 }
 
+/**
+ * @brief Compare address/port exactly and the saved fingerprint case-insensitively.
+ * @pre g_config_lock is held; address and pin are non-null strings.
+ */
 static int certificate_state_matches(const char* address, int port, const char* pin) {
     char current_address[64], current_pin[65];
     int current_port;
@@ -1030,8 +1126,13 @@ int UpdateServerFingerprint(const char* address, int port, const char* original_
     return result;
 }
 
-// Inspection never calls this helper: only normal connections may establish
-// initial trust. Recheck the current pin before accepting concurrent changes.
+/**
+ * @brief Initialize TLS on a borrowed connected socket and enforce or establish the stored pin.
+ * Rechecks configuration after the handshake before accepting concurrent pin changes.
+ * Only normal connections use this trust-on-first-use path; inspection does not.
+ * @return 0 with live TLS state the caller must free, -1 with TLS state cleaned up.
+ * The caller retains ownership of sock on either outcome.
+ */
 static int tls_connect_socket(SOCKET sock, bb_tls_t* tls) {
     char pinned[65] = {0}, got[65] = {};
     ini_get_string("server", "fingerprint", pinned, sizeof(pinned));
@@ -1051,7 +1152,10 @@ static int tls_connect_socket(SOCKET sock, bb_tls_t* tls) {
     return 0;
 }
 
-// Path of the client's persistent ECDSA identity key (beside the executable).
+/**
+ * @brief Return a borrowed, lazily initialized path to the persistent identity beside the executable.
+ * @pre Callers serialize the first access to this static path buffer.
+ */
 static const char* sig_key_path(void) {
     static char p[MAX_PATH] = {};
     if (p[0] == '\0') {
@@ -1062,8 +1166,11 @@ static const char* sig_key_path(void) {
     return p;
 }
 
-// Ensures the identity key exists and fills out with its uncompressed P-256
-// public point as hex (130 chars). Returns 0 on success.
+/**
+ * @brief Load/create the identity and export its uncompressed P-256 public point as lowercase hex.
+ * @pre Identity creation and shared RNG initialization are serialized by callers.
+ * @return 0 on success, -1 on key/export failure or capacity below 131 bytes including NUL.
+ */
 static int client_identity_pub_hex(char* out, size_t cap) {
     mbedtls_pk_context pk;
     if (client_key_ensure(sig_key_path(), &pk) != 0) {
@@ -1076,10 +1183,11 @@ static int client_identity_pub_hex(char* out, size_t cap) {
     return r;
 }
 
-// Fetches the per-user token automatically when the client has no token yet.
-// Flow: GET_TOKEN_CHALLENGE -> sign(username||nonce) -> GET_TOKEN -> save.
-// Before approval the server refuses (user not found / key not registered),
-// which is fine — REGISTER already carried the public key; we retry each loop.
+/**
+ * @brief Obtain a missing token by signing the server challenge and caching the response.
+ * Serializes fetches and backs off for five seconds after a failed attempt.
+ * @return 0 if a token already exists or was fetched, -1 for missing username, backoff or failure.
+ */
 static int fetch_token_if_needed(const char* username) {
     if (!username || username[0] == '\0') return -1;
 
@@ -1134,6 +1242,17 @@ done:
     return result;
 }
 
+/**
+ * @brief Inject the current token and retry once after an explicit invalid-token response.
+ * @param command Remote command name.
+ * @param username Identity used for a signed token refresh.
+ * @param args Mutable array of borrowed arguments; the token slot is restored before return.
+ * @param count Number of entries in args.
+ * @param token_index Existing token slot; must be less than count.
+ * @param response Reply buffer following send_to_server_tlv() semantics.
+ * @param capacity Reply capacity including NUL.
+ * @return Transport result, or -1 if token refresh fails; a second rejection starts fetch backoff.
+ */
 static int send_authenticated_request(const char* command, const char* username,
                                       const char** args, size_t count, size_t token_index,
                                       char* response, size_t capacity) {
@@ -1265,7 +1384,7 @@ int PingServer(void) {
 
 // --- Event-driven server subscription helpers ---
 
-// Buffered line reader used by server_subscribe_loop
+/** @brief Subscription reader borrowing TLS state; unread bytes occupy buf[pos..len). */
 typedef struct {
     bb_tls_t* tls;
     char buf[4096];
@@ -1273,15 +1392,20 @@ typedef struct {
     size_t len;
 } SrvLineReader;
 
+/** @brief Reset a buffered subscription reader borrowing the caller-owned, connected TLS context. */
 static void srv_line_reader_init(SrvLineReader* r, bb_tls_t* tls) {
     r->tls = tls;
     r->pos = 0;
     r->len = 0;
 }
 
-// Read a single LF-terminated line (strips CR). Returns 1 on success,
-// 2 on read timeout, 0 on error/disconnect. Over-long lines are truncated
-// but fully drained so framing stays intact (no bogus follow-up line).
+/**
+ * @brief Read an LF-terminated subscription line, dropping CR bytes and adding NUL.
+ * @pre out_size is positive; out has that many writable bytes.
+ * @return 1 for a line, 2 for a transient TLS read, 0 for closure/error.
+ * Overlong lines are truncated but drained. A non-success result may leave partial
+ * output; a transient read does not preserve the partial line for the next call.
+ */
 static int srv_readline(SrvLineReader* r, char* out, size_t out_size) {
     size_t consumed = 0;
     for (;;) {
@@ -1310,7 +1434,12 @@ static int srv_readline(SrvLineReader* r, char* out, size_t out_size) {
     }
 }
 
-// Read a TLV value (length line + data line) via line reader.
+/**
+ * @brief Read one positive-length subscription field and its line separator.
+ * @pre out has out_size writable bytes; capacity must exceed the payload length for NUL.
+ * @return 1 for a complete field, 0 on invalid length/separator, capacity failure or TLS failure.
+ * Partial output and reader state must not be reused as a complete field after failure.
+ */
 static int srv_read_tlv(SrvLineReader* r, char* out, size_t out_size) {
     char len_str[32];
     if (srv_readline(r, len_str, sizeof(len_str)) != 1) return 0;
@@ -1351,7 +1480,11 @@ static int srv_read_tlv(SrvLineReader* r, char* out, size_t out_size) {
     return 1;
 }
 
-// Fetches and applies the whitelist from the server.
+/**
+ * @brief Download authenticated rules and apply changed content to the local firewall.
+ * Honors SYNC_DISABLED and the fallback preference; leaves synchronization pending
+ * after download/apply failure so the subscription loop can retry.
+ */
 static void sync_whitelist_from_server(const char* username) {
     g_whitelist_sync_pending = 1;
     char token[256] = {};
@@ -1415,10 +1548,18 @@ static void sync_whitelist_from_server(const char* username) {
     free(response);
 }
 
+/** @brief Compare pointers to normalized rule strings lexicographically for qsort(). */
 static int compare_rules(const void* a, const void* b) {
     return strcmp(*(const char* const*)a, *(const char* const*)b);
 }
 
+/**
+ * @brief Hash normalized, sorted, unique rules using SHA-256.
+ * @param rules Mutable NUL-terminated rules; tokenized, trimmed and ASCII-lowercased in place.
+ * @param revision Output for 64 lowercase hex digits plus NUL; valid only on success.
+ * @return 0 on success, -1 on allocation or hashing failure.
+ * Blank/comment lines are ignored; each unique rule contributes one trailing newline.
+ */
 static int whitelist_revision(char* rules, char revision[65]) {
     size_t capacity = 1;
     for (char* p = rules; *p; p++) if (*p == '\n') capacity++;
@@ -1459,6 +1600,10 @@ static int whitelist_revision(char* rules, char revision[65]) {
     return 0;
 }
 
+/**
+ * @brief Read the firewall rules and compute their normalized revision into 65 writable bytes.
+ * @return 0 on success, -1 with an empty revision if rules are unavailable or invalid.
+ */
 static int firewall_whitelist_revision(char revision[65]) {
     revision[0] = '\0';
     int result = -1;
@@ -1475,6 +1620,11 @@ static int firewall_whitelist_revision(char revision[65]) {
     return result;
 }
 
+/**
+ * @brief Refresh local policy and format its newline-terminated JSON heartbeat.
+ * Includes an empty revision when firewall rules are unavailable.
+ * @return snprintf() length excluding NUL; callers must check it against capacity.
+ */
 static int build_policy_heartbeat(char* message, size_t capacity) {
     int filtration = RefreshFiltrationEffective();
     char revision[65];
@@ -1484,13 +1634,20 @@ static int build_policy_heartbeat(char* message, size_t capacity) {
         revision, filtration ? "true" : "false", IsIpv6BlockEnabled() ? "true" : "false");
 }
 
+/**
+ * @brief Send the current policy heartbeat over a borrowed connected TLS context.
+ * @return Bytes written, or -1 on TLS write failure.
+ */
 static int send_policy_heartbeat(bb_tls_t* tls) {
     char message[256];
     int length = build_policy_heartbeat(message, sizeof(message));
     return bb_tls_write(tls, message, (size_t)length);
 }
 
-// Syncs filtration state from the server.
+/**
+ * @brief Fetch remote filtration and apply it subject to connection-sync policy.
+ * When connection-sync is enabled, a remote enabled state cannot override the local request.
+ */
 static void sync_filtration_from_server(void) {
     char filt_buf[16] = {};
     if (send_to_server_tlv("GET_FILTRATION", NULL, 0, filt_buf, sizeof(filt_buf)) != 0) return;
@@ -1504,7 +1661,10 @@ static void sync_filtration_from_server(void) {
     }
 }
 
-// Blocks all traffic if the server is unreachable and fallback is disabled.
+/**
+ * @brief Push an empty whitelist once while fallback is disabled and no prior push is recorded.
+ * The caller decides when the server is unavailable; failed firewall updates may be retried.
+ */
 static void block_all_if_no_fallback(void) {
     if (g_fallback_whitelist_enabled || g_blocked_all_pushed) return;
     char ok_buf[16];
@@ -1516,7 +1676,11 @@ static void block_all_if_no_fallback(void) {
     }
 }
 
-// Tries to rediscover the configured server. Returns 1 if found.
+/**
+ * @brief Find the saved server name via UDP discovery and persist its new address/port.
+ * @return 1 on a matching discovery reply, 0 when no match or discovery is unavailable.
+ * Persistence errors are not propagated through this return value.
+ */
 static int try_discover_server(void) {
     char expected_name[128] = {};
     ini_get_string("server", "name", expected_name, sizeof(expected_name));
@@ -1572,8 +1736,14 @@ static int try_discover_server(void) {
     return 0;
 }
 
-// Handle a server-pushed event. Reads the event's data TLV lines (terminated
-// by an empty line) and applies the change. Returns 0 to continue, 1 to close the subscription, 2 to report policy.
+/**
+ * @brief Read up to eight key=value event lines and apply the matching server policy change.
+ * @param event_type Event name already decoded from the preceding TLV field.
+ * @param reader Borrowed subscription reader positioned at the event data.
+ * @param username Local identity used to filter targeted events.
+ * @return 0 to continue, 1 to close a paused subscription, 2 to send a policy heartbeat.
+ * Unknown events and incomplete data reads also return 0.
+ */
 static int handle_server_event(const char* event_type, SrvLineReader* reader, const char* username) {
     // Read data key=value lines until empty line
     char data[8][256];
@@ -1672,8 +1842,15 @@ static int handle_server_event(const char* event_type, SrvLineReader* reader, co
     return 0;
 }
 
-// Runs the server subscription loop. Returns 0 on connection loss, 1 on service stop.
-// Blocks until the connection drops or the service should shut down.
+/**
+ * @brief Maintain a pinned, authenticated subscription until it must close or the service stops.
+ * Applies pushed policy, sends heartbeats and retries pending whitelist synchronization.
+ * @param username Non-null local identity for authentication and event filtering.
+ * @param consecutive_failures Optional counter incremented on TCP failure and reset on subscription.
+ * @param allow_auth_retry Whether one signed token refresh and subscription retry is permitted.
+ * @return 1 when service stop is observed in the event loop; 0 on connection/setup failure,
+ * manual pause, configuration revision change or any other subscription termination.
+ */
 static int server_subscribe_loop(const char* username, int* consecutive_failures, int allow_auth_retry) {
     const std::string server_address = GetServerIp();
     if (is_server_connection_paused()) return 0;
@@ -1848,8 +2025,10 @@ static int server_subscribe_loop(const char* username, int* consecutive_failures
     return stop_requested;
 }
 
-// Sleep in increments of 1 second, checking for service stop.
-// Returns 1 if stop was requested, 0 if slept the full duration.
+/**
+ * @brief Wait in one-second increments while polling the service stop event.
+ * @return 1 if stop is observed, 0 after at least total_ms milliseconds of sleeping.
+ */
 static int sleep_with_stop_check(int total_ms) {
     int slept = 0;
     while (slept < total_ms) {
@@ -1864,6 +2043,10 @@ static int sleep_with_stop_check(int total_ms) {
     return 0;
 }
 
+/**
+ * @brief Poll effective firewall state to surface changes made outside this backend.
+ * Runs until the service stop wait completes; context is unused and return value is zero.
+ */
 static DWORD WINAPI notification_monitor(LPVOID context) {
     (void)context;
     for (;;) {
@@ -1876,6 +2059,7 @@ static DWORD WINAPI notification_monitor(LPVOID context) {
     }
 }
 
+/** @brief Log a Windows notification delivery failure reported by the notification helper. */
 static void notification_failed(DWORD error) {
     LOGF("[Notifications] Windows toast delivery failed: 0x%08lX", error);
 }

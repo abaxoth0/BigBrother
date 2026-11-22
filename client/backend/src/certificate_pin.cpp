@@ -1,3 +1,8 @@
+/**
+ * @file certificate_pin.cpp
+ * @brief Fingerprint normalization and isolated TCP/TLS certificate inspection.
+ */
+
 #include "../include/certificate_pin.h"
 #include "../include/tls_client.h"
 #include <ws2tcpip.h>

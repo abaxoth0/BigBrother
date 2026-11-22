@@ -1,3 +1,8 @@
+/**
+ * @file hub.cpp
+ * @brief Registration and ordered dispatch of backend command modules.
+ */
+
 #include "hub.h"
 #include "firewall.h"
 #include "logs.h"
@@ -5,8 +10,10 @@
 
 namespace client {
 namespace {
+/** @brief Hub-owned adapter forwarding to the process-wide firewall module. */
 class FirewallCommands final : public CommandModule {
 public:
+    /** @brief Delegate to firewall() without taking ownership of its service or peer handle. */
     std::optional<Reply> dispatch(std::string_view command, Arguments args, HANDLE peer) override {
         return firewall().dispatch(command, args, peer);
     }

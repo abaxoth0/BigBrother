@@ -1,6 +1,6 @@
 /**
  * @file main.cpp
- * @brief Entry point.
+ * @brief Service, foreground daemon, command-line and maintenance entry points.
  */
 
 #include <stdio.h>
@@ -22,6 +22,10 @@ SERVICE_STATUS g_ServiceStatus = {};
 SERVICE_STATUS_HANDLE g_StatusHandle = NULL;
 HANDLE g_ServiceStopEvent = INVALID_HANDLE_VALUE;
 
+/**
+ * @brief Signal shutdown for Ctrl+C, console close or system shutdown.
+ * @return TRUE for handled signals, FALSE so Windows can process other control events.
+ */
 static BOOL WINAPI ConsoleControlHandler(DWORD control) {
     if (control != CTRL_C_EVENT && control != CTRL_BREAK_EVENT && control != CTRL_CLOSE_EVENT &&
         control != CTRL_SHUTDOWN_EVENT && control != CTRL_LOGOFF_EVENT) return FALSE;
@@ -30,6 +34,7 @@ static BOOL WINAPI ConsoleControlHandler(DWORD control) {
     return TRUE;
 }
 
+/** @brief Report STOP_PENDING and signal backend/IPC shutdown for SCM stop or shutdown controls. */
 void WINAPI ServiceControlHandler(DWORD control) {
     if (control != SERVICE_CONTROL_STOP && control != SERVICE_CONTROL_SHUTDOWN) return;
     g_ServiceStatus.dwCurrentState = SERVICE_STOP_PENDING;
@@ -40,6 +45,12 @@ void WINAPI ServiceControlHandler(DWORD control) {
     SignalClientServerShutdown();
 }
 
+/**
+ * @brief Own the single-instance guard, logger, stop event and IPC lifetime around DaemonRun().
+ * @param server_ip Optional address override persisted before entering the connection loop.
+ * @return Daemon result or a Windows error code if startup fails.
+ * On normal exit, stops the firewall and joins IPC workers before closing shared resources.
+ */
 static int run_backend(const char* server_ip) {
     client::Handle instance(CreateMutexW(nullptr, FALSE, L"Global\\BigBrother.Client.Instance"));
     if (!instance || GetLastError() == ERROR_ALREADY_EXISTS) return ERROR_SERVICE_ALREADY_RUNNING;
@@ -68,6 +79,7 @@ static int run_backend(const char* server_ip) {
     return result;
 }
 
+/** @brief Register SCM controls, accept an optional -d address and report backend start/stop status. */
 void WINAPI ServiceMain(DWORD argc, LPTSTR* argv) {
     g_StatusHandle = RegisterServiceCtrlHandlerA("BigBrother Client", ServiceControlHandler);
     if (!g_StatusHandle) return;
@@ -84,6 +96,7 @@ void WINAPI ServiceMain(DWORD argc, LPTSTR* argv) {
     SetServiceStatus(g_StatusHandle, &g_ServiceStatus);
 }
 
+/** @brief Print the client version, accepted commands and foreground daemon invocation to stdout. */
 static void print_usage(const char* prog) {
     printf("BigBrother Client Daemon %s\n", BB_VERSION);
     printf("Usage: %s <command>\n", prog);
@@ -104,6 +117,11 @@ static void print_usage(const char* prog) {
     printf("  -d <server-ip>        - Run as daemon, connect to server\n");
 }
 
+/**
+ * @brief Map command-line arguments to one backend request and print its status and fields.
+ * @pre argc is at least two and argv contains the program and command names.
+ * @return 0 for an OK reply, 1 for invalid arguments, file input failure or a failed request.
+ */
 static int run_command(int argc, char** argv) {
     std::string command;
     std::vector<std::string_view> args;
@@ -146,6 +164,11 @@ static int run_command(int argc, char** argv) {
     return reply.ok ? 0 : 1;
 }
 
+/**
+ * @brief Select command forwarding, service execution, foreground mode or a maintenance helper.
+ * Secures persisted credentials before starting the backend or completing --secure-storage.
+ * @return Zero on success, a nonzero command/helper result or startup error otherwise.
+ */
 int main(int argc, char** argv) {
     if (argc == 3 && strcmp(argv[1], "--restart-service") == 0) return RestartBackendService(argv[2]);
     if (argc == 2 && strcmp(argv[1], "--version") == 0) {

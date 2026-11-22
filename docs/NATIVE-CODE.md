@@ -64,11 +64,14 @@ to trace; formatting changes should preserve behavior.
 
 ## Doxygen
 
-Document shared interfaces at their declarations. Include return/error values,
-buffer sizes, ownership, byte order and synchronization requirements where they
-matter. Document internal helpers when they encode a non-obvious contract; avoid
-repeating the declaration in prose. Add `@file` documentation so Doxygen includes
-free functions. Keep implementation comments focused on reasons and invariants.
+Document shared interfaces at their declarations and internal functions beside
+their definitions, including static and anonymous-namespace helpers. Include
+return/error values, buffer sizes, ownership, byte order and synchronization
+requirements where they matter. Keep simple contracts to a single brief sentence;
+explain partial outputs, retries and side effects for protocol/stateful helpers.
+Document file and type responsibilities as well. Avoid repeating declaration
+syntax or duplicating a header contract in its implementation. Deleted operations
+need no separate comments; document ownership restrictions on the containing type.
 
 Generate the combined native API reference from the repository root:
 
@@ -78,9 +81,23 @@ doxygen Doxyfile
 ```
 
 Open `build/native-docs/html/index.html`. The root configuration includes only
-first-party native code and validates documentation syntax. Undocumented legacy
-symbols do not fail generation; this is not a documentation-coverage check. The
-existing `firewall/Doxyfile` remains available for firewall-only documentation.
+first-party native code, includes static and anonymous-namespace helpers and
+validates documentation syntax. The existing `firewall/Doxyfile` remains
+available for firewall-only documentation.
+
+Check documentation coverage separately:
+
+```sh
+python3 scripts/check_native_docs.py
+```
+
+This uses Doxygen XML with all/private extraction enabled to find undocumented
+files, types and callable functions across the backend, firewall, notifications
+and shared code. Public contracts can live in headers; inherited contracts count
+for overrides. Deleted operations, tests and third-party code are excluded.
+Macros, data members and local classes inside function bodies are not coverage
+requirements. The check detects missing comments, not inaccurate contracts;
+review the wording against the implementation whenever behavior changes.
 
 ## Verification
 

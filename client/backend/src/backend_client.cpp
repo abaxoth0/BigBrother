@@ -1,3 +1,8 @@
+/**
+ * @file backend_client.cpp
+ * @brief Synchronous command transport to the local backend for command-line callers.
+ */
+
 #include "backend_client.h"
 #include "resource.h"
 #include <charconv>

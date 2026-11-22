@@ -1,3 +1,8 @@
+/**
+ * @file updates.cpp
+ * @brief Requester-token update workers supervised by a process job.
+ */
+
 #include "updates.h"
 #include <cstring>
 #include <userenv.h>

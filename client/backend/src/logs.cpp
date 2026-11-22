@@ -1,3 +1,8 @@
+/**
+ * @file logs.cpp
+ * @brief Bounded log reads with rotation detection and hex-encoded IPC replies.
+ */
+
 #include "logs.h"
 #include "resource.h"
 #include <charconv>

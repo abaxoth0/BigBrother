@@ -1,3 +1,8 @@
+/**
+ * @file net_client.cpp
+ * @brief IPv4 adapter selection, UDP discovery and bounded TCP subnet scans.
+ */
+
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <iphlpapi.h>
@@ -99,7 +104,10 @@ int is_discovery_enabled(void) {
 // Network adapter enumeration
 // ---------------------------------------------------------------------------
 
-// Parse an IP string "1.2.3.4" into a uint32_t in HOST byte order. Returns 0 on error.
+/**
+ * @brief Pack four decimal IPv4 components into a host-order integer; return zero if parsing fails.
+ * @pre Input components are valid octets; this helper does not validate their range.
+ */
 static uint32_t parse_ip(const char* str) {
     unsigned int a, b, c, d;
     if (sscanf(str, "%u.%u.%u.%u", &a, &b, &c, &d) == 4)
@@ -107,14 +115,18 @@ static uint32_t parse_ip(const char* str) {
     return 0;
 }
 
-// Convert a subnet mask string like "255.255.255.0" to a prefix length.
+/** @brief Count leading one bits in a host-order subnet mask; assumes a contiguous mask. */
 static int mask_to_prefix(uint32_t mask) {
     int p = 0;
     while (mask & 0x80000000) { p++; mask <<= 1; }
     return p;
 }
 
-// Find adapter matching a given gateway IP. Returns non-zero on success with ip_str filled.
+/**
+ * @brief Find an active IPv4 adapter whose first gateway matches gateway_str.
+ * Optional outputs receive address text and host-order address/mask values.
+ * @return 1 if found, 0 on no match or enumeration/allocation failure.
+ */
 static int find_adapter_by_gateway(const char* gateway_str, char* ip_str, size_t ip_size, uint32_t* out_ip, uint32_t* out_mask) {
     uint32_t target_gw = parse_ip(gateway_str);
     if (!target_gw) return 0;
@@ -176,6 +188,10 @@ static int find_adapter_by_gateway(const char* gateway_str, char* ip_str, size_t
 // Virtual adapter detection & local IP check
 // ---------------------------------------------------------------------------
 
+/**
+ * @brief Search a wide string using ASCII-only case folding.
+ * @return Borrowed pointer to the first match, haystack for an empty needle, or NULL for no match/null input.
+ */
 static const WCHAR* wcsistr(const WCHAR* haystack, const WCHAR* needle) {
     if (!haystack || !needle) return NULL;
     size_t needle_len = wcslen(needle);
@@ -196,6 +212,7 @@ static const WCHAR* wcsistr(const WCHAR* haystack, const WCHAR* needle) {
     return NULL;
 }
 
+/** @brief Recognize virtual adapters from common description keywords using ASCII case folding. */
 static int is_virtual_adapter(const IP_ADAPTER_ADDRESSES* a) {
     if (!a || !a->Description) return 0;
     static const WCHAR* keywords[] = {
@@ -210,6 +227,10 @@ static int is_virtual_adapter(const IP_ADAPTER_ADDRESSES* a) {
     return 0;
 }
 
+/**
+ * @brief Check a host-order IPv4 address against the first unicast address of each active adapter.
+ * @return 1 for a match, 0 for no match or enumeration failure.
+ */
 static int is_local_ip(uint32_t ip) {
     ULONG buf_len = 0;
     GetAdaptersAddresses(AF_INET, GAA_FLAG_INCLUDE_GATEWAYS, NULL, NULL, &buf_len);

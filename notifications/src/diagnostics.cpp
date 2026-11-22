@@ -1,3 +1,8 @@
+/**
+ * @file diagnostics.cpp
+ * @brief Bounded diagnostic logging and child-to-parent error reporting.
+ */
+
 #include "app.h"
 #include "report.h"
 #include <shlobj.h>
@@ -7,6 +12,7 @@ namespace {
 bool detailed = false;
 std::wstring report_target;
 
+/** @brief Return whether stderr is a usable console, pipe or disk handle without taking ownership. */
 bool output_available() {
     HANDLE output = GetStdHandle(STD_ERROR_HANDLE);
     if (!output || output == INVALID_HANDLE_VALUE) {
@@ -19,6 +25,11 @@ bool output_available() {
     return type == FILE_TYPE_PIPE || type == FILE_TYPE_DISK;
 }
 
+/**
+ * @brief Write a timestamped diagnostic to available stderr and the per-user notification log.
+ * Caps message text at 4096 UTF-16 units and rotates the log near 64 KiB; file/output
+ * failures are best-effort. Debug builds also emit to OutputDebugStringW().
+ */
 void record(std::wstring_view message) {
     SYSTEMTIME now;
     GetLocalTime(&now);
