@@ -21,6 +21,7 @@ public:
         if (!object) {
             return E_POINTER;
         }
+
         *object = nullptr;
         if (id == IID_IUnknown || id == __uuidof(failed_handler)) {
             *object = static_cast<failed_handler*>(this);
@@ -29,12 +30,15 @@ public:
         } else {
             return E_NOINTERFACE;
         }
+
         AddRef();
         return S_OK;
     }
+
     ULONG STDMETHODCALLTYPE AddRef() override {
         return ++references_;
     }
+
     ULONG STDMETHODCALLTYPE Release() override {
         ULONG remaining = --references_;
         if (!remaining) {
@@ -42,6 +46,7 @@ public:
         }
         return remaining;
     }
+
     HRESULT STDMETHODCALLTYPE Invoke(IToastNotification*, IToastFailedEventArgs* args) override {
         args->get_ErrorCode(&result);
         SetEvent(event.get());
@@ -53,6 +58,7 @@ void show_toast(const product& app, const std::wstring& title, const std::wstrin
     BB_TRACE(L"Preparing notification identity: " + std::wstring(app.app_id));
     ensure_registration(app);
     check(SetCurrentProcessExplicitAppUserModelID(app.app_id), L"Set notification identity");
+
     ComPtr<IToastNotificationManagerStatics> manager;
     check(RoGetActivationFactory(hstring(L"Windows.UI.Notifications.ToastNotificationManager").get(),
                                  IID_PPV_ARGS(&manager)),
@@ -61,6 +67,7 @@ void show_toast(const product& app, const std::wstring& title, const std::wstrin
     check(manager->CreateToastNotifierWithId(hstring(app.app_id).get(), &notifier),
           L"Create WinRT toast notifier");
     BB_TRACE(L"WinRT toast notifier created");
+
     ComPtr<IInspectable> instance;
     check(RoActivateInstance(hstring(L"Windows.Data.Xml.Dom.XmlDocument").get(), &instance),
           L"Activate WinRT XML document");
@@ -70,6 +77,7 @@ void show_toast(const product& app, const std::wstring& title, const std::wstrin
     check(document.As(&xml), L"Query WinRT XML loader");
     check(xml->LoadXml(hstring(toast_xml(app.uri(), title, body)).get()), L"Load toast XML");
     BB_TRACE(L"Toast XML loaded successfully");
+
     ComPtr<IToastNotificationFactory> factory;
     check(RoGetActivationFactory(hstring(L"Windows.UI.Notifications.ToastNotification").get(),
                                  IID_PPV_ARGS(&factory)),
@@ -104,11 +112,13 @@ void submit_toast(IToastNotifier* notifier, IToastNotification* toast) {
                  static_cast<unsigned long>(settings_result));
         print_message(message);
     }
+
     ComPtr<toast_failure> failed;
     failed.Attach(new toast_failure());
     check_win32(failed->event.get() != nullptr, L"Create toast result event");
     EventRegistrationToken token{};
     check(toast->add_Failed(failed.Get(), &token), L"Observe toast delivery failures");
+
     BB_TRACE(L"Calling IToastNotifier::Show");
     HRESULT result = notifier->Show(toast);
     if (SUCCEEDED(result)) {
@@ -123,6 +133,7 @@ void submit_toast(IToastNotifier* notifier, IToastNotification* toast) {
                           L"not confirmed.");
         }
     }
+
     toast->remove_Failed(token);
     check(result, L"Show WinRT toast");
 }

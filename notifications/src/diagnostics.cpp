@@ -30,11 +30,13 @@ void record(std::wstring_view message) {
 #ifdef DEBUG
     OutputDebugStringW(line.c_str());
 #endif
+
     std::string utf8(WideCharToMultiByte(CP_UTF8, 0, line.data(), static_cast<int>(line.size()), nullptr, 0,
                                          nullptr, nullptr),
                      0);
     WideCharToMultiByte(CP_UTF8, 0, line.data(), static_cast<int>(line.size()), utf8.data(),
                         static_cast<int>(utf8.size()), nullptr, nullptr);
+
     DWORD written, mode;
     HANDLE output = GetStdHandle(STD_ERROR_HANDLE);
     if (GetConsoleMode(output, &mode)) {
@@ -42,6 +44,7 @@ void record(std::wstring_view message) {
     } else if (output_available()) {
         WriteFile(output, utf8.data(), static_cast<DWORD>(utf8.size()), &written, nullptr);
     }
+
     PWSTR local = nullptr;
     if (FAILED(SHGetKnownFolderPath(FOLDERID_LocalAppData, KF_FLAG_DEFAULT, nullptr, &local))) {
         return;
@@ -49,12 +52,14 @@ void record(std::wstring_view message) {
     std::wstring folder = std::wstring(local) + L"\\BigBrother";
     CoTaskMemFree(local);
     CreateDirectoryW(folder.c_str(), nullptr);
+
     auto path = folder + L"\\notifications.log";
     WIN32_FILE_ATTRIBUTE_DATA attributes;
     if (GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &attributes) &&
         (attributes.nFileSizeHigh || attributes.nFileSizeLow >= 65536)) {
         MoveFileExW(path.c_str(), (path + L".old").c_str(), MOVEFILE_REPLACE_EXISTING);
     }
+
     handle log(CreateFileW(path.c_str(), FILE_APPEND_DATA | GENERIC_READ,
                            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_ALWAYS,
                            FILE_ATTRIBUTE_NORMAL, nullptr));

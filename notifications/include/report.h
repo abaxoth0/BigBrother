@@ -41,15 +41,18 @@ public:
         std::vector<BYTE> buffer(size);
         check_win32(GetTokenInformation(token, TokenUser, buffer.data(), size, &size),
                     L"Read notification recipient identity");
+
         LPWSTR sid = nullptr;
         check_win32(ConvertSidToStringSidW(reinterpret_cast<TOKEN_USER*>(buffer.data())->User.Sid, &sid),
                     L"Encode notification recipient identity");
         std::wstring acl = std::wstring(L"D:P(A;;GA;;;SY)(A;;GA;;;") + sid + L")S:(ML;;NW;;;ME)";
         LocalFree(sid);
+
         PSECURITY_DESCRIPTOR descriptor = nullptr;
         check_win32(ConvertStringSecurityDescriptorToSecurityDescriptorW(acl.c_str(), SDDL_REVISION_1,
                                                                          &descriptor, nullptr),
                     L"Secure notification result");
+
         GUID id{};
         HRESULT result = CoCreateGuid(&id);
         wchar_t guid[40]{};
@@ -57,6 +60,7 @@ public:
             StringFromGUID2(id, guid, ARRAYSIZE(guid));
         }
         name = std::wstring(global ? L"Global\\" : L"Local\\") + L"BigBrother.ToastReport." + guid;
+
         SECURITY_ATTRIBUTES attributes{sizeof(attributes), descriptor, FALSE};
         HANDLE mapping = SUCCEEDED(result) ? CreateFileMappingW(INVALID_HANDLE_VALUE, &attributes,
                                                                 PAGE_READWRITE, 0, 4096, name.c_str())
@@ -66,18 +70,22 @@ public:
         check(result, L"Create notification result identifier");
         check(HRESULT_FROM_WIN32(mapping ? ERROR_SUCCESS : error), L"Create notification result mapping");
         *mapping_.put() = mapping;
+
         data_ = static_cast<delivery_result*>(
             MapViewOfFile(mapping_.get(), FILE_MAP_READ | FILE_MAP_WRITE, 0, 0, 4096));
         check_win32(data_ != nullptr, L"Map notification result");
         std::memset(data_, 0, 4096);
     }
+
     ~delivery_report() {
         if (data_) {
             UnmapViewOfFile(data_);
         }
     }
+
     delivery_report(const delivery_report&) = delete;
     delivery_report& operator=(const delivery_report&) = delete;
+
     /** @brief Give the child a parent-lifetime handle and an absolute GetTickCount64 deadline. */
     void supervise(HANDLE child, ULONGLONG deadline, HANDLE parent = GetCurrentProcess()) {
         check_win32(
@@ -85,16 +93,20 @@ public:
             L"Give notification child a parent lifetime handle");
         data_->deadline = deadline;
     }
+
     /** @brief Read supervision data in the child; it must eventually close the returned parent handle. */
     static std::pair<HANDLE, ULONGLONG> parent(const std::wstring& name) {
         handle mapping(OpenFileMappingW(FILE_MAP_READ, FALSE, name.c_str()));
         check_win32(mapping.get() != nullptr, L"Open notification supervision");
+
         auto data = static_cast<delivery_result*>(MapViewOfFile(mapping.get(), FILE_MAP_READ, 0, 0, 4096));
         check_win32(data != nullptr, L"Read notification supervision");
+
         auto result = std::make_pair(data->parent, data->deadline);
         UnmapViewOfFile(data);
         return result;
     }
+
     /** @brief Decode the child diagnostic; call after the child has finished writing. */
     std::wstring read() const {
         char snapshot[4080];
@@ -104,6 +116,7 @@ public:
         if (!length) {
             return {};
         }
+
         int count = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, snapshot, length, nullptr, 0);
         if (!count) {
             return L"Invalid notification child diagnostic";
@@ -119,14 +132,17 @@ inline void write_report(const std::wstring& name, std::wstring_view text) {
     if (!report_name(name)) {
         return;
     }
+
     handle mapping(OpenFileMappingW(FILE_MAP_WRITE, FALSE, name.c_str()));
     if (!mapping.get()) {
         return;
     }
+
     auto data = static_cast<delivery_result*>(MapViewOfFile(mapping.get(), FILE_MAP_WRITE, 0, 0, 4096));
     if (!data) {
         return;
     }
+
     int count = WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0,
                                     nullptr, nullptr);
     if (count > 0 && count < 4080) {
@@ -134,6 +150,7 @@ inline void write_report(const std::wstring& name, std::wstring_view text) {
                             nullptr, nullptr);
         data->message[count] = 0;
     }
+
     UnmapViewOfFile(data);
 }
 
@@ -150,6 +167,7 @@ public:
         check_win32(stop_.get() != nullptr, L"Create notification watchdog event");
         auto [parent, deadline] = delivery_report::parent(report);
         check_win32(parent != nullptr, L"Read notification parent handle");
+
         worker_ = std::thread([parent, deadline, stop = stop_.get()] {
             HANDLE events[] = {stop, parent};
             ULONGLONG now = GetTickCount64();
@@ -162,6 +180,7 @@ public:
             }
         });
     }
+
     ~parent_watch() {
         SetEvent(stop_.get());
         if (worker_.joinable()) {

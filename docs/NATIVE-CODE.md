@@ -18,7 +18,13 @@ clang-format --dry-run --Werror firewall/src/allowlist.c
 ```
 
 Separate validation, parsing, resource acquisition and result construction with
-blank lines. Extract a helper when a function mixes distinct operations, as with
+blank lines. Review these boundaries manually: the formatter does not identify
+logical groups. Keep an operation and its error check together, then leave a
+blank line before the next step. For example, TLV readers separate the command,
+field length, payload, separator and argument accumulation. Keep short functions
+that perform one operation compact.
+
+Extract a helper when a function mixes distinct operations, as with
 port-expression parsing in `allowlist.c`. Keep ownership and failure cleanup easy
 to trace; formatting changes should preserve behavior.
 

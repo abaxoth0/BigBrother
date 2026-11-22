@@ -43,19 +43,23 @@ void WINAPI ServiceControlHandler(DWORD control) {
 static int run_backend(const char* server_ip) {
     client::Handle instance(CreateMutexW(nullptr, FALSE, L"Global\\BigBrother.Client.Instance"));
     if (!instance || GetLastError() == ERROR_ALREADY_EXISTS) return ERROR_SERVICE_ALREADY_RUNNING;
+
     log_init();
     client::Handle stop(CreateEventW(nullptr, TRUE, FALSE, nullptr));
     if (!stop) return static_cast<int>(GetLastError());
     g_ServiceStopEvent = stop.get();
     if (StartClientServer() != 0) return ERROR_OPEN_FAILED;
+
     if (g_StatusHandle) {
         g_ServiceStatus.dwCurrentState = SERVICE_RUNNING;
         g_ServiceStatus.dwControlsAccepted = SERVICE_ACCEPT_STOP | SERVICE_ACCEPT_SHUTDOWN;
         SetServiceStatus(g_StatusHandle, &g_ServiceStatus);
     } else SetConsoleCtrlHandler(ConsoleControlHandler, TRUE);
+
     load_server_ip();
     if (server_ip && *server_ip) SetServerIp(server_ip);
     int result = DaemonRun(server_ip);
+
     SetEvent(g_ServiceStopEvent);
     client::firewall().control(client::FirewallAction::stop);
     StopClientServer();
@@ -124,15 +128,18 @@ static int run_command(int argc, char** argv) {
             fprintf(stderr, "Cannot read whitelist file or file exceeds size limit.\n");
             return 1;
         }
+
         data.resize(static_cast<size_t>(file.tellg()));
         file.seekg(0);
         if (!file.read(data.data(), static_cast<std::streamsize>(data.size()))) return 1;
+
         command = "SET_WHITELIST";
         args.push_back(data);
     } else {
         print_usage(argv[0]);
         return 1;
     }
+
     auto reply = client::SendBackendCommand(command, args);
     printf("%s\n", reply.ok ? "OK" : "ERROR");
     for (const auto& value : reply.values) printf("%s\n", value.c_str());
@@ -145,19 +152,23 @@ int main(int argc, char** argv) {
         printf("BigBrother Client Daemon %s\n", BB_VERSION);
         return 0;
     }
+
     bool daemon_mode = argc == 1 || strcmp(argv[1], "-d") == 0;
     bool secure_storage = argc == 2 && strcmp(argv[1], "--secure-storage") == 0;
     if (!daemon_mode && !secure_storage) return run_command(argc, argv);
+
     if (PrepareClientSecretPermissions() != 0) {
         fprintf(stderr, "Cannot secure client secrets (error %lu).\n", GetLastError());
         return 1;
     }
     if (secure_storage) return 0;
+
     SERVICE_TABLE_ENTRY service_table[] = {
         {const_cast<char*>("BigBrother Client"), ServiceMain}, {nullptr, nullptr}
     };
     if (argc == 1 && StartServiceCtrlDispatcherA(service_table)) return 0;
     if (argc >= 2) return run_backend(argc >= 3 ? argv[2] : "");
+
     print_usage(argv[0]);
     return 1;
 }

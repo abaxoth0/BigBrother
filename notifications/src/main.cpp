@@ -31,11 +31,13 @@ static handle launch_in_session(delivery_report& report, ULONGLONG deadline, con
     auto path = executable_path();
     std::wstring command = L"\"" + path + L"\" --show " + app.name + L" " + title_hex + L" " + body_hex +
                            L" --report " + report.name;
+
     STARTUPINFOW startup{};
     PROCESS_INFORMATION process{};
     startup.cb = sizeof(startup);
     wchar_t desktop[] = L"winsta0\\default";
     startup.lpDesktop = desktop;
+
     LPVOID environment = nullptr;
     check_win32(CreateEnvironmentBlock(&environment, token, FALSE), L"Create user environment");
     BOOL created = CreateProcessAsUserW(token, path.c_str(), command.data(), nullptr, nullptr, FALSE,
@@ -45,6 +47,7 @@ static handle launch_in_session(delivery_report& report, ULONGLONG deadline, con
     DWORD error = GetLastError();
     DestroyEnvironmentBlock(environment);
     check(HRESULT_FROM_WIN32(created ? ERROR_SUCCESS : error), L"Launch user notification process");
+
     handle child(process.hProcess), thread(process.hThread);
     try {
         report.supervise(child.get(), deadline);
@@ -88,6 +91,7 @@ static DWORD send_notification(const product& app, const std::wstring& title_hex
     check_win32(AdjustTokenPrivileges(token.get(), FALSE, &privileges, 0, nullptr, nullptr),
                 L"Enable session privilege");
     check(HRESULT_FROM_WIN32(GetLastError()), L"Acquire session privilege");
+
     struct session_list {
         WTS_SESSION_INFOW* data = nullptr;
         ~session_list() {
@@ -100,6 +104,7 @@ static DWORD send_notification(const product& app, const std::wstring& title_hex
     for (int attempt = 0; attempt < 3; attempt++) {
         check_win32(WTSEnumerateSessionsW(WTS_CURRENT_SERVER_HANDLE, 0, 1, &sessions.data, &count),
                     L"Enumerate user sessions");
+
         bool active = false;
         for (DWORD i = 0; i < count; i++) {
             if (sessions.data[i].SessionId && sessions.data[i].State == WTSActive) {
@@ -113,6 +118,7 @@ static DWORD send_notification(const product& app, const std::wstring& title_hex
         sessions.data = nullptr;
         Sleep(500);
     }
+
     struct recipient {
         std::unique_ptr<delivery_report> report;
         handle process;
@@ -134,6 +140,7 @@ static DWORD send_notification(const product& app, const std::wstring& title_hex
             check_win32(available, L"Read signed-in user token");
             check(HRESULT_FROM_WIN32(GetTickCount64() < deadline ? ERROR_SUCCESS : ERROR_TIMEOUT),
                   L"Notification delivery deadline");
+
             auto report = std::make_unique<delivery_report>(user.get());
             auto process = launch_in_session(*report, deadline, app, title_hex, body_hex, user.get());
             processes.push_back({std::move(report), std::move(process), sessions.data[i].SessionId});
@@ -141,10 +148,12 @@ static DWORD send_notification(const product& app, const std::wstring& title_hex
             result = report_failure(error);
         }
     }
+
     if (processes.empty() && result == ERROR_SUCCESS) {
         throw failure{HRESULT_FROM_WIN32(ERROR_NO_SUCH_LOGON_SESSION),
                       L"No active signed-in user session for notification delivery"};
     }
+
     print_message(L"User-session delivery processes: " + std::to_wstring(processes.size()));
     for (auto& process : processes) {
         ULONGLONG now = GetTickCount64();
@@ -155,6 +164,7 @@ static DWORD send_notification(const product& app, const std::wstring& title_hex
                 report_failure({HRESULT_FROM_WIN32(ERROR_TIMEOUT), L"Wait for user notification result"});
             continue;
         }
+
         DWORD code;
         check_win32(GetExitCodeProcess(process.process.get(), &code), L"Read user notification result");
         if (code) {
@@ -167,6 +177,7 @@ static DWORD send_notification(const product& app, const std::wstring& title_hex
             result = report_failure({static_cast<HRESULT>(code), L"User notification delivery"});
         }
     }
+
     return result;
 }
 
@@ -187,17 +198,21 @@ static DWORD run(const command& request) {
             L"--unregister Client|Server; --unregister-all Client|Server; --version");
         return ERROR_SUCCESS;
     }
+
     if (request.kind == command_kind::version) {
         print_message(L"BigBrother Notifications " BB_WIDEN(BB_VERSION));
         return ERROR_SUCCESS;
     }
+
     if (request.kind == command_kind::test) {
         return send_notification(app, encode("BigBrother", 256),
                                  encode("Проверка уведомлений Windows", 1024));
     }
+
     if (request.kind == command_kind::send) {
         return send_notification(app, request.title, request.body);
     }
+
     if (request.kind == command_kind::unregister_all) {
         check(RoInitialize(RO_INIT_MULTITHREADED), L"Initialize registration cleanup");
         struct uninitialize {
@@ -207,19 +222,23 @@ static DWORD run(const command& request) {
         } apartment;
         return unregister_all(app);
     }
+
     if (is_system()) {
         throw failure{E_ACCESSDENIED, L"Display and registration require a signed-in user"};
     }
+
     if (request.kind == command_kind::open) {
         open_frontend(app);
         return ERROR_SUCCESS;
     }
+
     check(RoInitialize(RO_INIT_MULTITHREADED), L"Initialize WinRT");
     struct uninitialize {
         ~uninitialize() {
             RoUninitialize();
         }
     } apartment;
+
     if (request.kind == command_kind::show) {
         show_toast(app, decode(request.title, 256), decode(request.body, 1024));
     } else if (request.kind == command_kind::register_user) {
@@ -227,6 +246,7 @@ static DWORD run(const command& request) {
     } else if (request.kind == command_kind::unregister_user) {
         unregister_user(app);
     }
+
     return ERROR_SUCCESS;
 }
 }
@@ -245,6 +265,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
                 HRESULT_FROM_WIN32(command_error ? command_error : ERROR_GEN_FAILURE),
                 L"Read notification command"};
         }
+
         if (argc == 7 && std::wstring_view(args[1]) == L"--show" &&
             std::wstring_view(args[5]) == L"--report") {
             if (!notifications::report_name(args[6])) {
@@ -254,6 +275,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
             watchdog = std::make_unique<notifications::parent_watch>(args[6]);
             argc -= 2;
         }
+
         auto request = notifications::parse_command(argc, args);
         notifications::set_diagnostics(manual || request.kind == notifications::command_kind::help ||
                                        request.kind == notifications::command_kind::version ||
@@ -265,6 +287,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
         if (manual) {
             BB_TRACE(L"Manual test command accepted for " + request.app.display_name());
         }
+
         result = notifications::run(request);
         if (manual && result == ERROR_SUCCESS) {
             BB_TRACE(L"Test request submitted to Windows; banner display is not confirmed. See the delivery "
@@ -277,6 +300,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
     } catch (...) {
         result = notifications::report_failure({E_FAIL, L"Notification helper"});
     }
+
     if (manual && !console_output && result) {
         try {
             DWORD session = 0;
@@ -292,6 +316,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
         } catch (...) {
         }
     }
+
     if (args) {
         LocalFree(args);
     }

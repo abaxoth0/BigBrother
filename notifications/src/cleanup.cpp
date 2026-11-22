@@ -19,6 +19,7 @@ public:
         }
         check(HRESULT_FROM_WIN32(result == ERROR_FILE_NOT_FOUND ? ERROR_SUCCESS : result),
               L"Open user registry hive");
+
         if (GetFileAttributesW(file.c_str()) == INVALID_FILE_ATTRIBUTES) {
             DWORD error = GetLastError();
             if (error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND) {
@@ -26,6 +27,7 @@ public:
             }
             throw failure{HRESULT_FROM_WIN32(error), L"Locate user registry hive"};
         }
+
         GUID id{};
         check(CoCreateGuid(&id), L"Create registry cleanup identifier");
         wchar_t guid[40]{};
@@ -33,14 +35,17 @@ public:
         auto mount = std::wstring(L"BigBrother.NotificationCleanup.") + guid;
         check(HRESULT_FROM_WIN32(RegLoadKeyW(HKEY_USERS, mount.c_str(), file.c_str())),
               L"Load user registry for notification cleanup");
+
         result = RegOpenKeyExW(HKEY_USERS, mount.c_str(), 0, access, &key);
         if (result != ERROR_SUCCESS) {
             RegUnLoadKeyW(HKEY_USERS, mount.c_str());
             throw failure{HRESULT_FROM_WIN32(result), L"Open user registry for notification cleanup"};
         }
+
         mount_ = std::move(mount);
         writable_ = (access & KEY_SET_VALUE) != 0;
     }
+
     ~profile_hive() {
         if (key && writable_) {
             LSTATUS result = RegFlushKey(key);
@@ -52,6 +57,7 @@ public:
         if (key) {
             RegCloseKey(key);
         }
+
         if (!mount_.empty()) {
             LSTATUS result = RegUnLoadKeyW(HKEY_USERS, mount_.c_str());
             if (result != ERROR_SUCCESS) {
@@ -60,6 +66,7 @@ public:
             }
         }
     }
+
     profile_hive(const profile_hive&) = delete;
     profile_hive& operator=(const profile_hive&) = delete;
 };
@@ -115,6 +122,7 @@ std::wstring shell_folder(HKEY user, const wchar_t* name, const std::wstring& fa
 DWORD unregister_all(const product& app) {
     enable_cleanup_privilege(SE_BACKUP_NAME);
     enable_cleanup_privilege(SE_RESTORE_NAME);
+
     HKEY profiles;
     check(HRESULT_FROM_WIN32(RegOpenKeyExW(HKEY_LOCAL_MACHINE,
                                            L"Software\\Microsoft\\Windows NT\\CurrentVersion\\ProfileList", 0,
@@ -126,6 +134,7 @@ DWORD unregister_all(const product& app) {
             RegCloseKey(key);
         }
     } closer{profiles};
+
     DWORD status = ERROR_SUCCESS;
     for (DWORD index = 0;; index++) {
         wchar_t sid[256];
@@ -135,6 +144,7 @@ DWORD unregister_all(const product& app) {
             break;
         }
         check(HRESULT_FROM_WIN32(result), L"Read notification user profile");
+
         wchar_t path[32768];
         DWORD size = sizeof(path);
         result = RegGetValueW(profiles, sid, L"ProfileImagePath",
@@ -142,11 +152,13 @@ DWORD unregister_all(const product& app) {
         if (result == ERROR_FILE_NOT_FOUND) {
             continue;
         }
+
         try {
             check(HRESULT_FROM_WIN32(result), L"Read notification profile directory");
             wchar_t expanded[32768];
             DWORD count = ExpandEnvironmentStringsW(path, expanded, ARRAYSIZE(expanded));
             check_win32(count && count <= ARRAYSIZE(expanded), L"Expand notification profile directory");
+
             std::wstring profile(expanded);
             profile_hive user(sid, profile + L"\\NTUSER.DAT", KEY_READ, status);
             auto roaming = shell_folder(user.key, L"AppData", profile + L"\\AppData\\Roaming", profile,
@@ -156,6 +168,7 @@ DWORD unregister_all(const product& app) {
             auto programs =
                 shell_folder(user.key, L"Programs", roaming + L"\\Microsoft\\Windows\\Start Menu\\Programs",
                              profile, roaming, local);
+
             profile_hive classes(std::wstring(sid) + L"_Classes",
                                  local + L"\\Microsoft\\Windows\\UsrClass.dat", KEY_READ | KEY_WRITE, status);
             unregister_profile(app, classes.key, programs + L"\\" + app.display_name());
@@ -164,6 +177,7 @@ DWORD unregister_all(const product& app) {
             status = report_failure(error);
         }
     }
+
     SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, nullptr, nullptr);
     return status;
 }

@@ -8,6 +8,7 @@ int bb_normalize_fingerprint(const char* input, char output[65]) {
     if (!input || !output) {
         return -1;
     }
+
     size_t n = 0;
     for (; *input; input++) {
         unsigned char c = (unsigned char)*input;
@@ -20,6 +21,7 @@ int bb_normalize_fingerprint(const char* input, char output[65]) {
         }
         output[n++] = (char)toupper(c);
     }
+
     output[n] = '\0';
     if (n != 64) {
         output[0] = '\0';
@@ -33,10 +35,12 @@ int bb_probe_certificate(const char* address, int port, const char* expected, ch
     if (!address || !address[0] || port < 1 || port > 65535) {
         return -1;
     }
+
     WSADATA wsa;
     if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) {
         return -1;
     }
+
     SOCKET sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     int result = -1;
     u_long nonblocking = 1;
@@ -46,6 +50,7 @@ int bb_probe_certificate(const char* address, int port, const char* expected, ch
     if (sock == INVALID_SOCKET) {
         goto done;
     }
+
     target.sin_family = AF_INET;
     target.sin_port = htons((unsigned short)port);
     if (inet_pton(AF_INET, ip, &target.sin_addr) != 1) {
@@ -54,10 +59,12 @@ int bb_probe_certificate(const char* address, int port, const char* expected, ch
     if (ioctlsocket(sock, FIONBIO, &nonblocking) != 0) {
         goto close_socket;
     }
+
     if (connect(sock, (struct sockaddr*)&target, sizeof(target)) != 0) {
         if (WSAGetLastError() != WSAEWOULDBLOCK) {
             goto close_socket;
         }
+
         fd_set write_set, error_set;
         FD_ZERO(&write_set);
         FD_SET(sock, &write_set);
@@ -67,18 +74,22 @@ int bb_probe_certificate(const char* address, int port, const char* expected, ch
         if (select(0, NULL, &write_set, &error_set, &timeout) <= 0 || FD_ISSET(sock, &error_set)) {
             goto close_socket;
         }
+
         int error = 0, error_len = sizeof(error);
         if (getsockopt(sock, SOL_SOCKET, SO_ERROR, (char*)&error, &error_len) != 0 || error) {
             goto close_socket;
         }
     }
+
     if (bb_tls_init(&tls) != 0) {
         goto close_socket;
     }
     result = bb_tls_connect(&tls, sock, expected, fingerprint, 65);
     bb_tls_free(&tls);
+
 close_socket:
     closesocket(sock);
+
 done:
     WSACleanup();
     return result;

@@ -32,6 +32,7 @@ static bool shortcut_identity(REFKNOWNFOLDERID folder, const product& app) {
     if (FAILED(file->Load(shortcut_path(folder, app).c_str(), STGM_READ))) {
         return false;
     }
+
     ComPtr<IPropertyStore> properties;
     if (FAILED(link.As(&properties))) {
         return false;
@@ -43,6 +44,7 @@ static bool shortcut_identity(REFKNOWNFOLDERID folder, const product& app) {
     if (!matches) {
         return false;
     }
+
     PROPVARIANT activator{};
     result = properties->GetValue(PKEY_AppUserModel_ToastActivatorCLSID, &activator);
     CLSID expected{};
@@ -77,6 +79,7 @@ void ensure_registration(const product& app, bool force_user) {
             ReleaseMutex(mutex);
         }
     } lock{mutex.get()};
+
     auto identity = std::wstring(L"Software\\Classes\\AppUserModelId\\") + app.app_id;
     wchar_t existing[32768];
     DWORD size = sizeof(existing);
@@ -84,19 +87,23 @@ void ensure_registration(const product& app, bool force_user) {
         RegGetValueW(HKEY_CLASSES_ROOT, (std::wstring(app.scheme) + L"\\shell\\open\\command").c_str(),
                      nullptr, RRF_RT_REG_SZ, nullptr, existing, &size) == ERROR_SUCCESS &&
         existing == protocol_command(app);
+
     size = sizeof(existing);
     bool identity_matches =
         RegGetValueW(HKEY_CLASSES_ROOT, (std::wstring(L"AppUserModelId\\") + app.app_id).c_str(),
                      L"CustomActivator", RRF_RT_REG_SZ, nullptr, existing, &size) == ERROR_SUCCESS &&
         !_wcsicmp(existing, app.activator);
+
     if (!force_user && identity_matches && protocol_matches &&
         (shortcut_identity(FOLDERID_CommonPrograms, app) || shortcut_identity(FOLDERID_Programs, app))) {
         BB_TRACE(L"Existing shortcut identity and activation protocol validated");
         return;
     }
+
     registry_string(identity, L"DisplayName", app.display_name());
     registry_string(identity, L"CustomActivator", app.activator);
     registry_string(identity, L"BigBrotherNotificationHost", executable_path());
+
     std::wstring folder = programs_path(FOLDERID_Programs, app);
     check_win32(CreateDirectoryW(folder.c_str(), nullptr) || GetLastError() == ERROR_ALREADY_EXISTS,
                 L"Create Start menu folder");
@@ -106,6 +113,7 @@ void ensure_registration(const product& app, bool force_user) {
           L"Set notification shortcut arguments");
     check(link->SetWorkingDirectory(app_directory().c_str()), L"Set notification shortcut directory");
     check(link->SetIconLocation(executable_path().c_str(), app.icon_index), L"Set notification icon");
+
     ComPtr<IPropertyStore> properties;
     check(link.As(&properties), L"Query shortcut properties");
     PROPVARIANT value{};
@@ -113,6 +121,7 @@ void ensure_registration(const product& app, bool force_user) {
     HRESULT result = properties->SetValue(PKEY_AppUserModel_ID, value);
     PropVariantClear(&value);
     check(result, L"Set notification identity");
+
     CLSID activator{};
     check(CLSIDFromString(app.activator, &activator), L"Parse toast activator");
     check(InitPropVariantFromCLSID(activator, &value), L"Create toast activator property");
@@ -120,10 +129,12 @@ void ensure_registration(const product& app, bool force_user) {
     PropVariantClear(&value);
     check(result, L"Set toast activator");
     check(properties->Commit(), L"Save notification properties");
+
     ComPtr<IPersistFile> file;
     check(link.As(&file), L"Query shortcut file");
     check(file->Save(shortcut_path(FOLDERID_Programs, app).c_str(), TRUE), L"Save notification shortcut");
     BB_TRACE(L"Saved Start menu shortcut: " + shortcut_path(FOLDERID_Programs, app));
+
     auto key = std::wstring(L"Software\\Classes\\") + app.scheme;
     registry_string(key, nullptr, L"URL:" + app.display_name());
     registry_string(key, L"URL Protocol", L"");
@@ -141,6 +152,7 @@ void unregister_profile(const product& app, HKEY classes, const std::wstring& fo
         !_wcsicmp(owner, executable_path().c_str())) {
         check(HRESULT_FROM_WIN32(RegDeleteTreeW(classes, identity.c_str())), L"Remove notification identity");
     }
+
     wchar_t command[32768];
     DWORD size = sizeof(command);
     if (classes &&
@@ -149,6 +161,7 @@ void unregister_profile(const product& app, HKEY classes, const std::wstring& fo
         command == protocol_command(app)) {
         check(HRESULT_FROM_WIN32(RegDeleteTreeW(classes, app.scheme)), L"Remove notification protocol");
     }
+
     auto path = folder + L"\\" + app.display_name() + L".lnk";
     if (GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES) {
         auto link = shell_link();

@@ -23,6 +23,7 @@ public:
             SetInformationJobObject(job_.get(), JobObjectExtendedLimitInformation, &limits, sizeof(limits)),
             L"Configure notification process job");
     }
+
     /**
      * @brief Take ownership of a suspended process/thread, assign it to the job and resume it.
      * @return Owned process handle; the thread handle is closed.
@@ -35,6 +36,7 @@ public:
             TerminateProcess(child.get(), error);
             throw failure{HRESULT_FROM_WIN32(error), L"Supervise notification process"};
         }
+
         if (ResumeThread(thread.get()) == static_cast<DWORD>(-1)) {
             DWORD error = GetLastError();
             TerminateProcess(child.get(), error);

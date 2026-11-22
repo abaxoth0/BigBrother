@@ -44,6 +44,7 @@ Reply SendBackendCommand(std::string_view command, Arguments arguments) {
     if (status != "OK" && status != "ERROR") {
         return Reply::error("invalid backend status");
     }
+
     Reply reply{status == "OK", {}};
     while (position < response.size()) {
         size_t end = response.find('\n', position);
@@ -53,6 +54,7 @@ Reply SendBackendCommand(std::string_view command, Arguments arguments) {
         if (end == std::string::npos) {
             break;
         }
+
         size_t length = 0;
         auto result = std::from_chars(response.data() + position, response.data() + end, length);
         position = end + 1;
@@ -60,9 +62,11 @@ Reply SendBackendCommand(std::string_view command, Arguments arguments) {
             length >= response.size() - position || response[position + length] != '\n') {
             break;
         }
+
         reply.values.push_back(response.substr(position, length));
         position += length + 1;
     }
+
     return Reply::error("truncated backend response");
 }
 

@@ -172,23 +172,28 @@ int PrepareClientSecretPermissions(void) {
     size_t length = strlen(directory);
     while (length && directory[length - 1] == '\\') directory[--length] = '\0';
     if (length <= 3) return -1;
+
     DWORD attributes = GetFileAttributesA(directory);
     if (attributes == INVALID_FILE_ATTRIBUTES || !(attributes & FILE_ATTRIBUTE_DIRECTORY) ||
         (attributes & FILE_ATTRIBUTE_REPARSE_POINT)) return -1;
+
     const char* roots[] = {"WINDIR", "PROGRAMFILES", "PROGRAMDATA", "USERPROFILE", NULL};
     for (const char** name = roots; *name; name++) {
         char root[MAX_PATH];
         if (GetEnvironmentVariableA(*name, root, sizeof(root)) && _stricmp(root, directory) == 0) return -1;
     }
+
     snprintf(key, sizeof(key), "%s\\client_sigkey.key", directory);
     DWORD key_attributes = GetFileAttributesA(key);
     if (key_attributes == INVALID_FILE_ATTRIBUTES) {
         DWORD error = GetLastError();
         if (error != ERROR_FILE_NOT_FOUND && error != ERROR_PATH_NOT_FOUND) return -1;
     } else if (bb_file_acl(key, 0, 0) != 0) return -1;
+
     snprintf(config, sizeof(config), "%s\\config", directory);
     if (!CreateDirectoryA(config, NULL) && GetLastError() != ERROR_ALREADY_EXISTS) return -1;
     if (bb_private_tree(config) != 0) return -1;
+
     return bb_file_acl(directory, 1, 1);
 }
 
@@ -276,34 +281,40 @@ static int ini_get_string_locked(const char* section, const char* key, char* out
     // Recover one unambiguous, valid value before normal TLS can fall back to TOFU.
     f = fopen(ini_path, "r");
     if (!f) return 0;
+
     char recovered[65] = {};
     size_t expected = _stricmp(key, "fingerprint") == 0 ? 64 : 48;
     int conflict = 0, invalid = 0;
     while (fgets(line, sizeof(line), f)) {
         char* p = trim_ws(line);
         if (*p == ';' || *p == '#' || *p == '[') continue;
+
         char* eq = strchr(p, '=');
         if (!eq) continue;
         *eq = '\0';
         if (_stricmp(trim_ws(p), key) != 0) continue;
+
         char* value = trim_ws(eq + 1);
         if (strlen(value) != expected) { invalid = 1; continue; }
         int valid = 1;
         for (size_t i = 0; i < expected; i++)
             if (!isxdigit((unsigned char)value[i])) valid = 0;
         if (!valid) { invalid = 1; continue; }
+
         int same = _stricmp(key, "fingerprint") == 0
             ? _stricmp(recovered, value) == 0 : strcmp(recovered, value) == 0;
         if (recovered[0] && !same) conflict = 1;
         else snprintf(recovered, sizeof(recovered), "%s", value);
     }
     fclose(f);
+
     if (conflict || invalid) {
         // Preserve rejection instead of silently trusting a new certificate.
         snprintf(out, out_size, "%s", conflict ? "AMBIGUOUS_MISPLACED_CREDENTIAL" : "INVALID_MISPLACED_CREDENTIAL");
         return 1;
     }
     if (!recovered[0]) return 0;
+
     snprintf(out, out_size, "%s", recovered);
     ini_set_string_locked(section, key, recovered);
     return 1;
@@ -891,6 +902,7 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
             if (c == '\n') { complete_length = 1; break; }
             len_line[len_pos++] = c;
         }
+
         char* end;
         long expected_len = strtol(len_line, &end, 10);
         if (complete_length && end != len_line && *end == '\0' &&
@@ -902,6 +914,7 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
                 got += (size_t)n;
             }
             out_buffer[got] = '\0';
+
             char nl = 0;
             if (got == (size_t)expected_len && bb_tls_read(&tls, &nl, 1) == 1 &&
                 nl == '\n' && strcmp(out_buffer, "invalid token") == 0) {
@@ -1069,6 +1082,7 @@ static int client_identity_pub_hex(char* out, size_t cap) {
 // which is fine — REGISTER already carried the public key; we retry each loop.
 static int fetch_token_if_needed(const char* username) {
     if (!username || username[0] == '\0') return -1;
+
     AcquireSRWLockExclusive(&g_token_fetch_lock);
     char token[256];
     get_client_token(token, sizeof(token));
@@ -1076,11 +1090,13 @@ static int fetch_token_if_needed(const char* username) {
         ReleaseSRWLockExclusive(&g_token_fetch_lock);
         return 0;
     }
+
     if (GetTickCount64() < g_next_token_fetch) {
         ReleaseSRWLockExclusive(&g_token_fetch_lock);
         return -1;
     }
     g_next_token_fetch = GetTickCount64() + 5000;
+
     int result = -1;
     mbedtls_pk_context pk;
     if (client_key_ensure(sig_key_path(), &pk) != 0) {
@@ -1088,6 +1104,7 @@ static int fetch_token_if_needed(const char* username) {
         ReleaseSRWLockExclusive(&g_token_fetch_lock);
         return -1;
     }
+
     const char* chal_args[] = {username};
     char nonce[256] = {};
     char msg[384], sighex[300];
@@ -1096,17 +1113,21 @@ static int fetch_token_if_needed(const char* username) {
     char response[128] = {};
     if (token_request("GET_TOKEN_CHALLENGE", chal_args, 1, nonce, sizeof(nonce)) != 0 || !nonce[0])
         goto done;
+
     len = snprintf(msg, sizeof(msg), "%s%s", username, nonce);
     if (len < 0 || (size_t)len >= sizeof(msg) ||
         client_key_sign(&pk, (const unsigned char*)msg, (size_t)len, sighex, sizeof(sighex)) != 0)
         goto done;
+
     if (token_request("GET_TOKEN", tok_args, 3, response, sizeof(response)) != 0 ||
         !response[0] || strcmp(response, "NOT_SET") == 0)
         goto done;
+
     set_client_token(response);
     g_next_token_fetch = 0;
     result = 0;
     LOGF("[Daemon] Token received from server automatically");
+
 done:
     mbedtls_pk_free(&pk);
     ReleaseSRWLockExclusive(&g_token_fetch_lock);
@@ -1123,18 +1144,22 @@ static int send_authenticated_request(const char* command, const char* username,
     int result = token_request(command, args, count, response, capacity);
     args[token_index] = original_token;
     if (result != SERVER_INVALID_TOKEN) return result;
+
     invalidate_client_token(token);
     if (fetch_token_if_needed(username) != 0) return -1;
+
     get_client_token(token, sizeof(token));
     args[token_index] = token;
     result = token_request(command, args, count, response, capacity);
     args[token_index] = original_token;
+
     if (result == SERVER_INVALID_TOKEN) {
         invalidate_client_token(token);
         AcquireSRWLockExclusive(&g_token_fetch_lock);
         g_next_token_fetch = GetTickCount64() + 5000;
         ReleaseSRWLockExclusive(&g_token_fetch_lock);
     }
+
     return result; // At most one signed fetch and one retry per request.
 }
 
@@ -1271,12 +1296,14 @@ static int srv_readline(SrvLineReader* r, char* out, size_t out_size) {
             }
             r->len = (size_t)n;
         }
+
         char c = r->buf[r->pos++];
         if (c == '\n') {
             out[consumed] = '\0';
             return 1;
         }
         if (c == '\r') continue;
+
         if (consumed + 1 < out_size) {
             out[consumed++] = c;
         }
@@ -1287,9 +1314,11 @@ static int srv_readline(SrvLineReader* r, char* out, size_t out_size) {
 static int srv_read_tlv(SrvLineReader* r, char* out, size_t out_size) {
     char len_str[32];
     if (srv_readline(r, len_str, sizeof(len_str)) != 1) return 0;
+
     char* end;
     long expected = strtol(len_str, &end, 10);
     if (end == len_str || *end != '\0' || expected <= 0 || (size_t)expected >= out_size) return 0;
+
     // Read exactly expected bytes
     size_t got = 0;
     while (got < (size_t)expected) {
@@ -1299,6 +1328,7 @@ static int srv_read_tlv(SrvLineReader* r, char* out, size_t out_size) {
             r->pos = 0;
             r->len = (size_t)n;
         }
+
         size_t avail = r->len - r->pos;
         size_t want = (size_t)expected - got;
         size_t copy = avail < want ? avail : want;
@@ -1307,6 +1337,7 @@ static int srv_read_tlv(SrvLineReader* r, char* out, size_t out_size) {
         got += copy;
     }
     out[got] = '\0';
+
     // Consume trailing newline
     if (r->pos >= r->len) {
         int n = bb_tls_read(r->tls, r->buf, sizeof(r->buf) - 1);
@@ -1391,8 +1422,10 @@ static int compare_rules(const void* a, const void* b) {
 static int whitelist_revision(char* rules, char revision[65]) {
     size_t capacity = 1;
     for (char* p = rules; *p; p++) if (*p == '\n') capacity++;
+
     char** entries = static_cast<char**>(malloc(capacity * sizeof(*entries)));
     if (!entries) return -1;
+
     size_t count = 0;
     char* context;
     for (char* line = strtok_r(rules, "\n", &context); line; line = strtok_r(NULL, "\n", &context)) {
@@ -1400,10 +1433,13 @@ static int whitelist_revision(char* rules, char revision[65]) {
         size_t len = strlen(line);
         while (len && isspace((unsigned char)line[len - 1])) line[--len] = '\0';
         if (!len || line[0] == '#' || line[0] == ';') continue;
+
         for (char* p = line; *p; p++) if (*p >= 'A' && *p <= 'Z') *p += 'a' - 'A';
         entries[count++] = line;
     }
+
     qsort(entries, count, sizeof(*entries), compare_rules);
+
     mbedtls_sha256_context hash;
     mbedtls_sha256_init(&hash);
     int result = mbedtls_sha256_starts(&hash, 0);
@@ -1412,11 +1448,13 @@ static int whitelist_revision(char* rules, char revision[65]) {
         result = mbedtls_sha256_update(&hash, (unsigned char*)entries[i], strlen(entries[i]));
         if (!result) result = mbedtls_sha256_update(&hash, (const unsigned char*)"\n", 1);
     }
+
     unsigned char digest[32];
     if (!result) result = mbedtls_sha256_finish(&hash, digest);
     mbedtls_sha256_free(&hash);
     free(entries);
     if (result) return -1;
+
     for (size_t i = 0; i < sizeof(digest); i++) snprintf(revision + i * 2, 3, "%02x", digest[i]);
     return 0;
 }
@@ -1499,6 +1537,7 @@ static int try_discover_server(void) {
         *first_pipe = '\0';
         char* name = line;
         char* rest = first_pipe + 1;
+
         if (strcmp(name, expected_name) == 0) {
             char* second_pipe = strchr(rest, '|');
             char* server_ip = rest;
@@ -1513,16 +1552,19 @@ static int try_discover_server(void) {
                 char* nl = strchr(server_ip, '\n');
                 if (nl) *nl = '\0';
             }
+
             if (local_ip[0] != '\0' && strcmp(server_ip, local_ip) == 0) {
                 SetServerIp(".");
             } else {
                 SetServerIp(server_ip);
             }
+
             ini_set_string("server", "port", server_port);
             LOGF("[Daemon] Server '%s' found at %s:%s", expected_name, server_ip, server_port);
             *first_pipe = '|';
             return 1;
         }
+
         *first_pipe = '|';
         char* nl = strchr(line, '\n');
         if (nl) line = nl + 1; else break;
@@ -1555,27 +1597,32 @@ static int handle_server_event(const char* event_type, SrvLineReader* reader, co
         }
         return 0;
     }
+
     if (strcmp(event_type, "CLIENT_IPV6_BLOCK_CHANGED") == 0) {
         const char* target = NULL;
         int enabled = -1;
+
         for (int i = 0; i < data_count; i++) {
             if (strncmp(data[i], "name=", 5) == 0) target = data[i] + 5;
             else if (strcmp(data[i], "enabled=0") == 0) enabled = 0;
             else if (strcmp(data[i], "enabled=1") == 0) enabled = 1;
         }
         if (!target || strcmp(target, username) != 0 || enabled < 0) return 0;
+
         if (SetIpv6BlockEnabled(enabled) != 0)
             LOGF("[Daemon] Failed to save server-requested IPv6 blocking preference");
         else
             LOGF("[Daemon] Server set IPv6 blocking to %d", enabled);
         return 2;
     }
+
     if (strcmp(event_type, "WHITELIST_SYNC_REQUESTED") == 0) {
         const char* expected = NULL;
         for (int i = 0; i < data_count; i++) {
             if (strncmp(data[i], "revision=", 9) == 0) expected = data[i] + 9;
         }
         if (!expected || strlen(expected) != 64 || strspn(expected, "0123456789abcdef") != 64) return 0;
+
         char revision[65];
         if (firewall_whitelist_revision(revision) != 0 || strcmp(revision, expected) != 0) {
             LOGF("[Daemon] Whitelist synchronization requested; refreshing mismatched or unavailable rules");
@@ -1584,10 +1631,12 @@ static int handle_server_event(const char* event_type, SrvLineReader* reader, co
         }
         return 2;
     }
+
     if (strcmp(event_type, "WHITELIST_CHANGED") == 0) {
         sync_whitelist_from_server(username);
         return 0;
     }
+
     if (strcmp(event_type, "FILTRATION_TOGGLED") == 0) {
         for (int i = 0; i < data_count; i++) {
             char* eq = strchr(data[i], '=');
@@ -1601,6 +1650,7 @@ static int handle_server_event(const char* event_type, SrvLineReader* reader, co
         }
         return 0;
     }
+
     if (strcmp(event_type, "USER_APPROVED") == 0) {
         for (int i = 0; i < data_count; i++) {
             char* eq = strchr(data[i], '=');

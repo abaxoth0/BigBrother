@@ -43,6 +43,7 @@ extern "C" int bb_notify(const char* title, const char* message) {
         SetLastError(ERROR_INVALID_PARAMETER);
         return -1;
     }
+
     try {
         std::wstring path(32768, 0);
         DWORD length = GetModuleFileNameW(nullptr, path.data(), static_cast<DWORD>(path.size()));
@@ -57,10 +58,12 @@ extern "C" int bb_notify(const char* title, const char* message) {
         }
         path.resize(separator + 1);
         path += L"BigBrother Notifications.exe";
+
         std::wstring command =
             L"\"" + path + L"\" --send Client " +
             notifications::encode(notifications::prepare_text(title, 256, "BigBrother"), 256) + L" " +
             notifications::encode(notifications::prepare_text(message, 1024, "Notification"), 1024);
+
         auto pending = std::make_unique<delivery>();
         if (InterlockedIncrement(&active_deliveries) > 16) {
             InterlockedDecrement(&active_deliveries);
@@ -75,6 +78,7 @@ extern "C" int bb_notify(const char* title, const char* message) {
                 }
             }
         } active;
+
         STARTUPINFOW startup{};
         PROCESS_INFORMATION process{};
         startup.cb = sizeof(startup);
@@ -82,9 +86,11 @@ extern "C" int bb_notify(const char* title, const char* message) {
                             CREATE_NO_WINDOW | CREATE_SUSPENDED, nullptr, nullptr, &startup, &process)) {
             return -1;
         }
+
         auto child = pending->group.resume(process);
         *pending->process.put() = child.get();
         *child.put() = nullptr;
+
         HANDLE waiter = CreateThread(nullptr, 0, await_delivery, pending.get(), 0, nullptr);
         if (!waiter) {
             DWORD error = GetLastError();
@@ -92,6 +98,7 @@ extern "C" int bb_notify(const char* title, const char* message) {
             SetLastError(error);
             return -1;
         }
+
         active.armed = false;
         pending.release();
         CloseHandle(waiter);

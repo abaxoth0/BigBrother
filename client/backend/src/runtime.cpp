@@ -29,10 +29,12 @@ int RestartBackendService(const char* process_id) {
     if (parsed.ec != std::errc{} || parsed.ptr != text.data() + text.size() || !pid) {
         return 1;
     }
+
     client::Handle previous(OpenProcess(SYNCHRONIZE, FALSE, pid));
     if (previous && WaitForSingleObject(previous.get(), 45000) != WAIT_OBJECT_0) {
         return 1;
     }
+
     client::ServiceHandle manager(OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT));
     if (!manager) {
         return 1;
@@ -42,6 +44,7 @@ int RestartBackendService(const char* process_id) {
     if (!service) {
         return 1;
     }
+
     SERVICE_STATUS status{};
     for (int attempt = 0; attempt < 100; ++attempt) {
         if (!QueryServiceStatus(service.get(), &status)) {

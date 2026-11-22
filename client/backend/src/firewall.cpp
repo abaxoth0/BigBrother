@@ -36,6 +36,7 @@ public:
         if (!service) {
             return false;
         }
+
         SERVICE_STATUS status{};
         if (!QueryServiceStatus(service.get(), &status)) {
             return false;
@@ -44,12 +45,14 @@ public:
             !wait_for_service(service.get(), SERVICE_STOPPED)) {
             return false;
         }
+
         if (!StartServiceW(service.get(), 0, nullptr) && GetLastError() != ERROR_SERVICE_ALREADY_RUNNING) {
             return false;
         }
         if (!wait_for_service(service.get(), SERVICE_RUNNING)) {
             return false;
         }
+
         const auto deadline = GetTickCount64() + 10000;
         do {
             if (PingDaemon() == 0) {
@@ -70,6 +73,7 @@ public:
         if (!service) {
             return GetLastError() == ERROR_SERVICE_DOES_NOT_EXIST;
         }
+
         SERVICE_STATUS status{};
         if (!QueryServiceStatus(service.get(), &status)) {
             return false;
@@ -77,6 +81,7 @@ public:
         if (status.dwCurrentState == SERVICE_STOPPED) {
             return true;
         }
+
         if (status.dwCurrentState != SERVICE_STOP_PENDING &&
             !ControlService(service.get(), SERVICE_CONTROL_STOP, &status)) {
             return false;
@@ -91,6 +96,7 @@ bool transfer(HANDLE pipe, bool writing, void* buffer, DWORD length, DWORD& tran
     if (!event) {
         return false;
     }
+
     OVERLAPPED operation{};
     operation.hEvent = event.get();
     BOOL ok = writing ? WriteFile(pipe, buffer, length, &transferred, &operation)
@@ -106,6 +112,7 @@ bool transfer(HANDLE pipe, bool writing, void* buffer, DWORD length, DWORD& tran
         ok = GetOverlappedResult(pipe, &operation, &transferred, FALSE);
         error = ok ? ERROR_SUCCESS : GetLastError();
     }
+
     if (more) {
         *more = error == ERROR_MORE_DATA;
     }

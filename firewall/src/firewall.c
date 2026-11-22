@@ -218,6 +218,7 @@ void PreResolveWhitelist(void) {
                     break;
                 }
             }
+
             if (still_valid) {
                 IpAllowlistAdd(&g_IpBlocklist, ips[i].ip, ips[i].domain, IP_BLOCKLIST_TTL);
             }
@@ -229,6 +230,7 @@ void PreResolveWhitelist(void) {
                     break;
                 }
             }
+
             if (still_valid) {
                 IpAllowlistAdd(&g_IpAllowlist, ips[i].ip, ips[i].domain, 300);
             }
@@ -430,12 +432,14 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
             Sleep(1000);
             continue;
         }
+
         OVERLAPPED recv_io = {0};
         recv_io.hEvent = recv_event;
         ResetEvent(recv_event);
         UINT addr_len = sizeof(addr);
         BOOL received = WinDivertRecvEx(handle, packet, PACKET_SIZE, &recv_len,
                                        0, &addr, &addr_len, &recv_io);
+
         if (!received && GetLastError() == ERROR_IO_PENDING) {
             DWORD wait_result = WaitForMultipleObjects(2, recv_waits, FALSE, INFINITE);
             if (wait_result != WAIT_OBJECT_0 + 1) {
@@ -449,6 +453,7 @@ DWORD WINAPI FirewallServiceThread(LPVOID lpParam) {
             received = GetOverlappedResult(handle, &recv_io, &transferred, FALSE);
             if (received) recv_len = transferred;
         }
+
         if (!received) {
             recv_failures++;
             if (recv_failures > 1 && recv_failures % 100 == 1) {
