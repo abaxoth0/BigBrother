@@ -1,3 +1,8 @@
+/**
+ * @file log.h
+ * @brief Shared binary logging and archive management.
+ */
+
 #ifndef LOG_H
 #define LOG_H
 
@@ -59,24 +64,32 @@ typedef struct {
 
 extern LoggerContext* g_logger;
 
-// Initialize synchronous logging (for backward compatibility)
+/** @brief Initialize application-specific logging (implemented by each executable). */
 void log_init(void);
 
-// Initialize async logging (starts logger thread)
-// buffer_size: minimum buffer size (will be rounded up to page size)
-// Returns 0 on success, -1 on failure
+/**
+ * @brief Start the asynchronous logger with a page-aligned buffer of at least buffer_size bytes.
+ * Call during startup, then set g_logger->log_path before writing records.
+ * @return 0 on success (including already initialized), -1 on allocation/thread failure.
+ */
 int log_init_async(uint32_t buffer_size);
 
+/** @brief Stop the logger and release its buffers; callers must stop producers first. */
 void log_shutdown(void);
 
-// Rotate an existing log file at startup: archives it into the sibling
-// "<dir>\archive" folder (keeping the last <max_files>) and truncates the
-// original to empty so each session starts with a fresh log.
+/**
+ * @brief Archive an existing log into the sibling archive directory, then truncate it.
+ * Retains the configured number of archives, or LOG_MAX_FILES without an active logger.
+ */
 void log_rotate_file(const char* path);
 
+/**
+ * @brief Queue a binary log record; calls from multiple producers are serialized.
+ * Drops records when the logger is inactive; oversized messages are truncated.
+ */
 void log_write_async(uint16_t type, uint8_t level, const char* msg);
 
-// Synchronous write for emergency mode
+/** @brief Write directly to LogFile when available, without the asynchronous queue. */
 void log_write_sync(uint16_t type, uint8_t level, const char* msg);
 
 #define LOGF(...) do { \

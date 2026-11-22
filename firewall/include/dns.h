@@ -1,4 +1,5 @@
-/** @file dns.h
+/**
+ * @file dns.h
  * @brief DNS packet parsing and validation for BigBrother firewall.
  */
 
@@ -47,7 +48,7 @@ typedef struct DnsQuestion_s {
 typedef struct DnsAnswer_s {
     char domain[DNS_MAX_DOMAIN_LEN + 1]; ///< Domain name for this answer.
     uint32_t ip_count;                   ///< Number of IPv4 addresses.
-    uint32_t ips[DNS_MAX_IPS];           ///< IPv4 addresses (network byte order).
+    uint32_t ips[DNS_MAX_IPS];           ///< IPv4 addresses (host byte order).
     uint32_t ip6_count;                  ///< Number of IPv6 addresses.
     uint8_t ip6s[DNS_MAX_IPS][16];       ///< IPv6 addresses.
     uint32_t ttl;                        ///< Answer TTL in seconds.
@@ -94,7 +95,8 @@ void DnsFree(DnsPacket* packet);
  *
  * @param[in] domain_lower   Lowercased domain name.
  * @param[in] pattern_lower  Lowercased whitelist pattern.
- * @return 1 if matches, 0 if not, -1 on error (null parameters).
+ * @pre pattern_lower is non-NULL and shorter than DNS_MAX_STR_DOMAIN_LEN.
+ * @return 1 if matches, 0 if not, -1 if domain_lower is NULL.
  */
 int DnsCheckDomainLower(const char* domain_lower, const char* pattern_lower);
 

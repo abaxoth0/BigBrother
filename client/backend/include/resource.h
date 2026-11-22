@@ -1,3 +1,8 @@
+/**
+ * @file resource.h
+ * @brief Scoped Windows resource ownership.
+ */
+
 #pragma once
 
 #include <windows.h>
@@ -5,27 +10,47 @@
 
 namespace client {
 
+/** @brief Move-only owner of a Windows handle; closes valid handles on destruction. */
 class Handle {
     HANDLE value_ = nullptr;
+
 public:
     explicit Handle(HANDLE value = nullptr) : value_(value) {}
-    ~Handle() { if (*this) CloseHandle(value_); }
+    ~Handle() {
+        if (*this) {
+            CloseHandle(value_);
+        }
+    }
     Handle(const Handle&) = delete;
     Handle& operator=(const Handle&) = delete;
     Handle(Handle&& other) noexcept : value_(std::exchange(other.value_, nullptr)) {}
-    HANDLE get() const { return value_; }
-    explicit operator bool() const { return value_ && value_ != INVALID_HANDLE_VALUE; }
+    HANDLE get() const {
+        return value_;
+    }
+    explicit operator bool() const {
+        return value_ && value_ != INVALID_HANDLE_VALUE;
+    }
 };
 
+/** @brief Noncopyable owner of an SCM/service handle, released with CloseServiceHandle. */
 class ServiceHandle {
     SC_HANDLE value_;
+
 public:
     explicit ServiceHandle(SC_HANDLE value) : value_(value) {}
-    ~ServiceHandle() { if (value_) CloseServiceHandle(value_); }
+    ~ServiceHandle() {
+        if (value_) {
+            CloseServiceHandle(value_);
+        }
+    }
     ServiceHandle(const ServiceHandle&) = delete;
     ServiceHandle& operator=(const ServiceHandle&) = delete;
-    SC_HANDLE get() const { return value_; }
-    explicit operator bool() const { return value_ != nullptr; }
+    SC_HANDLE get() const {
+        return value_;
+    }
+    explicit operator bool() const {
+        return value_ != nullptr;
+    }
 };
 
 }

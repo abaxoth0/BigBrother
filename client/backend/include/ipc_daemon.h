@@ -23,6 +23,7 @@
 extern uint32_t g_whitelist_revision;
 extern HANDLE g_ServiceStopEvent;
 
+/** @brief Invalidate cached firewall policy state so the next sync reapplies it. */
 void ResetFirewallSync(void);
 
 /**
@@ -73,9 +74,18 @@ int DaemonReloadWhitelist(char* out_buffer, size_t buffer_size);
  * @return 1 if configured, 0 otherwise.
  */
 int HasServerIp(void);
+/** @brief Restrict persisted client secrets to administrators/SYSTEM; return 0 or -1 on failure. */
 int PrepareClientSecretPermissions(void);
 
+/**
+ * @brief Snapshot configured address, port and pin, and probe the observed certificate.
+ * @return 0 on successful inspection, -1 when configuration or probing fails.
+ */
 int InspectServerCertificate(char address[64], int* port, char pinned[65], char observed[65]);
+/**
+ * @brief Save a verified pin only if address, port and original pin still match the configuration.
+ * @return 0 on success, -1 on invalid input, concurrent configuration change or persistence failure.
+ */
 int UpdateServerFingerprint(const char* address, int port, const char* original_pin,
                             const char* verified_fingerprint);
 
@@ -83,6 +93,7 @@ int UpdateServerFingerprint(const char* address, int port, const char* original_
  * @brief Set the active session state with the server.
  */
 void SetServerSessionActive(int active);
+/** @brief Clear manual disconnect state and wake the connection loop. */
 void ResumeServerConnection(void);
 
 /**
@@ -159,9 +170,12 @@ int IsFiltrationEnabled(void);
 
 /** IPv6 blocking preference, persisted in config.ini (enabled by default). */
 int IsIpv6BlockEnabled(void);
+/** @brief Persist the IPv6 preference and request firewall synchronization; return 0 or -1 on failure. */
 int SetIpv6BlockEnabled(int enabled);
 
+/** @brief Return the persisted Windows notification preference (enabled by default). */
 int IsWindowsNotificationsEnabled(void);
+/** @brief Persist the notification preference; return 0 on success, -1 on failure. */
 int SetWindowsNotificationsEnabled(int enabled);
 
 /**
@@ -294,6 +308,10 @@ int ServerRefresh(const char* name);
  */
 int ServerChangeName(const char* oldName, const char* newName);
 
+/**
+ * @brief Request update metadata from the server into a NUL-terminated buffer.
+ * @return 0 on success, -1 on connection, protocol or output-capacity failure.
+ */
 int ServerGetUpdate(char* output, size_t size);
 
 #endif // IPC_H

@@ -10,6 +10,7 @@
  * @brief Start client IPC server in a background thread.
  */
 int StartClientServer(void);
+/** @brief Stop the IPC listener and wait for its worker threads. */
 void StopClientServer(void);
 
 /**

@@ -210,7 +210,38 @@ static void sorted_matching_test(void) {
     IpAllowlistFree(&blocked);
 }
 
+static void rule_parsing_test(void) {
+    Whitelist rules = {0};
+    const char* text = "[7]EXAMPLE.com:{0|22|80|443|1000-2000|65535}";
+    assert(WhitelistAdd(&rules, text) == 0);
+    assert(rules.count == 1);
+
+    const WhitelistEntry* rule = &rules.entries[0];
+    assert(strcmp(rule->text, text) == 0);
+    assert(strcmp(rule->domain, "EXAMPLE.com") == 0);
+    assert(strcmp(rule->pattern_lower, "example.com") == 0);
+    assert(!rule->is_ip && rule->priority == 7);
+    assert(rule->port_count == 6);
+    assert(rule->ports[4].first == 1000 && rule->ports[4].last == 2000);
+    assert(rule->ports[5].first == 65535 && rule->ports[5].last == 65535);
+
+    assert(WhitelistAdd(&rules, "[7]example.COM:{0|22|80|443|1000-2000|65535}") == 0);
+    assert(rules.count == 1);
+    assert(strcmp(rules.entries[0].text, text) == 0);
+
+    assert(WhitelistAdd(&rules, "broken.example:{0|22|80|443|1000-2000|}") == -1);
+    assert(rules.count == 1 && rules.entries[0].port_count == 6);
+    assert(WhitelistAdd(&rules, "[8]!1.2.3.4:53") == 0);
+    assert(rules.count == 2 && rules.entries[0].priority == 8);
+    assert(rules.entries[0].is_ip && rules.entries[0].ip == 0x01020304);
+    assert(strcmp(rules.entries[0].text, "[8]!1.2.3.4:53") == 0);
+    assert(strcmp(rules.entries[0].domain, "1.2.3.4") == 0);
+
+    WhitelistFree(&rules);
+}
+
 int main(void) {
+    rule_parsing_test();
     ports_test();
     priorities_test();
     sorted_matching_test();
