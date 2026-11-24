@@ -1,0 +1,396 @@
+/**
+ * @file ipc.c
+ * @brief Named pipe IPC server implementation for BigBrother daemon.
+ */
+
+#include "../include/ipc.h"
+#include "../include/allowlist.h"
+#include "../include/firewall.h"
+#include "encoding/encoding.h"
+#include "pipe_security.h"
+#include <windows.h>
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+
+#define IPC_PIPE_PREFIX "\\\\.\\pipe\\" IPC_PIPE_NAME
+
+/**
+ * @brief Reload rules under the exclusive allowlist lock, then refresh DNS resolution.
+ * @return LoadWhiteList() status; pre-resolution is attempted even if loading fails.
+ */
+static int reload_whitelist(void) {
+    AcquireSRWLockExclusive(&g_AllowlistLock);
+    int ret = LoadWhiteList(NULL);
+    ReleaseSRWLockExclusive(&g_AllowlistLock);
+    PreResolveWhitelist();
+    return ret;
+}
+
+/**
+ * @brief Attempt one synchronous write of a NUL-terminated string to a borrowed pipe.
+ * Does not send the NUL or report partial writes and transport errors.
+ */
+static void write_str(HANDLE pipe, const char* str) {
+    DWORD written;
+    WriteFile(pipe, str, (DWORD)strlen(str), &written, NULL);
+}
+
+/** @brief Snapshot rule/IP counts and filtration state under the shared lock, then write a STATUS reply. */
+static void write_status(HANDLE pipe) {
+    char buffer[IPC_BUFFER_SIZE];
+    AcquireSRWLockShared(&g_AllowlistLock);
+    snprintf(buffer, sizeof(buffer), "STATUS\n%zu\n%zu\nrunning\n%d\n",
+             g_Whitelist.count + g_Blacklist.count, g_IpAllowlist.count, g_FiltrationEnabled);
+    ReleaseSRWLockShared(&g_AllowlistLock);
+    write_str(pipe, buffer);
+}
+/** @brief Write the newline-terminated OK acknowledgement on a borrowed pipe. */
+static void write_ok(HANDLE pipe) {
+    write_str(pipe, "OK\n");
+}
+
+/** @brief Write an ERROR reply with a message bounded by IPC_BUFFER_SIZE. */
+static void write_error(HANDLE pipe, const char* error) {
+    char buffer[IPC_BUFFER_SIZE];
+    snprintf(buffer, sizeof(buffer), "ERROR\n%s\n", error);
+    write_str(pipe, buffer);
+}
+
+/**
+ * @brief Serialize current allow/exception rule text under the shared lock and write one reply.
+ * @pre Serialized rules and the WHITELIST header fit within IPC_MAX_MESSAGE_SIZE.
+ * Allocation failure sends no reply; the temporary buffer is released before returning.
+ */
+static void write_whitelist(HANDLE pipe) {
+    char* buffer = malloc(IPC_MAX_MESSAGE_SIZE);
+    if (!buffer) {
+        return;
+    }
+    size_t pos = 0;
+    int n = snprintf(buffer + pos, IPC_MAX_MESSAGE_SIZE - pos, "WHITELIST\n");
+    if (n > 0) pos += (size_t)n;
+
+    AcquireSRWLockShared(&g_AllowlistLock);
+
+    // Rules include their effective priority and exception marker.
+    for (size_t i = 0; i < g_Whitelist.count && pos < IPC_MAX_MESSAGE_SIZE - 1; i++) {
+        n = snprintf(buffer + pos, IPC_MAX_MESSAGE_SIZE - pos, "%s\n", g_Whitelist.entries[i].text);
+        if (n > 0) pos += (size_t)n;
+    }
+    for (size_t i = 0; i < g_Blacklist.count && pos < IPC_MAX_MESSAGE_SIZE - 1; i++) {
+        n = snprintf(buffer + pos, IPC_MAX_MESSAGE_SIZE - pos, "%s\n", g_Blacklist.entries[i].text);
+        if (n > 0) pos += (size_t)n;
+    }
+
+    ReleaseSRWLockShared(&g_AllowlistLock);
+
+    write_str(pipe, buffer);
+    free(buffer);
+}
+
+/**
+ * @brief Split a mutable command/payload message and execute the firewall operation.
+ * @param pipe Borrowed connection receiving the reply.
+ * @param buffer Writable request storage with at least size + 1 bytes; modified in place.
+ * @param size Request length excluding the terminator this function appends.
+ * @return 0 for recognized commands, -1 for unknown commands. Operation failures are
+ * reported in the pipe reply rather than the return value.
+ */
+static int parse_and_execute(HANDLE pipe, char* buffer, size_t size) {
+    buffer[size] = '\0';
+
+    char* newline = strchr(buffer, '\n');
+    if (newline) *newline = '\0';
+
+    for (char* p = buffer; *p; p++) {
+        if (*p == '\r') *p = '\0';
+    }
+
+    IpcMessageType msg = EncodingParseMessageType(buffer);
+
+    switch (msg) {
+        case MSG_GET_WHITELIST:
+            write_whitelist(pipe);
+            break;
+
+        case MSG_SET_WHITELIST: {
+            char* data = newline ? newline + 1 : buffer + strlen(buffer);
+            size_t data_len = size - (data - buffer);
+
+            if (IpcSetWhitelist(data, data_len) == 0) {
+                write_ok(pipe);
+            } else {
+                write_error(pipe, "failed to set whitelist");
+            }
+            break;
+        }
+
+        case MSG_RELOAD:
+            if (reload_whitelist() == 0) {
+                write_ok(pipe);
+            } else {
+                write_error(pipe, "failed to reload whitelist");
+            }
+            break;
+
+        case MSG_GET_STATUS:
+            write_status(pipe);
+            break;
+
+        case MSG_PING:
+            write_ok(pipe);
+            break;
+
+        case MSG_GET_FILTRATION: {
+            char buf[32];
+            snprintf(buf, sizeof(buf), "%d\n", g_FiltrationEnabled);
+            write_str(pipe, buf);
+            break;
+        }
+
+        case MSG_SET_FILTRATION: {
+            char* data = newline ? newline + 1 : buffer + strlen(buffer);
+            int new_state = (data[0] == '1');
+            g_FiltrationEnabled = new_state;
+            if (new_state) {
+                // Filtration turned on — clear allowlist so only IPs from
+                // DNS responses received while filtration is on will be allowed.
+                AcquireSRWLockExclusive(&g_AllowlistLock);
+                IpAllowlistClear(&g_IpAllowlist);
+                ReleaseSRWLockExclusive(&g_AllowlistLock);
+            }
+            PreResolveWhitelist();
+            write_ok(pipe);
+            break;
+        }
+
+        case MSG_GET_IPV6_BLOCK: {
+            char buf[8];
+            snprintf(buf, sizeof(buf), "%ld\n", InterlockedCompareExchange(&g_BlockIpv6, 0, 0));
+            write_str(pipe, buf);
+            break;
+        }
+
+        case MSG_SET_IPV6_BLOCK: {
+            char* data = newline ? newline + 1 : buffer + strlen(buffer);
+            if (strcmp(data, "0") != 0 && strcmp(data, "1") != 0) {
+                write_error(pipe, "expected value 0 or 1");
+                break;
+            }
+            InterlockedExchange(&g_BlockIpv6, data[0] == '1');
+            write_ok(pipe);
+            break;
+        }
+
+        default:
+            write_error(pipe, "unknown command");
+            return -1;
+    }
+
+    return 0;
+}
+
+/**
+ * @brief Match the pipe peer PID to the running BigBrother Client service reported by SCM.
+ * @return 1 for a match, 0 on identity mismatch or any lookup failure.
+ */
+static int peer_is_backend(HANDLE pipe) {
+    ULONG pid = 0;
+    if (!GetNamedPipeClientProcessId(pipe, &pid)) return 0;
+    SC_HANDLE manager = OpenSCManagerW(NULL, NULL, SC_MANAGER_CONNECT);
+    if (!manager) return 0;
+    SC_HANDLE service = OpenServiceW(manager, L"BigBrother Client", SERVICE_QUERY_STATUS);
+    SERVICE_STATUS_PROCESS status;
+    DWORD bytes;
+    int allowed = service && QueryServiceStatusEx(service, SC_STATUS_PROCESS_INFO,
+        (BYTE*)&status, sizeof(status), &bytes) &&
+        status.dwCurrentState == SERVICE_RUNNING && status.dwProcessId == pid;
+    if (service) CloseServiceHandle(service);
+    CloseServiceHandle(manager);
+    return allowed;
+}
+
+/**
+ * @brief Own a connected pipe, authorize its peer and handle one bounded message-mode request.
+ * Grows the input buffer up to IPC_MAX_MESSAGE_SIZE while consuming ERROR_MORE_DATA.
+ * @param param Transferred pipe handle, closed before return.
+ * @return 1 on authorization/allocation failure, otherwise 0; malformed or incomplete reads
+ * may close the connection without a reply.
+ */
+static DWORD WINAPI ipc_client_handler(LPVOID param) {
+    HANDLE pipe = (HANDLE)param;
+    if (!peer_is_backend(pipe)) { CloseHandle(pipe); return 1; }
+
+    // Message-mode named pipes report ERROR_MORE_DATA when a message is larger
+    // than the read buffer. Grow the buffer as needed (up to IPC_MAX_MESSAGE_SIZE)
+    // so large SET_WHITELIST payloads are not silently truncated.
+    size_t cap = 64 * 1024;
+    char* buffer = malloc(cap + 1);
+    if (!buffer) {
+        CloseHandle(pipe);
+        return 1;
+    }
+
+    size_t total = 0;
+    DWORD bytes_read = 0;
+    BOOL ok = FALSE;
+
+    for (;;) {
+        DWORD room = (DWORD)(cap - total);
+        if (room == 0) {
+            if (cap >= IPC_MAX_MESSAGE_SIZE) break;
+            cap = (cap * 2 < IPC_MAX_MESSAGE_SIZE) ? cap * 2 : IPC_MAX_MESSAGE_SIZE;
+            char* nb = realloc(buffer, cap + 1);
+            if (!nb) break;
+            buffer = nb;
+            room = (DWORD)(cap - total);
+        }
+
+        ok = ReadFile(pipe, buffer + total, room, &bytes_read, NULL);
+        if (ok) {
+            // A successful ReadFile returns a complete message — stop here.
+            // Continuing would block waiting for a second request the client
+            // never sends (it is already waiting for our response).
+            total += bytes_read;
+            break;
+        }
+
+        if (GetLastError() != ERROR_MORE_DATA) break;
+        total += bytes_read;
+        if (total >= IPC_MAX_MESSAGE_SIZE) break;
+    }
+
+    if (ok && total > 0) {
+        parse_and_execute(pipe, buffer, total);
+    }
+
+    free(buffer);
+    FlushFileBuffers(pipe);
+    DisconnectNamedPipe(pipe);
+    CloseHandle(pipe);
+
+    return 0;
+}
+
+/**
+ * @brief Listen for local firewall requests until the borrowed stop event is signaled.
+ * @param param Stop-event handle passed by value; must outlive this listener.
+ * @return 0 on listener shutdown, 1 on security-descriptor setup failure.
+ * Accepted pipes pass to detached workers; listener shutdown does not join those workers.
+ */
+static DWORD WINAPI ipc_server_thread(LPVOID param) {
+    HANDLE stop_event = (HANDLE)(uintptr_t)param;
+    HANDLE pipes[16];
+    int num_pipes = 0;
+
+    // Restrict the pipe to SYSTEM + Administrators + Owner so local processes
+    // can't flip filtration or replace the whitelist (e.g. block-all DoS).
+    SECURITY_ATTRIBUTES sec_attrs;
+    int have_sec = (bb_restrict_pipe_security(&sec_attrs) == 0);
+    if (!have_sec) return 1;
+
+    while (1) {
+        if (num_pipes < 16) {
+            HANDLE pipe = CreateNamedPipe(
+                IPC_PIPE_PREFIX,
+                PIPE_ACCESS_DUPLEX,
+                PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
+                PIPE_UNLIMITED_INSTANCES,
+                IPC_MAX_MESSAGE_SIZE,
+                IPC_MAX_MESSAGE_SIZE,
+                0,
+                have_sec ? &sec_attrs : NULL
+            );
+
+            if (pipe != INVALID_HANDLE_VALUE) {
+                pipes[num_pipes++] = pipe;
+            }
+        }
+        
+        if (num_pipes == 0) {
+            Sleep(100);
+            continue;
+        }
+        
+        HANDLE handles[17];
+        handles[0] = stop_event;
+        for (int i = 0; i < num_pipes; i++) {
+            handles[i + 1] = pipes[i];
+        }
+        
+        DWORD wait_result = WaitForMultipleObjects(num_pipes + 1, handles, FALSE, 500);
+        
+        if (wait_result == WAIT_TIMEOUT) {
+            continue;
+        }
+        
+        if (wait_result == WAIT_OBJECT_0) {
+            for (int i = 0; i < num_pipes; i++) {
+                CloseHandle(pipes[i]);
+            }
+            break;
+        }
+        
+        int idx = wait_result - WAIT_OBJECT_0 - 1;
+        HANDLE pipe = pipes[idx];
+        
+        pipes[idx] = pipes[num_pipes - 1];
+        num_pipes--;
+        
+        if (ConnectNamedPipe(pipe, NULL) || GetLastError() == ERROR_PIPE_CONNECTED) {
+            HANDLE thread = CreateThread(NULL, 0, ipc_client_handler, pipe, 0, NULL);
+            if (thread) CloseHandle(thread);
+        } else {
+            CloseHandle(pipe);
+        }
+    }
+
+    if (have_sec) {
+        LocalFree(sec_attrs.lpSecurityDescriptor);
+    }
+    return 0;
+}
+
+int IpcStart(HANDLE stop_event) {
+    // Pass the handle by value (cast through LPVOID). Passing &stop_event would hand
+    // the thread a pointer to a stack local that goes out of scope on return.
+    HANDLE thread = CreateThread(NULL, 0, ipc_server_thread, (LPVOID)(uintptr_t)stop_event, 0, NULL);
+    if (!thread) {
+        return -1;
+    }
+    CloseHandle(thread);
+    return 0;
+}
+
+int IpcReloadWhitelist(void) {
+    return reload_whitelist();
+}
+
+int IpcSetWhitelist(const char* data, size_t size) {
+    if (!data || size == 0) {
+        // Empty data means clear the whitelist (block all)
+        AcquireSRWLockExclusive(&g_AllowlistLock);
+        WhitelistClear(&g_Whitelist);
+        WhitelistClear(&g_Blacklist);
+        IpAllowlistClear(&g_IpAllowlist);
+        IpAllowlistClear(&g_IpBlocklist);
+        ReleaseSRWLockExclusive(&g_AllowlistLock);
+        return 0;
+    }
+
+    AcquireSRWLockExclusive(&g_AllowlistLock);
+    if (WhitelistLoadFromData(&g_Whitelist, &g_Blacklist, data, size) != 0) {
+        ReleaseSRWLockExclusive(&g_AllowlistLock);
+        return -1;
+    }
+    // Keep DNS associations while either policy still matches, so priority
+    // changes take effect without waiting for another DNS lookup.
+    IpAllowlistPurgeUnowned(&g_IpAllowlist, &g_Whitelist, &g_Blacklist);
+    IpAllowlistPurgeUnowned(&g_IpBlocklist, &g_Blacklist, &g_Whitelist);
+    ReleaseSRWLockExclusive(&g_AllowlistLock);
+
+    PreResolveWhitelist();
+
+    return 0;
+}

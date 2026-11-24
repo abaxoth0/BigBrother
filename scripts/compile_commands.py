@@ -12,9 +12,9 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 BUILDS = {
-    "client/backend": ("debug", "regression-build", "lifecycle-test-build"),
-    "firewall": ("debug", "test-build", "lifetime-test-build"),
-    "notifications": ("debug", "test-build"),
+    "app/client/backend": ("debug", "regression-build", "lifecycle-test-build"),
+    "app/firewall": ("debug", "test-build", "lifetime-test-build"),
+    "app/notifications": ("debug", "test-build"),
 }
 COMPILERS = {"x86_64-w64-mingw32-gcc": "c", "x86_64-w64-mingw32-g++": "c++"}
 
@@ -98,7 +98,7 @@ def generate(root=ROOT):
         if not commands:
             raise ValueError(f"No compilation commands found in {module}")
         for entry in commands:
-            if Path(entry["file"]).is_relative_to(root / "lib"):
+            if Path(entry["file"]).is_relative_to(root / "lib/mbedtls"):
                 continue
             if entry["file"] in entries:
                 continue
@@ -119,7 +119,8 @@ def generate(root=ROOT):
 if __name__ == "__main__":
     try:
         commands = generate()
-        destination = ROOT / "compile_commands.json"
+        destination = ROOT / "build/compile_commands.json"
+        destination.parent.mkdir(exist_ok=True)
         destination.write_text(json.dumps(commands, indent=2) + "\n", encoding="utf-8")
         print(f"Wrote {len(commands)} compilation commands to {destination}")
     except (OSError, ValueError, subprocess.CalledProcessError) as error:

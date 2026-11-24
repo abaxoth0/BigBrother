@@ -46,7 +46,7 @@ namespace {
 void hidden() {}
 }
 ''')
-            config = (ROOT / "Doxyfile").read_text() + f'''
+            config = (ROOT / "config/Doxyfile").read_text() + f'''
 INPUT = "{header}" "{source}"
 OUTPUT_DIRECTORY = "{root / 'output'}"
 EXTRACT_ALL = YES

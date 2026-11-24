@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Group applications under `app/`, shared native code under `lib/common/`, repository scripts under `scripts/`, installer definitions under `installer/`, and the project Doxygen configuration under `config/`.
+
 - Native code: improve readability and spacing between logical steps in firewall rule parsing, client IPC and discovery, command modules, notification helpers and shared security code; document C/C++ interfaces and internal helpers across native applications, including ownership, locking and protocol failure behavior; add shared formatting, Doxygen configuration and a native documentation coverage check
 
 - Client backend: migrate to C++20 and make BigBrother Client the client hub service, with firewall, logs and update adapters. Route frontend and command-line operations through the backend; start the firewall only on explicit Start/Restart requests. Keep the frontend available without starting services, displaying the disconnected state while the backend is unavailable. Provide separate client-service and firewall Start/Stop/Restart controls; allow backend control without IPC and show operation progress and errors. Stop dependent workers and the firewall when the backend stops or crashes. Install the firewall as a demand-started dependent service; use the full Client Setup installer to migrate the previous firewall-owned backend layout

@@ -49,13 +49,13 @@ class NativeConfigurationTests(unittest.TestCase):
     def setUpClass(cls):
         subprocess.run([sys.executable, str(ROOT / "scripts/compile_commands.py")],
                        cwd="/tmp", check=True, capture_output=True, text=True)
-        cls.commands = json.loads((ROOT / "compile_commands.json").read_text())
+        cls.commands = json.loads((ROOT / "build/compile_commands.json").read_text())
 
     def test_database_covers_native_sources_with_build_version_and_language(self):
         entries = {Path(entry["file"]): entry for entry in self.commands}
         self.assertEqual(len(entries), len(self.commands))
         version = (ROOT / "VERSION").read_text().strip()
-        for directory in ("client/backend", "firewall", "notifications", "common"):
+        for directory in ("app/client/backend", "app/firewall", "app/notifications", "lib/common"):
             for source in (ROOT / directory).rglob("*"):
                 if source.suffix not in (".c", ".cpp") or {"build", "third-party"} & set(source.parts):
                     continue
@@ -65,17 +65,17 @@ class NativeConfigurationTests(unittest.TestCase):
                     self.assertIn("--target=x86_64-w64-mingw32", flags)
                     self.assertTrue(Path(flags[0]).is_absolute())
                     if source.suffix == ".cpp":
-                        standard = "c++17" if directory == "notifications" else "c++20"
+                        standard = "c++17" if directory == "app/notifications" else "c++20"
                         self.assertIn(f"-std={standard}", flags)
 
-        self.assertFalse(any(path.is_relative_to(ROOT / "lib") for path in entries))
+        self.assertFalse(any(path.is_relative_to(ROOT / "lib/mbedtls") for path in entries))
 
     @unittest.skipUnless(shutil.which("clangd"), "clangd is required for editor smoke tests")
     def test_clangd_reports_no_errors_in_each_module_and_shared_headers(self):
         for source in (
-            "client/backend/src/ipc_client.cpp", "client/backend/src/tls_client.cpp",
-            "firewall/src/firewall.c", "notifications/src/toast.cpp",
-            "notifications/include/report.h", "common/version.h", "common/log/log.c",
+            "app/client/backend/src/ipc_client.cpp", "app/client/backend/src/tls_client.cpp",
+            "app/firewall/src/firewall.c", "app/notifications/src/toast.cpp",
+            "app/notifications/include/report.h", "lib/common/version.h", "lib/common/log/log.c",
         ):
             with self.subTest(source=source):
                 # Exercise diagnostics without clangd's unrelated refactoring self-tests.

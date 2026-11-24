@@ -5,7 +5,7 @@ machine, also install Xvfb (`xvfb-run`). Then install the pinned Inno Setup 7.1.
 compiler:
 
 ```sh
-./install-inno-setup.sh
+scripts/install-inno-setup.sh
 ```
 
 The script downloads the official release, checks its pinned SHA-256 checksum,
@@ -25,8 +25,8 @@ default Make job count. Installer compression follows Inno Setup's
 To build both installers from already published binaries:
 
 ```sh
-./build-installers.sh Release
-./build-installers.sh Release /path/to/payload /path/to/installers
+scripts/build-installers.sh Release
+scripts/build-installers.sh Release /path/to/payload /path/to/installers
 ```
 
 The first argument is mandatory: `Debug` or `Release`. The remaining arguments
@@ -37,7 +37,7 @@ path (default: repository `CHANGELOG.md`). The version always comes from reposit
 release is absent. Paths containing
 spaces work, and scripts can be invoked from outside the repository.
 
-`build.sh <Debug|Release> [output-dir]` builds the daemons and notification
+`scripts/build.sh <Debug|Release> [output-dir]` builds the daemons and notification
 helper. Debug builds include debug/trace logs and debugging symbols; Release
 builds compile out debug/trace logging and use optimized code. Normal information,
 warning, error and firewall blocked logs remain available. Direct Makefile builds
@@ -58,7 +58,7 @@ The payload must contain:
 
 - `BigBrother Firewall.exe`, `WinDivert.dll`, and `WinDivert64.sys`
 - `BigBrother Client Daemon.exe` and `BigBrother Server Daemon.exe`
-- `BigBrother Notifications.exe` (built by `make -C notifications`)
+- `BigBrother Notifications.exe` (built by `make -C app/notifications`)
 - `client-frontend/BigBrother Client.exe` (prebuilt self-contained single file)
 - `server-frontend/BigBrother Server.exe` (prebuilt self-contained single file)
 
@@ -79,8 +79,8 @@ To rebuild daemons and installers using the prebuilt frontend executables in
 repository `dist/{client,server}-frontend`:
 
 ```sh
-./publish.sh Release
-./publish.sh Release /path/to/payload
+scripts/publish.sh Release
+scripts/publish.sh Release /path/to/payload
 ```
 
 The script does not rebuild frontends. With a custom payload directory it copies
@@ -131,8 +131,8 @@ shortcut and protocol when machine-wide registration is absent. Run
 to remove these standalone registrations before deleting or moving the build.
 The helper and C API are built with MinGW C++17; the runtime is linked statically,
 so no additional C++ runtime DLLs need to be shipped. The C++20 client backend links
-`notifications/build/libbbnotify.a` through the shared `common/notify.h` interface.
-The notification app lives in the top-level `notifications/` directory, with its
+`app/notifications/build/libbbnotify.a` through the shared `lib/common/notify.h` interface.
+The notification app lives in the `app/notifications/` directory, with its
 internal headers in `include/`, implementation files in `src/`, Windows resources
 in `resources/`, tests in `tests/`, and generated files in `build/`.
 
@@ -178,7 +178,7 @@ A manual service-context test with no active signed-in session reports an error
 instead of reporting success without submitting anything.
 Wine can verify transport, C integration, shortcut creation and protocol
 registration, but cannot verify Windows toast display or read shortcut AUMID
-properties. Run `notifications/build/tests.exe --registration` on Windows
+properties. Run `app/notifications/build/tests.exe --registration` on Windows
 for the complete registration checks. The registration fixture uses its own test
 identity, protocol and shortcut; it does not replace the Client or Server registration.
 

@@ -49,7 +49,7 @@ def audit(xml_directory):
 
 def main():
     with tempfile.TemporaryDirectory(prefix="bigbrother-native-docs-") as directory:
-        config = (ROOT / "Doxyfile").read_text() + f'''
+        config = (ROOT / "config/Doxyfile").read_text() + f'''
 OUTPUT_DIRECTORY = "{directory}"
 EXTRACT_ALL = YES
 EXTRACT_PRIVATE = YES

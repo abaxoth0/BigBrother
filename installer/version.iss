@@ -1,4 +1,4 @@
-#define VersionFileHandle FileOpen(SourcePath + "VERSION")
+#define VersionFileHandle FileOpen(SourcePath + "..\VERSION")
 #if !VersionFileHandle
   #error Cannot open the repository VERSION file
 #endif

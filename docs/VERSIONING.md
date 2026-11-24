@@ -28,19 +28,19 @@ Publish both frontends as self-contained Windows x64 single files using the
 existing profiles, selecting the same Debug or Release configuration as the Linux
 build. Copy the executable and required native WPF DLLs from each
 publish directory into `dist/client-frontend` or `dist/server-frontend` before
-running `publish.sh` or `build-installers.sh` on Linux.
+running `scripts/publish.sh` or `scripts/build-installers.sh` on Linux.
 
 ## Native and Go builds
 
-`build.sh Debug` or `build.sh Release` builds all daemons and the notification
+`scripts/build.sh Debug` or `scripts/build.sh Release` builds all daemons and the notification
 helper with the common version.
 Individual builds also work:
 
 ```sh
-make -C firewall release
-make -C notifications release
-make -C client/backend release
-make -C server/backend release
+make -C app/firewall release
+make -C app/notifications release
+make -C app/client/backend release
+make -C app/server/backend release
 ```
 
 The native Makefiles validate `VERSION` with Python 3, pass `BB_VERSION` to the
@@ -56,7 +56,7 @@ version for all six applications.
 ## Installers and update manifests
 
 ```sh
-./build-installers.sh Release /path/to/payload /path/to/installers
+scripts/build-installers.sh Release /path/to/payload /path/to/installers
 ```
 
 Installers and update manifests read `VERSION` automatically. Inno Setup checks

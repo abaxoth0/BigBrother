@@ -16,7 +16,7 @@ class BuildConfigurationTests(unittest.TestCase):
                     marker.write_text(configuration)
                 with self.subTest(configuration=configuration):
                     result = subprocess.run(
-                        ["bash", str(ROOT / "build-installers.sh"), "Release", directory],
+                        ["bash", str(ROOT / "scripts/build-installers.sh"), "Release", directory],
                         cwd="/tmp", capture_output=True, text=True,
                     )
                     self.assertEqual(result.returncode, 1, result.stderr)
@@ -27,7 +27,7 @@ class BuildConfigurationTests(unittest.TestCase):
             for arguments in ([], ["debug"], ["release"], ["/tmp/payload"], ["Unknown"]):
                 with self.subTest(script=script, arguments=arguments):
                     result = subprocess.run(
-                        ["bash", str(ROOT / script), *arguments],
+                        ["bash", str(ROOT / "scripts" / script), *arguments],
                         cwd="/tmp", capture_output=True, text=True,
                     )
                     self.assertEqual(result.returncode, 2, result.stderr)
@@ -37,7 +37,7 @@ class BuildConfigurationTests(unittest.TestCase):
         for script in ("build.sh", "publish.sh", "build-installers.sh"):
             with self.subTest(script=script):
                 result = subprocess.run(
-                    ["bash", str(ROOT / script), "--help"],
+                    ["bash", str(ROOT / "scripts" / script), "--help"],
                     cwd="/tmp", capture_output=True, text=True,
                 )
                 self.assertEqual(result.returncode, 0, result.stderr)
@@ -47,7 +47,7 @@ class BuildConfigurationTests(unittest.TestCase):
         for script, count in (("build.sh", 3), ("publish.sh", 3), ("build-installers.sh", 5)):
             with self.subTest(script=script):
                 result = subprocess.run(
-                    ["bash", str(ROOT / script), "Release", *(["unused"] * (count - 1))],
+                    ["bash", str(ROOT / "scripts" / script), "Release", *(["unused"] * (count - 1))],
                     cwd="/tmp", capture_output=True, text=True,
                 )
                 self.assertEqual(result.returncode, 2, result.stderr)

@@ -21,12 +21,12 @@ rejected for the installation and local staging locations.
 
 ## Build and publish
 
-Build/publish both updated frontends first; `publish.sh` continues to use the
+Build/publish both updated frontends first; `scripts/publish.sh` continues to use the
 prebuilt self-contained frontends in `dist`, as described in `INSTALLERS.md`.
 Then run:
 
 ```sh
-./build-installers.sh Release /path/to/payload /path/to/output
+scripts/build-installers.sh Release /path/to/payload /path/to/output
 ```
 
 The package version comes from repository `VERSION` (currently `2.0.0`); every
@@ -38,7 +38,7 @@ Release notes use the matching CHANGELOG.md release, or `Unreleased` when
 that release is absent. The optional fourth argument selects another changelog file:
 
 ```sh
-./build-installers.sh Release /path/to/payload /path/to/output /path/to/CHANGELOG.md
+scripts/build-installers.sh Release /path/to/payload /path/to/output /path/to/CHANGELOG.md
 ```
 
 Added, Removed, Changed, Fixed, Deprecated and Security bullets become structured
@@ -162,8 +162,8 @@ disk or permission failures cannot guarantee automatic recovery.
 
 ```sh
 python3 -m unittest discover -s scripts/tests -p '*_test.py'
-dotnet run --project client/updates.tests/BigBrother.Client.Updates.Tests.csproj
-cd server/backend
+dotnet run --project app/client/updates.tests/BigBrother.Client.Updates.Tests.csproj
+cd app/server/backend
 go test ./...
 ```
 
