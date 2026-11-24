@@ -2,6 +2,9 @@
   #error Notification helper version does not match VERSION; rebuild it before packaging
 #endif
 #if Product == "Client"
+  #if GetStringFileInfo(PayloadDir + "\BigBrother Process Monitor.exe", "ProductVersion") != ProductVersion
+    #error Process monitor version does not match VERSION; rebuild it before packaging
+  #endif
   #if GetStringFileInfo(PayloadDir + "\BigBrother Firewall.exe", "ProductVersion") != ProductVersion
     #error Firewall version does not match VERSION; rebuild it before packaging
   #endif

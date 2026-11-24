@@ -253,16 +253,17 @@ public class IpcService : IDisposable
                 while (true)
                 {
                     var lenLine = reader.ReadLine();
-                    if (string.IsNullOrEmpty(lenLine)) break; // empty line terminates response
+                    if (lenLine == null) throw new EndOfStreamException();
+                    if (lenLine.Length == 0) break;
 
                     if (!int.TryParse(lenLine, out int len) || len < 0)
                     {
-                        break; // invalid TLV
+                        throw new InvalidDataException("Некорректная длина ответа сервера");
                     }
 
                     var value = reader.ReadLine();
-                    if (value == null) break;
-                    if (Encoding.UTF8.GetByteCount(value) != len) break; // length mismatch
+                    if (value == null || Encoding.UTF8.GetByteCount(value) != len)
+                        throw new InvalidDataException("Неполный ответ сервера");
 
                     data.Add(value);
                 }
@@ -605,7 +606,7 @@ public class IpcService : IDisposable
 
     public async Task<List<WhitelistPreset>> GetWhitelistPresetsAsync()
     {
-        var data = await WhitelistPresetCommandAsync("GET_WHITELIST_PRESETS");
+        var data = await PolicyCommandAsync("GET_WHITELIST_PRESETS");
         if (data.Count != 1) throw new IOException("Не удалось загрузить пресеты");
         return JsonSerializer.Deserialize<List<WhitelistPreset>>(data[0],
             new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
@@ -613,13 +614,16 @@ public class IpcService : IDisposable
     }
 
     public Task SaveWhitelistPresetAsync(string name, bool replace, IEnumerable<string> activeWhitelists) =>
-        WhitelistPresetCommandAsync("SAVE_WHITELIST_PRESET", new[] { name, replace ? "1" : "0" }.Concat(activeWhitelists).ToArray());
+        PolicyCommandAsync("SAVE_WHITELIST_PRESET", new[] { name, replace ? "1" : "0" }.Concat(activeWhitelists).ToArray());
 
-    public Task LoadWhitelistPresetAsync(string name) => WhitelistPresetCommandAsync("LOAD_WHITELIST_PRESET", name);
-    public Task DeleteWhitelistPresetAsync(string name) => WhitelistPresetCommandAsync("DELETE_WHITELIST_PRESET", name);
-    public Task<List<string>> GetWhitelistPreviewEntriesAsync(string name) => WhitelistPresetCommandAsync("GET_WHITELIST", name);
+    public Task LoadWhitelistPresetAsync(string name) => PolicyCommandAsync("LOAD_WHITELIST_PRESET", name);
+    public Task DeleteWhitelistPresetAsync(string name) => PolicyCommandAsync("DELETE_WHITELIST_PRESET", name);
+    public Task<List<string>> GetWhitelistPreviewEntriesAsync(string name) => PolicyCommandAsync("GET_WHITELIST", name);
 
-    private async Task<List<string>> WhitelistPresetCommandAsync(string command, params string[] args)
+    public Task<List<string>> GetProcessBlacklistAsync() => PolicyCommandAsync("GET_PROCESS_BLACKLIST");
+    public Task SaveProcessBlacklistAsync(string[] lines) => PolicyCommandAsync("SAVE_PROCESS_BLACKLIST", lines);
+
+    private async Task<List<string>> PolicyCommandAsync(string command, params string[] args)
     {
         await _connectionLock.WaitAsync();
         try
@@ -628,7 +632,7 @@ public class IpcService : IDisposable
             try
             {
                 var (status, data) = await Task.Run(() => SendCommand(command, args));
-                if (status != "OK") throw new IOException(string.IsNullOrEmpty(_lastError) ? "Не удалось выполнить действие с пресетом" : _lastError);
+                if (status != "OK") throw new IOException(string.IsNullOrEmpty(_lastError) ? "Не удалось выполнить команду сервера" : _lastError);
                 return data;
             }
             finally { Disconnect(); }

@@ -43,6 +43,7 @@ public class MainViewModel : ViewModelBase
     private System.Timers.Timer? _serviceStatusTimer;
     private int _refreshInProgress;
     private int _statusRefreshInProgress;
+    private bool _openingProcessBlacklist;
     private bool _openingDomainCheck;
     private bool _openingWhitelistEditor;
     private bool _openingTimerEditor;
@@ -213,6 +214,8 @@ public class MainViewModel : ViewModelBase
             preset => preset is WhitelistPreset && CanUseWhitelistPresets);
         SyncWhitelistsCommand = new RelayCommand(async _ => await SyncWhitelistsAsync(),
             _ => IsConnected && !_syncingWhitelists && !_savingWhitelistActivation);
+        OpenProcessBlacklistCommand = new RelayCommand(async _ => await OpenProcessBlacklistAsync(),
+            _ => IsConnected && !_openingProcessBlacklist);
         OpenDomainCheckCommand = new RelayCommand(async _ => await OpenDomainCheckAsync(),
             _ => IsConnected && !_openingDomainCheck);
         EditWhitelistTimerCommand = new RelayCommand(o => OpenWhitelistTimer(o as WhitelistInfo),
@@ -542,6 +545,7 @@ public class MainViewModel : ViewModelBase
     public ICommand SaveWhitelistPresetCommand { get; }
     public ICommand LoadWhitelistPresetCommand { get; }
     public ICommand SyncWhitelistsCommand { get; }
+    public ICommand OpenProcessBlacklistCommand { get; }
     public ICommand OpenDomainCheckCommand { get; }
     public ICommand EditWhitelistTimerCommand { get; }
     public ICommand ResetWhitelistTimersCommand { get; }
@@ -1526,6 +1530,27 @@ public class MainViewModel : ViewModelBase
             NotifyWhitelistActivationChanged();
         }
         await RefreshWhitelistsAsync();
+    }
+
+    private async Task OpenProcessBlacklistAsync()
+    {
+        if (_openingProcessBlacklist) return;
+        _openingProcessBlacklist = true;
+        CommandManager.InvalidateRequerySuggested();
+        try
+        {
+            var lines = await _ipcService.GetProcessBlacklistAsync();
+            new ProcessBlacklistWindow(_ipcService, lines) { Owner = Application.Current.MainWindow }.ShowDialog();
+        }
+        catch (Exception ex)
+        {
+            MessageDialog.Show(ex.Message, "Чёрный список приложений", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            _openingProcessBlacklist = false;
+            CommandManager.InvalidateRequerySuggested();
+        }
     }
 
     private async Task OpenDomainCheckAsync()

@@ -138,6 +138,20 @@ Used by Big Brother clients to communicate with the server.
 | `GET_CLIENT_UPDATE_DETAILS` | `username`, `token` | One JSON metadata value, or no data | Get the update reference and structured release notes over pinned TLS |
 | `SUBSCRIBE` | `username`, `token` | Initial `OK`, then pushed events | Open an authenticated event subscription and send client heartbeats |
 
+The client-facing `GET_PROCESS_BLACKLIST` takes username and token and returns
+one normalized executable rule per TLV field, or an empty OK for an empty policy.
+A local administrator uses `SAVE_PROCESS_BLACKLIST` (one source line per
+argument) and `GET_PROCESS_BLACKLIST` (no arguments) on the server frontend
+pipe. The editor reads back the original source, including comments and default
+priorities. A successful save replaces the complete list in SQLite and publishes
+`PROCESS_BLACKLIST_CHANGED`. Invalid input leaves the existing list active.
+
+A bare executable basename blocks, and `!` permits a matching executable.
+A single trailing stem wildcard such as `game*.exe` matches a nonempty literal
+prefix followed by zero or more characters before `.exe`. Matching ignores case.
+The shared whitelist priority syntax applies. The highest matching priority wins
+and exceptions win ties. Both source and expanded rules are limited to 8 KiB.
+
 On an authenticated client subscription, a heartbeat is either `K\n` (legacy)
 or one line of `POLICY <json>\n`. Policy JSON requires `whitelistRevision`
 (64 lowercase SHA-256 hex characters, or empty when rules cannot be read),

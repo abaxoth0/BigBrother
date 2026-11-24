@@ -15,6 +15,8 @@
 #include "log/log.h"
 #include "file_security.h"
 #include "notify.h"
+#include "process_monitors.h"
+#include <charconv>
 #include "firewall.h"
 #include <atomic>
 #include <mutex>
@@ -758,6 +760,44 @@ int RefreshFiltrationEffective(void) {
 static int tls_connect_socket(SOCKET sock, bb_tls_t* tls);
 static void get_client_token(char* buf, size_t size);
 
+/** @brief Join complete TLV fields with newlines. Reject partial replies and fields that do not fit. */
+template<typename Read>
+static bool read_server_fields(Read read, char* output, size_t capacity) {
+    size_t used = 0;
+    bool first = true;
+    while (capacity > 0) {
+        char length[24];
+        size_t digits = 0;
+        char c = 0;
+        while (read(&c, 1) == 1 && c != '\n') {
+            if (digits == sizeof(length)) return false;
+            length[digits++] = c;
+        }
+        if (c != '\n') return false;
+        if (digits == 0) {
+            output[used] = '\0';
+            return true;
+        }
+        size_t bytes = 0;
+        auto parsed = std::from_chars(length, length + digits, bytes);
+        if (parsed.ec != std::errc{} || parsed.ptr != length + digits) return false;
+        if (!first) {
+            if (used >= capacity - 1) return false;
+            output[used++] = '\n';
+        }
+        if (bytes > capacity - 1 - used) return false;
+        size_t end = used + bytes;
+        while (used < end) {
+            int n = read(output + used, end - used);
+            if (n <= 0 || memchr(output + used, 0, static_cast<size_t>(n))) return false;
+            used += static_cast<size_t>(n);
+        }
+        if (read(&c, 1) != 1 || c != '\n') return false;
+        first = false;
+    }
+    return false;
+}
+
 /**
  * @brief Open a pinned TLS connection, exchange one framed command and release the connection.
  * @param command Non-null command name without framing.
@@ -767,7 +807,7 @@ static void get_client_token(char* buf, size_t size);
  * @param buffer_size Output capacity including NUL; must be positive.
  * @return 0 for an OK status, SERVER_INVALID_TOKEN for a complete invalid-token reply,
  * or -1 for other server/connection failures.
- * @note An OK status does not guarantee that every field fit or was read completely.
+ * A truncated or oversized OK reply returns an error.
  */
 static int send_to_server_tlv(const char* command, const char** args, size_t arg_count,
                               char* out_buffer, size_t buffer_size) {
@@ -911,58 +951,9 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
     int result = -1;
 
     if (strcmp(status_buf, "OK") == 0) {
-        char* out = out_buffer;
-        size_t remaining = buffer_size - 1;
-        int first = 1;
-
-        while (1) {
-            char len_line[32] = {};
-            char* lp = len_line;
-            while (1) {
-                char c;
-                int n = bb_tls_read(&tls, &c, 1);
-                if (n <= 0) break;
-                if (c == '\n') break;
-                *lp++ = c;
-            }
-
-            // Empty line terminates response
-            if (strlen(len_line) == 0) break;
-
-            int expected_len = atoi(len_line);
-            if (expected_len < 0) break;
-
-            // Add newline separator between values (for whitelist domains)
-            if (!first) {
-                if (remaining > 1) {
-                    *out++ = '\n';
-                    remaining--;
-                }
-            }
-            first = 0;
-
-            // Read value
-            int count = 0;
-            while (count < expected_len && remaining > 0) {
-                char c;
-                int n = bb_tls_read(&tls, &c, 1);
-                if (n <= 0) break;
-                *out++ = c;
-                count++;
-                remaining--;
-            }
-            *out = '\0';
-
-            // Consume trailing newline after TLV value
-            {
-                char nl;
-                int n = bb_tls_read(&tls, &nl, 1);
-                if (n == 1 && nl == '\r') {
-                    bb_tls_read(&tls, &nl, 1); // consume \n after \r
-                }
-            }
-        }
-        result = 0;
+        result = read_server_fields([&tls](char* buffer, size_t count) { return bb_tls_read(&tls, buffer, count); },
+                                    out_buffer, buffer_size) ? 0 : -1;
+        if (result != 0) out_buffer[0] = '\0';
     } else if (strcmp(status_buf, "ERROR") == 0) {
         char len_line[32] = {};
         size_t len_pos = 0;
@@ -1480,6 +1471,14 @@ static int srv_read_tlv(SrvLineReader* r, char* out, size_t out_size) {
     return 1;
 }
 
+/** @brief Fetch a complete authenticated policy before replacing any running monitors. */
+static bool sync_process_blacklist(const char* username, client::ProcessMonitors& monitors) {
+    char response[8193];
+    const char* args[] = {username, nullptr};
+    return send_authenticated_request("GET_PROCESS_BLACKLIST", username, args, 2, 1,
+                                      response, sizeof(response)) == 0 && monitors.replace(response);
+}
+
 /**
  * @brief Download authenticated rules and apply changed content to the local firewall.
  * Honors SYNC_DISABLED and the fallback preference; leaves synchronization pending
@@ -1741,7 +1740,7 @@ static int try_discover_server(void) {
  * @param event_type Event name already decoded from the preceding TLV field.
  * @param reader Borrowed subscription reader positioned at the event data.
  * @param username Local identity used to filter targeted events.
- * @return 0 to continue, 1 to close a paused subscription, 2 to send a policy heartbeat.
+ * @return 0 to continue, 1 to close a paused subscription, 2 to send a policy heartbeat or 3 to refresh the process blacklist.
  * Unknown events and incomplete data reads also return 0.
  */
 static int handle_server_event(const char* event_type, SrvLineReader* reader, const char* username) {
@@ -1801,6 +1800,8 @@ static int handle_server_event(const char* event_type, SrvLineReader* reader, co
         }
         return 2;
     }
+
+    if (strcmp(event_type, "PROCESS_BLACKLIST_CHANGED") == 0) return 3;
 
     if (strcmp(event_type, "WHITELIST_CHANGED") == 0) {
         sync_whitelist_from_server(username);
@@ -1942,6 +1943,10 @@ static int server_subscribe_loop(const char* username, int* consecutive_failures
     LOGF("[Daemon] Subscribed to server events for user '%s'", username);
 
     SetServerSessionActive(1);
+    client::ProcessMonitors monitors;
+    bool processSynced = sync_process_blacklist(username, monitors);
+    DWORD lastProcessFetch = GetTickCount();
+    monitors.refresh();
     sync_whitelist_from_server(username);
     sync_filtration_from_server();
     if (consecutive_failures) *consecutive_failures = 0;
@@ -1976,6 +1981,11 @@ static int server_subscribe_loop(const char* username, int* consecutive_failures
         // Check local daemon health
         if (now - last_local_check >= SRV_LOCAL_DAEMON_CHECK_MS) {
             last_local_check = now;
+            if (!processSynced || now - lastProcessFetch >= 60000) {
+                processSynced = sync_process_blacklist(username, monitors);
+                lastProcessFetch = now;
+            }
+            monitors.refresh();
             if (g_whitelist_sync_pending) sync_whitelist_from_server(username);
         }
 
@@ -2002,6 +2012,11 @@ static int server_subscribe_loop(const char* username, int* consecutive_failures
             int result = handle_server_event(event_type, &reader, username);
             if (result == 1) {
                 break;
+            }
+            if (result == 3) {
+                processSynced = sync_process_blacklist(username, monitors);
+                lastProcessFetch = GetTickCount();
+                monitors.refresh();
             }
             if (result == 2 && send_policy_heartbeat(&subscription_tls) <= 0) break;
         } else if (strcmp(line, "K") == 0) {

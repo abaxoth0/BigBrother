@@ -11,8 +11,10 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
+	"bigbrother_server_backend/packages/application/processlist"
 	"bigbrother_server_backend/packages/application/settings"
 	"bigbrother_server_backend/packages/application/updates"
 	whitelistapplication "bigbrother_server_backend/packages/application/whitelist"
@@ -77,6 +79,27 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 		}
 
 		switch cmd {
+		case "SAVE_PROCESS_BLACKLIST":
+			text := strings.Join(args, "\n")
+			if _, err := processlist.Compile(text); err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			if err := h.db.SetSetting(processlist.Setting, text); err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			h.bus.Publish(notification.Event{Type: notification.ProcessBlacklistChanged})
+			writeOK(conn)
+
+		case "GET_PROCESS_BLACKLIST":
+			text, err := h.db.GetSetting(processlist.Setting)
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			writeTLVResponse(conn, strings.Split(text, "\n")...)
+
 		case "SYNC_WHITELISTS":
 			if len(args) != 0 {
 				writeErrorTLV(conn, "Expected no arguments")

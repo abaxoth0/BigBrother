@@ -55,7 +55,7 @@ class NativeConfigurationTests(unittest.TestCase):
         entries = {Path(entry["file"]): entry for entry in self.commands}
         self.assertEqual(len(entries), len(self.commands))
         version = (ROOT / "VERSION").read_text().strip()
-        for directory in ("app/client/backend", "app/firewall", "app/notifications", "lib/common"):
+        for directory in ("app/client/backend", "app/client/process-monitor", "app/firewall", "app/notifications", "lib/common"):
             for source in (ROOT / directory).rglob("*"):
                 if source.suffix not in (".c", ".cpp") or {"build", "third-party"} & set(source.parts):
                     continue

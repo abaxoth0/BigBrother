@@ -36,6 +36,7 @@ Source: "{#PayloadDir}\client-version.txt"; DestDir: "{app}"; Flags: ignoreversi
 Source: "{#PayloadDir}\BigBrother Notifications.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#PayloadDir}\{#DaemonName}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#PayloadDir}\BigBrother Firewall.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#PayloadDir}\BigBrother Process Monitor.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#PayloadDir}\WinDivert.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#PayloadDir}\WinDivert64.sys"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#PayloadDir}\client-frontend\BigBrother Client.exe"; DestDir: "{app}\GUI"; Flags: ignoreversion

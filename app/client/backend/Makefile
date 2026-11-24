@@ -9,14 +9,14 @@ ICON_OBJ = build/app-icon.o
 
 MBEDTLS_DIR = $(BB_ROOT)/lib/mbedtls
 COMMON_FLAGS = $(BB_VERSION_FLAGS) -Wall -Wextra -mconsole \
-	-I$(CURDIR)/include \
+	-I$(BB_ROOT)/app/client/process-monitor/src -I$(CURDIR)/include \
 	-I$(BB_ROOT)/lib/common \
 	-I$(MBEDTLS_DIR)/include
 
 DEBUG_FLAGS = -DDEBUG -g3 -O0
 RELEASE_FLAGS = -DNDEBUG -O2
 
-t-units = src/backend_client.cpp src/runtime.cpp src/hub.cpp src/firewall.cpp src/logs.cpp src/updates.cpp src/main.cpp src/common.cpp src/ipc_daemon.cpp src/ipc_client.cpp src/net_client.cpp src/tls_client.cpp src/client_key.cpp src/certificate_pin.cpp $(BB_ROOT)/lib/common/encoding/encoding.c $(BB_ROOT)/lib/common/log/log.c
+t-units = src/backend_client.cpp src/runtime.cpp src/process_monitors.cpp src/hub.cpp src/firewall.cpp src/logs.cpp src/updates.cpp src/main.cpp src/common.cpp src/ipc_daemon.cpp src/ipc_client.cpp src/net_client.cpp src/tls_client.cpp src/client_key.cpp src/certificate_pin.cpp $(BB_ROOT)/lib/common/encoding/encoding.c $(BB_ROOT)/lib/common/log/log.c
 OBJECTS = $(addprefix build/$(BUILD_MODE)/,$(patsubst %.cpp,%.o,$(patsubst %.c,%.o,$(patsubst $(BB_ROOT)/lib/%,%,$(t-units)))))
 CXXFLAGS = $(COMMON_FLAGS) $(if $(filter release,$(BUILD_MODE)),$(RELEASE_FLAGS),$(DEBUG_FLAGS)) -std=c++20
 
@@ -31,7 +31,7 @@ CB_NAME = BigBrother Client Daemon
 CB_EXE = build/$(BUILD_MODE)/BigBrother\ Client\ Daemon.exe
 NOTIFY_DIR = $(BB_ROOT)/app/notifications
 NOTIFY_A = $(NOTIFY_DIR)/build/$(BUILD_MODE)/libbbnotify.a
-CLIENT_LIBS = $(NOTIFY_A) -Wl,-Bstatic -lstdc++ -lwinpthread -Wl,-Bdynamic $(MBED_A) -lws2_32 -liphlpapi -lbcrypt -lwinmm -ladvapi32 -luserenv
+CLIENT_LIBS = $(NOTIFY_A) -Wl,-Bstatic -lstdc++ -lwinpthread -Wl,-Bdynamic $(MBED_A) -lws2_32 -liphlpapi -lbcrypt -lwinmm -ladvapi32 -luserenv -lwtsapi32
 SHARED_OBJECTS = $(filter %/common/log/log.o %/common/encoding/encoding.o,$(OBJECTS))
 all: $(BUILD_MODE)
 

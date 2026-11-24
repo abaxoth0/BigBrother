@@ -10,6 +10,7 @@ flowchart LR
     CLI[Client command line] <--> Hub
     Hub <--> Server[Server backend]
     Hub --> Firewall[Firewall service]
+    Hub --> Monitor[Process monitor per interactive session]
     Hub --> Notifications[Notification helper]
     Hub --> Updates[Update preparation worker]
     Hub --> Logs[Client and firewall logs]
@@ -58,6 +59,21 @@ work with the new backend service.
 Setup also removes the earlier feature-branch service named BigBrother.Client
 before registering BigBrother Client.
 
+## Application process blacklist
+
+The client backend fetches the server's process policy when its authenticated
+subscription opens or receives a change event. A periodic refresh repairs a
+missed event. A failed fetch retains the previous policy within that subscription.
+An empty list disables enforcement. Ending the subscription or stopping the
+backend releases its monitors. Reconnection starts with a fresh policy.
+
+The installed LocalSystem service launches `BigBrother Process Monitor.exe`
+with the interactive user's non-elevated token and a separate Windows job for
+each active console or RDP session. The monitor scans once a second and checks
+the opened process's executable name, user, session, elevation and critical
+status before terminating a match. The firewall and client frontend can be
+closed. Rules stay in memory for the lifetime of the server subscription.
+
 ## Code
 
 The backend uses ordinary C++20 headers and translation units, without C++
@@ -87,6 +103,7 @@ applications use the Windows service lifecycle.
 ## Verification
 
 ~~~sh
+make -C app/client/process-monitor debug test-build
 make -C app/client/backend debug regression-build lifecycle-test-build
 make -C app/client/backend release
 make -C app/firewall debug test-build lifetime-test-build
@@ -96,6 +113,11 @@ dotnet run --project app/client/frontend.tests/BigBrother.Client.Certificate.Tes
 dotnet run --project app/client/updates.tests/BigBrother.Client.Updates.Tests.csproj
 dotnet run --project lib/cs/BigBrother.Frontend.Shared.Tests/BigBrother.Frontend.Shared.Tests.csproj
 ~~~
+
+Run `app/client/process-monitor/build/test.exe` for matcher tests. On native Windows,
+run `enforcement-test.exe` beside the monitor in an interactive desktop session to
+exercise real process termination and exceptions using two disposable test processes.
+Wine lacks the Windows critical-process query required by this test.
 
 The lifecycle fixture creates services named BigBrother Client and BigBrother
 Firewall. Run it only in an isolated Wine prefix with neither service already

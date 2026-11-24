@@ -73,3 +73,11 @@ func TestReadRequestLargeValue(t *testing.T) {
 		t.Fatalf("large value not round-tripped: cmd=%q args=%d", cmd, len(args))
 	}
 }
+
+func TestReadRequestRequiresTerminatorBeforeApplyingPolicy(t *testing.T) {
+	for _, request := range []string{"SAVE_PROCESS_BLACKLIST\n", "SAVE_PROCESS_BLACKLIST\n8\ngame.exe\n"} {
+		if _, _, err := runReadRequest(t, request); err == nil {
+			t.Fatal("accepted incomplete save", request)
+		}
+	}
+}

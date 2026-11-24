@@ -1,6 +1,6 @@
 # Native code maintenance
 
-The first-party C/C++ code lives in `app/firewall`, `app/client/backend`, `app/notifications`
+The first-party C/C++ code lives in `app/firewall`, `app/client/backend`, `app/client/process-monitor`, `app/notifications`
 and `lib/common`. Third-party code under `lib` and `app/firewall/include/third-party`
 keeps its upstream style.
 
@@ -13,7 +13,7 @@ C/C++ toolchain on `PATH`, generate the editor compilation database:
 python3 scripts/compile_commands.py
 ```
 
-The root `.clangd` uses this database for the client backend, firewall,
+The root `.clangd` uses this database for the client backend, process monitor, firewall,
 notifications and shared native code. The generator reads debug build and test
 commands from Make dry runs, including each target's language standard, include
 paths, Windows defines and the current `VERSION`. It queries the installed MinGW

@@ -31,7 +31,7 @@ if [[ ! -f "$INNO_ISCC" ]]; then
     echo "Run $SCRIPT_DIR/install-inno-setup.sh first." >&2
     exit 1
 fi
-for file in 'BigBrother Firewall.exe' 'BigBrother Client Daemon.exe' \
+for file in 'BigBrother Process Monitor.exe' 'BigBrother Firewall.exe' 'BigBrother Client Daemon.exe' \
     'BigBrother Server Daemon.exe' 'BigBrother Notifications.exe' WinDivert.dll WinDivert64.sys \
     'client-frontend/BigBrother Client.exe' 'server-frontend/BigBrother Server.exe'; do
     if [[ ! -f "$PAYLOAD_DIR/$file" ]]; then

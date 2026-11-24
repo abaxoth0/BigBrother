@@ -24,7 +24,7 @@ public static class ClientUpdates
     private const string PrivateAcl = "O:BAG:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)";
     public static string Root => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "BigBrotherClientUpdates");
     private static readonly string[] PayloadFiles = {
-        "BigBrother Notifications.exe", "BigBrother Client Daemon.exe", "BigBrother Firewall.exe",
+        "BigBrother Notifications.exe", "BigBrother Client Daemon.exe", "BigBrother Firewall.exe", "BigBrother Process Monitor.exe",
         "WinDivert.dll", "WinDivert64.sys", "client-version.txt", Path.Combine("GUI", "BigBrother Client.exe"),
         Path.Combine("GUI", "D3DCompiler_47_cor3.dll"), Path.Combine("GUI", "PenImc_cor3.dll"),
         Path.Combine("GUI", "PresentationNative_cor3.dll"), Path.Combine("GUI", "vcruntime140_cor3.dll"),
