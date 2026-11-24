@@ -28,12 +28,18 @@ static HANDLE g_shutdown_event = NULL;
 static HANDLE g_listener = NULL;
 static std::vector<HANDLE> g_handlers;
 
+/** @brief Return whether the IPC shutdown event has been created and signaled. */
 static bool client_server_stopping() {
     return g_shutdown_event && WaitForSingleObject(g_shutdown_event, 0) == WAIT_OBJECT_0;
 }
 
+/**
+ * @brief Write exactly length bytes to a borrowed synchronous pipe unless shutdown has begun.
+ * @return true only when the complete buffer was written; false on shutdown or I/O failure.
+ */
 static bool write_pipe(HANDLE pipe, const char* data, DWORD length) {
     if (client_server_stopping()) return false;
+
     DWORD written;
     return WriteFile(pipe, data, length, &written, nullptr) && written == length;
 }
@@ -61,6 +67,7 @@ void SignalClientServerShutdown(void) {
 
 void NotifyStateChanged(void) {
     InterlockedIncrement((volatile LONG*)&g_state_generation);
+
     AcquireSRWLockExclusive(&g_sub_lock);
     for (int i = 0; i < MAX_EVENT_SUBSCRIBERS; i++) {
         if (g_sub_events[i]) {
@@ -70,9 +77,11 @@ void NotifyStateChanged(void) {
     ReleaseSRWLockExclusive(&g_sub_lock);
 }
 
-// Write response: status\n[TLV data...\n]<empty line>
-// Assembles into a fixed buffer when it fits; otherwise streams field-by-field
-// so large responses (e.g. a full whitelist) are never truncated.
+/**
+ * @brief Write status and non-null string fields, followed by the empty-line terminator.
+ * Uses one buffer for small replies and streams large replies field by field.
+ * Borrows the pipe and strings; stops on shutdown or write failure without reporting a result.
+ */
 static void write_response_tlv(HANDLE pipe, const char* status, const char** data, size_t data_count) {
     if (client_server_stopping()) return;
 
@@ -85,16 +94,19 @@ static void write_response_tlv(HANDLE pipe, const char* status, const char** dat
             total += vlen + 1;
         }
     }
+
     if (total <= 64 * 1024) {
         // Single-buffer path (common, small responses).
         char buffer[64 * 1024];
         size_t pos = 0;
         int n = snprintf(buffer + pos, sizeof(buffer) - pos, "%s\n", status);
         if (n > 0) pos += (size_t)n;
+
         for (size_t i = 0; i < data_count; i++) {
             if (data[i] && pos < sizeof(buffer)) {
                 int len = snprintf(buffer + pos, sizeof(buffer) - pos, "%zu\n", strlen(data[i]));
                 if (len > 0) pos += (size_t)len;
+
                 if (pos < sizeof(buffer)) {
                     size_t vlen = strlen(data[i]);
                     if (vlen > sizeof(buffer) - pos) vlen = sizeof(buffer) - pos - 1;
@@ -106,6 +118,7 @@ static void write_response_tlv(HANDLE pipe, const char* status, const char** dat
                 }
             }
         }
+
         if (pos < sizeof(buffer)) {
             buffer[pos++] = '\n';
         }
@@ -115,28 +128,33 @@ static void write_response_tlv(HANDLE pipe, const char* status, const char** dat
 
     // Streaming path: large payloads (whitelist relays). Write per field.
     if (!write_pipe(pipe, status, (DWORD)strlen(status)) || !write_pipe(pipe, "\n", 1)) return;
+
     for (size_t i = 0; i < data_count; i++) {
         if (!data[i]) continue;
+
         char len_buf[32];
         int len = snprintf(len_buf, sizeof(len_buf), "%zu\n", strlen(data[i]));
         if (!write_pipe(pipe, len_buf, (DWORD)len) ||
             !write_pipe(pipe, data[i], (DWORD)strlen(data[i])) || !write_pipe(pipe, "\n", 1)) return;
     }
+
     if (write_pipe(pipe, "\n", 1) && !client_server_stopping()) FlushFileBuffers(pipe);
 }
 
+/** @brief Send an ERROR reply, substituting a default message when error is null. */
 static void write_error_tlv(HANDLE pipe, const char* error) {
     if (!error) error = "Unknown error";
+
     const char* data[1] = {error};
     write_response_tlv(pipe, "ERROR", data, 1);
 }
 
+/** @brief Send an OK reply with no fields and the final empty-line terminator. */
 static void write_ok(HANDLE pipe) {
     write_response_tlv(pipe, "OK", NULL, 0);
 }
 
-// Buffered byte reader over a pipe: reads in chunks instead of one byte per
-// ReadFile() call.
+/** @brief Buffered reader borrowing a synchronous pipe; unread bytes occupy buf[pos..len). */
 typedef struct {
     HANDLE pipe;
     char buf[4096];
@@ -144,53 +162,79 @@ typedef struct {
     size_t len;
 } PipeByteReader;
 
+/** @brief Reset a reader to borrow pipe with an empty buffer; does not close or retain ownership. */
 static void pipe_reader_init(PipeByteReader* r, HANDLE pipe) {
     r->pipe = pipe;
     r->pos = 0;
     r->len = 0;
 }
 
+/**
+ * @brief Replace the exhausted reader buffer with the next pipe chunk.
+ * @return 1 if bytes were read, 0 on shutdown, EOF or I/O failure.
+ */
 static int pipe_reader_fill(PipeByteReader* r) {
     if (client_server_stopping()) return 0;
+
     r->pos = 0;
     r->len = 0;
+
     DWORD bytes_read;
     if (!ReadFile(r->pipe, r->buf, sizeof(r->buf), &bytes_read, NULL) || bytes_read == 0) {
         return 0;
     }
+
     r->len = (size_t)bytes_read;
     return 1;
 }
 
+/**
+ * @brief Copy the next buffered byte into out, refilling when needed.
+ * @return 1 on success, 0 on shutdown, EOF or I/O failure.
+ */
 static int pipe_reader_getc(PipeByteReader* r, char* out) {
     if (r->pos >= r->len) {
         if (!pipe_reader_fill(r)) return 0;
     }
+
     *out = r->buf[r->pos++];
     return 1;
 }
 
+/**
+ * @brief Read an LF-terminated line, dropping CR bytes and adding a trailing NUL.
+ * @pre out_size is positive and out points to that many writable bytes.
+ * @return 1 on success, 0 on read failure or overflow; failure may leave partial output.
+ */
 static int pipe_reader_readline(PipeByteReader* r, char* out, size_t out_size) {
     size_t used = 0;
     for (;;) {
         char c;
         if (!pipe_reader_getc(r, &c)) return 0;
+
         if (c == '\n') {
             out[used] = '\0';
             return 1;
         }
+
         if (c == '\r') continue;
         if (used + 1 >= out_size) return 0;
         out[used++] = c;
     }
 }
 
+/**
+ * @brief Copy exactly n payload bytes across buffer boundaries without adding a terminator.
+ * @pre out has room for n bytes.
+ * @return 1 on success, 0 on read failure; partial output must be discarded on failure.
+ */
 static int pipe_reader_read(PipeByteReader* r, char* out, size_t n) {
     size_t got = 0;
     while (got < n) {
         if (r->pos >= r->len) {
             if (!pipe_reader_fill(r)) return 0;
         }
+
         size_t avail = r->len - r->pos;
         size_t want = n - got;
         size_t copy = avail < want ? avail : want;
@@ -198,37 +242,58 @@ static int pipe_reader_read(PipeByteReader* r, char* out, size_t n) {
         r->pos += copy;
         got += copy;
     }
+
     return 1;
 }
 
+/**
+ * @brief Decode a command line and length-prefixed arguments from one borrowed pipe.
+ * Rejects empty commands, malformed lengths/separators, embedded NULs, more than
+ * 64 arguments and aggregate payloads above DAEMON_MAX_MESSAGE_SIZE.
+ * @param pipe Connected synchronous byte-mode pipe; remains owned by the caller.
+ * @param command Output for the NUL-terminated command name.
+ * @param capacity Size of command, including its terminator; must be positive.
+ * @param arguments Initially empty vector receiving owned argument strings.
+ * @return Argument count on success, -1 on framing, limit or I/O failure.
+ * @note Failure may leave partial command/arguments; discard the entire request.
+ */
 static int read_tlv_request(HANDLE pipe, char* command, size_t capacity,
                             std::vector<std::string>& arguments) {
     PipeByteReader reader;
     pipe_reader_init(&reader, pipe);
     if (!pipe_reader_readline(&reader, command, capacity) || !command[0]) return -1;
+
     size_t total = 0;
     for (;;) {
         char line[32]{};
         if (!pipe_reader_readline(&reader, line, sizeof(line))) return -1;
         if (!line[0]) return static_cast<int>(arguments.size());
+
         size_t length = 0;
         auto end = line + strlen(line);
         auto parsed = std::from_chars(line, end, length);
         if (parsed.ec != std::errc{} || parsed.ptr != end ||
             length > DAEMON_MAX_MESSAGE_SIZE - total || arguments.size() >= 64) return -1;
+
         std::string value(length, '\0');
         if (!pipe_reader_read(&reader, value.data(), length) || value.find('\0') != std::string::npos) return -1;
+
         char separator;
         if (!pipe_reader_getc(&reader, &separator)) return -1;
         if (separator == '\r' && !pipe_reader_getc(&reader, &separator)) return -1;
         if (separator != '\n') return -1;
+
         total += length;
         arguments.push_back(std::move(value));
     }
 }
 
-// GUI executable ("BigBrother Client.exe"). Compare by file name (case
-// insensitive) so the GUI can run from any directory during development.
+/**
+ * @brief Check the peer executable basename against the client GUI and daemon names.
+ * Comparison is case-insensitive and permits development paths; this is a basename
+ * filter layered over the pipe DACL, not proof of executable authenticity.
+ * @return 1 for a matching peer, 0 on mismatch or process-inspection failure.
+ */
 static int peer_is_client_gui(HANDLE pipe) {
     ULONG pid = 0;
     if (!GetNamedPipeClientProcessId(pipe, &pid) || pid == 0) return 0;
@@ -251,6 +316,11 @@ static int peer_is_client_gui(HANDLE pipe) {
         _wcsicmp(name, L"BigBrother Client Daemon.exe") == 0;
 }
 
+/**
+ * @brief Own a connected pipe, validate its peer, and dispatch one request or event subscription.
+ * @param param Pipe handle transferred by the listener; closed on return or exception.
+ * @return 0 after handling, 1 for peer/request rejection; individual command errors use TLV replies.
+ */
 static DWORD handle_client(LPVOID param) {
     HANDLE pipe = (HANDLE)param;
     client::Handle connection(pipe);
@@ -264,6 +334,7 @@ static DWORD handle_client(LPVOID param) {
     // Read TLV request
     std::vector<std::string> arguments;
     int arg_count = read_tlv_request(pipe, buffer, sizeof(buffer), arguments);
+
     std::vector<char*> pointers;
     for (auto& argument : arguments) pointers.push_back(argument.data());
     char** args = pointers.data();
@@ -278,6 +349,7 @@ static DWORD handle_client(LPVOID param) {
 
     std::vector<std::string_view> values;
     for (int i = 0; i < arg_count; ++i) values.emplace_back(args[i]);
+
     auto reply = client::hub().dispatch(buffer, values, pipe);
     if (reply) {
         std::vector<const char*> fields;
@@ -491,6 +563,7 @@ static DWORD handle_client(LPVOID param) {
 
             if (count > 0) {
                 LOGF("[Discovery] local_ip='%s', first result: %s", local_ip, response);
+
                 // Replace server IP with "." if it matches local machine IP (use local loopback TCP)
                 if (local_ip[0] != '\0') {
                     char* line = response;
@@ -510,6 +583,7 @@ static DWORD handle_client(LPVOID param) {
                             }
                             if (nl) *nl = '\n';
                         }
+
                         char* next = strchr(line, '\n');
                         line = next ? next + 1 : NULL;
                     }
@@ -709,6 +783,7 @@ static DWORD handle_client(LPVOID param) {
                     } else if (w == WAIT_OBJECT_0 + 1) {
                         keep_going = 0;
                     }
+
                     // Detect client disconnect
                     DWORD bytes_avail = 0;
                     if (keep_going &&
@@ -734,11 +809,21 @@ static DWORD handle_client(LPVOID param) {
     return 0;
 }
 
+/**
+ * @brief Thread entry that transfers pipe ownership to handle_client() and contains exceptions.
+ * @return Handler status, or 1 if request handling throws.
+ */
 DWORD WINAPI client_handler(LPVOID param) {
     try { return handle_client(param); }
     catch (...) { return 1; }
 }
 
+/**
+ * @brief Accept local clients on a restricted pipe and retain worker handles for shutdown.
+ * Transfers each accepted pipe to a worker; only this listener modifies g_handlers
+ * until StopClientServer() has joined it. param is unused.
+ * @return 0 after shutdown, 1 if the pipe security descriptor cannot be created.
+ */
 DWORD WINAPI client_server_thread(LPVOID param) {
     (void)param;
 
@@ -779,9 +864,11 @@ DWORD WINAPI client_server_thread(LPVOID param) {
                 CloseHandle(pipe);
                 break;
             }
+
             HANDLE thread = CreateThread(NULL, 0, client_handler, pipe, 0, NULL);
             if (thread) g_handlers.push_back(thread);
             else CloseHandle(pipe);
+
             std::erase_if(g_handlers, [](HANDLE worker) {
                 if (WaitForSingleObject(worker, 0) != WAIT_OBJECT_0) return false;
                 CloseHandle(worker);
@@ -804,6 +891,7 @@ DWORD WINAPI client_server_thread(LPVOID param) {
 int StartClientServer(void) {
     g_shutdown_event = CreateEvent(NULL, TRUE, FALSE, NULL);
     if (!g_shutdown_event) return -1;
+
     g_listener = CreateThread(NULL, 0, client_server_thread, NULL, 0, NULL);
     return g_listener ? 0 : -1;
 }
@@ -815,6 +903,7 @@ void StopClientServer(void) {
         CloseHandle(g_listener);
         g_listener = NULL;
     }
+
     while (!g_handlers.empty()) {
         for (HANDLE worker : g_handlers) CancelSynchronousIo(worker);
         std::erase_if(g_handlers, [](HANDLE worker) {
@@ -824,6 +913,7 @@ void StopClientServer(void) {
         });
         if (!g_handlers.empty()) Sleep(10);
     }
+
     if (g_shutdown_event) {
         CloseHandle(g_shutdown_event);
         g_shutdown_event = NULL;

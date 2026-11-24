@@ -1,3 +1,8 @@
+/**
+ * @file log.c
+ * @brief Buffered binary logging, asynchronous batch writes and session archive rotation.
+ */
+
 #include "log.h"
 #include <stdlib.h>
 #include <errno.h>
@@ -10,6 +15,10 @@ LoggerContext* g_logger = NULL;
 static CRITICAL_SECTION g_log_write_lock;
 static int g_log_lock_initialized = 0;
 
+/**
+ * @brief Round size up to the next multiple of align.
+ * @pre align is a nonzero power of two and the addition does not overflow uint32_t.
+ */
 static uint32_t align_up(uint32_t size, uint32_t align) {
     return (size + align - 1) & ~(align - 1);
 }
@@ -85,6 +94,11 @@ int log_init_async(uint32_t buffer_size) {
     return 0;
 }
 
+/**
+ * @brief Drain the shared ring buffer into batches until shutdown and pending entries are exhausted.
+ * @param param Borrowed LoggerContext kept alive until log_shutdown() joins this thread.
+ * @return 0 after flushing/closing the output, 1 if the initial log file cannot be opened.
+ */
 static DWORD WINAPI logger_thread_func(LPVOID param) {
     LoggerContext* ctx = (LoggerContext*)param;
     RingBuffer* rb = ctx->rb;
@@ -178,9 +192,12 @@ static DWORD WINAPI logger_thread_func(LPVOID param) {
     return 0;
 }
 
-// Moves an existing log file into <dir>\archive\<base>_1<ext> (shifting older
-// archives up, capped at max_files) and truncates the original to empty so a new
-// session starts fresh. No-op if the file is missing or already empty.
+/**
+ * @brief Copy a nonempty log into the numbered archive set, then truncate the original.
+ * Shifts older archives up to max_files; missing or empty input is a no-op.
+ * @pre max_files is positive, the path fits the internal path buffers and concurrent
+ * writers/rotators are coordinated by the caller. Filesystem failures are best-effort.
+ */
 static void archive_log_file(const char* log_path, uint32_t max_files) {
     if (!log_path || log_path[0] == '\0') return;
 
@@ -276,6 +293,11 @@ static void archive_log_file(const char* log_path, uint32_t max_files) {
     if (t) fclose(t);
 }
 
+/**
+ * @brief Close active log streams, archive the file and reopen streams for a fresh session.
+ * @pre Called by the logger consumer with exclusive access to its file state.
+ * A reopen failure stops the consumer by clearing ctx->running.
+ */
 static void archive_current_log(LoggerContext* ctx) {
     if (!ctx->batch_file) return;
     if (ctx->current_file_size == 0) return;
@@ -301,6 +323,10 @@ static void archive_current_log(LoggerContext* ctx) {
     ctx->current_file_size = 0;
 }
 
+/**
+ * @brief Archive the current log if its size reaches the configured nonzero rotation limit.
+ * @pre Called by the logger consumer with exclusive access to its file state.
+ */
 static void rotate_log(LoggerContext* ctx) {
     if (ctx->max_file_size == 0) return;
     if (ctx->current_file_size < ctx->max_file_size) return;
@@ -311,6 +337,11 @@ void log_rotate_file(const char* path) {
     archive_log_file(path, LOG_MAX_FILES);
 }
 
+/**
+ * @brief Rotate if needed, write buffered binary entries, flush the stream and reset the batch.
+ * @pre Called only by the logger consumer; queued entries already fit the batch slots.
+ * An unavailable stream discards the queued batch; individual write errors are not returned.
+ */
 static void flush_batch(LoggerContext* ctx) {
     if (ctx->entry_count == 0 || !ctx->batch_file) {
         ctx->entry_count = 0;
@@ -502,7 +533,7 @@ void log_write_sync(uint16_t type, uint8_t level, const char* msg) {
     fflush(LogFile);
 }
 
-// Legacy function for backward compatibility
+/** @brief Legacy entry point selecting the running async logger or synchronous fallback. */
 static void __attribute__((unused)) log_write(uint16_t type, uint8_t level, const char* msg) {
     if (g_logger && g_logger->running) {
         log_write_async(type, level, msg);

@@ -15,6 +15,10 @@
 
 #define IPC_PIPE_PREFIX "\\\\.\\pipe\\" IPC_PIPE_NAME
 
+/**
+ * @brief Reload rules under the exclusive allowlist lock, then refresh DNS resolution.
+ * @return LoadWhiteList() status; pre-resolution is attempted even if loading fails.
+ */
 static int reload_whitelist(void) {
     AcquireSRWLockExclusive(&g_AllowlistLock);
     int ret = LoadWhiteList(NULL);
@@ -23,11 +27,16 @@ static int reload_whitelist(void) {
     return ret;
 }
 
+/**
+ * @brief Attempt one synchronous write of a NUL-terminated string to a borrowed pipe.
+ * Does not send the NUL or report partial writes and transport errors.
+ */
 static void write_str(HANDLE pipe, const char* str) {
     DWORD written;
     WriteFile(pipe, str, (DWORD)strlen(str), &written, NULL);
 }
 
+/** @brief Snapshot rule/IP counts and filtration state under the shared lock, then write a STATUS reply. */
 static void write_status(HANDLE pipe) {
     char buffer[IPC_BUFFER_SIZE];
     AcquireSRWLockShared(&g_AllowlistLock);
@@ -36,16 +45,23 @@ static void write_status(HANDLE pipe) {
     ReleaseSRWLockShared(&g_AllowlistLock);
     write_str(pipe, buffer);
 }
+/** @brief Write the newline-terminated OK acknowledgement on a borrowed pipe. */
 static void write_ok(HANDLE pipe) {
     write_str(pipe, "OK\n");
 }
 
+/** @brief Write an ERROR reply with a message bounded by IPC_BUFFER_SIZE. */
 static void write_error(HANDLE pipe, const char* error) {
     char buffer[IPC_BUFFER_SIZE];
     snprintf(buffer, sizeof(buffer), "ERROR\n%s\n", error);
     write_str(pipe, buffer);
 }
 
+/**
+ * @brief Serialize current allow/exception rule text under the shared lock and write one reply.
+ * @pre Serialized rules and the WHITELIST header fit within IPC_MAX_MESSAGE_SIZE.
+ * Allocation failure sends no reply; the temporary buffer is released before returning.
+ */
 static void write_whitelist(HANDLE pipe) {
     char* buffer = malloc(IPC_MAX_MESSAGE_SIZE);
     if (!buffer) {
@@ -73,6 +89,14 @@ static void write_whitelist(HANDLE pipe) {
     free(buffer);
 }
 
+/**
+ * @brief Split a mutable command/payload message and execute the firewall operation.
+ * @param pipe Borrowed connection receiving the reply.
+ * @param buffer Writable request storage with at least size + 1 bytes; modified in place.
+ * @param size Request length excluding the terminator this function appends.
+ * @return 0 for recognized commands, -1 for unknown commands. Operation failures are
+ * reported in the pipe reply rather than the return value.
+ */
 static int parse_and_execute(HANDLE pipe, char* buffer, size_t size) {
     buffer[size] = '\0';
 
@@ -167,6 +191,10 @@ static int parse_and_execute(HANDLE pipe, char* buffer, size_t size) {
     return 0;
 }
 
+/**
+ * @brief Match the pipe peer PID to the running BigBrother Client service reported by SCM.
+ * @return 1 for a match, 0 on identity mismatch or any lookup failure.
+ */
 static int peer_is_backend(HANDLE pipe) {
     ULONG pid = 0;
     if (!GetNamedPipeClientProcessId(pipe, &pid)) return 0;
@@ -183,6 +211,13 @@ static int peer_is_backend(HANDLE pipe) {
     return allowed;
 }
 
+/**
+ * @brief Own a connected pipe, authorize its peer and handle one bounded message-mode request.
+ * Grows the input buffer up to IPC_MAX_MESSAGE_SIZE while consuming ERROR_MORE_DATA.
+ * @param param Transferred pipe handle, closed before return.
+ * @return 1 on authorization/allocation failure, otherwise 0; malformed or incomplete reads
+ * may close the connection without a reply.
+ */
 static DWORD WINAPI ipc_client_handler(LPVOID param) {
     HANDLE pipe = (HANDLE)param;
     if (!peer_is_backend(pipe)) { CloseHandle(pipe); return 1; }
@@ -238,6 +273,12 @@ static DWORD WINAPI ipc_client_handler(LPVOID param) {
     return 0;
 }
 
+/**
+ * @brief Listen for local firewall requests until the borrowed stop event is signaled.
+ * @param param Stop-event handle passed by value; must outlive this listener.
+ * @return 0 on listener shutdown, 1 on security-descriptor setup failure.
+ * Accepted pipes pass to detached workers; listener shutdown does not join those workers.
+ */
 static DWORD WINAPI ipc_server_thread(LPVOID param) {
     HANDLE stop_event = (HANDLE)(uintptr_t)param;
     HANDLE pipes[16];

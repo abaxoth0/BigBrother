@@ -26,6 +26,17 @@
 
 #define DNS_CLASS_IN   1   // Internet class
 
+/**
+ * @brief Expand DNS labels and compression pointers into a bounded dotted name.
+ * @param payload Borrowed DNS message beginning at its header.
+ * @param payload_len Message length in bytes.
+ * @param offset Position of the first label or compression pointer.
+ * @param out Output name, always NUL-terminated; may contain a partial/truncated name.
+ * @param out_len Positive output capacity including NUL.
+ * @return Offset after the encoded name, or after its first compression pointer.
+ * Malformed labels and excessive pointer traversal stop decoding without a separate
+ * error result; callers must validate returned offsets before reading subsequent fields.
+ */
 static uint32_t parse_dns_name(const uint8_t* payload, size_t payload_len,
                                size_t offset, char* out, size_t out_len) {
     size_t out_pos = 0;

@@ -1,3 +1,8 @@
+/**
+ * @file client_key.cpp
+ * @brief Persistent P-256 identity storage, public-key export and challenge signing.
+ */
+
 #include "../include/client_key.h"
 
 #include <stdio.h>
@@ -22,6 +27,11 @@ static mbedtls_entropy_context g_ent;
 static mbedtls_ctr_drbg_context g_drbg;
 static int g_rng_ready = 0;
 
+/**
+ * @brief Seed the shared signing RNG on first use.
+ * @pre Callers serialize initialization and use of the shared RNG.
+ * @return 0 when ready, -1 if entropy seeding fails.
+ */
 static int rng_ready(void) {
     if (g_rng_ready) return 0;
     mbedtls_entropy_init(&g_ent);
@@ -34,6 +44,10 @@ static int rng_ready(void) {
     return 0;
 }
 
+/**
+ * @brief Write lowercase hex and a trailing NUL for n input bytes.
+ * @pre out has room for `2 * n + 1` bytes.
+ */
 static void hex_encode(const unsigned char* in, size_t n, char* out) {
     static const char* digs = "0123456789abcdef";
     for (size_t i = 0; i < n; i++) {
@@ -43,10 +57,13 @@ static void hex_encode(const unsigned char* in, size_t n, char* out) {
     out[n * 2] = '\0';
 }
 
-/* --- minimal DER helper (definite-length single-byte; payloads < 128) --- */
-
-/* Builds ECPrivateKey SEC1 DER from scalar + uncompressed point:
- *   SEQUENCE { INTEGER 1, OCTET STRING d, [0] { OID }, [1] { BIT STRING point } }
+/**
+ * @brief Encode a 32-byte P-256 scalar and 65-byte uncompressed point as SEC1 DER.
+ * @param out Caller-owned output; the DER length is `2 + out[1]` on success.
+ * @param cap Capacity of out in bytes.
+ * @param d Private scalar in big-endian byte order.
+ * @param point Uncompressed public point, including its 0x04 prefix.
+ * @return 0 on success, -1 if cap is too small.
  */
 static int build_sec1(const unsigned char* d, const unsigned char* point,
                       unsigned char* out, size_t cap) {
@@ -76,6 +93,12 @@ static int build_sec1(const unsigned char* d, const unsigned char* point,
     return 0;
 }
 
+/**
+ * @brief Create a private identity file containing the scalar followed by the public point.
+ * Never overwrites an existing file. Restricts access to administrators/SYSTEM and
+ * removes a newly created file if writing or flushing fails.
+ * @return 0 on success, -1 on security, creation or I/O failure.
+ */
 static int write_key_file(const char* path, const unsigned char* d, const unsigned char* point) {
     unsigned char data[KEY_FILE_TOTAL];
     memcpy(data, d, 32);
@@ -92,6 +115,12 @@ static int write_key_file(const char* path, const unsigned char* d, const unsign
     return 0;
 }
 
+/**
+ * @brief Create and persist a P-256 identity, then parse it into pk.
+ * @pre pk holds no existing key; callers serialize identity creation and RNG access.
+ * @return 0 with a caller-owned key to release with mbedtls_pk_free(), or -1.
+ * A file already persisted remains in place if parsing subsequently fails.
+ */
 static int generate_and_persist(const char* path, mbedtls_pk_context* pk) {
     if (rng_ready() != 0) return -1;
     if (psa_crypto_init() != PSA_SUCCESS) return -1;
@@ -137,6 +166,11 @@ static int generate_and_persist(const char* path, mbedtls_pk_context* pk) {
     return 0;
 }
 
+/**
+ * @brief Read the stored scalar/public point and parse them into pk without replacing the file.
+ * @pre pk holds no existing key.
+ * @return 0 with a caller-owned key to release with mbedtls_pk_free(), or -1 on read/parse failure.
+ */
 static int load_key(const char* path, mbedtls_pk_context* pk) {
     FILE* f = fopen(path, "rb");
     if (!f) return -1;

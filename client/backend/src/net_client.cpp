@@ -1,3 +1,8 @@
+/**
+ * @file net_client.cpp
+ * @brief IPv4 adapter selection, UDP discovery and bounded TCP subnet scans.
+ */
+
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <iphlpapi.h>
@@ -99,7 +104,10 @@ int is_discovery_enabled(void) {
 // Network adapter enumeration
 // ---------------------------------------------------------------------------
 
-// Parse an IP string "1.2.3.4" into a uint32_t in HOST byte order. Returns 0 on error.
+/**
+ * @brief Pack four decimal IPv4 components into a host-order integer; return zero if parsing fails.
+ * @pre Input components are valid octets; this helper does not validate their range.
+ */
 static uint32_t parse_ip(const char* str) {
     unsigned int a, b, c, d;
     if (sscanf(str, "%u.%u.%u.%u", &a, &b, &c, &d) == 4)
@@ -107,14 +115,18 @@ static uint32_t parse_ip(const char* str) {
     return 0;
 }
 
-// Convert a subnet mask string like "255.255.255.0" to a prefix length.
+/** @brief Count leading one bits in a host-order subnet mask; assumes a contiguous mask. */
 static int mask_to_prefix(uint32_t mask) {
     int p = 0;
     while (mask & 0x80000000) { p++; mask <<= 1; }
     return p;
 }
 
-// Find adapter matching a given gateway IP. Returns non-zero on success with ip_str filled.
+/**
+ * @brief Find an active IPv4 adapter whose first gateway matches gateway_str.
+ * Optional outputs receive address text and host-order address/mask values.
+ * @return 1 if found, 0 on no match or enumeration/allocation failure.
+ */
 static int find_adapter_by_gateway(const char* gateway_str, char* ip_str, size_t ip_size, uint32_t* out_ip, uint32_t* out_mask) {
     uint32_t target_gw = parse_ip(gateway_str);
     if (!target_gw) return 0;
@@ -176,6 +188,10 @@ static int find_adapter_by_gateway(const char* gateway_str, char* ip_str, size_t
 // Virtual adapter detection & local IP check
 // ---------------------------------------------------------------------------
 
+/**
+ * @brief Search a wide string using ASCII-only case folding.
+ * @return Borrowed pointer to the first match, haystack for an empty needle, or NULL for no match/null input.
+ */
 static const WCHAR* wcsistr(const WCHAR* haystack, const WCHAR* needle) {
     if (!haystack || !needle) return NULL;
     size_t needle_len = wcslen(needle);
@@ -196,6 +212,7 @@ static const WCHAR* wcsistr(const WCHAR* haystack, const WCHAR* needle) {
     return NULL;
 }
 
+/** @brief Recognize virtual adapters from common description keywords using ASCII case folding. */
 static int is_virtual_adapter(const IP_ADAPTER_ADDRESSES* a) {
     if (!a || !a->Description) return 0;
     static const WCHAR* keywords[] = {
@@ -210,6 +227,10 @@ static int is_virtual_adapter(const IP_ADAPTER_ADDRESSES* a) {
     return 0;
 }
 
+/**
+ * @brief Check a host-order IPv4 address against the first unicast address of each active adapter.
+ * @return 1 for a match, 0 for no match or enumeration failure.
+ */
 static int is_local_ip(uint32_t ip) {
     ULONG buf_len = 0;
     GetAdaptersAddresses(AF_INET, GAA_FLAG_INCLUDE_GATEWAYS, NULL, NULL, &buf_len);
@@ -465,6 +486,7 @@ int DiscoverServers(const char* bcast_list, int port, int timeout_ms, char* out,
                     term = ip_end;
                 else if (nl)
                     term = nl;
+
                 if (term) {
                     size_t ip_len = term - ip_start;
                     if (ip_len < 64 && ip_len == strlen(ip) && memcmp(ip_start, ip, ip_len) == 0) {
@@ -473,6 +495,7 @@ int DiscoverServers(const char* bcast_list, int port, int timeout_ms, char* out,
                     }
                 }
             }
+
             char* next_nl = strchr(check, '\n');
             check = next_nl ? next_nl + 1 : NULL;
         }
@@ -551,16 +574,20 @@ int DiscoverServersTCP(char* out, size_t out_size, int timeout_ms) {
                      gw_buf, mask_buf,
                      (network >> 24) & 0xFF, (network >> 16) & 0xFF, (network >> 8) & 0xFF, network & 0xFF,
                      (bcast >> 24) & 0xFF, (bcast >> 16) & 0xFF, (bcast >> 8) & 0xFF, bcast & 0xFF);
+
                 // Scan the subnet
                 for (uint32_t cur = start; cur <= end && count < DISCOVERY_MAX_SERVERS; ) {
                     if (GetTickCount64() >= scan_end) goto done;
+
                     int batch_size = 0;
                     SOCKET socks[DISCOVERY_MAX_CONCURRENT];
                     for (; batch_size < DISCOVERY_MAX_CONCURRENT && cur <= end && count + batch_size < DISCOVERY_MAX_SERVERS; cur++) {
                         socks[batch_size] = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
                         if (socks[batch_size] == INVALID_SOCKET) continue;
+
                         u_long nonblock = 1;
                         ioctlsocket(socks[batch_size], FIONBIO, &nonblock);
+
                         struct sockaddr_in target_addr;
                         memset(&target_addr, 0, sizeof(target_addr));
                         target_addr.sin_family = AF_INET;
@@ -570,23 +597,29 @@ int DiscoverServersTCP(char* out, size_t out_size, int timeout_ms) {
                         batch_size++;
                     }
                     if (batch_size == 0) break;
+
                     fd_set write_set;
                     FD_ZERO(&write_set);
                     SOCKET max_sock = 0;
                     for (int i = 0; i < batch_size; i++) { FD_SET(socks[i], &write_set); if (socks[i] > max_sock) max_sock = socks[i]; }
                     struct timeval tv = {0, DISCOVERY_TCP_TIMEOUT_MS * 1000};
                     select(max_sock + 1, NULL, &write_set, NULL, &tv);
+
                     for (int i = 0; i < batch_size; i++) {
                         if (!FD_ISSET(socks[i], &write_set)) { shutdown(socks[i], SD_BOTH); closesocket(socks[i]); continue; }
+
                         int err = 0; socklen_t err_len = sizeof(err);
                         getsockopt(socks[i], SOL_SOCKET, SO_ERROR, (char*)&err, &err_len);
                         if (err != 0) { shutdown(socks[i], SD_BOTH); closesocket(socks[i]); continue; }
+
                         u_long block = 0; ioctlsocket(socks[i], FIONBIO, &block);
                         DWORD st = 500; setsockopt(socks[i], SOL_SOCKET, SO_RCVTIMEO, (const char*)&st, sizeof(st));
                         setsockopt(socks[i], SOL_SOCKET, SO_SNDTIMEO, (const char*)&st, sizeof(st));
+
                         const char* req = "GET_SERVER_NAME\n\n";
                         int sent = send(socks[i], req, (int)strlen(req), 0);
                         if (sent <= 0) { shutdown(socks[i], SD_BOTH); closesocket(socks[i]); continue; }
+
                         char resp[1024] = {}; int tt = 0; int err_count = 0;
                         while (tt < (int)sizeof(resp) - 1 && err_count < 3) {
                             int nn = recv(socks[i], resp + tt, sizeof(resp) - 1 - tt, 0);
@@ -599,11 +632,13 @@ int DiscoverServersTCP(char* out, size_t out_size, int timeout_ms) {
                             tt += nn;
                         }
                         resp[tt] = '\0'; shutdown(socks[i], SD_BOTH); closesocket(socks[i]);
+
                         mscan_next:
                         { char* nnl = strchr(resp, '\n'); if (!nnl) continue; *nnl = '\0';
                         if (strcmp(resp, "OK") != 0) continue;
                         char* ll = nnl + 1; nnl = strchr(ll, '\n'); if (!nnl) continue; *nnl = '\0';
                         ll = nnl + 1; nnl = strchr(ll, '\n'); if (nnl) *nnl = '\0';
+
                         char ips[16]; snprintf(ips, sizeof(ips), "%u.%u.%u.%u", (cur >> 24) & 0xFF, (cur >> 16) & 0xFF, (cur >> 8) & 0xFF, cur & 0xFF);
                         int wr = snprintf(out_pos, remaining, "%s|%s|1984\n", ll, ips);
                         if (wr > 0 && wr < (int)remaining) { out_pos += wr; remaining -= wr; count++; }
@@ -762,6 +797,7 @@ probe_localhost:
             laddr.sin_port = htons(1984);
             inet_pton(AF_INET, "127.0.0.1", &laddr.sin_addr);
             connect(lsock, (struct sockaddr*)&laddr, sizeof(laddr));
+
             fd_set ws;
             FD_ZERO(&ws);
             FD_SET(lsock, &ws);
@@ -776,9 +812,11 @@ probe_localhost:
                     DWORD st = 500;
                     setsockopt(lsock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&st, sizeof(st));
                     setsockopt(lsock, SOL_SOCKET, SO_SNDTIMEO, (const char*)&st, sizeof(st));
+
                     const char* req = "GET_SERVER_NAME\n\n";
                     int sent = send(lsock, req, (int)strlen(req), 0);
                     if (sent <= 0) { shutdown(lsock, SD_BOTH); closesocket(lsock); goto done; }
+
                     char resp[1024] = {};
                     int t = 0;
                     while (t < (int)sizeof(resp) - 1) {
@@ -786,6 +824,7 @@ probe_localhost:
                         if (n <= 0) break;
                         t += n;
                     }
+
                     resp[t] = '\0';
                     shutdown(lsock, SD_BOTH);
                     closesocket(lsock);
@@ -800,6 +839,7 @@ probe_localhost:
                                 l = nl + 1;
                                 nl = strchr(l, '\n');
                                 if (nl) *nl = '\0';
+
                                 // Skip if same server was already found via subnet scan
                                 char* existing = out;
                                 int already_found = 0;
@@ -810,6 +850,7 @@ probe_localhost:
                                         if (strcmp(existing, l) == 0) { already_found = 1; *pipe = '|'; break; }
                                         *pipe = '|';
                                     }
+
                                     char* next_nl = strchr(existing, '\n');
                                     existing = next_nl ? next_nl + 1 : NULL;
                                 }
@@ -817,6 +858,7 @@ probe_localhost:
                                     LOGF("[Discovery] Skip 127.0.0.1 (already found via subnet): %s", l);
                                     goto skip_localhost_add;
                                 }
+
                                 {
                                 int written = snprintf(out_pos, remaining, "%s|127.0.0.1|1984\n", l);
                                 if (written > 0 && written < (int)remaining) {

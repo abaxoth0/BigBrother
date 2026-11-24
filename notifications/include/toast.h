@@ -1,3 +1,8 @@
+/**
+ * @file toast.h
+ * @brief Windows toast submission.
+ */
+
 #pragma once
 
 #include "app.h"
@@ -9,6 +14,7 @@
 #include <windows.data.xml.dom.h>
 
 namespace notifications {
+/** @brief Submit a toast and observe delivery events; notifier/toast are borrowed COM interfaces. */
 void submit_toast(ABI::Windows::UI::Notifications::IToastNotifier* notifier,
                   ABI::Windows::UI::Notifications::IToastNotification* toast);
 }

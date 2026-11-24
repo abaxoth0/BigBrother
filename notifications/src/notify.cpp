@@ -1,3 +1,8 @@
+/**
+ * @file notify.cpp
+ * @brief Asynchronous native notification API with bounded concurrent helper processes.
+ */
+
 #include "notify.h"
 #include "transport.h"
 #include "process.h"
@@ -8,23 +13,33 @@ namespace {
 std::atomic<bb_notification_error_handler> error_handler{nullptr};
 volatile LONG active_deliveries = 0;
 
+/** @brief Own the helper and kill-on-close process group until its delivery waiter finishes. */
 struct delivery {
     notifications::process_group group;
     notifications::handle process;
 };
 
+/**
+ * @brief Own one queued delivery and wait up to 35 seconds for its helper to exit.
+ * @param context Transferred delivery allocation, including process/job ownership.
+ * On timeout terminates the helper; failures invoke the current callback or debug output.
+ * Releases supervision and decrements the active-delivery count before returning zero.
+ */
 DWORD WINAPI await_delivery(void* context) {
     std::unique_ptr<delivery> pending(static_cast<delivery*>(context));
     DWORD result = ERROR_GEN_FAILURE;
-    if (WaitForSingleObject(pending->process.get(), 35000) == WAIT_OBJECT_0)
+    if (WaitForSingleObject(pending->process.get(), 35000) == WAIT_OBJECT_0) {
         GetExitCodeProcess(pending->process.get(), &result);
-    else {
+    } else {
         result = ERROR_TIMEOUT;
         TerminateProcess(pending->process.get(), result);
     }
     if (result) {
-        if (auto handler = error_handler.load()) handler(result);
-        else OutputDebugStringW(L"BigBrother: notification delivery failed\n");
+        if (auto handler = error_handler.load()) {
+            handler(result);
+        } else {
+            OutputDebugStringW(L"BigBrother: notification delivery failed\n");
+        }
     }
     InterlockedDecrement(&active_deliveries);
     return 0;
@@ -36,18 +51,31 @@ extern "C" void bb_notifications_set_error_handler(bb_notification_error_handler
 }
 
 extern "C" int bb_notify(const char* title, const char* message) {
-    if (!title || !message) { SetLastError(ERROR_INVALID_PARAMETER); return -1; }
+    if (!title || !message) {
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return -1;
+    }
+
     try {
         std::wstring path(32768, 0);
         DWORD length = GetModuleFileNameW(nullptr, path.data(), static_cast<DWORD>(path.size()));
-        if (!length || length == path.size()) return -1;
+        if (!length || length == path.size()) {
+            return -1;
+        }
         path.resize(length);
         auto separator = path.find_last_of(L'\\');
-        if (separator == path.npos) { SetLastError(ERROR_BAD_PATHNAME); return -1; }
+        if (separator == path.npos) {
+            SetLastError(ERROR_BAD_PATHNAME);
+            return -1;
+        }
         path.resize(separator + 1);
         path += L"BigBrother Notifications.exe";
-        std::wstring command = L"\"" + path + L"\" --send Client " + notifications::encode(notifications::prepare_text(title, 256, "BigBrother"), 256) +
-            L" " + notifications::encode(notifications::prepare_text(message, 1024, "Notification"), 1024);
+
+        std::wstring command =
+            L"\"" + path + L"\" --send Client " +
+            notifications::encode(notifications::prepare_text(title, 256, "BigBrother"), 256) + L" " +
+            notifications::encode(notifications::prepare_text(message, 1024, "Notification"), 1024);
+
         auto pending = std::make_unique<delivery>();
         if (InterlockedIncrement(&active_deliveries) > 16) {
             InterlockedDecrement(&active_deliveries);
@@ -56,18 +84,25 @@ extern "C" int bb_notify(const char* title, const char* message) {
         }
         struct active_guard {
             bool armed = true;
-            ~active_guard() { if (armed) InterlockedDecrement(&active_deliveries); }
+            ~active_guard() {
+                if (armed) {
+                    InterlockedDecrement(&active_deliveries);
+                }
+            }
         } active;
+
         STARTUPINFOW startup{};
         PROCESS_INFORMATION process{};
         startup.cb = sizeof(startup);
-        if (!CreateProcessW(path.c_str(), command.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW | CREATE_SUSPENDED,
-            nullptr, nullptr, &startup, &process)) {
+        if (!CreateProcessW(path.c_str(), command.data(), nullptr, nullptr, FALSE,
+                            CREATE_NO_WINDOW | CREATE_SUSPENDED, nullptr, nullptr, &startup, &process)) {
             return -1;
         }
+
         auto child = pending->group.resume(process);
         *pending->process.put() = child.get();
         *child.put() = nullptr;
+
         HANDLE waiter = CreateThread(nullptr, 0, await_delivery, pending.get(), 0, nullptr);
         if (!waiter) {
             DWORD error = GetLastError();
@@ -75,6 +110,7 @@ extern "C" int bb_notify(const char* title, const char* message) {
             SetLastError(error);
             return -1;
         }
+
         active.armed = false;
         pending.release();
         CloseHandle(waiter);

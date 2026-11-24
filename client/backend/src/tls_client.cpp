@@ -1,3 +1,8 @@
+/**
+ * @file tls_client.cpp
+ * @brief Winsock-backed TLS 1.2 transport with explicit SHA-256 certificate pinning.
+ */
+
 #include "../include/tls_client.h"
 
 #include <string.h>
@@ -13,12 +18,17 @@
 
 #include "../../../common/log/log.h"
 
+/** @brief Log an mbedTLS error code together with its decoded message and operation name. */
 static void tls_log_ret(int ret, const char* what) {
     char err[256];
     mbedtls_strerror(ret, err, sizeof(err));
     LOGF("[TLS] %s failed: -0x%04X %s", what, (unsigned int)(-ret), err);
 }
 
+/**
+ * @brief mbedTLS transport callback borrowing a SOCKET through ctx.
+ * @return Bytes sent, WANT_WRITE for would-block/timeout, or NET_SEND_FAILED for other socket errors.
+ */
 static int net_send_cb(void* ctx, const unsigned char* buf, size_t len) {
     SOCKET s = *(SOCKET*)ctx;
     int n = send(s, (const char*)buf, (int)(len > 0x7FFFFFFF ? 0x7FFFFFFF : len), 0);
@@ -32,6 +42,10 @@ static int net_send_cb(void* ctx, const unsigned char* buf, size_t len) {
     return n;
 }
 
+/**
+ * @brief mbedTLS transport callback borrowing a SOCKET through ctx.
+ * @return Bytes read, zero for EOF, WANT_READ for would-block/timeout, or NET_RECV_FAILED.
+ */
 static int net_recv_cb(void* ctx, unsigned char* buf, size_t len) {
     SOCKET s = *(SOCKET*)ctx;
     int n = recv(s, (char*)buf, (int)(len > 0x7FFFFFFF ? 0x7FFFFFFF : len), 0);
@@ -48,6 +62,10 @@ static int net_recv_cb(void* ctx, unsigned char* buf, size_t len) {
     return n;
 }
 
+/**
+ * @brief Write uppercase hex and a trailing NUL for n bytes.
+ * @pre out has room for `2 * n + 1` bytes.
+ */
 static void hex_upper(const unsigned char* in, size_t n, char* out) {
     static const char* digs = "0123456789ABCDEF";
     for (size_t i = 0; i < n; i++) {

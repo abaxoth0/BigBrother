@@ -1,3 +1,8 @@
+/**
+ * @file common.cpp
+ * @brief Per-session backend log rotation and asynchronous logger initialization.
+ */
+
 #include <fileapi.h>
 #include <libloaderapi.h>
 #include <minwindef.h>

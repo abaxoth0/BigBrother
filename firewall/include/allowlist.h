@@ -1,5 +1,10 @@
-/** @file allowlist.h
+/**
+ * @file allowlist.h
  * @brief Domain whitelist and IP allowlist management.
+ *
+ * IPv4 values use host byte order. These containers have no internal locking:
+ * callers synchronize access and keep borrowed results protected while in use.
+ * Zero-initialize Whitelist before its first use. Mutations may invalidate pointers.
  */
 
 #ifndef ALLOWLIST_H
@@ -20,6 +25,7 @@
 // Sweep expired IP allowlist entries at most this often (seconds).
 #define IP_ALLOWLIST_SWEEP_INTERVAL 60
 
+/** @brief Inclusive destination port range (0–65535). */
 typedef struct {
     uint16_t first, last;
 } PortRange;
@@ -46,6 +52,7 @@ typedef struct {
     size_t capacity;
 } Whitelist;
 
+/** @brief Owned lowercase DNS name with an absolute expiry time and next link. */
 typedef struct CachedDomain {
     char domain[MAX_DOMAIN_LEN];
     time_t expires;
@@ -62,14 +69,18 @@ typedef struct {
 /** @brief Container for allowed IP addresses (uthash table). */
 typedef struct {
     AllowedIp* head;            // uthash table head
-    size_t count;               // live (unexpired) entry count
+    size_t count;               ///< Stored IP count; may include entries awaiting expiry cleanup.
     time_t last_sweep;          // last time expired entries were purged
 } IpAllowlist;
 
-/** @brief Initialize a whitelist structure. */
+/** @brief Reset a zero-initialized or previously valid list, releasing existing entries. */
 void WhitelistInit(Whitelist* wl);
 
-/** @brief Add a domain to the whitelist. */
+/**
+ * @brief Parse and insert one rule, including optional priority and port constraints.
+ * Maintains descending priority order and ignores case-insensitive text duplicates.
+ * @return 0 on success/duplicate, -1 on invalid syntax or allocation failure.
+ */
 int WhitelistAdd(Whitelist* wl, const char* domain);
 
 /** @brief Clear all entries from the whitelist. */
@@ -78,34 +89,44 @@ void WhitelistClear(Whitelist* wl);
 /** @brief Free the dynamic array backing a whitelist. */
 void WhitelistFree(Whitelist* wl);
 
-/** @brief Load whitelist from data (e.g., received via IPC); '!' entries go to bl. */
+/**
+ * @brief Replace both rule lists from size bytes of newline-separated input.
+ * '!' rules go to bl. A leading standalone [N] sets the default priority;
+ * blank lines and lines beginning with '#' or ';' after whitespace are ignored.
+ * @return 0 on success, -1 on invalid input/allocation failure, preserving both old lists.
+ */
 int WhitelistLoadFromData(Whitelist* wl, Whitelist* bl, const char* data, size_t size);
 
 /** @brief Clear all entries from the IP allowlist. */
 void IpAllowlistClear(IpAllowlist* al);
 
-/** @brief Free the dynamic array backing an IP allowlist. */
+/** @brief Release all hash entries and their owned domain chains. */
 void IpAllowlistFree(IpAllowlist* al);
 
-/** @brief Initialize an IP allowlist structure. */
+/** @brief Initialize an empty cache; free an existing cache before reinitializing it. */
 void IpAllowlistInit(IpAllowlist* al);
 
 /** @brief Remove expired entries from the IP allowlist. */
 void IpAllowlistCleanup(IpAllowlist* al);
 
-/** @brief Add an IP address to the allowlist with TTL. */
+/**
+ * @brief Cache a domain for an IPv4 address, refreshing an existing name case-insensitively.
+ * Names are stored lowercase; ttl is in seconds and clamped to a minimum of 300.
+ * Periodically removes expired entries before insertion.
+ * @return 0 on success, -1 on invalid input or allocation failure.
+ */
 int IpAllowlistAdd(IpAllowlist* al, uint32_t ip, const char* domain, uint32_t ttl);
 
 /** @brief Check if an IP address is in the allowlist. */
 int IpAllowlistContains(IpAllowlist* al, uint32_t ip);
 
-/** @brief Get domain associated with an IP address from allowlist. */
+/** @brief Borrow the first unexpired domain for an address, or return NULL if none remains. */
 const char* IpAllowlistGetDomain(IpAllowlist* al, uint32_t ip);
 
 /**
  * @brief Look up an IP entry without an extra time() call.
  *
- * Returns the live (unexpired) entry for `ip`, or NULL. Pass the cached
+ * Returns a borrowed entry with at least one unexpired domain, or NULL. Pass the cached
  * current time so the packet hot path calls time() once instead of per lookup.
  */
 AllowedIp* IpAllowlistLookup(IpAllowlist* al, uint32_t ip, time_t now);
@@ -119,7 +140,19 @@ int IpAllowlistRemove(IpAllowlist* al, uint32_t ip);
  */
 void IpAllowlistPurgeUnowned(IpAllowlist* al, const Whitelist* wl, const Whitelist* other);
 
+/**
+ * @brief Test a lowercase domain against any rule, optionally checking a destination port.
+ * RULE_ANY_PORT ignores port restrictions; RULE_NO_PORT matches only unrestricted rules.
+ * @return 1 if a rule matches, otherwise 0; priorities/exclusions are not resolved here.
+ */
 int WhitelistMatches(const Whitelist* wl, const char* domain, int port);
+/**
+ * @brief Resolve packet policy using descending priority, with exclusions winning ties.
+ * Both lists must be sorted (as maintained by WhitelistAdd/WhitelistLoadFromData).
+ * ip is host-order IPv4; port is 0–65535 or RULE_NO_PORT for portless traffic.
+ * Both DNS caches are checked for names whose expiry exceeds now.
+ * @return 1 if the highest matching rule allows traffic, otherwise 0.
+ */
 int WhitelistAllows(const Whitelist* wl, const Whitelist* bl, const IpAllowlist* al,
                     const IpAllowlist* blocked, uint32_t ip, int port, time_t now);
 
