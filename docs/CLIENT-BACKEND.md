@@ -87,13 +87,13 @@ applications use the Windows service lifecycle.
 ## Verification
 
 ~~~sh
-make -C client/backend debug regression-build lifecycle-test-build
-make -C client/backend release
-make -C firewall debug test-build lifetime-test-build
-python3 client/backend/tests/run_tests.py
-python3 client/backend/tests/run_tests.py --lifecycle-only
-dotnet run --project client/frontend.tests/BigBrother.Client.Certificate.Tests.csproj
-dotnet run --project client/updates.tests/BigBrother.Client.Updates.Tests.csproj
+make -C app/client/backend debug regression-build lifecycle-test-build
+make -C app/client/backend release
+make -C app/firewall debug test-build lifetime-test-build
+python3 app/client/backend/tests/run_tests.py
+python3 app/client/backend/tests/run_tests.py --lifecycle-only
+dotnet run --project app/client/frontend.tests/BigBrother.Client.Certificate.Tests.csproj
+dotnet run --project app/client/updates.tests/BigBrother.Client.Updates.Tests.csproj
 dotnet run --project lib/cs/BigBrother.Frontend.Shared.Tests/BigBrother.Frontend.Shared.Tests.csproj
 ~~~
 

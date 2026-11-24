@@ -9,4 +9,4 @@ dist
 **/obj/
 **/__pycache__/
 /compile_commands.json
-/server/backend/cmd/app_windows_amd64.syso
+/app/server/backend/cmd/app_windows_amd64.syso

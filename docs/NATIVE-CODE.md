@@ -1,7 +1,7 @@
 # Native code maintenance
 
-The first-party C/C++ code lives in `firewall`, `client/backend`, `notifications`
-and `common`. Third-party code under `lib` and `firewall/include/third-party`
+The first-party C/C++ code lives in `app/firewall`, `app/client/backend`, `app/notifications`
+and `lib/common`. Third-party code under `lib` and `app/firewall/include/third-party`
 keeps its upstream style.
 
 ## clangd
@@ -22,7 +22,7 @@ compilers for their system headers, so no checkout path, GCC version or editor
 Third-party translation units are excluded so their build flags cannot be
 mistakenly inferred for similarly named project headers such as `version.h`.
 
-`compile_commands.json` contains local absolute paths and is ignored by Git.
+`build/compile_commands.json` contains local absolute paths and is ignored by Git.
 Regenerate it after changing build flags, source lists, `VERSION`, the toolchain
 or the checkout location, then restart clangd if diagnostics have not refreshed.
 Run the generator once on each new checkout before opening native files.
@@ -31,8 +31,8 @@ Verify the setup with:
 
 ```sh
 python3 -m unittest discover -s scripts/tests -p 'compile_commands_test.py'
-clangd --check=client/backend/src/ipc_client.cpp --tweaks=none
-clangd --check=firewall/src/firewall.c --tweaks=none
+clangd --check=app/client/backend/src/ipc_client.cpp --tweaks=none
+clangd --check=app/firewall/src/firewall.c --tweaks=none
 ```
 
 The `--tweaks=none` option skips clangd's refactoring self-tests while retaining
@@ -47,8 +47,8 @@ Apply formatting to the files you change, keeping unrelated formatting out of
 functional changes:
 
 ```sh
-clang-format -i firewall/src/allowlist.c
-clang-format --dry-run --Werror firewall/src/allowlist.c
+clang-format -i app/firewall/src/allowlist.c
+clang-format --dry-run --Werror app/firewall/src/allowlist.c
 ```
 
 Separate validation, parsing, resource acquisition and result construction with
@@ -77,12 +77,12 @@ Generate the combined native API reference from the repository root:
 
 ```sh
 mkdir -p build/native-docs
-doxygen Doxyfile
+doxygen config/Doxyfile
 ```
 
-Open `build/native-docs/html/index.html`. The root configuration includes only
+Open `build/native-docs/html/index.html`. The configuration includes only
 first-party native code, includes static and anonymous-namespace helpers and
-validates documentation syntax. The existing `firewall/Doxyfile` remains
+validates documentation syntax. The existing `app/firewall/Doxyfile` remains
 available for firewall-only documentation.
 
 Check documentation coverage separately:
@@ -104,14 +104,14 @@ review the wording against the implementation whenever behavior changes.
 Build the affected native modules and their existing regression executables:
 
 ```sh
-make -C firewall debug test-build lifetime-test-build
-make -C client/backend debug regression-build lifecycle-test-build
-make -C notifications debug test-build
-python3 client/backend/tests/run_tests.py
-python3 client/backend/tests/run_tests.py --lifecycle-only
+make -C app/firewall debug test-build lifetime-test-build
+make -C app/client/backend debug regression-build lifecycle-test-build
+make -C app/notifications debug test-build
+python3 app/client/backend/tests/run_tests.py
+python3 app/client/backend/tests/run_tests.py --lifecycle-only
 ```
 
 The Python runner executes the backend, firewall and live TLS suites on Windows
 or Wine. The lifecycle fixture requires an isolated Wine prefix. Run
-`notifications/build/tests.exe` separately on Windows or with Wine; native Windows
+`app/notifications/build/tests.exe` separately on Windows or with Wine; native Windows
 is needed to verify actual toast delivery and driver-backed packet interception.
