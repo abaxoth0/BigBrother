@@ -34,7 +34,6 @@ internal static partial class Program
         public ICommand ImportWhitelistsCommand => Command("import");
         public ICommand ExportWhitelistsCommand => Command("export");
         public ICommand SaveWhitelistPresetCommand => Command("preset");
-        public ICommand OpenProcessBlacklistCommand => Command("processes");
         public ICommand OpenDomainCheckCommand => Command("check");
         public ICommand SyncWhitelistsCommand => Command("sync");
         public ICommand SaveWhitelistActivationCommand => new RelayCommand(_ =>
@@ -111,7 +110,7 @@ internal static partial class Program
             {
                 ("CreateWhitelistButton", "create"), ("ImportWhitelistsButton", "import"),
                 ("ExportWhitelistsButton", "export"), ("DomainCheckButton", "check"),
-                ("SyncWhitelistsButton", "sync"), ("ProcessBlacklistButton", "processes")
+                ("SyncWhitelistsButton", "sync")
             })
             {
                 var button = (Button)toolbar.FindName(name);

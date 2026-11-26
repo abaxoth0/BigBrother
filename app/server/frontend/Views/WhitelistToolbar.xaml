@@ -48,13 +48,6 @@
                         </WrapPanel>
                     </StackPanel>
                 </Border>
-                <Border Style="{StaticResource ActionGroup}">
-                    <StackPanel>
-                        <TextBlock Text="Приложения" Style="{StaticResource GroupLabel}"/>
-                        <Button x:Name="ProcessBlacklistButton" Content="Чёрный список" Style="{StaticResource ToolbarButton}"
-                                Command="{Binding OpenProcessBlacklistCommand}"/>
-                    </StackPanel>
-                </Border>
                 <Border x:Name="PresetActions" Style="{StaticResource ActionGroup}">
                     <StackPanel>
                         <TextBlock Text="Пресеты" Style="{StaticResource GroupLabel}"/>

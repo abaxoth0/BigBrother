@@ -21,7 +21,8 @@ public enum NavigationSection
     Main,
     Users,
     Network,
-    Lists,
+    Firewall,
+    Applications,
     Settings
 }
 
