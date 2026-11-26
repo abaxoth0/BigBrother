@@ -29,7 +29,8 @@ starts the firewall. Only explicit firewall Start/Restart requests start it. Fil
 toggles, settings, server policy, status checks and reconnects never launch it.
 A stopped or crashed firewall stays stopped until another Start/Restart request.
 
-The installer defaults the backend to Automatic, with a Manual option. The
+Client Setup defaults the backend to Automatic, with a Manual option. A separate
+checkbox, selected by default, starts the backend when installation finishes. The
 firewall is always Manual. Its lifetime depends on BigBrother Client: it watches
 the backend service state and holds a handle to that backend process. It exits on
 backend stop or crash, even if the backend has already restarted. There is no SCM

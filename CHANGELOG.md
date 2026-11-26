@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Client installer: start the BigBrother Client backend when setup finishes by default. A separate checkbox lets users leave it stopped with either Automatic or Manual Windows startup.
+
 - Group applications under `app/`, shared native code under `lib/common/`, repository scripts under `scripts/`, installer definitions under `installer/`, and the project Doxygen configuration under `config/`.
 
 - Native code: improve readability and spacing between logical steps in firewall rule parsing, client IPC and discovery, command modules, notification helpers and shared security code; document C/C++ interfaces and internal helpers across native applications, including ownership, locking and protocol failure behavior; add shared formatting, Doxygen configuration and a native documentation coverage check
