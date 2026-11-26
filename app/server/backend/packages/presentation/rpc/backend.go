@@ -76,29 +76,32 @@ func (h *BackendHandler) handle(conn net.Conn) {
 		}
 
 		switch cmd {
-		case "GET_PROCESS_BLACKLIST":
+		case "GET_PROCESS_BLACKLIST", "GET_PROCESS_BLACKLIST_STATE":
 			if len(args) != 2 || !h.authenticate(args[0], args[1]) {
 				writeErrorTLV(conn, "invalid token")
 				continue
 			}
-			enabled, err := processlist.EnabledValue(h.db)
+			raw, text, err := h.db.GetSettingPair(processlist.EnabledSetting, processlist.Setting)
 			if err != nil {
 				writeErrorTLV(conn, err.Error())
 				continue
 			}
-			if enabled == "0" {
+			enabled, err := processlist.EnabledValue(raw)
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			if cmd == "GET_PROCESS_BLACKLIST" && enabled == "0" {
 				writeOK(conn)
-				continue
-			}
-			text, err := h.db.GetSetting(processlist.Setting)
-			if err != nil {
-				writeErrorTLV(conn, err.Error())
 				continue
 			}
 			entries, err := processlist.Compile(text)
 			if err != nil {
 				writeErrorTLV(conn, err.Error())
 				continue
+			}
+			if cmd == "GET_PROCESS_BLACKLIST_STATE" {
+				entries = append([]string{enabled}, entries...)
 			}
 			writeTLVResponse(conn, entries...)
 

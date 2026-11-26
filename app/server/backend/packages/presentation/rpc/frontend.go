@@ -97,7 +97,12 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 				writeErrorTLV(conn, "Expected no arguments")
 				continue
 			}
-			value, err := processlist.EnabledValue(h.db)
+			raw, err := h.db.GetSetting(processlist.EnabledSetting)
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			value, err := processlist.EnabledValue(raw)
 			if err != nil {
 				writeErrorTLV(conn, err.Error())
 				continue

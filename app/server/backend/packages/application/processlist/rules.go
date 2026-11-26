@@ -7,18 +7,13 @@ import (
 	"unicode/utf8"
 
 	"bigbrother_server_backend/packages/application/rules"
-	"bigbrother_server_backend/packages/application/settings"
 )
 
 const Setting = "process_blacklist"
 const EnabledSetting = "process_blacklist_enabled"
 const maxBytes = 8192
 
-func EnabledValue(settings settingsapplication.QueryHandler) (string, error) {
-	value, err := settings.GetSetting(EnabledSetting)
-	if err != nil {
-		return "", err
-	}
+func EnabledValue(value string) (string, error) {
 	switch value {
 	case "":
 		return "1", nil

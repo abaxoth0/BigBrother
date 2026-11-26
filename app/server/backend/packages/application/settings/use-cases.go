@@ -12,6 +12,7 @@ type CommandHandler interface {
 }
 
 type UseCases interface {
+	GetSettingPair(firstKey, secondKey string) (string, string, error)
 	QueryHandler
 	CommandHandler
 }
