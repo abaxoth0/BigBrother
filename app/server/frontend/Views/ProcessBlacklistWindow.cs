@@ -27,6 +27,7 @@ public sealed class ProcessBlacklistWindow : DialogWindow
         {
             AcceptsReturn = true,
             MinLines = 5,
+            VerticalContentAlignment = VerticalAlignment.Top,
             Height = Math.Min(280, MaxHeight / 2),
             HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
