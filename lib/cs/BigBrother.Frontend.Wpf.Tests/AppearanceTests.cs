@@ -104,12 +104,12 @@ internal static partial class Program
         }
 
         var vm = (MainViewModel)RuntimeHelpers.GetUninitializedObject(typeof(MainViewModel));
-        vm.SelectedSection = NavigationSection.Whitelist;
+        vm.SelectedSection = NavigationSection.Firewall;
         Check(vm.SelectedSection == NavigationSection.Main, "Offline navigation must stay on Main");
         var connection = typeof(MainViewModel).GetProperty(nameof(MainViewModel.BackendConnected))!;
         connection.GetSetMethod(nonPublic: true)!.Invoke(vm, new object[] { true });
-        vm.SelectedSection = NavigationSection.Whitelist;
-        Check(vm.SelectedSection == NavigationSection.Whitelist, "Backend connection must unlock navigation");
+        vm.SelectedSection = NavigationSection.Firewall;
+        Check(vm.SelectedSection == NavigationSection.Firewall, "Backend connection must unlock navigation");
         connection.GetSetMethod(nonPublic: true)!.Invoke(vm, new object[] { false });
         Check(vm.SelectedSection == NavigationSection.Main, "Backend loss must return to Main");
 

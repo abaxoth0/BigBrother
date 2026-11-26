@@ -27,6 +27,16 @@ func (db *Database) GetSetting(key string) (string, error) {
 	return value, nil
 }
 
+// GetSettingPair reads both settings from the same database snapshot.
+func (db *Database) GetSettingPair(firstKey, secondKey string) (string, string, error) {
+	var first, second string
+	err := db.conn.QueryRow(`
+		SELECT COALESCE((SELECT value FROM settings WHERE key = ?), ''),
+		       COALESCE((SELECT value FROM settings WHERE key = ?), '')`,
+		firstKey, secondKey).Scan(&first, &second)
+	return first, second, err
+}
+
 func (db *Database) SetSetting(key, value string) error {
 	if log.DiagnosticsEnabled {
 		dbcommon.Log.Trace("Setting \""+key+"\" to \""+value+"\"...", nil)

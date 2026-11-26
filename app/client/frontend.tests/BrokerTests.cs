@@ -48,7 +48,19 @@ internal static class BrokerTests
         {
             var current = await Exchange(ipc.GetStatusAsync, "GET_STATUS", [],
                 ["alice", "127.0.0.1", "stopped", "running", "0", "1234", "stopped", "disconnected", "0", field]);
-            if (current.ProcessBlacklistEnabled != expected) throw new Exception("Incorrect local blacklist preference.");
+            if (current.ProcessBlacklistEnabled != expected || current.ServerProcessBlacklistEnabled != null) throw new Exception("Incorrect local blacklist preference.");
+        }
+
+        foreach (var (session, field, expected) in new (string, string, bool?)[]
+        {
+            ("connected", "0", false), ("connected", "1", true), ("connected", "unknown", null),
+            ("connected", "invalid", null), ("disconnected", "1", null)
+        })
+        {
+            var current = await Exchange(ipc.GetStatusAsync, "GET_STATUS", [],
+                ["alice", "127.0.0.1", "stopped", "running", "0", "1234", "running", session, "0", "1", field]);
+            if (current.ProcessBlacklistEnabled != true || current.ServerProcessBlacklistEnabled != expected)
+                throw new Exception("Incorrect local or server blacklist switch.");
         }
 
         async Task<bool> SetBlacklist(bool enabled)

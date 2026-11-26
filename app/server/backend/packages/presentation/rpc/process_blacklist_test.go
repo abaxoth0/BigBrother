@@ -106,12 +106,15 @@ func TestProcessBlacklistSwitch(t *testing.T) {
 	const off = set + "1\n0\n\n"
 	const on = set + "1\n1\n\n"
 	const clientRules = "GET_PROCESS_BLACKLIST\n3\neve\n5\ntoken\n\n"
+	const clientState = "GET_PROCESS_BLACKLIST_STATE\n3\neve\n5\ntoken\n\n"
 	const editorRules = "GET_PROCESS_BLACKLIST\n\n"
 	const save = "SAVE_PROCESS_BLACKLIST\n"
 
 	check(frontend, get, "OK\n1\n1\n\n")
+	check(backend, clientState, "OK\n1\n1\n\n")
 	check(frontend, save+"8\nGame.exe\n\n", "OK\n\n")
 	check(backend, clientRules, "OK\n8\ngame.exe\n\n")
+	check(backend, clientState, "OK\n1\n1\n8\ngame.exe\n\n")
 	check(frontend, off, "OK\n\n")
 	if events != 2 {
 		t.Fatalf("saving and disabling should both notify clients, got %d events", events)
@@ -125,7 +128,10 @@ func TestProcessBlacklistSwitch(t *testing.T) {
 	check(frontend, get, "OK\n1\n0\n\n")
 	check(backend, clientRules, "OK\n\n")
 	check(frontend, editorRules, "OK\n8\nGame.exe\n\n")
+	check(backend, clientState, "OK\n1\n0\n8\ngame.exe\n\n")
 	reject(backend, strings.Replace(clientRules, "token", "wrong", 1))
+	reject(backend, strings.Replace(clientState, "token", "wrong", 1))
+	reject(backend, "GET_PROCESS_BLACKLIST_STATE\n\n")
 	reject(backend, on)
 	reject(frontend, "GET_PROCESS_BLACKLIST_ENABLED\n1\n0\n\n")
 	for _, args := range []string{"\n", "1\n2\n\n", "1\n1\n1\n0\n\n"} {
@@ -138,13 +144,21 @@ func TestProcessBlacklistSwitch(t *testing.T) {
 		t.Fatalf("failed requests published events, got %d", events)
 	}
 
-	check(frontend, save+"9\nother.exe\n\n", "OK\n\n")
-	check(frontend, editorRules, "OK\n9\nother.exe\n\n")
+	const source = "3\n[3]\n12\nИгра.exe\n9\n!Game.exe\n"
+	const compiled = "15\n[3]игра.exe\n12\n[3]!game.exe\n"
+	check(frontend, save+source+"\n", "OK\n\n")
+	check(frontend, editorRules, "OK\n"+source+"\n")
+	check(backend, clientState, "OK\n1\n0\n"+compiled+"\n")
 	check(backend, clientRules, "OK\n\n")
 	check(frontend, on, "OK\n\n")
 	check(frontend, get, "OK\n1\n1\n\n")
-	check(backend, clientRules, "OK\n9\nother.exe\n\n")
+	check(backend, clientRules, "OK\n"+compiled+"\n")
+	check(backend, clientState, "OK\n1\n1\n"+compiled+"\n")
 	if events != 4 {
 		t.Fatalf("editing and re-enabling should both notify clients, got %d events", events)
 	}
+
+	check(frontend, off, "OK\n\n")
+	check(frontend, save+"\n", "OK\n\n")
+	check(backend, clientState, "OK\n1\n0\n\n")
 }

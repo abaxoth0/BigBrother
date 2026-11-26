@@ -12,7 +12,9 @@ public sealed class ClientControlsViewModel : ViewModelBase
     private readonly Action<string, string> _log;
     private ClientServiceState _state;
     private bool _connected, _firewallRunning;
+    private bool _serverConnected;
     private bool? _processBlacklistEnabled;
+    private bool? _serverProcessBlacklistEnabled;
 
     public bool Busy { get; private set; }
     public bool BackendRunning => _state == ClientServiceState.Running;
@@ -29,11 +31,26 @@ public sealed class ClientControlsViewModel : ViewModelBase
     };
     public string FirewallStatusText => !_connected ? "Нет связи с клиентской службой"
         : _firewallRunning ? "Запущен" : "Остановлен";
+    public bool ProcessBlacklistActive => _processBlacklistEnabled == true && _serverProcessBlacklistEnabled == true;
+
     public string ProcessBlacklistStatusText => _processBlacklistEnabled switch
     {
-        true => "Вкл на этом устройстве",
+        null => _connected ? "Недоступно" : "Нет связи с клиентской службой",
         false => "Выкл на этом устройстве",
-        null => _connected ? "Недоступно" : "Нет связи с клиентской службой"
+        true when !_serverConnected => "Нет связи с сервером",
+        true => _serverProcessBlacklistEnabled switch
+        {
+            true => "Вкл",
+            false => "Выкл на сервере",
+            null => "Состояние на сервере неизвестно"
+        }
+    };
+
+    public string ProcessBlacklistActionText => _processBlacklistEnabled switch
+    {
+        true => "Выключить здесь",
+        false => "Включить здесь",
+        null => "Вкл/Выкл"
     };
 
     public string OperationText { get; private set; } = "";
@@ -66,12 +83,14 @@ public sealed class ClientControlsViewModel : ViewModelBase
     }
 
     public void UpdateState(ClientServiceState state, bool connected, bool firewallRunning,
-        bool? processBlacklistEnabled = null)
+        bool? processBlacklistEnabled = null, bool serverConnected = false, bool? serverProcessBlacklistEnabled = null)
     {
         _state = state;
         _connected = connected;
         _firewallRunning = connected && firewallRunning;
+        _serverConnected = connected && serverConnected;
         _processBlacklistEnabled = connected ? processBlacklistEnabled : null;
+        _serverProcessBlacklistEnabled = _serverConnected ? serverProcessBlacklistEnabled : null;
         Changed();
     }
 

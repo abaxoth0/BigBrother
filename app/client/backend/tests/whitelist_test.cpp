@@ -1,5 +1,6 @@
 #include "../include/ipc_daemon.h"
 #include "../include/ipc_client.h"
+#include "process_monitors.h"
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
@@ -66,6 +67,20 @@ static HANDLE connect_frontend(void) {
     return INVALID_HANDLE_VALUE;
 }
 
+static std::string frontend_request(const char* command) {
+    client::Handle pipe(connect_frontend());
+    DWORD count;
+    assert(WriteFile(pipe.get(), command, (DWORD)strlen(command), &count, NULL));
+
+    std::string response;
+    char buffer[4096];
+    while (ReadFile(pipe.get(), buffer, sizeof(buffer), &count, NULL) && count) {
+        response.append(buffer, count);
+    }
+
+    return response;
+}
+
 int main(void) {
     HANDLE timeout = CreateThread(NULL, 0, watchdog, NULL, 0, NULL);
     assert(timeout);
@@ -78,22 +93,23 @@ int main(void) {
     StartClientServer();
 
     for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
-        HANDLE pipe = connect_frontend();
-        const char* request = "GET_WHITELIST\n\n";
-        DWORD count;
-        assert(WriteFile(pipe, request, (DWORD)strlen(request), &count, NULL));
-        char response[4096] = {};
-        size_t total = 0;
-        while (ReadFile(pipe, response + total, (DWORD)(sizeof(response) - 1 - total), &count, NULL) && count) {
-            total += count;
-            assert(total < sizeof(response) - 1);
-        }
-        CloseHandle(pipe);
-        if (strcmp(response, cases[i].frontend) != 0) {
-            fprintf(stderr, "Case %zu: expected %s, got %s\n", i, cases[i].frontend, response);
-            return 1;
-        }
+        assert(frontend_request("GET_WHITELIST\n\n") == cases[i].frontend);
     }
+
+    auto& monitors = client::process_monitor_control();
+    assert(monitors.set_enabled(false));
+    auto revision = monitors.revision();
+    assert(monitors.publish(revision, false, "a.exe\n!игра.exe"));
+    assert(frontend_request("GET_PROCESS_BLACKLIST\n\n") == "OK\n5\na.exe\n13\n!игра.exe\n\n");
+    assert(frontend_request("GET_STATUS\n\n").ends_with("1\n0\n1\n0\n\n"));
+
+    assert(monitors.publish(revision, true, ""));
+    assert(frontend_request("GET_PROCESS_BLACKLIST\n\n") == "OK\n\n");
+    assert(frontend_request("GET_STATUS\n\n").ends_with("1\n0\n1\n1\n\n"));
+
+    monitors.disconnect();
+    assert(frontend_request("GET_PROCESS_BLACKLIST\n\n").starts_with("ERROR\n"));
+
     assert(WaitForSingleObject(thread, 5000) == WAIT_OBJECT_0);
     CloseHandle(thread);
     CloseHandle(ready);

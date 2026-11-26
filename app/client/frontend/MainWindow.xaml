@@ -352,13 +352,13 @@
                     </Expander>
                 </Grid>
 
-                <!-- SECTION: Whitelist -->
+                <!-- SECTION: Firewall -->
                 <Grid>
                     <Grid.Style>
                         <Style TargetType="Grid">
                             <Setter Property="Visibility" Value="Collapsed"/>
                             <Style.Triggers>
-                                <DataTrigger Binding="{Binding SelectedSection}" Value="Whitelist">
+                                <DataTrigger Binding="{Binding SelectedSection}" Value="Firewall">
                                     <Setter Property="Visibility" Value="Visible"/>
                                 </DataTrigger>
                             </Style.Triggers>
@@ -446,6 +446,32 @@
                     </Grid>
                 </Grid>
 
+                <!-- SECTION: Applications -->
+                <Grid Margin="8">
+                    <Grid.Style>
+                        <Style TargetType="Grid">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding SelectedSection}" Value="Applications">
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Grid.Style>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock x:Name="ProcessBlacklistLabel" Text="Чёрный список приложений" FontWeight="SemiBold"
+                               FontSize="{DynamicResource FontSize16}" Margin="0,0,0,8"/>
+                    <TextBox Grid.Row="1" AutomationProperties.LabeledBy="{Binding ElementName=ProcessBlacklistLabel}"
+                             Text="{Binding ProcessBlacklist.Text, Mode=OneWay}" IsReadOnly="True"
+                             VerticalContentAlignment="Top" FontSize="{DynamicResource TextFontSize14}" Padding="10"
+                             VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"/>
+                    <TextBlock Grid.Row="1" Text="{Binding ProcessBlacklist.Message}" IsHitTestVisible="False"
+                               Foreground="{StaticResource TextDim}" Margin="11" TextWrapping="Wrap"/>
+                </Grid>
+
                 <Grid>
                     <Grid.Style>
                         <Style TargetType="Grid">
@@ -523,23 +549,31 @@
                         <RowDefinition Height="*"/>
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
-                    <StackPanel VerticalAlignment="Top">
-                        <TextBlock Text="Меню" FontWeight="Bold" Foreground="{StaticResource TextDim}"
-                                   FontSize="{DynamicResource FontSize11}" Margin="6,0,0,8"/>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <StackPanel VerticalAlignment="Top">
+                            <TextBlock Text="Меню" FontWeight="Bold" Foreground="{StaticResource TextDim}"
+                                       FontSize="{DynamicResource FontSize11}" Margin="6,0,0,8"/>
 
-                        <RadioButton Content="Главная" GroupName="Nav"
-                                     Style="{StaticResource NavItem}"
-                                     IsChecked="{Binding SelectedSection, Converter={StaticResource EnumToBool}, ConverterParameter=Main}"/>
-                        <RadioButton Content="Белый список" GroupName="Nav" IsEnabled="{Binding BackendConnected}"
-                                     Style="{StaticResource NavItem}"
-                                     IsChecked="{Binding SelectedSection, Converter={StaticResource EnumToBool}, ConverterParameter=Whitelist}"/>
-                        <RadioButton Content="Обновления" GroupName="Nav" IsEnabled="{Binding BackendConnected}"
-                                     Style="{StaticResource NavItem}"
-                                     IsChecked="{Binding SelectedSection, Converter={StaticResource EnumToBool}, ConverterParameter=Updates}"/>
-                        <RadioButton Content="Настройки" GroupName="Nav" IsEnabled="{Binding BackendConnected}"
-                                     Style="{StaticResource NavItem}"
-                                     IsChecked="{Binding SelectedSection, Converter={StaticResource EnumToBool}, ConverterParameter=Settings}"/>
-                    </StackPanel>
+                            <RadioButton Content="Главная" GroupName="Nav"
+                                         Style="{StaticResource NavItem}"
+                                         IsChecked="{Binding SelectedSection, Converter={StaticResource EnumToBool}, ConverterParameter=Main}"/>
+                            <RadioButton Content="Обновления" GroupName="Nav" IsEnabled="{Binding BackendConnected}"
+                                         Style="{StaticResource NavItem}"
+                                         IsChecked="{Binding SelectedSection, Converter={StaticResource EnumToBool}, ConverterParameter=Updates}"/>
+                            <RadioButton Content="Настройки" GroupName="Nav" IsEnabled="{Binding BackendConnected}"
+                                         Style="{StaticResource NavItem}"
+                                         IsChecked="{Binding SelectedSection, Converter={StaticResource EnumToBool}, ConverterParameter=Settings}"/>
+
+                            <TextBlock Text="Списки" FontWeight="Bold" Foreground="{StaticResource TextDim}"
+                                       FontSize="{DynamicResource FontSize11}" Margin="6,12,0,8"/>
+                            <RadioButton Content="Firewall" GroupName="Nav" IsEnabled="{Binding BackendConnected}"
+                                         Style="{StaticResource NavItem}"
+                                         IsChecked="{Binding SelectedSection, Converter={StaticResource EnumToBool}, ConverterParameter=Firewall}"/>
+                            <RadioButton Content="Приложения" GroupName="Nav" IsEnabled="{Binding BackendConnected}"
+                                         Style="{StaticResource NavItem}"
+                                         IsChecked="{Binding SelectedSection, Converter={StaticResource EnumToBool}, ConverterParameter=Applications}"/>
+                        </StackPanel>
+                    </ScrollViewer>
                     <TextBlock Grid.Row="1" Foreground="{StaticResource TextDim}" FontSize="{DynamicResource FontSize11}" Margin="6,12,6,0" TextAlignment="Center">
                         <Run Text="Версия "/><Run Text="{x:Static local:BuildVersion.Current}"/>
                     </TextBlock>

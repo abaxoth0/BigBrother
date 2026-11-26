@@ -153,6 +153,7 @@ static int is_server_connection_paused(void) {
 static void pause_server_connection(void) {
     InterlockedExchange(&g_server_connection_paused, 1);
     InterlockedIncrement(&g_server_connection_revision);
+    client::process_monitor_control().disconnect();
     SetServerSessionActive(0);
 }
 
@@ -1507,14 +1508,39 @@ static int srv_read_tlv(SrvLineReader* r, char* out, size_t out_size) {
     return 1;
 }
 
-/** @brief Relay a complete authenticated server reply to the process monitor. */
+/** @brief Fetch the global switch and rules together, with effective-rule fallback for an older server. */
 static bool sync_process_blacklist(const char* username, std::uint64_t revision) {
-    char response[bb::PolicySnapshot::capacity + 1];
+    char response[bb::PolicySnapshot::capacity + 3]{};
     const char* args[] = {username, nullptr};
+    auto& monitors = client::process_monitor_control();
 
-    return send_authenticated_request("GET_PROCESS_BLACKLIST", username, args, 2, 1, response,
-                                      sizeof(response)) == 0 &&
-           client::process_monitor_control().publish(revision, response);
+    if (send_authenticated_request("GET_PROCESS_BLACKLIST_STATE", username, args, 2, 1, response,
+                                   sizeof(response)) == 0) {
+        std::string_view fields(response);
+        auto separator = fields.find('\n');
+        auto flag = fields.substr(0, separator);
+
+        if (flag != "0" && flag != "1") {
+            return false;
+        }
+
+        auto rules = separator == fields.npos ? std::string_view{} : fields.substr(separator + 1);
+        return monitors.publish(revision, flag == "1", rules);
+    }
+
+    if (std::string_view(response) != "unknown command: GET_PROCESS_BLACKLIST_STATE" ||
+        send_authenticated_request("GET_PROCESS_BLACKLIST", username, args, 2, 1, response,
+                                   bb::PolicySnapshot::capacity + 1) != 0) {
+        return false;
+    }
+
+    std::optional<bool> enabled;
+
+    if (response[0] != '\0') {
+        enabled = true;
+    }
+
+    return monitors.publish(revision, enabled, response);
 }
 
 /**
@@ -1985,12 +2011,18 @@ static int server_subscribe_loop(const char* username, int* consecutive_failures
     SetServerSessionActive(1);
 
     auto& monitors = client::process_monitor_control();
-    std::optional<std::uint64_t> processRevision;
+    std::uint64_t processRevision = 0;
     bool processSynced = false;
     DWORD lastProcessFetch = 0;
     auto sync_monitors = [&] {
-        processRevision = monitors.enabled_revision();
-        processSynced = !processRevision || sync_process_blacklist(username, *processRevision);
+        processRevision = monitors.revision();
+
+        if (is_server_connection_paused() ||
+            connection_revision != InterlockedCompareExchange(&g_server_connection_revision, 0, 0)) {
+            return;
+        }
+
+        processSynced = sync_process_blacklist(username, processRevision);
         lastProcessFetch = GetTickCount();
         monitors.refresh();
     };
@@ -2030,7 +2062,7 @@ static int server_subscribe_loop(const char* username, int* consecutive_failures
 
         const bool checkLocal = now - last_local_check >= SRV_LOCAL_DAEMON_CHECK_MS;
 
-        if (monitors.enabled_revision() != processRevision ||
+        if (monitors.revision() != processRevision ||
             (checkLocal && (!processSynced || now - lastProcessFetch >= 60000))) {
             sync_monitors();
         } else if (checkLocal) {

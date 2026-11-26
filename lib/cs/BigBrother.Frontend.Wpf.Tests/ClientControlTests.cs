@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Shapes;
 using frontend;
 using frontend.Services;
 using frontend.ViewModels;
@@ -12,8 +13,8 @@ internal static partial class Program
     public sealed class ControlPanelData
     {
         public required ClientControlsViewModel Controls { get; init; }
-        public bool ServerConnected => false;
-        public bool FiltrationEnabled => false;
+        public bool ServerConnected { get; init; }
+        public bool FiltrationEnabled { get; init; }
         public ICommand ConnectCommand { get; } = new RelayCommand(_ => { });
         public ICommand DisconnectCommand { get; } = new RelayCommand(_ => { });
         public ICommand ToggleFiltrationCommand { get; } = new RelayCommand(_ => { });
@@ -59,6 +60,21 @@ internal static partial class Program
                 !Button("ToggleProcessBlacklist").IsEnabled,
                 "Opening the offline panel must offer backend start without starting anything");
             Check(((TextBlock)panel.FindName("BackendStatus")).Text == "Остановлена", "Offline status must be visible");
+            bool HasColor(string block, string resource) =>
+                ((Ellipse)panel.FindName(block + "Indicator")).Fill == panel.FindResource(resource);
+            string[] blocks = ["Backend", "Firewall", "Server", "Filtration", "Blacklist"];
+            Check(blocks.All(block => HasColor(block, "StatusDisconnected")), "Offline header indicators must be red");
+            controls.UpdateState(ClientServiceState.Running, true, true, true, true, true);
+            panel.DataContext = new ControlPanelData { Controls = controls, ServerConnected = true, FiltrationEnabled = true };
+            window.UpdateLayout();
+            Check(blocks.All(block => HasColor(block, "StatusRunning")), "Every active block header must turn green");
+            controls.UpdateState(ClientServiceState.Running, true, true, true, true, false);
+            window.UpdateLayout();
+            Check(HasColor("Blacklist", "StatusDisconnected") &&
+                ((TextBlock)panel.FindName("ProcessBlacklistStatus")).Text == "Выкл на сервере",
+                "The header and text must reflect a server-side disable");
+            controls.UpdateState(state, false, false);
+            panel.DataContext = new ControlPanelData { Controls = controls };
             foreach (int size in new[] { 10, 14, 28 })
             {
                 AppearanceSettings.Current.InterfaceFontSize = size;
@@ -126,6 +142,7 @@ internal static partial class Program
             var after = ClientBackendService.GetStateAsync();
             PumpUntil(() => after.IsCompleted, "Service recheck did not finish", busyRendering: false);
             Check(after.Result == state.Result, "Opening and refreshing the main window must not start services");
+            TestClientListPages(window);
             Console.WriteLine("PASS: complete offline main window, SCM status, coalesced refresh and no automatic service start");
         }
         finally { window.Close(); }

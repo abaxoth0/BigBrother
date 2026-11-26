@@ -14,6 +14,11 @@
             <Setter Property="VerticalAlignment" Value="Center"/>
             <Setter Property="Fill" Value="{StaticResource StatusDisconnected}"/>
             <Setter Property="Margin" Value="0,0,8,0"/>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding}" Value="True">
+                    <Setter Property="Fill" Value="{StaticResource StatusRunning}"/>
+                </DataTrigger>
+            </Style.Triggers>
         </Style>
     </UserControl.Resources>
     <Grid Margin="10,6,10,8">
@@ -29,17 +34,7 @@
         </Grid.RowDefinitions>
         <StackPanel Margin="0,0,12,12">
             <DockPanel>
-                <Ellipse>
-                    <Ellipse.Style>
-                        <Style TargetType="Ellipse" BasedOn="{StaticResource StatusDot}">
-                            <Style.Triggers>
-                                <DataTrigger Binding="{Binding Controls.BackendRunning}" Value="True">
-                                    <Setter Property="Fill" Value="{StaticResource StatusRunning}"/>
-                                </DataTrigger>
-                            </Style.Triggers>
-                        </Style>
-                    </Ellipse.Style>
-                </Ellipse>
+                <Ellipse x:Name="BackendIndicator" Style="{StaticResource StatusDot}" DataContext="{Binding Controls.BackendRunning}"/>
                 <TextBlock Text="Клиентская служба" FontWeight="SemiBold" VerticalAlignment="Center" TextWrapping="Wrap"/>
             </DockPanel>
             <TextBlock x:Name="BackendStatus" Text="{Binding Controls.BackendStatusText}" TextWrapping="Wrap" Margin="0,4"/>
@@ -54,17 +49,7 @@
         </StackPanel>
         <StackPanel Grid.Column="1" Margin="12,0,0,12">
             <DockPanel>
-                <Ellipse>
-                    <Ellipse.Style>
-                        <Style TargetType="Ellipse" BasedOn="{StaticResource StatusDot}">
-                            <Style.Triggers>
-                                <DataTrigger Binding="{Binding Controls.FirewallRunning}" Value="True">
-                                    <Setter Property="Fill" Value="{StaticResource StatusRunning}"/>
-                                </DataTrigger>
-                            </Style.Triggers>
-                        </Style>
-                    </Ellipse.Style>
-                </Ellipse>
+                <Ellipse x:Name="FirewallIndicator" Style="{StaticResource StatusDot}" DataContext="{Binding Controls.FirewallRunning}"/>
                 <TextBlock Text="Firewall" FontWeight="SemiBold" VerticalAlignment="Center" TextWrapping="Wrap"/>
             </DockPanel>
             <TextBlock x:Name="FirewallStatus" Text="{Binding Controls.FirewallStatusText}" TextWrapping="Wrap" Margin="0,4"/>
@@ -75,7 +60,10 @@
             </WrapPanel>
         </StackPanel>
         <StackPanel Grid.Row="1" Margin="0,0,12,0">
-            <TextBlock Text="Сервер" FontWeight="SemiBold"/>
+            <DockPanel>
+                <Ellipse x:Name="ServerIndicator" Style="{StaticResource StatusDot}" DataContext="{Binding ServerConnected}"/>
+                <TextBlock Text="Сервер" FontWeight="SemiBold" VerticalAlignment="Center" TextWrapping="Wrap"/>
+            </DockPanel>
             <TextBlock Margin="0,4">
                 <TextBlock.Style>
                     <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
@@ -94,7 +82,10 @@
             </WrapPanel>
         </StackPanel>
         <StackPanel Grid.Row="1" Grid.Column="1" Margin="12,0,0,0">
-            <TextBlock Text="Фильтрация" FontWeight="SemiBold"/>
+            <DockPanel>
+                <Ellipse x:Name="FiltrationIndicator" Style="{StaticResource StatusDot}" DataContext="{Binding FiltrationEnabled}"/>
+                <TextBlock Text="Фильтрация" FontWeight="SemiBold" VerticalAlignment="Center" TextWrapping="Wrap"/>
+            </DockPanel>
             <TextBlock Margin="0,4">
                 <TextBlock.Style>
                     <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
@@ -113,11 +104,14 @@
         </StackPanel>
         <StackPanel Grid.Row="2" Grid.ColumnSpan="2" Margin="0,12,0,0"
                     ToolTip="Блокировка действует при подключении к серверу, если на сервере включён чёрный список и заданы правила.">
-            <TextBlock Text="Чёрный список приложений" FontWeight="SemiBold" TextWrapping="Wrap"/>
+            <DockPanel>
+                <Ellipse x:Name="BlacklistIndicator" Style="{StaticResource StatusDot}" DataContext="{Binding Controls.ProcessBlacklistActive}"/>
+                <TextBlock Text="Чёрный список приложений" FontWeight="SemiBold" VerticalAlignment="Center" TextWrapping="Wrap"/>
+            </DockPanel>
             <TextBlock x:Name="ProcessBlacklistStatus" Text="{Binding Controls.ProcessBlacklistStatusText}"
                        Margin="0,4" TextWrapping="Wrap"/>
             <WrapPanel>
-                <Button x:Name="ToggleProcessBlacklist" Content="Вкл/Выкл" Style="{StaticResource SmallButton}"
+                <Button x:Name="ToggleProcessBlacklist" Content="{Binding Controls.ProcessBlacklistActionText}" Style="{StaticResource SmallButton}"
                         Command="{Binding Controls.ToggleProcessBlacklistCommand}"
                         AutomationProperties.Name="Включить или выключить чёрный список приложений на этом устройстве"/>
             </WrapPanel>
