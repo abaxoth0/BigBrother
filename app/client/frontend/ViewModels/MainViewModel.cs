@@ -20,7 +20,8 @@ public enum HealthState
 public enum NavigationSection
 {
     Main,
-    Whitelist,
+    Firewall,
+    Applications,
     Updates,
     Settings
 }
@@ -70,7 +71,11 @@ public class MainViewModel : ViewModelBase, IDisposable
     public bool ServerConnected
     {
         get => _serverConnected;
-        set => SetProperty(ref _serverConnected, value);
+        set
+        {
+            if (SetProperty(ref _serverConnected, value) && !value)
+                ProcessBlacklist.Clear();
+        }
     }
 
     public bool FiltrationEnabled
@@ -117,7 +122,15 @@ public class MainViewModel : ViewModelBase, IDisposable
         set
         {
             if (value != NavigationSection.Main && !BackendConnected) return;
-            if (SetProperty(ref _selectedSection, value) && value == NavigationSection.Settings)
+            var previous = _selectedSection;
+            if (!SetProperty(ref _selectedSection, value)) return;
+            if (previous == NavigationSection.Applications)
+                ProcessBlacklist.Clear();
+
+            if (value == NavigationSection.Applications && ServerConnected)
+                _ = ProcessBlacklist.RefreshAsync(_ipcService.GetProcessBlacklistAsync);
+
+            if (value == NavigationSection.Settings)
             {
                 _ = RefreshSavedFingerprintAsync();
                 _ = RefreshIpv6BlockAsync();
@@ -393,6 +406,7 @@ public class MainViewModel : ViewModelBase, IDisposable
     /// <summary>Raised after each status refresh with the latest daemon status.</summary>
     public event Action<ClientStatus>? StatusRefreshed;
 
+    public ProcessBlacklistListViewModel ProcessBlacklist { get; } = new();
     public ObservableCollection<WhitelistEntry> WhitelistEntries { get; } = new();
     public ObservableCollection<string> FilteredWhitelist { get; } = new();
 
@@ -484,7 +498,7 @@ public class MainViewModel : ViewModelBase, IDisposable
             if (_disposed) return;
             if (status.IsConnected) await RefreshIpv6BlockAsync().ConfigureAwait(false);
 
-            await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+            await System.Windows.Application.Current.Dispatcher.InvokeAsync(async () =>
             {
                 if (_disposed) return;
                 Controls.UpdateState(serviceState, status.IsConnected, status.DaemonStatus == "RUNNING",
@@ -492,7 +506,10 @@ public class MainViewModel : ViewModelBase, IDisposable
                 UpdateStatus(status);
                 LastUpdate = DateTime.Now;
                 StatusRefreshed?.Invoke(status);
-            });
+
+                if (BackendConnected && ServerConnected && SelectedSection == NavigationSection.Applications)
+                    await ProcessBlacklist.RefreshAsync(_ipcService.GetProcessBlacklistAsync);
+            }).Task.Unwrap().ConfigureAwait(false);
 
             UpdateLogReaders(status);
 

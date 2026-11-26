@@ -126,6 +126,7 @@ internal static partial class Program
             var after = ClientBackendService.GetStateAsync();
             PumpUntil(() => after.IsCompleted, "Service recheck did not finish", busyRendering: false);
             Check(after.Result == state.Result, "Opening and refreshing the main window must not start services");
+            TestClientListPages(window);
             Console.WriteLine("PASS: complete offline main window, SCM status, coalesced refresh and no automatic service start");
         }
         finally { window.Close(); }
