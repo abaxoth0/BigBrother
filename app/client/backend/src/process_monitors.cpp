@@ -6,6 +6,7 @@
 #define _WIN32_WINNT 0x0A00
 
 #include "process_monitors.h"
+#include "ipc_daemon.h"
 #include <objbase.h>
 #include <sddl.h>
 #include "log/log.h"
@@ -202,6 +203,72 @@ void ProcessMonitors::refresh() {
     }
 
     WTSFreeMemory(sessions);
+}
+
+ProcessMonitorControl::ProcessMonitorControl() {
+    char preference[8]{};
+    ini_get_string("process_monitor", "enabled", preference, sizeof(preference));
+    enabled_ = std::string_view(preference) != "0";
+}
+
+bool ProcessMonitorControl::set_enabled(bool enabled) {
+    std::lock_guard guard(mutex_);
+
+    if (enabled == enabled_) {
+        return true;
+    }
+
+    if (ini_set_string("process_monitor", "enabled", enabled ? "1" : "0") != 0) {
+        return false;
+    }
+
+    enabled_ = enabled;
+    ++revision_;
+    workers_.reset();
+    return true;
+}
+
+std::optional<std::uint64_t> ProcessMonitorControl::enabled_revision() {
+    std::lock_guard guard(mutex_);
+
+    if (!enabled_) {
+        return std::nullopt;
+    }
+
+    return revision_;
+}
+
+bool ProcessMonitorControl::publish(std::uint64_t revision, std::string_view payload) {
+    std::lock_guard guard(mutex_);
+
+    if (!enabled_ || revision != revision_) {
+        return false;
+    }
+
+    if (!workers_) {
+        workers_.emplace();
+    }
+
+    return workers_->publish(payload);
+}
+
+void ProcessMonitorControl::refresh() {
+    std::lock_guard guard(mutex_);
+
+    if (workers_) {
+        workers_->refresh();
+    }
+}
+
+void ProcessMonitorControl::disconnect() {
+    std::lock_guard guard(mutex_);
+    workers_.reset();
+    ++revision_;
+}
+
+ProcessMonitorControl& process_monitor_control() {
+    static ProcessMonitorControl control;
+    return control;
 }
 
 }
