@@ -99,8 +99,9 @@ preparation worker. See [client backend architecture](CLIENT-BACKEND.md).
 
 | Command | Arguments | Response Data | Description |
 |---------|-----------|---------------|-------------|
-| `GET_STATUS` | none | Name, IP, firewall status, backend status, whitelist revision, PID, server reachability, subscription status, filtration flag, local blacklist flag | Get client status. Older backends omit the final flag |
+| `GET_STATUS` | none | Name, IP, firewall status, backend status, whitelist revision, PID, server reachability, subscription status, filtration flag, local blacklist flag, server blacklist flag | The final field is `0`, `1`, or `unknown`. Older backends omit one or both blacklist fields |
 | `SET_PROCESS_BLACKLIST_ENABLED` | `0` or `1` | none | Persist the blacklist preference for this device |
+| `GET_PROCESS_BLACKLIST` | none | One normalized rule per field | Read this subscription’s latest rule list, including when paused. An empty OK means the list is empty. ERROR means it is unavailable |
 | `GET_WHITELIST` | none | Whitelist entries (one per line) | Get current whitelist |
 | `RESTART_CLIENT` | none | none | Restart the backend service; dependent apps stop and the firewall stays stopped |
 | `PING` | none | none | Ping the client |
@@ -136,12 +137,15 @@ Used by Big Brother clients to communicate with the server.
 | `REFRESH` | `name` | none | Refresh connection TTL |
 | `GET_STATUS` | none | `uptime:...`, `name:addr:status` lines | Get server status + connections |
 | `GET_CLIENT_UPDATE` | `username`, `token` | One JSON metadata value, or no data | Get the small update reference without notes for legacy clients |
+| `GET_PROCESS_BLACKLIST_STATE` | `username`, `token` | Global flag (`0` or `1`), then one normalized rule per field | Return the configured switch and rules even when blocking is off |
 | `GET_CLIENT_UPDATE_DETAILS` | `username`, `token` | One JSON metadata value, or no data | Get the update reference and structured release notes over pinned TLS |
 | `SUBSCRIBE` | `username`, `token` | Initial `OK`, then pushed events | Open an authenticated event subscription and send client heartbeats |
 
 The client-facing `GET_PROCESS_BLACKLIST` takes username and token and returns
 one normalized executable rule per TLV field. An empty policy or a disabled global
-switch returns an empty OK response.
+switch returns an empty OK response. Clients that fall back to this legacy command
+can infer an enabled server switch from a nonempty reply. An empty reply stops
+enforcement and leaves the server switch and configured list unknown.
 A local administrator uses `SAVE_PROCESS_BLACKLIST` (one source line per
 argument) and `GET_PROCESS_BLACKLIST` (no arguments) on the server frontend
 pipe. The editor reads back the original source, including comments and default

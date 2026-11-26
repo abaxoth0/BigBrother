@@ -64,16 +64,17 @@ before registering BigBrother Client.
 The client backend fetches the server's process policy when its authenticated
 subscription opens or receives a change event. A periodic refresh repairs a
 missed event. A failed fetch retains the previous policy within that subscription.
-The server sends an empty policy when its global blacklist switch is off and keeps
-the editable source in its database. The client control panel has a separate
+The server returns its global switch and normalized rules together, including when
+blocking is paused. The client frontend reads this snapshot through the backend
+pipe. Disconnecting clears the snapshot. The client control panel has a separate
 switch stored in `config.ini` under `[process_monitor] enabled`. Both switches
 default to enabled. Turning off the local switch stops this client’s monitors. Enforcement resumes when both
 switches are enabled and the connected server supplies matching rules.
 An empty list disables enforcement. Ending the subscription or stopping the
 backend releases its monitors. Reconnection starts with a fresh policy.
 
-The backend copies each complete server response into a subscription-scoped shared
-memory channel. Each running monitor opens a read-only view, validates the UTF-8
+When both switches are on, the backend publishes the rules to a subscription-scoped
+shared memory channel. Each running monitor opens a read-only view, validates the UTF-8
 rules and switches to the new blacklist before its next scan. Invalid updates
 leave the monitor's last valid rules in use. A nonempty update reaches existing
 instances without restarting them.

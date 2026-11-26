@@ -13,6 +13,6 @@
 From the repository root, run `scripts/build.sh Debug` to build the daemons, process monitor and notification helper into `dist/`.
 For frontend publishing and release packaging, see the [versioning guide](docs/VERSIONING.md) and [installer guide](docs/INSTALLERS.md).
 
-Administrators can manage a process blacklist under **Списки → Приложения**. The server’s main control panel toggles enforcement for all clients. The client panel toggles it for that computer. Both settings preserve the rules and work independently of network filtration. [Usage guide](docs/guide/usage-ru.md#sec-server-wls)
+Administrators can manage a process blacklist under **Списки → Приложения**. The server’s main control panel toggles enforcement for all clients. The client panel toggles it for that computer and shows whether the server has enabled blocking. On the client, **Списки → Firewall** shows network rules and **Списки → Приложения** shows application rules. Both settings preserve the rules and work independently of network filtration. [Usage guide](docs/guide/usage-ru.md#sec-server-wls)
 
 The standalone Windows client app builds with `make -C app/process-monitor release` and produces `BigBrother Process Monitor.exe`. It reads policies delivered by the client backend and owns process matching and termination.
