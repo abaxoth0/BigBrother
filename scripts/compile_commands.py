@@ -13,7 +13,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 BUILDS = {
     "app/client/backend": ("debug", "regression-build", "lifecycle-test-build"),
-    "app/client/process-monitor": ("debug", "test-build"),
+    "app/process-monitor": ("debug", "test-build"),
     "app/firewall": ("debug", "test-build", "lifetime-test-build"),
     "app/notifications": ("debug", "test-build"),
 }

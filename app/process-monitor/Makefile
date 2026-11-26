@@ -1,5 +1,5 @@
-include ../../../lib/common/version.mk
-include ../../../lib/common/build.mk
+include ../../lib/common/version.mk
+include ../../lib/common/build.mk
 
 CXX = x86_64-w64-mingw32-g++
 CXXFLAGS = -std=c++20 -Wall -Wextra -Werror -D_WIN32_WINNT=0x0A00 \
@@ -17,7 +17,7 @@ $(EXE): src/main.cpp src/process_policy.h \
 	mkdir -p build/$(BUILD_MODE)
 	$(CXX) $(CXXFLAGS) -static -municode -o "$@" src/main.cpp build/icon.o -ladvapi32
 
-build/icon.o: app.rc $(BB_VERSION_DEPS) ../../../assets/icons/BigBrother_Client_Backend.ico
+build/icon.o: app.rc $(BB_VERSION_DEPS) ../../assets/icons/BigBrother_Client_Backend.ico
 	mkdir -p build
 	x86_64-w64-mingw32-windres $(BB_RESOURCE_VERSION_FLAGS) -i app.rc -o $@
 

@@ -57,7 +57,7 @@ class NativeConfigurationTests(unittest.TestCase):
         version = (ROOT / "VERSION").read_text().strip()
         for directory in (
             "app/client/backend",
-            "app/client/process-monitor",
+            "app/process-monitor",
             "app/firewall",
             "app/notifications",
             "lib/common",
@@ -78,7 +78,7 @@ class NativeConfigurationTests(unittest.TestCase):
 
     def test_backend_and_monitor_build_without_each_others_private_headers(self):
         backend = ROOT / "app/client/backend"
-        monitor = ROOT / "app/client/process-monitor"
+        monitor = ROOT / "app/process-monitor"
         for entry in self.commands:
             source = Path(entry["file"])
             if source.is_relative_to(backend / "src"):

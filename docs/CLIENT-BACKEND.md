@@ -109,7 +109,7 @@ applications use the Windows service lifecycle.
 ## Verification
 
 ~~~sh
-make -C app/client/process-monitor debug test-build
+make -C app/process-monitor debug test-build
 make -C app/client/backend debug regression-build lifecycle-test-build
 make -C app/client/backend release
 make -C app/firewall debug test-build lifetime-test-build
@@ -120,7 +120,7 @@ dotnet run --project app/client/updates.tests/BigBrother.Client.Updates.Tests.cs
 dotnet run --project lib/cs/BigBrother.Frontend.Shared.Tests/BigBrother.Frontend.Shared.Tests.csproj
 ~~~
 
-Run `app/client/process-monitor/build/test.exe` for matcher tests. On native Windows,
+Run `app/process-monitor/build/test.exe` for matcher tests. On native Windows,
 run `enforcement-test.exe` beside the monitor in an interactive desktop session to
 exercise real process termination and exceptions using two disposable test processes.
 Under Wine, use `enforcement-test.exe --updates-only` to run the live-update

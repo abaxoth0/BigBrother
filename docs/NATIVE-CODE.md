@@ -1,6 +1,6 @@
 # Native code maintenance
 
-The first-party C/C++ code lives in `app/firewall`, `app/client/backend`, `app/client/process-monitor`, `app/notifications`
+The first-party C/C++ code lives in `app/firewall`, `app/client/backend`, `app/process-monitor`, `app/notifications`
 and `lib/common`. Third-party code under `lib` and `app/firewall/include/third-party`
 keeps its upstream style.
 
