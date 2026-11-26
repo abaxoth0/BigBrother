@@ -92,6 +92,30 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 			h.bus.Publish(notification.Event{Type: notification.ProcessBlacklistChanged})
 			writeOK(conn)
 
+		case "GET_PROCESS_BLACKLIST_ENABLED":
+			if len(args) != 0 {
+				writeErrorTLV(conn, "Expected no arguments")
+				continue
+			}
+			value, err := processlist.EnabledValue(h.db)
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			writeTLVResponse(conn, value)
+
+		case "SET_PROCESS_BLACKLIST_ENABLED":
+			if len(args) != 1 || (args[0] != "0" && args[0] != "1") {
+				writeErrorTLV(conn, "Expected process blacklist value 0 or 1")
+				continue
+			}
+			if err := h.db.SetSetting(processlist.EnabledSetting, args[0]); err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			h.bus.Publish(notification.Event{Type: notification.ProcessBlacklistChanged})
+			writeOK(conn)
+
 		case "GET_PROCESS_BLACKLIST":
 			text, err := h.db.GetSetting(processlist.Setting)
 			if err != nil {

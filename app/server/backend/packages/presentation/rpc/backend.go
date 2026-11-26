@@ -81,6 +81,15 @@ func (h *BackendHandler) handle(conn net.Conn) {
 				writeErrorTLV(conn, "invalid token")
 				continue
 			}
+			enabled, err := processlist.EnabledValue(h.db)
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			if enabled == "0" {
+				writeOK(conn)
+				continue
+			}
 			text, err := h.db.GetSetting(processlist.Setting)
 			if err != nil {
 				writeErrorTLV(conn, err.Error())
