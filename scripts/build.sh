@@ -35,6 +35,10 @@ echo "Building notification helper..."
 make -C "$REPO_ROOT/app/notifications" -j"$BUILD_JOBS" "$BUILD_MODE"
 cp "$REPO_ROOT/app/notifications/build/BigBrother Notifications.exe" "$OUTPUT_DIR/"
 
+echo "Building process monitor..."
+make -C "$REPO_ROOT/app/process-monitor" -j"$BUILD_JOBS" "$BUILD_MODE"
+cp "$REPO_ROOT/app/process-monitor/build/BigBrother Process Monitor.exe" "$OUTPUT_DIR/"
+
 echo "Building client backend..."
 make -C "$REPO_ROOT/app/client/backend" -j"$BUILD_JOBS" "$BUILD_MODE"
 cp "$REPO_ROOT/app/client/backend/build/BigBrother Client Daemon.exe" "$OUTPUT_DIR/"

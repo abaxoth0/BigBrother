@@ -7,6 +7,10 @@ before downloading. It exits if its original backend stops. The separately
 staged replacement executor can run while the backend is stopped and preserves
 both backend and firewall running states.
 
+Use full Client Setup once when upgrading from a client without the process
+monitor. Its embedded updater requires the older fixed payload and rejects the
+additional executable. Subsequent update packages include the monitor.
+
 Migrating from a firewall-launched backend requires the full Client Setup
 installer once; the legacy update executor cannot create BigBrother Client.
 See [client backend architecture](CLIENT-BACKEND.md).

@@ -11,8 +11,10 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
+	"bigbrother_server_backend/packages/application/processlist"
 	"bigbrother_server_backend/packages/application/settings"
 	"bigbrother_server_backend/packages/application/updates"
 	whitelistapplication "bigbrother_server_backend/packages/application/whitelist"
@@ -77,6 +79,56 @@ func (h *FrontendHandler) handle(conn net.Conn) {
 		}
 
 		switch cmd {
+		case "SAVE_PROCESS_BLACKLIST":
+			text := strings.Join(args, "\n")
+			if _, err := processlist.Compile(text); err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			if err := h.db.SetSetting(processlist.Setting, text); err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			h.bus.Publish(notification.Event{Type: notification.ProcessBlacklistChanged})
+			writeOK(conn)
+
+		case "GET_PROCESS_BLACKLIST_ENABLED":
+			if len(args) != 0 {
+				writeErrorTLV(conn, "Expected no arguments")
+				continue
+			}
+			raw, err := h.db.GetSetting(processlist.EnabledSetting)
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			value, err := processlist.EnabledValue(raw)
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			writeTLVResponse(conn, value)
+
+		case "SET_PROCESS_BLACKLIST_ENABLED":
+			if len(args) != 1 || (args[0] != "0" && args[0] != "1") {
+				writeErrorTLV(conn, "Expected process blacklist value 0 or 1")
+				continue
+			}
+			if err := h.db.SetSetting(processlist.EnabledSetting, args[0]); err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			h.bus.Publish(notification.Event{Type: notification.ProcessBlacklistChanged})
+			writeOK(conn)
+
+		case "GET_PROCESS_BLACKLIST":
+			text, err := h.db.GetSetting(processlist.Setting)
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			writeTLVResponse(conn, strings.Split(text, "\n")...)
+
 		case "SYNC_WHITELISTS":
 			if len(args) != 0 {
 				writeErrorTLV(conn, "Expected no arguments")

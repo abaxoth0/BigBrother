@@ -286,10 +286,11 @@ internal static partial class Program
             model.Dispose();
             window.Show();
             FlushLayout(window);
+            TestServerControlPanel(window);
             var tabs = VisualChildren<RadioButton>(window).Where(tab => tab.GroupName == "Nav").ToList();
             var mainTab = tabs.Single(tab => Equals(tab.Content, "Главная"));
             bool OnlyMainEnabled() => mainTab.IsEnabled && tabs.Where(tab => tab != mainTab).All(tab => !tab.IsEnabled);
-            Check(tabs.Count == 5 && OnlyMainEnabled(),
+            Check(tabs.Count == Enum.GetValues<NavigationSection>().Length && OnlyMainEnabled(),
                 "Main must be the only enabled menu tab while offline");
             model.SelectedSection = NavigationSection.Network;
             Check(model.SelectedSection == NavigationSection.Main, "Offline navigation must reject opening the network scheme");
@@ -303,7 +304,32 @@ internal static partial class Program
             Check(model.SelectedSection == NavigationSection.Main && OnlyMainEnabled() &&
                 !VisualChildren<NetworkSchemeView>(window).Single().IsVisible,
                 "Backend loss must leave the network scheme and keep only Main enabled");
-            Console.WriteLine("PASS: offline menu gating, network navigation rejection, reconnect and disconnect");
+
+            model.IsConnected = true;
+            FlushLayout(window);
+            var toolbar = VisualChildren<WhitelistToolbar>(window).Single();
+            var blacklist = VisualChildren<ProcessBlacklistView>(window).Single();
+            var firewallTab = tabs.Single(tab => Equals(tab.Content, "Firewall"));
+            var applicationsTab = tabs.Single(tab => Equals(tab.Content, "Приложения"));
+
+            firewallTab.SetCurrentValue(RadioButton.IsCheckedProperty, true);
+            FlushLayout(window);
+            Check(model.SelectedSection == NavigationSection.Firewall && toolbar.IsVisible && !blacklist.IsVisible,
+                "Firewall must open the network lists");
+
+            applicationsTab.SetCurrentValue(RadioButton.IsCheckedProperty, true);
+            FlushLayout(window);
+            Check(model.SelectedSection == NavigationSection.Applications && !toolbar.IsVisible &&
+                blacklist.IsVisible && ReferenceEquals(blacklist.DataContext, model.ProcessBlacklist) &&
+                VisualChildren<TextBox>(blacklist).Single(box => box.AcceptsReturn).IsVisible,
+                "Applications must display the inline blacklist editor");
+
+            model.IsConnected = false;
+            FlushLayout(window);
+            Check(model.SelectedSection == NavigationSection.Main && OnlyMainEnabled() &&
+                !blacklist.IsVisible && !toolbar.IsVisible,
+                "Backend loss must return to Main and disable the other menu tabs");
+            Console.WriteLine("PASS: offline menu gating, network navigation, firewall and application lists, reconnect and disconnect");
         }
         finally
         {

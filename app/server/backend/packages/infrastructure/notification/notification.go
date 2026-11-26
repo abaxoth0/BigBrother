@@ -25,6 +25,7 @@ const (
 	ClientPolicyChanged
 	ClientDisconnected
 	WhitelistSyncRequested
+	ProcessBlacklistChanged
 )
 
 func (e EventType) String() string {
@@ -51,6 +52,8 @@ func (e EventType) String() string {
 		return "CLIENT_POLICY_CHANGED"
 	case ClientDisconnected:
 		return "CLIENT_DISCONNECTED"
+	case ProcessBlacklistChanged:
+		return "PROCESS_BLACKLIST_CHANGED"
 	case WhitelistSyncRequested:
 		return "WHITELIST_SYNC_REQUESTED"
 	case FiltrationToggled:

@@ -1,4 +1,6 @@
+import json
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -8,6 +10,34 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class BuildConfigurationTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("dotnet"), "requires the .NET SDK")
+    def test_publishing_shared_project_reports_which_application_to_select(self):
+        project = ROOT / "lib/cs/BigBrother.Frontend.Shared/BigBrother.Frontend.Shared.csproj"
+        result = subprocess.run(
+            ["dotnet", "msbuild", str(project), "-t:Publish", "-p:PublishProfile=FolderProfile"],
+            capture_output=True, text=True,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("right-click BigBrother Client or BigBrother Server", result.stdout)
+
+    @unittest.skipUnless(shutil.which("dotnet"), "requires the .NET SDK")
+    def test_frontend_profiles_publish_windows_executables_to_installer_payload(self):
+        for product in ("Client", "Server"):
+            with self.subTest(product=product):
+                side = product.lower()
+                project = ROOT / "app" / side / "frontend" / f"BigBrother {product}.csproj"
+                output = subprocess.check_output([
+                    "dotnet", "msbuild", str(project), "-p:PublishProfile=FolderProfile",
+                    "-getProperty:PublishDir,PublishUrl,RuntimeIdentifier,SelfContained,PublishSingleFile",
+                ], text=True)
+                properties = json.loads(output)["Properties"]
+                expected = ROOT / "dist" / f"{side}-frontend"
+                for key in ("PublishDir", "PublishUrl"):
+                    self.assertEqual(Path(properties[key]).resolve(), expected)
+                self.assertEqual(properties["RuntimeIdentifier"], "win-x64")
+                self.assertEqual(properties["SelfContained"], "true")
+                self.assertEqual(properties["PublishSingleFile"], "true")
+
     def test_installers_reject_missing_or_mismatched_configuration(self):
         with tempfile.TemporaryDirectory() as directory:
             marker = Path(directory) / "build-configuration.txt"

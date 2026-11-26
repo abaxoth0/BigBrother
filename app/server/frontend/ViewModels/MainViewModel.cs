@@ -21,7 +21,8 @@ public enum NavigationSection
     Main,
     Users,
     Network,
-    Lists,
+    Firewall,
+    Applications,
     Settings
 }
 
@@ -57,7 +58,6 @@ public class MainViewModel : ViewModelBase
     private bool _hasSettingsChanges;
 
     private string _serviceStatus = "Проверка...";
-    private string _filtrationStatus = "N/A";
     private readonly WhitelistActivationDraft _whitelistActivation = new();
     private bool _savingWhitelistActivation;
     private bool _syncingWhitelists;
@@ -82,7 +82,8 @@ public class MainViewModel : ViewModelBase
         set
         {
             if (value != NavigationSection.Main && !IsConnected) return;
-            SetProperty(ref _selectedSection, value);
+            if (SetProperty(ref _selectedSection, value) && value == NavigationSection.Applications && !_disposed)
+                _ = ProcessBlacklist?.LoadAsync();
         }
     }
 
@@ -231,7 +232,10 @@ public class MainViewModel : ViewModelBase
         ClearClientUpdateCommand = new RelayCommand(async _ => await ClearClientUpdateAsync(), _ => IsConnected);
         SaveServerSettingsCommand = new RelayCommand(async _ => await SaveAllServerSettingsAsync());
         CopyCertificateFingerprintCommand = new RelayCommand(_ => Clipboard.SetText(CertificateFingerprint), _ => IsConnected && CertificateFingerprint.Length == 64);
-        ToggleFiltrationCommand = new RelayCommand(async _ => await ToggleFiltrationAsync());
+        Filtration = new ServerPolicySwitch("Сетевая фильтрация", _ipcService.GetFiltrationEnabledAsync,
+            _ipcService.SetFiltrationEnabledAsync, AddLog);
+        BlacklistSwitch = new ServerPolicySwitch("Чёрный список приложений", _ipcService.GetProcessBlacklistEnabledAsync,
+            _ipcService.SetProcessBlacklistEnabledAsync, AddLog);
         StartServiceCommand = new RelayCommand(async _ => await StartServiceAsync());
         StopServiceCommand = new RelayCommand(async _ => await StopServiceAsync());
         RestartServiceCommand = new RelayCommand(async _ => await RestartServiceAsync());
@@ -283,7 +287,8 @@ public class MainViewModel : ViewModelBase
                 _ = LoadClientUpdateAsync();
                 break;
             case "FILTRATION_TOGGLED":
-                _ = RefreshServerStatusAsync();
+            case "PROCESS_BLACKLIST_CHANGED":
+                _ = RefreshPolicyControlsAsync();
                 break;
         }
     }
@@ -359,8 +364,17 @@ public class MainViewModel : ViewModelBase
         {
             if (SetProperty(ref _isConnected, value))
             {
+                ProcessBlacklist = value
+                    ? new ProcessBlacklistViewModel(_ipcService.GetProcessBlacklistAsync, _ipcService.SaveProcessBlacklistAsync)
+                    : null;
+                OnPropertyChanged(nameof(ProcessBlacklist));
                 NetworkScheme.SetAvailable(value);
-                if (!value) SelectedSection = NavigationSection.Main;
+                if (!value)
+                {
+                    Filtration.Disconnect();
+                    BlacklistSwitch.Disconnect();
+                    SelectedSection = NavigationSection.Main;
+                }
                 OnPropertyChanged(nameof(NotConnectedVisibility));
                 OnPropertyChanged(nameof(ConnectedVisibility));
                 OnPropertyChanged(nameof(CanUseWhitelistPresets));
@@ -372,17 +386,17 @@ public class MainViewModel : ViewModelBase
     public Visibility NotConnectedVisibility => IsConnected ? Visibility.Collapsed : Visibility.Visible;
     public Visibility ConnectedVisibility => IsConnected ? Visibility.Visible : Visibility.Collapsed;
 
-    public string FiltrationStatus
-    {
-        get => _filtrationStatus;
-        set => SetProperty(ref _filtrationStatus, value);
-    }
-
     public string ServiceStatus
     {
         get => _serviceStatus;
-        set => SetProperty(ref _serviceStatus, value);
+        set
+        {
+            if (SetProperty(ref _serviceStatus, value))
+                OnPropertyChanged(nameof(ServiceRunning));
+        }
     }
+
+    public bool ServiceRunning => ServiceStatus == nameof(System.ServiceProcess.ServiceControllerStatus.Running);
 
     public bool HasWhitelistActivationChanges => _whitelistActivation.HasChanges;
     public bool CanUseWhitelistPresets => IsConnected && !_savingWhitelistActivation && !_openingPresetEditor;
@@ -542,6 +556,7 @@ public class MainViewModel : ViewModelBase
     public ICommand SaveWhitelistPresetCommand { get; }
     public ICommand LoadWhitelistPresetCommand { get; }
     public ICommand SyncWhitelistsCommand { get; }
+    public ProcessBlacklistViewModel? ProcessBlacklist { get; private set; }
     public ICommand OpenDomainCheckCommand { get; }
     public ICommand EditWhitelistTimerCommand { get; }
     public ICommand ResetWhitelistTimersCommand { get; }
@@ -641,7 +656,8 @@ public class MainViewModel : ViewModelBase
 
     public ICommand SaveServerSettingsCommand { get; }
     public ICommand CopyCertificateFingerprintCommand { get; }
-    public ICommand ToggleFiltrationCommand { get; }
+    public ServerPolicySwitch Filtration { get; }
+    public ServerPolicySwitch BlacklistSwitch { get; }
     public ICommand StartServiceCommand { get; }
     public ICommand StopServiceCommand { get; }
     public ICommand RestartServiceCommand { get; }
@@ -707,25 +723,10 @@ public class MainViewModel : ViewModelBase
         AddLog(ok ? "INFO" : "ERROR", ok ? "Служба перезапущена" : "Ошибка перезапуска службы");
     }
 
-    private async Task ToggleFiltrationAsync()
-    {
-        try
-        {
-            var newState = FiltrationStatus == "Вкл" ? "0" : "1";
-#if DEBUG
-            AddLog("DEBUG", $"ToggleFiltration: current='{FiltrationStatus}', newState='{newState}'");
-#endif
-            var ok = await _ipcService.SetFiltrationEnabledAsync(newState == "1");
-            AddLog(ok ? "INFO" : "ERROR", ok
-                ? $"Фильтрация {(newState == "1" ? "включена" : "отключена")}"
-                : "Ошибка переключения фильтрации");
-            await RefreshServerStatusAsync();
-        }
-        catch (Exception ex)
-        {
-            AddLog("ERROR", $"Ошибка: {ex.Message}");
-        }
-    }
+    private Task RefreshPolicyControlsAsync() =>
+        Application.Current.Dispatcher.InvokeAsync(() => IsConnected && !_disposed
+            ? Task.WhenAll(Filtration.RefreshAsync(), BlacklistSwitch.RefreshAsync())
+            : Task.CompletedTask).Task.Unwrap();
 
     private async Task LoadLogPathAsync()
     {
@@ -839,6 +840,7 @@ public class MainViewModel : ViewModelBase
             {
                 await RefreshServerStatusAsync();
                 if (_disposed || !IsConnected) return;
+                await RefreshPolicyControlsAsync();
                 await RefreshClientsAsync();
                 await RefreshPendingAsync();
                 await RefreshWhitelistsAsync();
@@ -995,9 +997,6 @@ public class MainViewModel : ViewModelBase
                     ? $"Аптайм: {serverStatus.UptimeText}" : "";
                 ConnectedClientsCount = serverStatus.ConnectedClients;
                 PendingCount = serverStatus.PendingCount;
-                FiltrationStatus = serverStatus.IsRunning
-                    ? (serverStatus.FiltrationEnabled ? "Вкл" : "Выкл")
-                    : "N/A";
                 if (!serverStatus.IsRunning)
                 {
                     ConnectedClients.Clear();
@@ -1038,7 +1037,6 @@ public class MainViewModel : ViewModelBase
                     Uptime = "";
                     ConnectedClientsCount = 0;
                     PendingCount = 0;
-                    FiltrationStatus = "N/A";
                     ConnectedClients.Clear();
                     PendingRegistrations.Clear();
                     RegisteredUsers.Clear();
@@ -1844,6 +1842,8 @@ public class MainViewModel : ViewModelBase
     {
         if (_disposed) return;
         _disposed = true;
+        Filtration.Disconnect();
+        BlacklistSwitch.Disconnect();
         NetworkScheme.SaveLayout();
         _countdownTimer.Stop();
         foreach (var user in AllUsers) user.Dispose();

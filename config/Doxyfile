@@ -1,6 +1,6 @@
 PROJECT_NAME           = "BigBrother native code"
 OUTPUT_DIRECTORY       = build/native-docs
-INPUT                  = lib/common app/firewall/include app/firewall/src app/client/backend/include app/client/backend/src app/notifications/include app/notifications/src
+INPUT                  = lib/common app/firewall/include app/firewall/src app/client/backend/include app/client/backend/src app/process-monitor/src app/notifications/include app/notifications/src
 RECURSIVE              = YES
 FILE_PATTERNS          = *.h *.c *.cpp
 EXCLUDE_PATTERNS       = */third-party/* */build/*

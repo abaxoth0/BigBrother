@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"bigbrother_server_backend/packages/application/processlist"
 	"bigbrother_server_backend/packages/application/settings"
 	"bigbrother_server_backend/packages/application/updates"
 	whitelistapplication "bigbrother_server_backend/packages/application/whitelist"
@@ -75,6 +76,35 @@ func (h *BackendHandler) handle(conn net.Conn) {
 		}
 
 		switch cmd {
+		case "GET_PROCESS_BLACKLIST", "GET_PROCESS_BLACKLIST_STATE":
+			if len(args) != 2 || !h.authenticate(args[0], args[1]) {
+				writeErrorTLV(conn, "invalid token")
+				continue
+			}
+			raw, text, err := h.db.GetSettingPair(processlist.EnabledSetting, processlist.Setting)
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			enabled, err := processlist.EnabledValue(raw)
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			if cmd == "GET_PROCESS_BLACKLIST" && enabled == "0" {
+				writeOK(conn)
+				continue
+			}
+			entries, err := processlist.Compile(text)
+			if err != nil {
+				writeErrorTLV(conn, err.Error())
+				continue
+			}
+			if cmd == "GET_PROCESS_BLACKLIST_STATE" {
+				entries = append([]string{enabled}, entries...)
+			}
+			writeTLVResponse(conn, entries...)
+
 		case "GET_CLIENT_UPDATE", "GET_CLIENT_UPDATE_DETAILS":
 			if len(args) != 2 || !h.authenticate(args[0], args[1]) {
 				writeErrorTLV(conn, "invalid token")

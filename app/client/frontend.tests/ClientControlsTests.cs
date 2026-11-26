@@ -13,7 +13,7 @@ internal static class ClientControlsTests
         var calls = new List<string>();
         var errors = new List<string>();
         var state = ClientServiceState.Stopped;
-        bool connected = false, firewall = false;
+        bool connected = false, firewall = false, blacklist = true;
         ClientControlsViewModel controls = null!;
         controls = new ClientControlsViewModel(action =>
         {
@@ -27,9 +27,14 @@ internal static class ClientControlsTests
             calls.Add("firewall:" + action);
             firewall = action != "stop";
             return Task.CompletedTask;
+        }, enabled =>
+        {
+            calls.Add("blacklist:" + enabled);
+            blacklist = enabled;
+            return Task.CompletedTask;
         }, () =>
         {
-            controls.UpdateState(state, connected, firewall);
+            controls.UpdateState(state, connected, firewall, blacklist);
             return Task.CompletedTask;
         }, (level, message) => { if (level == "ERROR") errors.Add(message); });
 
@@ -52,6 +57,31 @@ internal static class ClientControlsTests
             "Starting the client must not implicitly start the firewall");
         Check(controls.StartFirewallCommand.CanExecute(null) && controls.StopBackendCommand.CanExecute(null)
             && !controls.StartBackendCommand.CanExecute(null), "Running backend must enable independent firewall start");
+        Check(controls.ToggleProcessBlacklistCommand.CanExecute(null), "Local blacklist must be available with firewall stopped");
+        controls.UpdateState(state, connected, firewall, true, true, true);
+        Check(controls.ProcessBlacklistActive && controls.ProcessBlacklistStatusText == "Вкл",
+            "The blacklist must show enabled when both switches are on");
+        controls.UpdateState(state, connected, firewall, true, true, false);
+        Check(!controls.ProcessBlacklistActive && controls.ProcessBlacklistStatusText == "Выкл на сервере"
+            && controls.ToggleProcessBlacklistCommand.CanExecute(null) && controls.ProcessBlacklistActionText == "Выключить здесь",
+            "A server disable must turn off the indicator and preserve the local toggle");
+        controls.UpdateState(state, connected, firewall, true, false, true);
+        Check(!controls.ProcessBlacklistActive && controls.ProcessBlacklistStatusText == "Нет связи с сервером",
+            "A disconnect must clear stale server switch state");
+        controls.UpdateState(state, connected, firewall, true, true, null);
+        Check(!controls.ProcessBlacklistActive && controls.ProcessBlacklistStatusText == "Состояние на сервере неизвестно",
+            "An unknown server switch must remain unavailable until synchronized");
+        controls.UpdateState(state, connected, firewall, false, true, true);
+        Check(!controls.ProcessBlacklistActive && controls.ProcessBlacklistStatusText == "Выкл на этом устройстве",
+            "A local disable must override a server enable");
+        controls.UpdateState(state, connected, firewall, true, true, false);
+        await controls.ToggleProcessBlacklistAsync();
+        Check(!blacklist && controls.ProcessBlacklistStatusText == "Выкл на этом устройстве",
+            "The panel must refresh the local preference after disabling the blacklist");
+        await controls.ToggleProcessBlacklistAsync();
+        Check(blacklist, "A second toggle must restore the local preference");
+        controls.UpdateState(state, connected, firewall, null);
+        Check(!controls.ToggleProcessBlacklistCommand.CanExecute(null), "Older services cannot toggle the blacklist");
         await controls.ControlAsync(false, "start");
         Check(controls.FirewallRunning && controls.StopFirewallCommand.CanExecute(null)
             && controls.RestartFirewallCommand.CanExecute(null) && !controls.StartFirewallCommand.CanExecute(null),
@@ -67,20 +97,22 @@ internal static class ClientControlsTests
             && !controls.StartFirewallCommand.CanExecute(null) && !controls.FirewallRunning,
             "Unresponsive backend must remain stoppable without stale firewall state");
         await controls.ControlAsync(true, "stop");
-        Check(calls.SequenceEqual(new[] { "backend:start", "firewall:start", "firewall:restart", "firewall:stop",
-            "firewall:start", "backend:restart", "backend:stop" }), "Commands reached the wrong service");
+        Check(calls.SequenceEqual(new[] { "backend:start", "blacklist:False", "blacklist:True", "firewall:start",
+            "firewall:restart", "firewall:stop", "firewall:start", "backend:restart", "backend:stop" }), "Commands reached the wrong service");
         Check(controls.StartBackendCommand.CanExecute(null) && errors.Count == 0, "Offline controls must recover after stop");
 
         var pending = new TaskCompletionSource();
         var refresh = new TaskCompletionSource();
         int attempts = 0;
         var busy = new ClientControlsViewModel(_ => { attempts++; return pending.Task; },
-            _ => throw new Exception("Unexpected firewall call"), () => refresh.Task,
+            _ => throw new Exception("Unexpected firewall call"), _ => throw new Exception("Unexpected blacklist call"),
+            () => refresh.Task,
             (level, message) => { if (level == "ERROR") errors.Add(message); });
-        busy.UpdateState(ClientServiceState.Running, true, true);
+        busy.UpdateState(ClientServiceState.Running, true, true, true);
         var operation = busy.ControlAsync(true, "restart");
         Check(busy.Busy && !busy.BackendAvailable && !busy.StopBackendCommand.CanExecute(null)
-            && !busy.RestartFirewallCommand.CanExecute(null), "All dependent actions must disable during an operation");
+            && !busy.RestartFirewallCommand.CanExecute(null) && !busy.ToggleProcessBlacklistCommand.CanExecute(null),
+            "All dependent actions must disable during an operation");
         await busy.ControlAsync(true, "restart");
         Check(attempts == 1, "Double click must not submit a duplicate operation");
         pending.SetException(new IOException("Service denied access"));

@@ -1,13 +1,15 @@
 package whitelistapplication
 
 import (
-	"bigbrother_server_backend/packages/domain/entity"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"slices"
 	"sort"
 	"strings"
+
+	policyrules "bigbrother_server_backend/packages/application/rules"
+	"bigbrother_server_backend/packages/domain/entity"
 )
 
 func Revision(entries []*entity.WhitelistEntry) string {
@@ -47,7 +49,7 @@ func Compose(db QueryHandler) (*entity.WhitelistComposition, error) {
 			value := entry.Value
 			r, ok := rules[value]
 			if !ok {
-				priority, body, _, _ := ReadPriority(value)
+				priority, body, _, _ := policyrules.ReadPriority(value)
 				r = &rule{entry: &entity.WhitelistEntry{ID: entry.ID, Value: value}, priority: priority, body: body}
 				rules[value] = r
 			}

@@ -47,10 +47,10 @@ mode's code. Successful builds write `build-configuration.txt` into the payload;
 installer builds require that marker to match their configuration argument.
 
 All application binaries must be rebuilt for the version in `VERSION`. The compiler
-checks their embedded product versions and rejects stale payloads. Build/publish
-the frontends in the matching Debug or Release configuration in Visual Studio in
-the Windows VM, then copy the published
-files into `dist/{client,server}-frontend`. The shared MSBuild files read `VERSION`
+checks their embedded product versions and rejects stale payloads. In Visual Studio
+in the Windows VM, publish each frontend application with its **FolderProfile**
+and the matching Debug or Release configuration. The profiles write directly to
+`dist/{client,server}-frontend`. The shared MSBuild files read `VERSION`
 automatically; no shell command or version edit in Visual Studio is needed.
 See [VERSIONING.md](VERSIONING.md) for the release workflow.
 
@@ -186,23 +186,24 @@ Upgrades reuse the previous Inno installation directory, or the directory record
 by the legacy NSIS uninstall entry. They stop and remove the existing service
 before replacing binaries, then recreate the service with a quoted executable
 path. Both installers offer Manual (on demand) and Automatic (when Windows
-starts) startup modes. The client backend service (BigBrother Client) defaults to Automatic; the
-server service defaults to Manual. The client firewall is always Manual and
-follows the backend service lifetime through a status/process monitor. Subsequent installs remember the selected
-mode. Both installers leave the service stopped, including after upgrades and
-silent installs. Opening the client frontend does not start either service; it
-shows the disconnected state when the backend is unavailable. Start the backend
-using **Клиентская служба → Старт** in the frontend (or Windows Services);
-use the separate **Firewall → Старт/Рестарт** controls to start the firewall.
-Automatic takes effect at the next Windows startup.
+starts) startup modes. Client Setup defaults the BigBrother Client backend to
+Automatic and preselects **Start the client backend service now**. Clear the
+checkbox to leave the backend stopped when setup finishes. This choice also
+works with Manual startup. Subsequent installs remember the selected tasks.
+Server Setup defaults to Manual and leaves the server stopped after installation.
+
+The client firewall is always Manual. Use **Firewall → Старт/Рестарт** in the
+client frontend to start it. If the backend was left stopped, use
+**Клиентская служба → Старт** or Windows Services to start it.
 The firewall stops when the backend stops or crashes; the frontend stays open. A backend
 restart leaves the firewall stopped. See [client backend architecture](CLIENT-BACKEND.md).
 For the initial migration from the firewall-owned backend, use the full Client
 Setup installer rather than an update-only payload.
 
 For unattended installs, select the startup mode with `/TASKS="servicemanual"`
-or `/TASKS="serviceautomatic"`. These options do not start the service during
-installation. Windows calls manual startup
+or `/TASKS="serviceautomatic"`. Include `startclientservice` to start the client
+backend immediately as well, for example `/TASKS="serviceautomatic,startclientservice"`.
+Windows calls manual startup
 [demand startup](https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/sc-config).
 
 Secret permissions are secured before service creation; failures in that step

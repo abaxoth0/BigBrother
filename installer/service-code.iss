@@ -1,7 +1,8 @@
 [Tasks]
 #if Product == "Client"
-Name: serviceautomatic; Description: "Automatic (when Windows starts)"; GroupDescription: "Service startup:"; Flags: exclusive
-Name: servicemanual; Description: "Manual (on demand)"; GroupDescription: "Service startup:"; Flags: exclusive unchecked
+Name: serviceautomatic; Description: "Automatic (when Windows starts)"; GroupDescription: "Client backend service startup (BigBrother Client):"; Flags: exclusive
+Name: servicemanual; Description: "Manual (on demand)"; GroupDescription: "Client backend service startup (BigBrother Client):"; Flags: exclusive unchecked
+Name: startclientservice; Description: "Start the client backend service now"; GroupDescription: "After installation:"
 #else
 Name: servicemanual; Description: "Manual (on demand)"; GroupDescription: "Service startup:"; Flags: exclusive
 Name: serviceautomatic; Description: "Automatic (when Windows starts)"; GroupDescription: "Service startup:"; Flags: exclusive unchecked
@@ -175,6 +176,9 @@ begin
   RunRequired(ExpandConstant('{sys}\netsh.exe'),
     'advfirewall firewall add rule name="BigBrother Discovery (UDP 42069)" dir=in action=allow protocol=udp localport=42069 profile=private,domain',
     'Cannot create the discovery firewall rule.');
+  if WizardIsTaskSelected('startclientservice') then
+    RunRequired(ExpandConstant('{sys}\sc.exe'), 'start "{#ServiceName}"',
+      'Cannot start {#ServiceName}.');
 #else
   RunRequired(ExpandConstant('{sys}\sc.exe'),
     'description "{#ServiceName}" "Manages whitelists, clients, and serves discovery."',

@@ -8,10 +8,16 @@
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <RootNamespace>frontend</RootNamespace>
     <AssemblyName>BigBrother.Frontend.Shared</AssemblyName>
+    <IsPublishable>false</IsPublishable>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="System.ServiceProcess.ServiceController" Version="8.0.0" />
   </ItemGroup>
+
+  <Target Name="ExplainSharedLibraryPublish" BeforeTargets="Publish"
+          Condition="'$(BuildingSolutionFile)' != 'true'">
+    <Error Text="BigBrother.Frontend.Shared is a library. In Solution Explorer, right-click BigBrother Client or BigBrother Server and choose Publish." />
+  </Target>
 
 </Project>

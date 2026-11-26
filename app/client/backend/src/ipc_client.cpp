@@ -16,6 +16,7 @@
 #include "hub.h"
 #include "resource.h"
 #include "runtime.h"
+#include "process_monitors.h"
 #include <algorithm>
 #include <charconv>
 
@@ -367,6 +368,40 @@ static DWORD handle_client(LPVOID param) {
             write_response_tlv(pipe, "OK", data, 1);
         }
         free(response);
+    } else if (strcmp(buffer, "GET_PROCESS_BLACKLIST") == 0) {
+        auto state = client::process_monitor_control().state();
+
+        if (!values.empty()) {
+            write_error_tlv(pipe, "expected no arguments");
+        } else if (!state.server_enabled.has_value()) {
+            write_error_tlv(pipe, "server process blacklist unavailable");
+        } else {
+            std::vector<const char*> fields;
+            size_t start = 0;
+
+            while (start < state.rules.size()) {
+                fields.push_back(state.rules.data() + start);
+                auto end = state.rules.find('\n', start);
+
+                if (end == state.rules.npos) {
+                    break;
+                }
+
+                state.rules[end] = '\0';
+                start = end + 1;
+            }
+
+            write_response_tlv(pipe, "OK", fields.data(), fields.size());
+        }
+    } else if (strcmp(buffer, "SET_PROCESS_BLACKLIST_ENABLED") == 0) {
+        if (values.size() != 1 || (values[0] != "0" && values[0] != "1")) {
+            write_error_tlv(pipe, "expected one process blacklist value: 0 or 1");
+        } else if (!client::process_monitor_control().set_enabled(values[0] == "1")) {
+            write_error_tlv(pipe, "could not save process blacklist preference");
+        } else {
+            NotifyStateChanged();
+            write_ok(pipe);
+        }
     } else if (strcmp(buffer, "GET_STATUS") == 0) {
         int daemon_ok = (PingDaemon() == 0);
         int server_ok = IsServerSessionActive();
@@ -377,7 +412,7 @@ static DWORD handle_client(LPVOID param) {
         // data[0] = ClientName, data[1] = IpAddress, data[2] = DaemonStatus
         // data[3] = Backend status ("running"), data[4] = WhitelistRevision
         // data[5] = PID, data[6] = ServerRunning, data[7] = ServerSession
-        // data[8] = FiltrationEnabled
+        // data[8] = FiltrationEnabled, data[9] = local blacklist preference, data[10] = authenticated server blacklist switch
         char pid_str[32];
         snprintf(pid_str, sizeof(pid_str), "%lu", GetCurrentProcessId());
 
@@ -389,7 +424,14 @@ static DWORD handle_client(LPVOID param) {
         snprintf(filt_str, sizeof(filt_str), "%d", filt_val);
         LOGF("[IPC] GET_STATUS: filtration=%d (effective)", filt_val);
 
-        const char* data[9] = {
+        auto blacklist = client::process_monitor_control().state();
+        const char* server_blacklist = "unknown";
+
+        if (blacklist.server_enabled.has_value()) {
+            server_blacklist = *blacklist.server_enabled ? "1" : "0";
+        }
+
+        const char* data[] = {
             client_name[0] ? client_name : "unknown",
             "127.0.0.1",
             daemon_ok ? "running" : "not_running",
@@ -398,9 +440,11 @@ static DWORD handle_client(LPVOID param) {
             pid_str,
             server_ok ? "running" : "not_running",
             IsServerSessionActive() ? "connected" : "not_connected",
-            filt_str
+            filt_str,
+            blacklist.local_enabled ? "1" : "0",
+            server_blacklist,
         };
-        write_response_tlv(pipe, "OK", data, 9);
+        write_response_tlv(pipe, "OK", data, std::size(data));
 
     } else if (strcmp(buffer, "RESTART_CLIENT") == 0) {
         if (!RequestBackendRestart()) write_error_tlv(pipe, "failed to schedule backend restart");

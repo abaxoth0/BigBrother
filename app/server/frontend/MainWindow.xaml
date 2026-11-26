@@ -70,7 +70,24 @@
             <Setter Property="VerticalAlignment" Value="Center"/>
             <Setter Property="Fill" Value="{StaticResource StatusDisconnected}"/>
             <Setter Property="Margin" Value="0,0,8,0"/>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding}" Value="True">
+                    <Setter Property="Fill" Value="{StaticResource StatusRunning}"/>
+                </DataTrigger>
+            </Style.Triggers>
         </Style>
+
+        <DataTemplate DataType="{x:Type vm:ServerPolicySwitch}">
+            <StackPanel Margin="8,4">
+                <DockPanel>
+                    <Ellipse DataContext="{Binding IsOn}" Style="{StaticResource StatusDot}"/>
+                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold" VerticalAlignment="Center" TextWrapping="Wrap"/>
+                </DockPanel>
+                <TextBlock Text="{Binding Status}" Margin="0,4"/>
+                <Button Content="Вкл/Выкл" Command="{Binding ToggleCommand}" Style="{StaticResource SmallButton}"
+                        AutomationProperties.Name="{Binding Name}" HorizontalAlignment="Left"/>
+            </StackPanel>
+        </DataTemplate>
 
         <!-- Server log level colors + chips -->
         <SolidColorBrush x:Key="LogFatal" Color="#FF5555"/>
@@ -175,7 +192,8 @@
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="*" MinHeight="160"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
 
                     <!-- Health / status banner -->
@@ -194,7 +212,6 @@
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
 
                             <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,20,0">
@@ -204,33 +221,42 @@
                                            VerticalAlignment="Center" Margin="12,0,0,0"/>
                             </StackPanel>
 
-                            <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
                                 <TextBlock Text="Клиенты:" Foreground="White" FontSize="{DynamicResource FontSize12}" VerticalAlignment="Center"/>
                                 <TextBlock Text="{Binding ConnectedClientsCount}" Foreground="White" FontSize="{DynamicResource FontSize12}" FontWeight="Bold"
                                            VerticalAlignment="Center" Margin="4,0,0,0"/>
                                 <TextBlock Text="Ожидают:" Foreground="White" FontSize="{DynamicResource FontSize12}" VerticalAlignment="Center" Margin="20,0,0,0"/>
                                 <TextBlock Text="{Binding PendingCount}" Foreground="White" FontSize="{DynamicResource FontSize12}" FontWeight="Bold"
                                            VerticalAlignment="Center" Margin="4,0,0,0"/>
-                                <TextBlock Text="Фильтрация:" Foreground="White" FontSize="{DynamicResource FontSize12}" VerticalAlignment="Center" Margin="20,0,0,0"/>
-                                <TextBlock Text="{Binding FiltrationStatus}" Foreground="White" FontSize="{DynamicResource FontSize12}" FontWeight="Bold"
-                                           VerticalAlignment="Center" Margin="4,0,0,0"/>
-                                <Button Content="Вкл/Выкл" Style="{StaticResource SmallButton}" FontSize="{DynamicResource FontSize12}"
-                                        Command="{Binding ToggleFiltrationCommand}" Margin="8,0,0,0"/>
-                            </StackPanel>
-
-                            <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-                                <TextBlock Text="Служба:" Foreground="#E6FFFFFF" FontSize="{DynamicResource FontSize11}" VerticalAlignment="Center"/>
-                                <TextBlock Text="{Binding ServiceStatus}" Foreground="#E6FFFFFF" FontSize="{DynamicResource FontSize11}"
-                                           VerticalAlignment="Center" Margin="4,0,10,0"/>
-                                <Button Content="Пуск" Style="{StaticResource SmallButton}" Command="{Binding StartServiceCommand}"/>
-                                <Button Content="Стоп" Style="{StaticResource SmallButton}" Command="{Binding StopServiceCommand}"/>
-                                <Button Content="Рест" Style="{StaticResource SmallButton}" Command="{Binding RestartServiceCommand}"/>
                             </StackPanel>
                         </Grid>
                     </Border>
 
+                    <Expander Grid.Row="1" x:Name="ServerControlPanel" Margin="0,0,0,5" IsExpanded="True"
+                              BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Background="{StaticResource Surface}">
+                        <Expander.Header>
+                            <TextBlock Text="ПАНЕЛЬ УПРАВЛЕНИЯ" FontWeight="Bold" Padding="4,3"/>
+                        </Expander.Header>
+                        <UniformGrid Columns="3" Margin="2,2,2,6">
+                            <StackPanel Margin="8,4">
+                                <DockPanel>
+                                    <Ellipse DataContext="{Binding ServiceRunning}" Style="{StaticResource StatusDot}"/>
+                                    <TextBlock Text="Служба сервера" FontWeight="SemiBold" VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                </DockPanel>
+                                <TextBlock Text="{Binding ServiceStatus}" Margin="0,4"/>
+                                <WrapPanel>
+                                    <Button Content="Пуск" Style="{StaticResource SmallButton}" Command="{Binding StartServiceCommand}"/>
+                                    <Button Content="Стоп" Style="{StaticResource SmallButton}" Command="{Binding StopServiceCommand}"/>
+                                    <Button Content="Рестарт" Style="{StaticResource SmallButton}" Command="{Binding RestartServiceCommand}"/>
+                                </WrapPanel>
+                            </StackPanel>
+                            <ContentControl Content="{Binding Filtration}" HorizontalContentAlignment="Stretch"/>
+                            <ContentControl Content="{Binding BlacklistSwitch}" HorizontalContentAlignment="Stretch"/>
+                        </UniformGrid>
+                    </Expander>
+
                     <!-- Log toolbar -->
-                    <Border Grid.Row="1" Background="{StaticResource HeaderBackground}" CornerRadius="4" Margin="0,0,0,3">
+                    <Border Grid.Row="2" Background="{StaticResource HeaderBackground}" CornerRadius="4" Margin="0,0,0,3">
                         <Grid>
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto"/>
@@ -269,7 +295,7 @@
                     </Border>
 
                     <!-- Log entries list -->
-                    <ListBox Grid.Row="2" x:Name="ServerLogListBox" ItemsSource="{Binding FilteredServerLogs}"
+                    <ListBox Grid.Row="3" x:Name="ServerLogListBox" ItemsSource="{Binding FilteredServerLogs}"
                              Background="{StaticResource LogBackground}"
                              FontFamily="Consolas" FontSize="{DynamicResource TextFontSize12}"
                              BorderBrush="{StaticResource BorderBrush}"
@@ -532,13 +558,13 @@
                     </views:NetworkSchemeView.Style>
                 </views:NetworkSchemeView>
 
-                <!-- SECTION: Lists -->
+                <!-- SECTION: Firewall -->
                 <Grid>
                     <Grid.Style>
                         <Style TargetType="Grid">
                             <Setter Property="Visibility" Value="Collapsed"/>
                             <Style.Triggers>
-                                <DataTrigger Binding="{Binding SelectedSection}" Value="Lists">
+                                <DataTrigger Binding="{Binding SelectedSection}" Value="Firewall">
                                     <Setter Property="Visibility" Value="Visible"/>
                                 </DataTrigger>
                             </Style.Triggers>
@@ -614,6 +640,20 @@
                     </Grid>
                 </Grid>
 
+                <!-- SECTION: Applications -->
+                <views:ProcessBlacklistView DataContext="{Binding ProcessBlacklist}">
+                    <views:ProcessBlacklistView.Style>
+                        <Style TargetType="views:ProcessBlacklistView">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding DataContext.SelectedSection, RelativeSource={RelativeSource AncestorType=Window}}" Value="Applications">
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </views:ProcessBlacklistView.Style>
+                </views:ProcessBlacklistView>
+
                 <!-- SECTION: Settings -->
                 <Grid>
                     <Grid.Style>
@@ -639,26 +679,34 @@
                         <RowDefinition Height="*"/>
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
-                    <StackPanel VerticalAlignment="Top">
-                        <TextBlock Text="Меню" FontWeight="Bold" Foreground="{StaticResource TextDim}"
-                                   FontSize="{DynamicResource FontSize11}" Margin="6,0,0,8"/>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <StackPanel VerticalAlignment="Top">
+                            <TextBlock Text="Меню" FontWeight="Bold" Foreground="{StaticResource TextDim}"
+                                       FontSize="{DynamicResource FontSize11}" Margin="6,0,0,8"/>
 
-                        <RadioButton Content="Главная" GroupName="Nav"
-                                     Style="{StaticResource NavItem}"
-                                     IsChecked="{Binding SelectedSection, Converter={StaticResource EnumToBool}, ConverterParameter=Main}"/>
-                        <RadioButton Content="Пользователи" GroupName="Nav" IsEnabled="{Binding IsConnected}"
-                                     Style="{StaticResource NavItem}"
-                                     IsChecked="{Binding SelectedSection, Converter={StaticResource EnumToBool}, ConverterParameter=Users}"/>
-                        <RadioButton Content="Схема сети" GroupName="Nav" IsEnabled="{Binding IsConnected}"
-                                     Style="{StaticResource NavItem}"
-                                     IsChecked="{Binding SelectedSection, Converter={StaticResource EnumToBool}, ConverterParameter=Network}"/>
-                        <RadioButton Content="Списки" GroupName="Nav" IsEnabled="{Binding IsConnected}"
-                                     Style="{StaticResource NavItem}"
-                                     IsChecked="{Binding SelectedSection, Converter={StaticResource EnumToBool}, ConverterParameter=Lists}"/>
-                        <RadioButton Content="Настройки" GroupName="Nav" IsEnabled="{Binding IsConnected}"
-                                     Style="{StaticResource NavItem}"
-                                     IsChecked="{Binding SelectedSection, Converter={StaticResource EnumToBool}, ConverterParameter=Settings}"/>
-                    </StackPanel>
+                            <RadioButton Content="Главная" GroupName="Nav"
+                                         Style="{StaticResource NavItem}"
+                                         IsChecked="{Binding SelectedSection, Converter={StaticResource EnumToBool}, ConverterParameter=Main}"/>
+                            <RadioButton Content="Пользователи" GroupName="Nav" IsEnabled="{Binding IsConnected}"
+                                         Style="{StaticResource NavItem}"
+                                         IsChecked="{Binding SelectedSection, Converter={StaticResource EnumToBool}, ConverterParameter=Users}"/>
+                            <RadioButton Content="Схема сети" GroupName="Nav" IsEnabled="{Binding IsConnected}"
+                                         Style="{StaticResource NavItem}"
+                                         IsChecked="{Binding SelectedSection, Converter={StaticResource EnumToBool}, ConverterParameter=Network}"/>
+                            <RadioButton Content="Настройки" GroupName="Nav" IsEnabled="{Binding IsConnected}"
+                                         Style="{StaticResource NavItem}"
+                                         IsChecked="{Binding SelectedSection, Converter={StaticResource EnumToBool}, ConverterParameter=Settings}"/>
+
+                            <TextBlock Text="Списки" FontWeight="Bold" Foreground="{StaticResource TextDim}"
+                                       FontSize="{DynamicResource FontSize11}" Margin="6,12,0,8"/>
+                            <RadioButton Content="Firewall" GroupName="Nav" IsEnabled="{Binding IsConnected}"
+                                         Style="{StaticResource NavItem}"
+                                         IsChecked="{Binding SelectedSection, Converter={StaticResource EnumToBool}, ConverterParameter=Firewall}"/>
+                            <RadioButton Content="Приложения" GroupName="Nav" IsEnabled="{Binding IsConnected}"
+                                         Style="{StaticResource NavItem}"
+                                         IsChecked="{Binding SelectedSection, Converter={StaticResource EnumToBool}, ConverterParameter=Applications}"/>
+                        </StackPanel>
+                    </ScrollViewer>
                     <TextBlock Grid.Row="1" Foreground="{StaticResource TextDim}" FontSize="{DynamicResource FontSize11}" Margin="6,12,6,0" TextAlignment="Center">
                         <Run Text="Версия "/><Run Text="{x:Static local:BuildVersion.Current}"/>
                     </TextBlock>

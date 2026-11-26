@@ -1,7 +1,7 @@
 # Client backend
 
 BigBrother Client is the Windows service for BigBrother Client Daemon.exe and
-the hub for client applications. It owns the server session, settings, policy,
+the hub for client applications. It owns the server session, settings, policy delivery,
 notifications, firewall controls, log access and update preparation.
 
 ~~~mermaid
@@ -10,6 +10,7 @@ flowchart LR
     CLI[Client command line] <--> Hub
     Hub <--> Server[Server backend]
     Hub --> Firewall[Firewall service]
+    Hub --> Monitor[Process monitor per interactive session]
     Hub --> Notifications[Notification helper]
     Hub --> Updates[Update preparation worker]
     Hub --> Logs[Client and firewall logs]
@@ -28,7 +29,8 @@ starts the firewall. Only explicit firewall Start/Restart requests start it. Fil
 toggles, settings, server policy, status checks and reconnects never launch it.
 A stopped or crashed firewall stays stopped until another Start/Restart request.
 
-The installer defaults the backend to Automatic, with a Manual option. The
+Client Setup defaults the backend to Automatic, with a Manual option. A separate
+checkbox, selected by default, starts the backend when installation finishes. The
 firewall is always Manual. Its lifetime depends on BigBrother Client: it watches
 the backend service state and holds a handle to that backend process. It exits on
 backend stop or crash, even if the backend has already restarted. There is no SCM
@@ -57,6 +59,33 @@ update executor cannot create this service layout; subsequent update payloads
 work with the new backend service.
 Setup also removes the earlier feature-branch service named BigBrother.Client
 before registering BigBrother Client.
+
+## Application process blacklist
+
+The client backend fetches the server's process policy when its authenticated
+subscription opens or receives a change event. A periodic refresh repairs a
+missed event. A failed fetch retains the previous policy within that subscription.
+The server returns its global switch and normalized rules together, including when
+blocking is paused. The client frontend reads this snapshot through the backend
+pipe. Disconnecting clears the snapshot. The client control panel has a separate
+switch stored in `config.ini` under `[process_monitor] enabled`. Both switches
+default to enabled. Turning off the local switch stops this client’s monitors. Enforcement resumes when both
+switches are enabled and the connected server supplies matching rules.
+An empty list disables enforcement. Ending the subscription or stopping the
+backend releases its monitors. Reconnection starts with a fresh policy.
+
+When both switches are on, the backend publishes the rules to a subscription-scoped
+shared memory channel. Each running monitor opens a read-only view, validates the UTF-8
+rules and switches to the new blacklist before its next scan. Invalid updates
+leave the monitor's last valid rules in use. A nonempty update reaches existing
+instances without restarting them.
+
+The installed LocalSystem service launches `BigBrother Process Monitor.exe`
+with the interactive user's non-elevated token and a separate Windows job for
+each active console or RDP session. The monitor scans once a second and checks
+the opened process's executable name, user, session, elevation and critical
+status before terminating a match. The firewall and client frontend can be
+closed. Rules stay in memory for the lifetime of the server subscription.
 
 ## Code
 
@@ -87,6 +116,7 @@ applications use the Windows service lifecycle.
 ## Verification
 
 ~~~sh
+make -C app/process-monitor debug test-build
 make -C app/client/backend debug regression-build lifecycle-test-build
 make -C app/client/backend release
 make -C app/firewall debug test-build lifetime-test-build
@@ -96,6 +126,13 @@ dotnet run --project app/client/frontend.tests/BigBrother.Client.Certificate.Tes
 dotnet run --project app/client/updates.tests/BigBrother.Client.Updates.Tests.csproj
 dotnet run --project lib/cs/BigBrother.Frontend.Shared.Tests/BigBrother.Frontend.Shared.Tests.csproj
 ~~~
+
+Run `app/process-monitor/build/test.exe` for matcher tests. On native Windows,
+run `enforcement-test.exe` beside the monitor in an interactive desktop session to
+exercise real process termination and exceptions using two disposable test processes.
+Under Wine, use `enforcement-test.exe --updates-only` to run the live-update
+fixture with both test processes exempt. Full enforcement uses a Windows
+critical-process query unavailable in Wine.
 
 The lifecycle fixture creates services named BigBrother Client and BigBrother
 Firewall. Run it only in an isolated Wine prefix with neither service already

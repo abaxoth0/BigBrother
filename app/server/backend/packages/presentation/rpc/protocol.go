@@ -91,7 +91,7 @@ func readRequest(scanner *bufio.Scanner) (cmd string, args []string, err error) 
 	for scanner.Scan() {
 		line := scanner.Text()
 		if line == "" {
-			break // empty line terminates request
+			return cmd, args, nil
 		}
 
 		// line should be the length
@@ -119,7 +119,7 @@ func readRequest(scanner *bufio.Scanner) (cmd string, args []string, err error) 
 		return "", nil, fmt.Errorf("reading TLV argument: %w", err)
 	}
 
-	return cmd, args, nil
+	return "", nil, fmt.Errorf("missing request terminator")
 }
 
 // writeLine writes a line with newline

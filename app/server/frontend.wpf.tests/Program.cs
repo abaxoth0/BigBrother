@@ -77,6 +77,8 @@ internal static partial class Program
             }
             TestWindowFrames();
             TestDialogs();
+            TestProcessBlacklistEditor();
+            TestServerPolicySwitch();
             var networkShare = new NetworkShareWindow("");
             networkShare.Show();
             try { CheckWindowFrame(networkShare); }

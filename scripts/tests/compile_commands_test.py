@@ -55,7 +55,13 @@ class NativeConfigurationTests(unittest.TestCase):
         entries = {Path(entry["file"]): entry for entry in self.commands}
         self.assertEqual(len(entries), len(self.commands))
         version = (ROOT / "VERSION").read_text().strip()
-        for directory in ("app/client/backend", "app/firewall", "app/notifications", "lib/common"):
+        for directory in (
+            "app/client/backend",
+            "app/process-monitor",
+            "app/firewall",
+            "app/notifications",
+            "lib/common",
+        ):
             for source in (ROOT / directory).rglob("*"):
                 if source.suffix not in (".c", ".cpp") or {"build", "third-party"} & set(source.parts):
                     continue
@@ -69,6 +75,35 @@ class NativeConfigurationTests(unittest.TestCase):
                         self.assertIn(f"-std={standard}", flags)
 
         self.assertFalse(any(path.is_relative_to(ROOT / "lib/mbedtls") for path in entries))
+
+    def test_backend_and_monitor_build_without_each_others_private_headers(self):
+        backend = ROOT / "app/client/backend"
+        monitor = ROOT / "app/process-monitor"
+        for entry in self.commands:
+            source = Path(entry["file"])
+            if source.is_relative_to(backend / "src"):
+                other_app = monitor
+            elif source.is_relative_to(monitor / "src"):
+                other_app = backend
+            else:
+                continue
+            with self.subTest(source=source.relative_to(ROOT)):
+                # MinGW already targets Windows; --target is added for clangd only.
+                arguments = [
+                    arg for arg in entry["arguments"] if not arg.startswith("--target=")
+                ]
+                arguments[arguments.index("-c")] = "-MM"
+                result = subprocess.run(
+                    arguments,
+                    cwd=entry["directory"],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                )
+                dependencies = shlex.split(result.stdout.replace("\\\n", " "))[1:]
+                for path in dependencies:
+                    resolved = (Path(entry["directory"]) / path).resolve()
+                    self.assertFalse(resolved.is_relative_to(other_app), resolved)
 
     @unittest.skipUnless(shutil.which("clangd"), "clangd is required for editor smoke tests")
     def test_clangd_reports_no_errors_in_each_module_and_shared_headers(self):

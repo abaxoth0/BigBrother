@@ -29,6 +29,7 @@ RestartApplications=no
 Source: "{#PayloadDir}\BigBrother Notifications.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#PayloadDir}\BigBrother Client Daemon.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#PayloadDir}\BigBrother Firewall.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#PayloadDir}\BigBrother Process Monitor.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#PayloadDir}\WinDivert.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#PayloadDir}\WinDivert64.sys"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#PayloadDir}\client-version.txt"; DestDir: "{app}"; Flags: ignoreversion

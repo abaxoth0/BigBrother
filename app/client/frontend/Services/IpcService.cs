@@ -221,14 +221,14 @@ public class IpcService : IDisposable
                 while (true)
                 {
                     var lenLine = await reader.ReadLineAsync(ct).ConfigureAwait(false);
-                    if (string.IsNullOrEmpty(lenLine)) break;
+                    if (lenLine == "") break;
 
                     if (!int.TryParse(lenLine, out int len) || len < 0)
-                        break;
+                        throw new InvalidDataException("Некорректная длина поля в ответе клиентской службы.");
 
                     var value = await reader.ReadLineAsync(ct).ConfigureAwait(false);
-                    if (value == null) break;
-                    if (Encoding.UTF8.GetByteCount(value) != len) break;
+                    if (value == null || Encoding.UTF8.GetByteCount(value) != len)
+                        throw new InvalidDataException("Неполный ответ клиентской службы.");
 
                     data.Add(value);
                 }
@@ -333,6 +333,14 @@ public class IpcService : IDisposable
                     {
                         status.FiltrationEnabled = data[8] == "1";
                     }
+                    if (data.Count > 9 && data[9] is "0" or "1")
+                    {
+                        status.ProcessBlacklistEnabled = data[9] == "1";
+                    }
+                    if (status.IsServerSessionActive && data.Count > 10 && data[10] is "0" or "1")
+                    {
+                        status.ServerProcessBlacklistEnabled = data[10] == "1";
+                    }
                 }
             }
             finally
@@ -348,7 +356,11 @@ public class IpcService : IDisposable
         return status;
     }
 
-    public async Task<List<string>?> GetWhitelistAsync()
+    public Task<List<string>?> GetWhitelistAsync() => GetRuleListAsync("GET_WHITELIST");
+
+    public Task<List<string>?> GetProcessBlacklistAsync() => GetRuleListAsync("GET_PROCESS_BLACKLIST");
+
+    private async Task<List<string>?> GetRuleListAsync(string command)
     {
         await _connectionLock.WaitAsync();
         try
@@ -360,7 +372,7 @@ public class IpcService : IDisposable
 
             try
             {
-                var (status, data) = await SendCommandWithTimeoutAsync("GET_WHITELIST", ReadTimeoutMs);
+                var (status, data) = await SendCommandWithTimeoutAsync(command, ReadTimeoutMs);
                 return status == "OK" ? data : null;
             }
             finally
@@ -969,6 +981,13 @@ public class IpcService : IDisposable
         {
             _connectionLock.Release();
         }
+    }
+
+    public async Task SetProcessBlacklistEnabledAsync(bool enabled)
+    {
+        var (status, _, error) = await CertificateCommandAsync("SET_PROCESS_BLACKLIST_ENABLED", enabled ? "1" : "0");
+        if (status != "OK")
+            throw new IOException(string.IsNullOrEmpty(error) ? "Клиентская служба не ответила." : error);
     }
 
     public async Task<bool> GetFiltrationAutoDisableAsync()

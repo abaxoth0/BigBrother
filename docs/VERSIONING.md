@@ -1,7 +1,7 @@
 # Common application version
 
-The repository root `VERSION` contains the common release version, currently
-`2.0.0`. Use three numeric components, such as `2.1.0`, without quotes or a `v`
+The repository root `VERSION` contains the common release version.
+Use three numeric components, such as `2.1.0`, without quotes or a `v`
 prefix. Each component must be between 0 and 65534. Commit this file with the
 release changes and rebuild all applications after changing it.
 
@@ -12,8 +12,8 @@ native WPF dependencies retain their own upstream versions.
 ## Visual Studio in the Windows VM
 
 Keep `VERSION`, `Directory.Build.props` and `Directory.Build.targets` in the
-repository root above the frontend projects. Open either existing solution in
-Visual Studio and use **Build**, **Rebuild** or **Publish** normally. MSBuild reads
+repository root above the frontend projects. Open the solution in
+`app/client/frontend` or `app/server/frontend` in Visual Studio. MSBuild reads
 the common version for both frontends and their shared library; Python, Make and
 Linux build scripts are not required for this step. The version file is also an
 input to Visual Studio's up-to-date check, so editing it triggers a new build.
@@ -24,11 +24,12 @@ Assembly and Windows file versions use four
 components (`2.0.0.0`), while the informational/product version remains `2.0.0`.
 Remove any separate version overrides from project or publish settings.
 
-Publish both frontends as self-contained Windows x64 single files using the
-existing profiles, selecting the same Debug or Release configuration as the Linux
-build. Copy the executable and required native WPF DLLs from each
-publish directory into `dist/client-frontend` or `dist/server-frontend` before
-running `scripts/publish.sh` or `scripts/build-installers.sh` on Linux.
+In Solution Explorer, right-click **BigBrother Client** or **BigBrother Server**,
+choose **Publish**, and select **FolderProfile**. The application includes
+`BigBrother.Frontend.Shared` when published. Match the Debug or Release
+configuration to the installer build. The profile writes the self-contained
+Windows x64 executable and native WPF DLLs directly to `dist/client-frontend`
+or `dist/server-frontend` in the same checkout.
 
 ## Native and Go builds
 
