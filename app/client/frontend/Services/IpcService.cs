@@ -337,6 +337,10 @@ public class IpcService : IDisposable
                     {
                         status.ProcessBlacklistEnabled = data[9] == "1";
                     }
+                    if (status.IsServerSessionActive && data.Count > 10 && data[10] is "0" or "1")
+                    {
+                        status.ServerProcessBlacklistEnabled = data[10] == "1";
+                    }
                 }
             }
             finally

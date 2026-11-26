@@ -488,7 +488,7 @@ public class MainViewModel : ViewModelBase, IDisposable
             {
                 if (_disposed) return;
                 Controls.UpdateState(serviceState, status.IsConnected, status.DaemonStatus == "RUNNING",
-                    status.ProcessBlacklistEnabled);
+                    status.ProcessBlacklistEnabled, status.IsServerSessionActive, status.ServerProcessBlacklistEnabled);
                 UpdateStatus(status);
                 LastUpdate = DateTime.Now;
                 StatusRefreshed?.Invoke(status);

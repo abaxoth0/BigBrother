@@ -228,6 +228,7 @@ public class ClientStatus
     public uint WhitelistRevision { get; set; }
     public bool FiltrationEnabled { get; set; } = false;
     public bool? ProcessBlacklistEnabled { get; set; }
+    public bool? ServerProcessBlacklistEnabled { get; set; }
 }
 
 public class LogFileSource

@@ -58,6 +58,23 @@ internal static class ClientControlsTests
         Check(controls.StartFirewallCommand.CanExecute(null) && controls.StopBackendCommand.CanExecute(null)
             && !controls.StartBackendCommand.CanExecute(null), "Running backend must enable independent firewall start");
         Check(controls.ToggleProcessBlacklistCommand.CanExecute(null), "Local blacklist must be available with firewall stopped");
+        controls.UpdateState(state, connected, firewall, true, true, true);
+        Check(controls.ProcessBlacklistActive && controls.ProcessBlacklistStatusText == "Вкл",
+            "The blacklist must show enabled when both switches are on");
+        controls.UpdateState(state, connected, firewall, true, true, false);
+        Check(!controls.ProcessBlacklistActive && controls.ProcessBlacklistStatusText == "Выкл на сервере"
+            && controls.ToggleProcessBlacklistCommand.CanExecute(null) && controls.ProcessBlacklistActionText == "Выключить здесь",
+            "A server disable must turn off the indicator and preserve the local toggle");
+        controls.UpdateState(state, connected, firewall, true, false, true);
+        Check(!controls.ProcessBlacklistActive && controls.ProcessBlacklistStatusText == "Нет связи с сервером",
+            "A disconnect must clear stale server switch state");
+        controls.UpdateState(state, connected, firewall, true, true, null);
+        Check(!controls.ProcessBlacklistActive && controls.ProcessBlacklistStatusText == "Состояние на сервере неизвестно",
+            "An unknown server switch must remain unavailable until synchronized");
+        controls.UpdateState(state, connected, firewall, false, true, true);
+        Check(!controls.ProcessBlacklistActive && controls.ProcessBlacklistStatusText == "Выкл на этом устройстве",
+            "A local disable must override a server enable");
+        controls.UpdateState(state, connected, firewall, true, true, false);
         await controls.ToggleProcessBlacklistAsync();
         Check(!blacklist && controls.ProcessBlacklistStatusText == "Выкл на этом устройстве",
             "The panel must refresh the local preference after disabling the blacklist");
