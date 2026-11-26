@@ -4,7 +4,9 @@ dist
 **/.vs
 **/*.db
 *.exe
-**/Properties/PublishProfiles
+**/Properties/PublishProfiles/*
+!/app/client/frontend/Properties/PublishProfiles/FolderProfile.pubxml
+!/app/server/frontend/Properties/PublishProfiles/FolderProfile.pubxml
 **/bin/
 **/obj/
 **/__pycache__/

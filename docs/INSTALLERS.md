@@ -47,10 +47,10 @@ mode's code. Successful builds write `build-configuration.txt` into the payload;
 installer builds require that marker to match their configuration argument.
 
 All application binaries must be rebuilt for the version in `VERSION`. The compiler
-checks their embedded product versions and rejects stale payloads. Build/publish
-the frontends in the matching Debug or Release configuration in Visual Studio in
-the Windows VM, then copy the published
-files into `dist/{client,server}-frontend`. The shared MSBuild files read `VERSION`
+checks their embedded product versions and rejects stale payloads. In Visual Studio
+in the Windows VM, publish each frontend application with its **FolderProfile**
+and the matching Debug or Release configuration. The profiles write directly to
+`dist/{client,server}-frontend`. The shared MSBuild files read `VERSION`
 automatically; no shell command or version edit in Visual Studio is needed.
 See [VERSIONING.md](VERSIONING.md) for the release workflow.
 
