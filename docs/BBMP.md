@@ -99,7 +99,8 @@ preparation worker. See [client backend architecture](CLIENT-BACKEND.md).
 
 | Command | Arguments | Response Data | Description |
 |---------|-----------|---------------|-------------|
-| `GET_STATUS` | none | `STATUS:<name>:<ip>:<status>:<pid>:<revision>` | Get client status |
+| `GET_STATUS` | none | Name, IP, firewall status, backend status, whitelist revision, PID, server reachability, subscription status, filtration flag, local blacklist flag | Get client status. Older backends omit the final flag |
+| `SET_PROCESS_BLACKLIST_ENABLED` | `0` or `1` | none | Persist the blacklist preference for this device |
 | `GET_WHITELIST` | none | Whitelist entries (one per line) | Get current whitelist |
 | `RESTART_CLIENT` | none | none | Restart the backend service; dependent apps stop and the firewall stays stopped |
 | `PING` | none | none | Ping the client |
@@ -139,11 +140,15 @@ Used by Big Brother clients to communicate with the server.
 | `SUBSCRIBE` | `username`, `token` | Initial `OK`, then pushed events | Open an authenticated event subscription and send client heartbeats |
 
 The client-facing `GET_PROCESS_BLACKLIST` takes username and token and returns
-one normalized executable rule per TLV field, or an empty OK for an empty policy.
+one normalized executable rule per TLV field. An empty policy or a disabled global
+switch returns an empty OK response.
 A local administrator uses `SAVE_PROCESS_BLACKLIST` (one source line per
 argument) and `GET_PROCESS_BLACKLIST` (no arguments) on the server frontend
 pipe. The editor reads back the original source, including comments and default
-priorities. A successful save replaces the complete list in SQLite and publishes
+priorities. On the same pipe, `GET_PROCESS_BLACKLIST_ENABLED` returns one
+`0` or `1` field. `SET_PROCESS_BLACKLIST_ENABLED` accepts one such field,
+persists the global switch, and signals clients with `PROCESS_BLACKLIST_CHANGED`.
+Switching enforcement off preserves the source. A successful save replaces the complete list in SQLite and publishes
 `PROCESS_BLACKLIST_CHANGED`. Invalid input leaves the existing list active.
 
 A bare executable basename blocks, and `!` permits a matching executable.
