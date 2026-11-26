@@ -286,6 +286,7 @@ internal static partial class Program
             model.Dispose();
             window.Show();
             FlushLayout(window);
+            TestServerControlPanel(window);
             var tabs = VisualChildren<RadioButton>(window).Where(tab => tab.GroupName == "Nav").ToList();
             var mainTab = tabs.Single(tab => Equals(tab.Content, "Главная"));
             bool OnlyMainEnabled() => mainTab.IsEnabled && tabs.Where(tab => tab != mainTab).All(tab => !tab.IsEnabled);

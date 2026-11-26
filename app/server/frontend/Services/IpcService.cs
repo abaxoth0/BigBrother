@@ -1001,48 +1001,22 @@ public class IpcService : IDisposable
         }
     }
 
-    public async Task<bool> GetFiltrationEnabledAsync()
-    {
-        await _connectionLock.WaitAsync();
-        try
-        {
-            if (!await ConnectAsync()) return true;
-            try
-            {
-                var (status, data) = SendCommand("GET_FILTRATION");
-                return status == "OK" && data.Count > 0 && data[0] == "1";
-            }
-            finally
-            {
-                Disconnect();
-            }
-        }
-        finally
-        {
-            _connectionLock.Release();
-        }
-    }
+    public Task<bool> GetFiltrationEnabledAsync() => ReadPolicySwitchAsync("GET_FILTRATION");
+    public Task SetFiltrationEnabledAsync(bool enabled) => PolicyCommandAsync("SET_FILTRATION", enabled ? "1" : "0");
 
-    public async Task<bool> SetFiltrationEnabledAsync(bool enabled)
+    public Task<bool> GetProcessBlacklistEnabledAsync() => ReadPolicySwitchAsync("GET_PROCESS_BLACKLIST_ENABLED");
+    public Task SetProcessBlacklistEnabledAsync(bool enabled) =>
+        PolicyCommandAsync("SET_PROCESS_BLACKLIST_ENABLED", enabled ? "1" : "0");
+
+    private async Task<bool> ReadPolicySwitchAsync(string command)
     {
-        await _connectionLock.WaitAsync();
-        try
+        var values = await PolicyCommandAsync(command);
+        return values switch
         {
-            if (!await ConnectAsync()) return false;
-            try
-            {
-                var (status, _) = SendCommand("SET_FILTRATION", enabled ? "1" : "0");
-                return status == "OK";
-            }
-            finally
-            {
-                Disconnect();
-            }
-        }
-        finally
-        {
-            _connectionLock.Release();
-        }
+            ["1"] => true,
+            ["0"] => false,
+            _ => throw new InvalidDataException("Некорректное состояние в ответе сервера")
+        };
     }
 
     public async Task<bool?> GetFirewallPublicAsync()

@@ -64,6 +64,15 @@
             <Setter Property="FontSize" Value="{DynamicResource FontSize12}"/>
         </Style>
 
+        <DataTemplate DataType="{x:Type vm:ServerPolicySwitch}">
+            <StackPanel Margin="8,4">
+                <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                <TextBlock Text="{Binding Status}" Margin="0,4"/>
+                <Button Content="Вкл/Выкл" Command="{Binding ToggleCommand}" Style="{StaticResource SmallButton}"
+                        AutomationProperties.Name="{Binding Name}" HorizontalAlignment="Left"/>
+            </StackPanel>
+        </DataTemplate>
+
         <Style x:Key="StatusDot" TargetType="Ellipse">
             <Setter Property="Width" Value="12"/>
             <Setter Property="Height" Value="12"/>
@@ -175,7 +184,8 @@
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="*" MinHeight="160"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
 
                     <!-- Health / status banner -->
@@ -194,7 +204,6 @@
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
 
                             <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,20,0">
@@ -204,27 +213,13 @@
                                            VerticalAlignment="Center" Margin="12,0,0,0"/>
                             </StackPanel>
 
-                            <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
                                 <TextBlock Text="Клиенты:" Foreground="White" FontSize="{DynamicResource FontSize12}" VerticalAlignment="Center"/>
                                 <TextBlock Text="{Binding ConnectedClientsCount}" Foreground="White" FontSize="{DynamicResource FontSize12}" FontWeight="Bold"
                                            VerticalAlignment="Center" Margin="4,0,0,0"/>
                                 <TextBlock Text="Ожидают:" Foreground="White" FontSize="{DynamicResource FontSize12}" VerticalAlignment="Center" Margin="20,0,0,0"/>
                                 <TextBlock Text="{Binding PendingCount}" Foreground="White" FontSize="{DynamicResource FontSize12}" FontWeight="Bold"
                                            VerticalAlignment="Center" Margin="4,0,0,0"/>
-                                <TextBlock Text="Фильтрация:" Foreground="White" FontSize="{DynamicResource FontSize12}" VerticalAlignment="Center" Margin="20,0,0,0"/>
-                                <TextBlock Text="{Binding FiltrationStatus}" Foreground="White" FontSize="{DynamicResource FontSize12}" FontWeight="Bold"
-                                           VerticalAlignment="Center" Margin="4,0,0,0"/>
-                                <Button Content="Вкл/Выкл" Style="{StaticResource SmallButton}" FontSize="{DynamicResource FontSize12}"
-                                        Command="{Binding ToggleFiltrationCommand}" Margin="8,0,0,0"/>
-                            </StackPanel>
-
-                            <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-                                <TextBlock Text="Служба:" Foreground="#E6FFFFFF" FontSize="{DynamicResource FontSize11}" VerticalAlignment="Center"/>
-                                <TextBlock Text="{Binding ServiceStatus}" Foreground="#E6FFFFFF" FontSize="{DynamicResource FontSize11}"
-                                           VerticalAlignment="Center" Margin="4,0,10,0"/>
-                                <Button Content="Пуск" Style="{StaticResource SmallButton}" Command="{Binding StartServiceCommand}"/>
-                                <Button Content="Стоп" Style="{StaticResource SmallButton}" Command="{Binding StopServiceCommand}"/>
-                                <Button Content="Рест" Style="{StaticResource SmallButton}" Command="{Binding RestartServiceCommand}"/>
                             </StackPanel>
                         </Grid>
                     </Border>
@@ -340,6 +335,26 @@
                             </DataTemplate>
                         </ListBox.ItemTemplate>
                     </ListBox>
+
+                    <Expander Grid.Row="3" x:Name="ServerControlPanel" Margin="0,5,0,0" IsExpanded="True"
+                              BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Background="{StaticResource Surface}">
+                        <Expander.Header>
+                            <TextBlock Text="ПАНЕЛЬ УПРАВЛЕНИЯ" FontWeight="Bold" Padding="4,3"/>
+                        </Expander.Header>
+                        <UniformGrid Columns="3" Margin="2,2,2,6">
+                            <StackPanel Margin="8,4">
+                                <TextBlock Text="Служба сервера" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                                <TextBlock Text="{Binding ServiceStatus}" Margin="0,4"/>
+                                <WrapPanel>
+                                    <Button Content="Пуск" Style="{StaticResource SmallButton}" Command="{Binding StartServiceCommand}"/>
+                                    <Button Content="Стоп" Style="{StaticResource SmallButton}" Command="{Binding StopServiceCommand}"/>
+                                    <Button Content="Рестарт" Style="{StaticResource SmallButton}" Command="{Binding RestartServiceCommand}"/>
+                                </WrapPanel>
+                            </StackPanel>
+                            <ContentControl Content="{Binding Filtration}" HorizontalContentAlignment="Stretch"/>
+                            <ContentControl Content="{Binding BlacklistSwitch}" HorizontalContentAlignment="Stretch"/>
+                        </UniformGrid>
+                    </Expander>
                 </Grid>
 
                 <!-- SECTION: Users -->
