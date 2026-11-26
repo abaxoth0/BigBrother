@@ -11,6 +11,16 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class BuildConfigurationTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which("dotnet"), "requires the .NET SDK")
+    def test_publishing_shared_project_reports_which_application_to_select(self):
+        project = ROOT / "lib/cs/BigBrother.Frontend.Shared/BigBrother.Frontend.Shared.csproj"
+        result = subprocess.run(
+            ["dotnet", "msbuild", str(project), "-t:Publish", "-p:PublishProfile=FolderProfile"],
+            capture_output=True, text=True,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("right-click BigBrother Client or BigBrother Server", result.stdout)
+
+    @unittest.skipUnless(shutil.which("dotnet"), "requires the .NET SDK")
     def test_frontend_profiles_publish_windows_executables_to_installer_payload(self):
         for product in ("Client", "Server"):
             with self.subTest(product=product):
