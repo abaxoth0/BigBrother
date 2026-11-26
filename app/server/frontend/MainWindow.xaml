@@ -64,22 +64,30 @@
             <Setter Property="FontSize" Value="{DynamicResource FontSize12}"/>
         </Style>
 
-        <DataTemplate DataType="{x:Type vm:ServerPolicySwitch}">
-            <StackPanel Margin="8,4">
-                <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextWrapping="Wrap"/>
-                <TextBlock Text="{Binding Status}" Margin="0,4"/>
-                <Button Content="Вкл/Выкл" Command="{Binding ToggleCommand}" Style="{StaticResource SmallButton}"
-                        AutomationProperties.Name="{Binding Name}" HorizontalAlignment="Left"/>
-            </StackPanel>
-        </DataTemplate>
-
         <Style x:Key="StatusDot" TargetType="Ellipse">
             <Setter Property="Width" Value="12"/>
             <Setter Property="Height" Value="12"/>
             <Setter Property="VerticalAlignment" Value="Center"/>
             <Setter Property="Fill" Value="{StaticResource StatusDisconnected}"/>
             <Setter Property="Margin" Value="0,0,8,0"/>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding}" Value="True">
+                    <Setter Property="Fill" Value="{StaticResource StatusRunning}"/>
+                </DataTrigger>
+            </Style.Triggers>
         </Style>
+
+        <DataTemplate DataType="{x:Type vm:ServerPolicySwitch}">
+            <StackPanel Margin="8,4">
+                <DockPanel>
+                    <Ellipse DataContext="{Binding IsOn}" Style="{StaticResource StatusDot}"/>
+                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold" VerticalAlignment="Center" TextWrapping="Wrap"/>
+                </DockPanel>
+                <TextBlock Text="{Binding Status}" Margin="0,4"/>
+                <Button Content="Вкл/Выкл" Command="{Binding ToggleCommand}" Style="{StaticResource SmallButton}"
+                        AutomationProperties.Name="{Binding Name}" HorizontalAlignment="Left"/>
+            </StackPanel>
+        </DataTemplate>
 
         <!-- Server log level colors + chips -->
         <SolidColorBrush x:Key="LogFatal" Color="#FF5555"/>
@@ -184,8 +192,8 @@
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="*"/>
                         <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
 
                     <!-- Health / status banner -->
@@ -224,8 +232,31 @@
                         </Grid>
                     </Border>
 
+                    <Expander Grid.Row="1" x:Name="ServerControlPanel" Margin="0,0,0,5" IsExpanded="True"
+                              BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Background="{StaticResource Surface}">
+                        <Expander.Header>
+                            <TextBlock Text="ПАНЕЛЬ УПРАВЛЕНИЯ" FontWeight="Bold" Padding="4,3"/>
+                        </Expander.Header>
+                        <UniformGrid Columns="3" Margin="2,2,2,6">
+                            <StackPanel Margin="8,4">
+                                <DockPanel>
+                                    <Ellipse DataContext="{Binding ServiceRunning}" Style="{StaticResource StatusDot}"/>
+                                    <TextBlock Text="Служба сервера" FontWeight="SemiBold" VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                </DockPanel>
+                                <TextBlock Text="{Binding ServiceStatus}" Margin="0,4"/>
+                                <WrapPanel>
+                                    <Button Content="Пуск" Style="{StaticResource SmallButton}" Command="{Binding StartServiceCommand}"/>
+                                    <Button Content="Стоп" Style="{StaticResource SmallButton}" Command="{Binding StopServiceCommand}"/>
+                                    <Button Content="Рестарт" Style="{StaticResource SmallButton}" Command="{Binding RestartServiceCommand}"/>
+                                </WrapPanel>
+                            </StackPanel>
+                            <ContentControl Content="{Binding Filtration}" HorizontalContentAlignment="Stretch"/>
+                            <ContentControl Content="{Binding BlacklistSwitch}" HorizontalContentAlignment="Stretch"/>
+                        </UniformGrid>
+                    </Expander>
+
                     <!-- Log toolbar -->
-                    <Border Grid.Row="1" Background="{StaticResource HeaderBackground}" CornerRadius="4" Margin="0,0,0,3">
+                    <Border Grid.Row="2" Background="{StaticResource HeaderBackground}" CornerRadius="4" Margin="0,0,0,3">
                         <Grid>
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto"/>
@@ -264,7 +295,7 @@
                     </Border>
 
                     <!-- Log entries list -->
-                    <ListBox Grid.Row="2" x:Name="ServerLogListBox" ItemsSource="{Binding FilteredServerLogs}"
+                    <ListBox Grid.Row="3" x:Name="ServerLogListBox" ItemsSource="{Binding FilteredServerLogs}"
                              Background="{StaticResource LogBackground}"
                              FontFamily="Consolas" FontSize="{DynamicResource TextFontSize12}"
                              BorderBrush="{StaticResource BorderBrush}"
@@ -335,26 +366,6 @@
                             </DataTemplate>
                         </ListBox.ItemTemplate>
                     </ListBox>
-
-                    <Expander Grid.Row="3" x:Name="ServerControlPanel" Margin="0,5,0,0" IsExpanded="True"
-                              BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Background="{StaticResource Surface}">
-                        <Expander.Header>
-                            <TextBlock Text="ПАНЕЛЬ УПРАВЛЕНИЯ" FontWeight="Bold" Padding="4,3"/>
-                        </Expander.Header>
-                        <UniformGrid Columns="3" Margin="2,2,2,6">
-                            <StackPanel Margin="8,4">
-                                <TextBlock Text="Служба сервера" FontWeight="SemiBold" TextWrapping="Wrap"/>
-                                <TextBlock Text="{Binding ServiceStatus}" Margin="0,4"/>
-                                <WrapPanel>
-                                    <Button Content="Пуск" Style="{StaticResource SmallButton}" Command="{Binding StartServiceCommand}"/>
-                                    <Button Content="Стоп" Style="{StaticResource SmallButton}" Command="{Binding StopServiceCommand}"/>
-                                    <Button Content="Рестарт" Style="{StaticResource SmallButton}" Command="{Binding RestartServiceCommand}"/>
-                                </WrapPanel>
-                            </StackPanel>
-                            <ContentControl Content="{Binding Filtration}" HorizontalContentAlignment="Stretch"/>
-                            <ContentControl Content="{Binding BlacklistSwitch}" HorizontalContentAlignment="Stretch"/>
-                        </UniformGrid>
-                    </Expander>
                 </Grid>
 
                 <!-- SECTION: Users -->

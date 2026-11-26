@@ -1,6 +1,7 @@
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Shapes;
 using System.Windows.Threading;
 using frontend;
 using frontend.ViewModels;
@@ -18,6 +19,43 @@ internal static partial class Program
         Check(buttons.Any(button => button.Command == main.StartServiceCommand) &&
             buttons.Any(button => button.Command == main.StopServiceCommand) &&
             buttons.Any(button => button.Command == main.RestartServiceCommand), "Service controls must remain accessible");
+        var logHeader = VisualChildren<TextBlock>(window).Single(label => label.Text == "ЛОГИ");
+        double panelBottom = panel.TranslatePoint(new Point(0, panel.ActualHeight), window).Y;
+        Check(panelBottom <= logHeader.TranslatePoint(new Point(), window).Y &&
+            panelBottom <= ((ListBox)window.FindName("ServerLogListBox")).TranslatePoint(new Point(), window).Y,
+            "The control panel must be above the log toolbar and entries");
+
+        var dots = VisualChildren<Ellipse>(panel).ToList();
+        var running = window.FindResource("StatusRunning");
+        var inactive = window.FindResource("StatusDisconnected");
+        Check(dots.Count == 3 && dots.All(dot => Equals(dot.Fill, inactive)),
+            "Every block header must show an inactive dot while its state is unavailable");
+
+        main.ServiceStatus = "Running";
+        FlushLayout(window);
+        var serviceDot = dots.Single(dot => dot.DataContext is true);
+        Check(Equals(serviceDot.Fill, running), "The service dot must follow the running service even without a connection");
+        main.ServiceStatus = "Stopped";
+        FlushLayout(window);
+        Check(Equals(serviceDot.Fill, inactive), "Stopping the service must turn off its dot");
+
+        var appsHost = VisualChildren<ContentControl>(panel).Single(host => ReferenceEquals(host.Content, main.BlacklistSwitch));
+        bool enabled = true;
+        var policy = new ServerPolicySwitch(main.BlacklistSwitch.Name, () => Task.FromResult(enabled),
+            _ => Task.CompletedTask, (_, _) => { });
+        appsHost.SetCurrentValue(ContentControl.ContentProperty, policy);
+        policy.RefreshAsync().GetAwaiter().GetResult();
+        FlushLayout(window);
+        var policyDot = VisualChildren<Ellipse>(appsHost).Single();
+        Check(Equals(policyDot.Fill, running), "An enabled policy must light its header dot");
+        enabled = false;
+        policy.RefreshAsync().GetAwaiter().GetResult();
+        FlushLayout(window);
+        Check(Equals(policyDot.Fill, inactive), "Disabling the policy must turn off its dot");
+        appsHost.SetCurrentValue(ContentControl.ContentProperty, main.BlacklistSwitch);
+        FlushLayout(window);
+        apps = VisualChildren<Button>(panel).Single(button => button.Command == main.BlacklistSwitch.ToggleCommand);
+
         panel.IsExpanded = false;
         FlushLayout(window);
         Check(!apps.IsVisible && !network.IsVisible, "Collapsing the panel must hide its controls");

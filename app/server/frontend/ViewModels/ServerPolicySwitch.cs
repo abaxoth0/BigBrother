@@ -21,6 +21,7 @@ public sealed class ServerPolicySwitch : ViewModelBase
     }
 
     public string Name { get; }
+    public bool IsOn => _enabled == true;
     public string Status => _enabled switch { true => "Вкл", false => "Выкл", null => "Недоступно" };
     public ICommand ToggleCommand { get; }
 
@@ -77,6 +78,7 @@ public sealed class ServerPolicySwitch : ViewModelBase
     private void ShowState(bool? enabled)
     {
         _enabled = enabled;
+        OnPropertyChanged(nameof(IsOn));
         OnPropertyChanged(nameof(Status));
         CommandManager.InvalidateRequerySuggested();
     }

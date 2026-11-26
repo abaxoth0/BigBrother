@@ -389,8 +389,14 @@ public class MainViewModel : ViewModelBase
     public string ServiceStatus
     {
         get => _serviceStatus;
-        set => SetProperty(ref _serviceStatus, value);
+        set
+        {
+            if (SetProperty(ref _serviceStatus, value))
+                OnPropertyChanged(nameof(ServiceRunning));
+        }
     }
+
+    public bool ServiceRunning => ServiceStatus == nameof(System.ServiceProcess.ServiceControllerStatus.Running);
 
     public bool HasWhitelistActivationChanges => _whitelistActivation.HasChanges;
     public bool CanUseWhitelistPresets => IsConnected && !_savingWhitelistActivation && !_openingPresetEditor;
