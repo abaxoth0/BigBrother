@@ -1,6 +1,7 @@
 #include "hub.h"
 #include "firewall.h"
 #include "logs.h"
+#include "process_monitors.h"
 #include "ipc_daemon.h"
 #include <cassert>
 #include <cstdio>
@@ -17,7 +18,29 @@ public:
     bool stop() override { calls += 'X'; return succeeds; }
 };
 
+static void test_process_monitor_control() {
+    assert(ini_set_string("process_monitor", "enabled", "") == 0);
+    client::ProcessMonitorControl monitors;
+    auto original = monitors.enabled_revision();
+
+    assert(original && monitors.publish(*original, "game.exe"));
+    assert(monitors.set_enabled(false));
+    assert(!monitors.enabled_revision());
+    assert(!monitors.publish(*original, "late.exe"));
+
+    assert(monitors.set_enabled(true));
+    auto current = monitors.enabled_revision();
+    assert(current && current != original);
+    assert(!monitors.publish(*original, "late.exe"));
+    assert(monitors.publish(*current, ""));
+    assert(monitors.publish(*current, "latest.exe"));
+
+    monitors.disconnect();
+    assert(!monitors.publish(*current, "late.exe"));
+}
+
 int main() {
+    test_process_monitor_control();
     FakeFirewall service;
     client::FirewallModule module(service);
     assert(service.calls.empty());

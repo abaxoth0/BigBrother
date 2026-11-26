@@ -25,6 +25,7 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
         <StackPanel Margin="0,0,12,12">
             <DockPanel>
@@ -110,6 +111,17 @@
                 <Button Content="Вкл/Выкл" Style="{StaticResource SmallButton}" Command="{Binding ToggleFiltrationCommand}"/>
             </WrapPanel>
         </StackPanel>
-        <TextBlock Grid.Row="2" Grid.ColumnSpan="2" Text="{Binding Controls.OperationText}" TextWrapping="Wrap"/>
+        <StackPanel Grid.Row="2" Grid.ColumnSpan="2" Margin="0,12,0,0"
+                    ToolTip="Блокировка действует при подключении к серверу, если на сервере включён чёрный список и заданы правила.">
+            <TextBlock Text="Чёрный список приложений" FontWeight="SemiBold" TextWrapping="Wrap"/>
+            <TextBlock x:Name="ProcessBlacklistStatus" Text="{Binding Controls.ProcessBlacklistStatusText}"
+                       Margin="0,4" TextWrapping="Wrap"/>
+            <WrapPanel>
+                <Button x:Name="ToggleProcessBlacklist" Content="Вкл/Выкл" Style="{StaticResource SmallButton}"
+                        Command="{Binding Controls.ToggleProcessBlacklistCommand}"
+                        AutomationProperties.Name="Включить или выключить чёрный список приложений на этом устройстве"/>
+            </WrapPanel>
+        </StackPanel>
+        <TextBlock Grid.Row="3" Grid.ColumnSpan="2" Text="{Binding Controls.OperationText}" TextWrapping="Wrap"/>
     </Grid>
 </UserControl>

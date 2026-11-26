@@ -333,6 +333,10 @@ public class IpcService : IDisposable
                     {
                         status.FiltrationEnabled = data[8] == "1";
                     }
+                    if (data.Count > 9 && data[9] is "0" or "1")
+                    {
+                        status.ProcessBlacklistEnabled = data[9] == "1";
+                    }
                 }
             }
             finally
@@ -969,6 +973,13 @@ public class IpcService : IDisposable
         {
             _connectionLock.Release();
         }
+    }
+
+    public async Task SetProcessBlacklistEnabledAsync(bool enabled)
+    {
+        var (status, _, error) = await CertificateCommandAsync("SET_PROCESS_BLACKLIST_ENABLED", enabled ? "1" : "0");
+        if (status != "OK")
+            throw new IOException(string.IsNullOrEmpty(error) ? "Клиентская служба не ответила." : error);
     }
 
     public async Task<bool> GetFiltrationAutoDisableAsync()

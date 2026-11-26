@@ -1508,13 +1508,13 @@ static int srv_read_tlv(SrvLineReader* r, char* out, size_t out_size) {
 }
 
 /** @brief Relay a complete authenticated server reply to the process monitor. */
-static bool sync_process_blacklist(const char* username, client::ProcessMonitors& monitors) {
+static bool sync_process_blacklist(const char* username, std::uint64_t revision) {
     char response[bb::PolicySnapshot::capacity + 1];
     const char* args[] = {username, nullptr};
 
     return send_authenticated_request("GET_PROCESS_BLACKLIST", username, args, 2, 1, response,
                                       sizeof(response)) == 0 &&
-           monitors.publish(response);
+           client::process_monitor_control().publish(revision, response);
 }
 
 /**
@@ -1984,10 +1984,18 @@ static int server_subscribe_loop(const char* username, int* consecutive_failures
 
     SetServerSessionActive(1);
 
-    client::ProcessMonitors monitors;
-    bool processSynced = sync_process_blacklist(username, monitors);
-    DWORD lastProcessFetch = GetTickCount();
-    monitors.refresh();
+    auto& monitors = client::process_monitor_control();
+    std::optional<std::uint64_t> processRevision;
+    bool processSynced = false;
+    DWORD lastProcessFetch = 0;
+    auto sync_monitors = [&] {
+        processRevision = monitors.enabled_revision();
+        processSynced = !processRevision || sync_process_blacklist(username, *processRevision);
+        lastProcessFetch = GetTickCount();
+        monitors.refresh();
+    };
+
+    sync_monitors();
 
     sync_whitelist_from_server(username);
     sync_filtration_from_server();
@@ -2020,16 +2028,17 @@ static int server_subscribe_loop(const char* username, int* consecutive_failures
             }
         }
 
-        // Check local daemon health
-        if (now - last_local_check >= SRV_LOCAL_DAEMON_CHECK_MS) {
-            last_local_check = now;
+        const bool checkLocal = now - last_local_check >= SRV_LOCAL_DAEMON_CHECK_MS;
 
-            if (!processSynced || now - lastProcessFetch >= 60000) {
-                processSynced = sync_process_blacklist(username, monitors);
-                lastProcessFetch = now;
-            }
-
+        if (monitors.enabled_revision() != processRevision ||
+            (checkLocal && (!processSynced || now - lastProcessFetch >= 60000))) {
+            sync_monitors();
+        } else if (checkLocal) {
             monitors.refresh();
+        }
+
+        if (checkLocal) {
+            last_local_check = now;
 
             if (g_whitelist_sync_pending) sync_whitelist_from_server(username);
         }
@@ -2060,9 +2069,7 @@ static int server_subscribe_loop(const char* username, int* consecutive_failures
             }
 
             if (result == 3) {
-                processSynced = sync_process_blacklist(username, monitors);
-                lastProcessFetch = GetTickCount();
-                monitors.refresh();
+                sync_monitors();
             }
 
             if (result == 2 && send_policy_heartbeat(&subscription_tls) <= 0) break;
@@ -2081,6 +2088,7 @@ static int server_subscribe_loop(const char* username, int* consecutive_failures
         }
     }
 
+    monitors.disconnect();
     bb_tls_free(&subscription_tls);
     closesocket(sock);
     WSACleanup();

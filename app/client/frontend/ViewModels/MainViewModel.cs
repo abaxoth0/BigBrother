@@ -487,7 +487,8 @@ public class MainViewModel : ViewModelBase, IDisposable
             await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
             {
                 if (_disposed) return;
-                Controls.UpdateState(serviceState, status.IsConnected, status.DaemonStatus == "RUNNING");
+                Controls.UpdateState(serviceState, status.IsConnected, status.DaemonStatus == "RUNNING",
+                    status.ProcessBlacklistEnabled);
                 UpdateStatus(status);
                 LastUpdate = DateTime.Now;
                 StatusRefreshed?.Invoke(status);
@@ -562,7 +563,7 @@ public class MainViewModel : ViewModelBase, IDisposable
                 if (!await _ipcService.ControlFirewallAsync(action))
                     throw new IOException(string.IsNullOrEmpty(_ipcService.LastError)
                         ? "Не удалось выполнить команду." : _ipcService.LastError);
-            }, RefreshStateAsync, AddLog);
+            }, _ipcService.SetProcessBlacklistEnabledAsync, RefreshStateAsync, AddLog);
 
         ClearLogsCommand = new RelayCommand(_ => ClearLogs());
         ExportLogsCommand = new RelayCommand(_ => ExportLogs());

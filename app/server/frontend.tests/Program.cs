@@ -105,6 +105,32 @@ static async Task<T> WhitelistReply<T>(string name, Func<IpcService, Task<T>> ac
     return await request.WaitAsync(timeout.Token);
 }
 
+foreach (var enabled in new[] { false, true })
+{
+    var valueText = enabled ? "1" : "0";
+    var state = await WhitelistReply(name, service => service.GetProcessBlacklistEnabledAsync(),
+        ["GET_PROCESS_BLACKLIST_ENABLED"], [valueText]);
+    Check(state == enabled, "Incorrect global blacklist state");
+
+    await WhitelistReply(name, async service =>
+    {
+        await service.SetProcessBlacklistEnabledAsync(enabled);
+        return true;
+    }, ["SET_PROCESS_BLACKLIST_ENABLED", "1", valueText], []);
+}
+
+foreach (var (values, replyStatus) in new (string[], string)[]
+         { ([], "OK"), (["false"], "OK"), (["0", "1"], "OK"), (["unknown command"], "ERROR") })
+{
+    try
+    {
+        await WhitelistReply(name, service => service.GetProcessBlacklistEnabledAsync(),
+            ["GET_PROCESS_BLACKLIST_ENABLED"], values, replyStatus);
+        throw new Exception("Unavailable blacklist setting appeared enabled or disabled");
+    }
+    catch (Exception ex) when (ex is IOException or InvalidDataException) { }
+}
+
 var processSource = new[] { "[10]", "Игра*.exe", "!Игра Editor.exe" };
 var processLines = await WhitelistReply(name, service => service.GetProcessBlacklistAsync(),
     ["GET_PROCESS_BLACKLIST"], processSource);

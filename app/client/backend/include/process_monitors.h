@@ -7,7 +7,9 @@
 
 #include "resource.h"
 #include "policy_snapshot.h"
+#include <cstdint>
 #include <map>
+#include <mutex>
 #include <optional>
 #include <string>
 
@@ -37,5 +39,35 @@ public:
     /** @brief Launch missing workers for active sessions. Called only from the subscription thread. */
     void refresh();
 };
+
+/** @brief Coordinate local preference changes with the subscription that supervises the monitor jobs. */
+class ProcessMonitorControl {
+    std::mutex mutex_;
+    bool enabled_;
+    std::uint64_t revision_ = 0;
+    std::optional<ProcessMonitors> workers_;
+
+public:
+    /** @brief Read the saved device preference. Existing installations default to enabled. */
+    ProcessMonitorControl();
+
+    /** @brief Persist the preference and release current jobs before acknowledging a change. */
+    bool set_enabled(bool enabled);
+
+    /** @brief Return the current policy request revision, or no revision while locally disabled. */
+    std::optional<std::uint64_t> enabled_revision();
+
+    /** @brief Apply an authenticated response only while its local enable revision is current. */
+    bool publish(std::uint64_t revision, std::string_view payload);
+
+    /** @brief Start missing workers for the last accepted policy. */
+    void refresh();
+
+    /** @brief Drop the subscription's mapping, jobs and outstanding request revision. */
+    void disconnect();
+};
+
+/** @brief Return the supervisor shared by the subscription thread and local IPC handlers. */
+ProcessMonitorControl& process_monitor_control();
 
 }

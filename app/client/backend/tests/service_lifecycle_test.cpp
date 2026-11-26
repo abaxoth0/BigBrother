@@ -138,7 +138,16 @@ int main(int argc, char** argv) {
     assert(state(firewall.get()) == SERVICE_STOPPED);
     assert(request("PING\n\n") == "OK\n\n");
     assert(request("SET_FILTRATION\n1\n1\n\n") == "OK\n\n");
-    assert(request("GET_STATUS\n\n").starts_with("OK\n"));
+    auto initial_status = request("GET_STATUS\n\n");
+    assert(initial_status.starts_with("OK\n") && initial_status.ends_with("1\n1\n\n"));
+
+    for (auto command : {"SET_PROCESS_BLACKLIST_ENABLED\n\n", "SET_PROCESS_BLACKLIST_ENABLED\n1\nx\n\n",
+                         "SET_PROCESS_BLACKLIST_ENABLED\n1\n0\n1\n1\n\n"}) {
+        assert(request(command).starts_with("ERROR\n"));
+    }
+
+    assert(request("SET_PROCESS_BLACKLIST_ENABLED\n1\n0\n\n") == "OK\n\n");
+    assert(request("GET_STATUS\n\n").ends_with("1\n0\n\n"));
     assert(state(firewall.get()) == SERVICE_STOPPED);
     assert(request("START_FIREWALL\n\n") == "OK\n\n");
     wait_state(firewall.get(), SERVICE_RUNNING);
@@ -184,6 +193,9 @@ int main(int argc, char** argv) {
     assert(WaitForSingleObject(worker.get(), 5000) == WAIT_OBJECT_0);
     assert(StartServiceW(backend.get(), 0, nullptr));
     wait_state(backend.get(), SERVICE_RUNNING);
+    assert(request("GET_STATUS\n\n").ends_with("1\n0\n\n"));
+    assert(request("SET_PROCESS_BLACKLIST_ENABLED\n1\n1\n\n") == "OK\n\n");
+    assert(request("GET_STATUS\n\n").ends_with("1\n1\n\n"));
     assert(state(firewall.get()) == SERVICE_STOPPED);
     assert(request("START_FIREWALL\n\n") == "OK\n\n");
     SERVICE_STATUS_PROCESS before_restart{};
