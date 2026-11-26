@@ -21,22 +21,29 @@ public:
 static void test_process_monitor_control() {
     assert(ini_set_string("process_monitor", "enabled", "") == 0);
     client::ProcessMonitorControl monitors;
-    auto original = monitors.enabled_revision();
+    auto original = monitors.revision();
 
-    assert(original && monitors.publish(*original, "game.exe"));
+    assert(monitors.state().local_enabled && !monitors.state().server_enabled.has_value());
+    assert(monitors.publish(original, true, "game.exe"));
     assert(monitors.set_enabled(false));
-    assert(!monitors.enabled_revision());
-    assert(!monitors.publish(*original, "late.exe"));
+    assert(!monitors.state().local_enabled && monitors.state().rules == "game.exe");
+    assert(!monitors.publish(original, true, "late.exe"));
+
+    auto paused = monitors.revision();
+    assert(monitors.publish(paused, false, "one.exe\n!two.exe"));
+    assert(monitors.state().server_enabled == false && monitors.state().rules == "one.exe\n!two.exe");
 
     assert(monitors.set_enabled(true));
-    auto current = monitors.enabled_revision();
-    assert(current && current != original);
-    assert(!monitors.publish(*original, "late.exe"));
-    assert(monitors.publish(*current, ""));
-    assert(monitors.publish(*current, "latest.exe"));
+    auto current = monitors.revision();
+    assert(current != paused && !monitors.publish(paused, true, "late.exe"));
+    assert(monitors.state().local_enabled && monitors.state().server_enabled == false);
+    assert(monitors.publish(current, true, ""));
+    assert(monitors.state().server_enabled == true && monitors.state().rules.empty());
+    assert(monitors.publish(current, true, "latest.exe"));
 
     monitors.disconnect();
-    assert(!monitors.publish(*current, "late.exe"));
+    assert(!monitors.state().server_enabled.has_value() && monitors.state().rules.empty());
+    assert(!monitors.publish(current, true, "late.exe"));
 }
 
 int main() {

@@ -40,10 +40,17 @@ public:
     void refresh();
 };
 
+/** @brief Device preference and the latest confirmed server switch and normalized rules for this subscription. */
+struct ProcessBlacklistState {
+    bool local_enabled = true;
+    std::optional<bool> server_enabled;
+    std::string rules;
+};
+
 /** @brief Coordinate local preference changes with the subscription that supervises the monitor jobs. */
 class ProcessMonitorControl {
     std::mutex mutex_;
-    bool enabled_;
+    ProcessBlacklistState state_;
     std::uint64_t revision_ = 0;
     std::optional<ProcessMonitors> workers_;
 
@@ -54,16 +61,19 @@ public:
     /** @brief Persist the preference and release current jobs before acknowledging a change. */
     bool set_enabled(bool enabled);
 
-    /** @brief Return the current policy request revision, or no revision while locally disabled. */
-    std::optional<std::uint64_t> enabled_revision();
+    /** @brief Copy a consistent snapshot for the client frontend. An unknown server switch has no readable list. */
+    ProcessBlacklistState state();
 
-    /** @brief Apply an authenticated response only while its local enable revision is current. */
-    bool publish(std::uint64_t revision, std::string_view payload);
+    /** @brief Return the current request revision, including while local enforcement is paused. */
+    std::uint64_t revision();
+
+    /** @brief Retain a current authenticated snapshot and forward rules when both switches are enabled. */
+    bool publish(std::uint64_t revision, std::optional<bool> server_enabled, std::string_view payload);
 
     /** @brief Start missing workers for the last accepted policy. */
     void refresh();
 
-    /** @brief Drop the subscription's mapping, jobs and outstanding request revision. */
+    /** @brief Clear the subscription's cached policy, close its jobs and invalidate outstanding requests. */
     void disconnect();
 };
 

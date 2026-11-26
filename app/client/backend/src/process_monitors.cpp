@@ -7,6 +7,7 @@
 
 #include "process_monitors.h"
 #include "ipc_daemon.h"
+#include "ipc_client.h"
 #include <objbase.h>
 #include <sddl.h>
 #include "log/log.h"
@@ -208,13 +209,13 @@ void ProcessMonitors::refresh() {
 ProcessMonitorControl::ProcessMonitorControl() {
     char preference[8]{};
     ini_get_string("process_monitor", "enabled", preference, sizeof(preference));
-    enabled_ = std::string_view(preference) != "0";
+    state_.local_enabled = std::string_view(preference) != "0";
 }
 
 bool ProcessMonitorControl::set_enabled(bool enabled) {
     std::lock_guard guard(mutex_);
 
-    if (enabled == enabled_) {
+    if (enabled == state_.local_enabled) {
         return true;
     }
 
@@ -222,27 +223,40 @@ bool ProcessMonitorControl::set_enabled(bool enabled) {
         return false;
     }
 
-    enabled_ = enabled;
+    state_.local_enabled = enabled;
     ++revision_;
     workers_.reset();
     return true;
 }
 
-std::optional<std::uint64_t> ProcessMonitorControl::enabled_revision() {
+ProcessBlacklistState ProcessMonitorControl::state() {
     std::lock_guard guard(mutex_);
+    return state_;
+}
 
-    if (!enabled_) {
-        return std::nullopt;
-    }
-
+std::uint64_t ProcessMonitorControl::revision() {
+    std::lock_guard guard(mutex_);
     return revision_;
 }
 
-bool ProcessMonitorControl::publish(std::uint64_t revision, std::string_view payload) {
+bool ProcessMonitorControl::publish(std::uint64_t revision, std::optional<bool> server_enabled,
+                                    std::string_view payload) {
     std::lock_guard guard(mutex_);
 
-    if (!enabled_ || revision != revision_) {
+    if (revision != revision_ || payload.size() > bb::PolicySnapshot::capacity ||
+        (!server_enabled.has_value() && !payload.empty())) {
         return false;
+    }
+
+    if (state_.server_enabled != server_enabled || state_.rules != payload) {
+        state_.server_enabled = server_enabled;
+        state_.rules = payload;
+        NotifyStateChanged();
+    }
+
+    if (!state_.local_enabled || !server_enabled.value_or(false) || payload.empty()) {
+        workers_.reset();
+        return true;
     }
 
     if (!workers_) {
@@ -264,6 +278,12 @@ void ProcessMonitorControl::disconnect() {
     std::lock_guard guard(mutex_);
     workers_.reset();
     ++revision_;
+
+    if (state_.server_enabled.has_value()) {
+        state_.server_enabled.reset();
+        state_.rules.clear();
+        NotifyStateChanged();
+    }
 }
 
 ProcessMonitorControl& process_monitor_control() {
