@@ -764,19 +764,24 @@ static void get_client_token(char* buf, size_t size);
 template <typename Read> static bool read_server_fields(Read read, char* output, size_t capacity) {
     size_t used = 0;
     bool first = true;
+
     while (capacity > 0) {
         char length[24];
         size_t digits = 0;
         char c = 0;
+
         while (read(&c, 1) == 1 && c != '\n') {
             if (digits == sizeof(length)) {
                 return false;
             }
+
             length[digits++] = c;
         }
+
         if (c != '\n') {
             return false;
         }
+
         if (digits == 0) {
             output[used] = '\0';
             return true;
@@ -784,6 +789,7 @@ template <typename Read> static bool read_server_fields(Read read, char* output,
 
         size_t bytes = 0;
         auto parsed = std::from_chars(length, length + digits, bytes);
+
         if (parsed.ec != std::errc{} || parsed.ptr != length + digits) {
             return false;
         }
@@ -792,26 +798,33 @@ template <typename Read> static bool read_server_fields(Read read, char* output,
             if (used >= capacity - 1) {
                 return false;
             }
+
             output[used++] = '\n';
         }
 
         if (bytes > capacity - 1 - used) {
             return false;
         }
+
         size_t end = used + bytes;
+
         while (used < end) {
             int n = read(output + used, end - used);
+
             if (n <= 0 || memchr(output + used, 0, static_cast<size_t>(n))) {
                 return false;
             }
+
             used += static_cast<size_t>(n);
         }
 
         if (read(&c, 1) != 1 || c != '\n') {
             return false;
         }
+
         first = false;
     }
+
     return false;
 }
 
@@ -973,6 +986,7 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
                      out_buffer, buffer_size)
                      ? 0
                      : -1;
+
         if (result != 0) {
             out_buffer[0] = '\0';
         }
@@ -1497,6 +1511,7 @@ static int srv_read_tlv(SrvLineReader* r, char* out, size_t out_size) {
 static bool sync_process_blacklist(const char* username, client::ProcessMonitors& monitors) {
     char response[bb::PolicySnapshot::capacity + 1];
     const char* args[] = {username, nullptr};
+
     return send_authenticated_request("GET_PROCESS_BLACKLIST", username, args, 2, 1, response,
                                       sizeof(response)) == 0 &&
            monitors.publish(response);
@@ -1968,10 +1983,12 @@ static int server_subscribe_loop(const char* username, int* consecutive_failures
     LOGF("[Daemon] Subscribed to server events for user '%s'", username);
 
     SetServerSessionActive(1);
+
     client::ProcessMonitors monitors;
     bool processSynced = sync_process_blacklist(username, monitors);
     DWORD lastProcessFetch = GetTickCount();
     monitors.refresh();
+
     sync_whitelist_from_server(username);
     sync_filtration_from_server();
     if (consecutive_failures) *consecutive_failures = 0;
@@ -2006,11 +2023,14 @@ static int server_subscribe_loop(const char* username, int* consecutive_failures
         // Check local daemon health
         if (now - last_local_check >= SRV_LOCAL_DAEMON_CHECK_MS) {
             last_local_check = now;
+
             if (!processSynced || now - lastProcessFetch >= 60000) {
                 processSynced = sync_process_blacklist(username, monitors);
                 lastProcessFetch = now;
             }
+
             monitors.refresh();
+
             if (g_whitelist_sync_pending) sync_whitelist_from_server(username);
         }
 
@@ -2038,11 +2058,13 @@ static int server_subscribe_loop(const char* username, int* consecutive_failures
             if (result == 1) {
                 break;
             }
+
             if (result == 3) {
                 processSynced = sync_process_blacklist(username, monitors);
                 lastProcessFetch = GetTickCount();
                 monitors.refresh();
             }
+
             if (result == 2 && send_policy_heartbeat(&subscription_tls) <= 0) break;
         } else if (strcmp(line, "K") == 0) {
             // Server heartbeat reply — ignore
