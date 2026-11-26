@@ -38,10 +38,33 @@ internal static class BrokerTests
             throw new Exception("Unavailable backend did not report stopped status.");
         var online = await Exchange(ipc.GetStatusAsync, "GET_STATUS", [],
             ["alice", "127.0.0.1", "stopped", "running", "0", "1234", "stopped", "disconnected", "0"]);
-        if (!online.IsConnected || online.ClientPid != 1234 || online.DaemonStatus != "NOT_RUNNING")
+        if (!online.IsConnected || online.ClientPid != 1234 || online.DaemonStatus != "NOT_RUNNING"
+            || online.ProcessBlacklistEnabled != null)
             throw new Exception("Frontend did not reconnect to a backend with a stopped firewall.");
         if ((await ipc.GetStatusAsync()).IsConnected)
             throw new Exception("Backend stop did not restore disconnected status.");
+
+        foreach (var (field, expected) in new (string, bool?)[] { ("0", false), ("1", true), ("invalid", null) })
+        {
+            var current = await Exchange(ipc.GetStatusAsync, "GET_STATUS", [],
+                ["alice", "127.0.0.1", "stopped", "running", "0", "1234", "stopped", "disconnected", "0", field]);
+            if (current.ProcessBlacklistEnabled != expected) throw new Exception("Incorrect local blacklist preference.");
+        }
+
+        async Task<bool> SetBlacklist(bool enabled)
+        {
+            await ipc.SetProcessBlacklistEnabledAsync(enabled);
+            return true;
+        }
+
+        foreach (bool enabled in new[] { false, true })
+            await Exchange(() => SetBlacklist(enabled), "SET_PROCESS_BLACKLIST_ENABLED", [enabled ? "1" : "0"], []);
+        try
+        {
+            await Exchange(() => SetBlacklist(false), "SET_PROCESS_BLACKLIST_ENABLED", ["0"], ["denied"], false);
+            throw new Exception("The rejected blacklist toggle was reported as successful.");
+        }
+        catch (IOException ex) when (ex.Message == "denied") { }
 
         foreach (var action in new[] { "start", "stop", "restart" })
             if (!await Exchange(() => ipc.ControlFirewallAsync(action), action.ToUpperInvariant() + "_FIREWALL", [], []))

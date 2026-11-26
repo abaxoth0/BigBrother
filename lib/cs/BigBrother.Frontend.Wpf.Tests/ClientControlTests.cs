@@ -24,7 +24,7 @@ internal static partial class Program
         Check(ClientBackendService.ServiceName == "BigBrother Client", "Backend controls must use the installed service name");
         var calls = new List<string>();
         var state = ClientServiceState.Stopped;
-        bool firewall = false;
+        bool firewall = false, blacklist = true;
         ClientControlsViewModel controls = null!;
         controls = new ClientControlsViewModel(action =>
         {
@@ -37,9 +37,14 @@ internal static partial class Program
             calls.Add("firewall:" + action);
             firewall = action != "stop";
             return Task.CompletedTask;
+        }, enabled =>
+        {
+            calls.Add("blacklist:" + enabled);
+            blacklist = enabled;
+            return Task.CompletedTask;
         }, () =>
         {
-            controls.UpdateState(state, state == ClientServiceState.Running, firewall);
+            controls.UpdateState(state, state == ClientServiceState.Running, firewall, blacklist);
             return Task.CompletedTask;
         }, (_, _) => { });
         controls.UpdateState(state, false, false);
@@ -50,14 +55,16 @@ internal static partial class Program
         {
             window.Show();
             window.UpdateLayout();
-            Check(calls.Count == 0 && Button("StartBackend").IsEnabled && !Button("StartFirewall").IsEnabled,
+            Check(calls.Count == 0 && Button("StartBackend").IsEnabled && !Button("StartFirewall").IsEnabled &&
+                !Button("ToggleProcessBlacklist").IsEnabled,
                 "Opening the offline panel must offer backend start without starting anything");
             Check(((TextBlock)panel.FindName("BackendStatus")).Text == "Остановлена", "Offline status must be visible");
             foreach (int size in new[] { 10, 14, 28 })
             {
                 AppearanceSettings.Current.InterfaceFontSize = size;
                 window.UpdateLayout();
-                foreach (string name in new[] { "StartBackend", "StopBackend", "RestartBackend", "StartFirewall", "StopFirewall", "RestartFirewall" })
+                foreach (string name in new[] { "StartBackend", "StopBackend", "RestartBackend", "StartFirewall",
+                    "StopFirewall", "RestartFirewall", "ToggleProcessBlacklist" })
                 {
                     var button = Button(name);
                     var bounds = button.TransformToAncestor(panel).TransformBounds(new Rect(button.RenderSize));
@@ -65,12 +72,17 @@ internal static partial class Program
                         "Service buttons must remain visible at all supported interface sizes");
                 }
             }
-            foreach (string name in new[] { "StartBackend", "StartFirewall", "RestartFirewall", "StopFirewall", "RestartBackend", "StopBackend" })
+            foreach (string name in new[] { "StartBackend", "ToggleProcessBlacklist", "StartFirewall", "RestartFirewall",
+                "StopFirewall", "RestartBackend", "StopBackend" })
             {
                 PumpUntil(() => Button(name).IsEnabled, name + " did not become enabled", busyRendering: false);
                 Button(name).Command.Execute(null);
+                if (name == "ToggleProcessBlacklist")
+                    PumpUntil(() => ((TextBlock)panel.FindName("ProcessBlacklistStatus")).Text == "Выкл на этом устройстве",
+                        "The blacklist status must reflect the local toggle", busyRendering: false);
             }
-            Check(calls.SequenceEqual(new[] { "backend:start", "firewall:start", "firewall:restart", "firewall:stop", "backend:restart", "backend:stop" }),
+            Check(calls.SequenceEqual(new[] { "backend:start", "blacklist:False", "firewall:start", "firewall:restart",
+                "firewall:stop", "backend:restart", "backend:stop" }),
                 "Rendered buttons must route to their own service");
             PumpUntil(() => Button("StartBackend").IsEnabled && !Button("StartFirewall").IsEnabled,
                 "Stopping backend must restore offline controls", busyRendering: false);
@@ -108,7 +120,8 @@ internal static partial class Program
                 vm.OverallHealthText == "Нет связи с клиентской службой", "Offline main window must remain usable and show backend status");
             Check(vm.Controls.StartBackendCommand.CanExecute(null) == (state.Result == ClientServiceState.Stopped),
                 "Main window must offer start for an installed stopped backend only");
-            Check(!vm.ConnectCommand.CanExecute(null) && !vm.ToggleFiltrationCommand.CanExecute(null),
+            Check(!vm.ConnectCommand.CanExecute(null) && !vm.ToggleFiltrationCommand.CanExecute(null) &&
+                !vm.Controls.ToggleProcessBlacklistCommand.CanExecute(null),
                 "Offline main window must disable backend-dependent commands");
             var after = ClientBackendService.GetStateAsync();
             PumpUntil(() => after.IsCompleted, "Service recheck did not finish", busyRendering: false);
