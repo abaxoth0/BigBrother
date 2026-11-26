@@ -3,12 +3,13 @@
  * @brief Enforce server rules on applications belonging to the monitor's interactive user.
  */
 #include "process_policy.h"
-#include "resource.h"
+#include "policy_snapshot.h"
+#include "windows_handle.h"
 #include "version.h"
 #include <tlhelp32.h>
 #include <cstdio>
 
-using client::Handle;
+using bb::Handle;
 
 /** @brief Read a process's interactive session and non-elevated user SID from the same token. */
 static bool identity(HANDLE process, DWORD& session, std::vector<BYTE>& user) {
@@ -77,20 +78,35 @@ int wmain(int argc, wchar_t** argv) {
         std::puts("BigBrother Process Monitor " BB_VERSION);
         return 0;
     }
-    if (argc != 3 || std::wstring_view(argv[1]) != L"--rules") {
+    if (argc != 3) {
         return 1;
     }
     std::vector<process_policy::Rule> rules;
-    if (!process_policy::parse_list(argv[2], rules)) {
+    bb::PolicyView<const bb::PolicySnapshot> updates;
+    std::wstring_view option(argv[1]);
+    if (option == L"--policy-channel") {
+        Handle mapping(OpenFileMappingW(FILE_MAP_READ, FALSE, argv[2]));
+        if (!mapping || !updates.open(mapping.get(), FILE_MAP_READ)) {
+            return 1;
+        }
+    } else if (option != L"--rules" || !process_policy::parse_list(argv[2], rules) || rules.empty()) {
         return 1;
     }
+
     DWORD session = 0;
     std::vector<BYTE> user;
-    if (rules.empty() || !identity(GetCurrentProcess(), session, user)) {
+    if (!identity(GetCurrentProcess(), session, user)) {
         return 1;
     }
+    std::uint32_t revision = 0;
     for (;;) {
-        scan(rules, session, reinterpret_cast<TOKEN_USER*>(user.data())->User.Sid);
+        std::string payload;
+        if (updates.get() && updates.get()->read(revision, payload)) {
+            process_policy::apply(payload, rules);
+        }
+        if (!rules.empty()) {
+            scan(rules, session, reinterpret_cast<TOKEN_USER*>(user.data())->User.Sid);
+        }
         Sleep(1000);
     }
 }

@@ -81,6 +81,27 @@ inline bool parse_list(std::wstring_view text, std::vector<Rule>& result) {
     return true;
 }
 
+/** @brief Decode one UTF-8 server snapshot, retaining the application's last valid rules on failure. */
+inline bool apply(std::string_view bytes, std::vector<Rule>& rules) {
+    if (bytes.empty()) {
+        rules.clear();
+        return true;
+    }
+    if (bytes.size() > INT_MAX) {
+        return false;
+    }
+    int length = static_cast<int>(bytes.size());
+    int size = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, bytes.data(), length, nullptr, 0);
+    if (!size) {
+        return false;
+    }
+    std::wstring text(size, L'\0');
+    if (!MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, bytes.data(), length, text.data(), size)) {
+        return false;
+    }
+    return parse_list(text, rules);
+}
+
 /** @brief Unmatched names run. A matching exception wins a tie at the highest priority. */
 inline bool blocked(const std::vector<Rule>& rules, std::wstring_view name) {
     if (name.size() < 5 || !equal(name.substr(name.size() - 4), L".exe")) {

@@ -1,7 +1,7 @@
 # Client backend
 
 BigBrother Client is the Windows service for BigBrother Client Daemon.exe and
-the hub for client applications. It owns the server session, settings, policy,
+the hub for client applications. It owns the server session, settings, policy delivery,
 notifications, firewall controls, log access and update preparation.
 
 ~~~mermaid
@@ -67,6 +67,12 @@ missed event. A failed fetch retains the previous policy within that subscriptio
 An empty list disables enforcement. Ending the subscription or stopping the
 backend releases its monitors. Reconnection starts with a fresh policy.
 
+The backend copies each complete server response into a subscription-scoped shared
+memory channel. Each running monitor opens a read-only view, validates the UTF-8
+rules and switches to the new blacklist before its next scan. Invalid updates
+leave the monitor's last valid rules in use. A nonempty update reaches existing
+instances without restarting them.
+
 The installed LocalSystem service launches `BigBrother Process Monitor.exe`
 with the interactive user's non-elevated token and a separate Windows job for
 each active console or RDP session. The monitor scans once a second and checks
@@ -117,7 +123,9 @@ dotnet run --project lib/cs/BigBrother.Frontend.Shared.Tests/BigBrother.Frontend
 Run `app/client/process-monitor/build/test.exe` for matcher tests. On native Windows,
 run `enforcement-test.exe` beside the monitor in an interactive desktop session to
 exercise real process termination and exceptions using two disposable test processes.
-Wine lacks the Windows critical-process query required by this test.
+Under Wine, use `enforcement-test.exe --updates-only` to run the live-update
+fixture with both test processes exempt. Full enforcement uses a Windows
+critical-process query unavailable in Wine.
 
 The lifecycle fixture creates services named BigBrother Client and BigBrother
 Firewall. Run it only in an isolated Wine prefix with neither service already

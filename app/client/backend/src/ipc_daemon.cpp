@@ -1471,12 +1471,12 @@ static int srv_read_tlv(SrvLineReader* r, char* out, size_t out_size) {
     return 1;
 }
 
-/** @brief Fetch a complete authenticated policy before replacing any running monitors. */
+/** @brief Relay a complete authenticated server reply to the process monitor. */
 static bool sync_process_blacklist(const char* username, client::ProcessMonitors& monitors) {
-    char response[8193];
+    char response[bb::PolicySnapshot::capacity + 1];
     const char* args[] = {username, nullptr};
     return send_authenticated_request("GET_PROCESS_BLACKLIST", username, args, 2, 1,
-                                      response, sizeof(response)) == 0 && monitors.replace(response);
+                                      response, sizeof(response)) == 0 && monitors.publish(response);
 }
 
 /**

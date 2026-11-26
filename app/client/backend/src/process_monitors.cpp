@@ -4,7 +4,8 @@
  */
 #define _WIN32_WINNT 0x0A00
 #include "process_monitors.h"
-#include "process_policy.h"
+#include <objbase.h>
+#include <sddl.h>
 #include "log/log.h"
 #include <userenv.h>
 #include <wtsapi32.h>
@@ -13,7 +14,7 @@
 namespace client {
 
 /** @brief Start with the supplied user token and atomically bind the child to the subscription job. */
-static Handle launch(HANDLE token, HANDLE job, const std::wstring& rules) {
+static Handle launch(HANDLE token, HANDLE job, const std::wstring& channel) {
     std::wstring path(32768, 0);
     DWORD length = GetModuleFileNameW(nullptr, path.data(), static_cast<DWORD>(path.size()));
     if (!length || length == path.size()) {
@@ -26,7 +27,7 @@ static Handle launch(HANDLE token, HANDLE job, const std::wstring& rules) {
     }
     const auto directory = path.substr(0, slash + 1);
     path = directory + L"BigBrother Process Monitor.exe";
-    std::wstring command = L"\"" + path + L"\" --rules \"" + rules + L"\"";
+    std::wstring command = L"\"" + path + L"\" --policy-channel \"" + channel + L"\"";
 
     SIZE_T bytes = 0;
     InitializeProcThreadAttributeList(nullptr, 1, 0, &bytes);
@@ -55,7 +56,7 @@ static Handle launch(HANDLE token, HANDLE job, const std::wstring& rules) {
 }
 
 /** @brief Prefer the user's filtered desktop token when the session supplied an elevated token. */
-static Handle start_session(DWORD session, HANDLE job, const std::wstring& rules) {
+static Handle start_session(DWORD session, HANDLE job, const std::wstring& channel) {
     HANDLE raw = nullptr;
     if (!WTSQueryUserToken(session, &raw)) {
         return Handle();
@@ -67,7 +68,7 @@ static Handle start_session(DWORD session, HANDLE job, const std::wstring& rules
         return Handle();
     }
     if (!elevation.TokenIsElevated) {
-        return launch(raw, job, rules);
+        return launch(raw, job, channel);
     }
     TOKEN_LINKED_TOKEN linked{};
     if (!GetTokenInformation(raw, TokenLinkedToken, &linked, sizeof(linked), &bytes)) {
@@ -80,35 +81,54 @@ static Handle start_session(DWORD session, HANDLE job, const std::wstring& rules
         return Handle();
     }
     Handle desktop(primary);
-    return launch(primary, job, rules);
+    return launch(primary, job, channel);
 }
 
-bool ProcessMonitors::replace(const char* rules) {
-    if (strlen(rules) > 8192) {
+bool ProcessMonitors::open_channel() {
+    GUID id{};
+    wchar_t guid[40]{};
+    if (FAILED(CoCreateGuid(&id)) || !StringFromGUID2(id, guid, static_cast<int>(std::size(guid)))) {
         return false;
     }
-    int size = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, rules, -1, nullptr, 0);
-    if (!size) {
+    auto name = std::wstring(L"Global\\BigBrother.ProcessPolicy.") + guid;
+
+    PSECURITY_DESCRIPTOR descriptor = nullptr;
+    if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(L"D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GR;;;IU)",
+                                                              SDDL_REVISION_1, &descriptor, nullptr)) {
         return false;
     }
-    std::wstring next(size, 0);
-    if (!MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, rules, -1, next.data(), size)) {
+    SECURITY_ATTRIBUTES security{sizeof(security), descriptor, FALSE};
+    Handle mapping(CreateFileMappingW(INVALID_HANDLE_VALUE, &security, PAGE_READWRITE, 0,
+                                      sizeof(bb::PolicySnapshot), name.c_str()));
+    DWORD error = GetLastError();
+    LocalFree(descriptor);
+    if (!mapping || error == ERROR_ALREADY_EXISTS || !view_.open(mapping.get(), FILE_MAP_WRITE)) {
         return false;
     }
-    next.pop_back();
-    if (next != rules_) {
-        std::vector<process_policy::Rule> parsed;
-        if (!process_policy::parse_list(next, parsed)) {
-            return false;
-        }
+    mapping_.emplace(std::move(mapping));
+    channel_ = std::move(name);
+    return true;
+}
+
+bool ProcessMonitors::publish(std::string_view payload) {
+    if (payload == last_payload_) {
+        return true;
+    }
+    if (!view_.get() && !open_channel()) {
+        return false;
+    }
+    if (!view_.get()->publish(payload)) {
+        return false;
+    }
+    last_payload_ = payload;
+    if (payload.empty()) {
         children_.clear();
-        rules_ = std::move(next);
     }
     return true;
 }
 
 void ProcessMonitors::refresh() {
-    if (rules_.empty()) {
+    if (last_payload_.empty()) {
         return;
     }
     std::erase_if(children_, [](const auto& child) {
@@ -132,7 +152,7 @@ void ProcessMonitors::refresh() {
             LOGF("[Process Monitor] Could not configure supervisor job: %lu", GetLastError());
             continue;
         }
-        auto process = start_session(id, job.get(), rules_);
+        auto process = start_session(id, job.get(), channel_);
         if (process) {
             children_.emplace(id, Worker{std::move(process), std::move(job)});
         } else {

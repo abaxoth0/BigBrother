@@ -9,7 +9,7 @@ ICON_OBJ = build/app-icon.o
 
 MBEDTLS_DIR = $(BB_ROOT)/lib/mbedtls
 COMMON_FLAGS = $(BB_VERSION_FLAGS) -Wall -Wextra -mconsole \
-	-I$(BB_ROOT)/app/client/process-monitor/src -I$(CURDIR)/include \
+	-I$(CURDIR)/include \
 	-I$(BB_ROOT)/lib/common \
 	-I$(MBEDTLS_DIR)/include
 
@@ -31,7 +31,7 @@ CB_NAME = BigBrother Client Daemon
 CB_EXE = build/$(BUILD_MODE)/BigBrother\ Client\ Daemon.exe
 NOTIFY_DIR = $(BB_ROOT)/app/notifications
 NOTIFY_A = $(NOTIFY_DIR)/build/$(BUILD_MODE)/libbbnotify.a
-CLIENT_LIBS = $(NOTIFY_A) -Wl,-Bstatic -lstdc++ -lwinpthread -Wl,-Bdynamic $(MBED_A) -lws2_32 -liphlpapi -lbcrypt -lwinmm -ladvapi32 -luserenv -lwtsapi32
+CLIENT_LIBS = $(NOTIFY_A) -Wl,-Bstatic -lstdc++ -lwinpthread -Wl,-Bdynamic $(MBED_A) -lws2_32 -liphlpapi -lbcrypt -lwinmm -ladvapi32 -luserenv -lwtsapi32 -lole32
 SHARED_OBJECTS = $(filter %/common/log/log.o %/common/encoding/encoding.o,$(OBJECTS))
 all: $(BUILD_MODE)
 

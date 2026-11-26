@@ -14,3 +14,5 @@ From the repository root, run `scripts/build.sh Debug` to build the daemons, pro
 For frontend publishing and release packaging, see the [versioning guide](docs/VERSIONING.md) and [installer guide](docs/INSTALLERS.md).
 
 Administrators can manage a process blacklist under **Списки → Приложения → Чёрный список**. Connected clients enforce the saved rules in their users’ desktop sessions independently of network filtration. [Usage guide](docs/guide/usage-ru.md#sec-server-wls)
+
+The standalone Windows client app builds with `make -C app/client/process-monitor release` and produces `BigBrother Process Monitor.exe`. It reads policies delivered by the client backend and owns process matching and termination.
