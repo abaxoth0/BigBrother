@@ -615,19 +615,18 @@
                 </Grid>
 
                 <!-- SECTION: Applications -->
-                <Button Content="Чёрный список" Command="{Binding OpenProcessBlacklistCommand}"
-                        HorizontalAlignment="Left" VerticalAlignment="Top">
-                    <Button.Style>
-                        <Style TargetType="Button" BasedOn="{StaticResource PrimaryButton}">
+                <views:ProcessBlacklistView DataContext="{Binding ProcessBlacklist}">
+                    <views:ProcessBlacklistView.Style>
+                        <Style TargetType="views:ProcessBlacklistView">
                             <Setter Property="Visibility" Value="Collapsed"/>
                             <Style.Triggers>
-                                <DataTrigger Binding="{Binding SelectedSection}" Value="Applications">
+                                <DataTrigger Binding="{Binding DataContext.SelectedSection, RelativeSource={RelativeSource AncestorType=Window}}" Value="Applications">
                                     <Setter Property="Visibility" Value="Visible"/>
                                 </DataTrigger>
                             </Style.Triggers>
                         </Style>
-                    </Button.Style>
-                </Button>
+                    </views:ProcessBlacklistView.Style>
+                </views:ProcessBlacklistView>
 
                 <!-- SECTION: Settings -->
                 <Grid>

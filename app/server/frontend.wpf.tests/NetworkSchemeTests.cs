@@ -307,7 +307,7 @@ internal static partial class Program
             model.IsConnected = true;
             FlushLayout(window);
             var toolbar = VisualChildren<WhitelistToolbar>(window).Single();
-            var blacklist = VisualChildren<Button>(window).Single(button => button.Command == model.OpenProcessBlacklistCommand);
+            var blacklist = VisualChildren<ProcessBlacklistView>(window).Single();
             var firewallTab = tabs.Single(tab => Equals(tab.Content, "Firewall"));
             var applicationsTab = tabs.Single(tab => Equals(tab.Content, "Приложения"));
 
@@ -319,7 +319,9 @@ internal static partial class Program
             applicationsTab.SetCurrentValue(RadioButton.IsCheckedProperty, true);
             FlushLayout(window);
             Check(model.SelectedSection == NavigationSection.Applications && !toolbar.IsVisible &&
-                blacklist.IsVisible && blacklist.IsEnabled, "Applications must expose the blacklist editor");
+                blacklist.IsVisible && ReferenceEquals(blacklist.DataContext, model.ProcessBlacklist) &&
+                VisualChildren<TextBox>(blacklist).Single(box => box.AcceptsReturn).IsVisible,
+                "Applications must display the inline blacklist editor");
 
             model.IsConnected = false;
             FlushLayout(window);
