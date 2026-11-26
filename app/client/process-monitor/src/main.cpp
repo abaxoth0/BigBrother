@@ -18,6 +18,7 @@ static bool identity(HANDLE process, DWORD& session, std::vector<BYTE>& user) {
         return false;
     }
     Handle token(raw);
+
     TOKEN_ELEVATION elevation{};
     DWORD bytes = 0;
     if (!GetTokenInformation(raw, TokenElevation, &elevation, sizeof(elevation), &bytes) ||
@@ -25,6 +26,7 @@ static bool identity(HANDLE process, DWORD& session, std::vector<BYTE>& user) {
         !GetTokenInformation(raw, TokenSessionId, &session, sizeof(session), &bytes) || !session) {
         return false;
     }
+
     if (GetTokenInformation(raw, TokenUser, nullptr, 0, &bytes) ||
         GetLastError() != ERROR_INSUFFICIENT_BUFFER) {
         return false;
@@ -65,6 +67,7 @@ static void scan(const std::vector<process_policy::Rule>& rules, DWORD session, 
     if (!snapshot || !Process32FirstW(snapshot.get(), &entry)) {
         return;
     }
+
     do {
         if (entry.th32ProcessID != GetCurrentProcessId() && process_policy::blocked(rules, entry.szExeFile)) {
             enforce(entry.th32ProcessID, rules, session, user);
@@ -78,9 +81,11 @@ int wmain(int argc, wchar_t** argv) {
         std::puts("BigBrother Process Monitor " BB_VERSION);
         return 0;
     }
+
     if (argc != 3) {
         return 1;
     }
+
     std::vector<process_policy::Rule> rules;
     bb::PolicyView<const bb::PolicySnapshot> updates;
     std::wstring_view option(argv[1]);
@@ -98,6 +103,7 @@ int wmain(int argc, wchar_t** argv) {
     if (!identity(GetCurrentProcess(), session, user)) {
         return 1;
     }
+
     std::uint32_t revision = 0;
     for (;;) {
         std::string payload;

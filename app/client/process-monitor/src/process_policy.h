@@ -42,6 +42,7 @@ inline bool parse(std::wstring_view line, Rule& rule) {
         }
         line.remove_prefix(end + 1);
     }
+
     bool exception = line.starts_with(L"!");
     if (exception) {
         line.remove_prefix(1);
@@ -49,6 +50,7 @@ inline bool parse(std::wstring_view line, Rule& rule) {
     if (line.size() > 255 || !line.ends_with(L".exe")) {
         return false;
     }
+
     auto stem = line.substr(0, line.size() - 4);
     bool prefix = stem.ends_with(L"*");
     if (prefix) {
@@ -58,6 +60,7 @@ inline bool parse(std::wstring_view line, Rule& rule) {
         std::any_of(stem.begin(), stem.end(), [](wchar_t c) { return c < 32 || (c >= 127 && c <= 159); })) {
         return false;
     }
+
     rule = {std::wstring(prefix ? stem : line), priority, prefix, exception};
     return true;
 }
@@ -77,6 +80,7 @@ inline bool parse_list(std::wstring_view text, std::vector<Rule>& result) {
         }
         text.remove_prefix(end + 1);
     }
+
     result = std::move(parsed);
     return true;
 }
@@ -90,15 +94,18 @@ inline bool apply(std::string_view bytes, std::vector<Rule>& rules) {
     if (bytes.size() > INT_MAX) {
         return false;
     }
+
     int length = static_cast<int>(bytes.size());
     int size = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, bytes.data(), length, nullptr, 0);
     if (!size) {
         return false;
     }
+
     std::wstring text(size, L'\0');
     if (!MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, bytes.data(), length, text.data(), size)) {
         return false;
     }
+
     return parse_list(text, rules);
 }
 
@@ -107,6 +114,7 @@ inline bool blocked(const std::vector<Rule>& rules, std::wstring_view name) {
     if (name.size() < 5 || !equal(name.substr(name.size() - 4), L".exe")) {
         return false;
     }
+
     int highest = -1;
     bool block = false;
     for (const auto& rule : rules) {

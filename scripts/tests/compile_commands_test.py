@@ -55,7 +55,13 @@ class NativeConfigurationTests(unittest.TestCase):
         entries = {Path(entry["file"]): entry for entry in self.commands}
         self.assertEqual(len(entries), len(self.commands))
         version = (ROOT / "VERSION").read_text().strip()
-        for directory in ("app/client/backend", "app/client/process-monitor", "app/firewall", "app/notifications", "lib/common"):
+        for directory in (
+            "app/client/backend",
+            "app/client/process-monitor",
+            "app/firewall",
+            "app/notifications",
+            "lib/common",
+        ):
             for source in (ROOT / directory).rglob("*"):
                 if source.suffix not in (".c", ".cpp") or {"build", "third-party"} & set(source.parts):
                     continue
@@ -83,9 +89,17 @@ class NativeConfigurationTests(unittest.TestCase):
                 continue
             with self.subTest(source=source.relative_to(ROOT)):
                 # MinGW already targets Windows; --target is added for clangd only.
-                arguments = [arg for arg in entry["arguments"] if not arg.startswith("--target=")]
+                arguments = [
+                    arg for arg in entry["arguments"] if not arg.startswith("--target=")
+                ]
                 arguments[arguments.index("-c")] = "-MM"
-                result = subprocess.run(arguments, cwd=entry["directory"], capture_output=True, text=True, check=True)
+                result = subprocess.run(
+                    arguments,
+                    cwd=entry["directory"],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                )
                 dependencies = shlex.split(result.stdout.replace("\\\n", " "))[1:]
                 for path in dependencies:
                     resolved = (Path(entry["directory"]) / path).resolve()

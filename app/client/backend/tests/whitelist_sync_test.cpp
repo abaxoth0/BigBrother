@@ -103,8 +103,10 @@ int main(void) {
     char response[16];
     assert(parse_reply("3\nfoo\n3\nbar\n\n", response) && strcmp(response, "foo\nbar") == 0);
     assert(parse_reply("\n", response) && !*response);
-    for (auto bad : {"", "8\ngame.exe\n", "8\ngame", "8\ngame.exe!\n", "16\n0123456789abcdef\n\n", "-1\n", "123456789012345678901234567890\n"})
+    for (auto bad : {"", "8\ngame.exe\n", "8\ngame", "8\ngame.exe!\n", "16\n0123456789abcdef\n\n", "-1\n",
+                     "123456789012345678901234567890\n"}) {
         assert(!parse_reply(bad, response));
+    }
     CloseHandle(CreateThread(NULL, 0, watchdog, NULL, 0, NULL));
     assert(ini_set_string("notifications", "enabled", "0") == 0);
     set_client_token("token");

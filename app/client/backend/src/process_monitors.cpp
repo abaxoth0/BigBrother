@@ -25,6 +25,7 @@ static Handle launch(HANDLE token, HANDLE job, const std::wstring& channel) {
     if (slash == path.npos) {
         return Handle();
     }
+
     const auto directory = path.substr(0, slash + 1);
     path = directory + L"BigBrother Process Monitor.exe";
     std::wstring command = L"\"" + path + L"\" --policy-channel \"" + channel + L"\"";
@@ -40,6 +41,7 @@ static Handle launch(HANDLE token, HANDLE job, const std::wstring& channel) {
     if (!InitializeProcThreadAttributeList(startup.lpAttributeList, 1, 0, &bytes)) {
         return Handle();
     }
+
     PROCESS_INFORMATION process{};
     void* environment = nullptr;
     if (UpdateProcThreadAttribute(startup.lpAttributeList, 0, PROC_THREAD_ATTRIBUTE_JOB_LIST, &job,
@@ -50,6 +52,7 @@ static Handle launch(HANDLE token, HANDLE job, const std::wstring& channel) {
                              environment, directory.c_str(), &startup.StartupInfo, &process);
         DestroyEnvironmentBlock(environment);
     }
+
     DeleteProcThreadAttributeList(startup.lpAttributeList);
     Handle thread(process.hThread);
     return Handle(process.hProcess);
@@ -62,6 +65,7 @@ static Handle start_session(DWORD session, HANDLE job, const std::wstring& chann
         return Handle();
     }
     Handle token(raw);
+
     TOKEN_ELEVATION elevation{};
     DWORD bytes = 0;
     if (!GetTokenInformation(raw, TokenElevation, &elevation, sizeof(elevation), &bytes)) {
@@ -70,10 +74,12 @@ static Handle start_session(DWORD session, HANDLE job, const std::wstring& chann
     if (!elevation.TokenIsElevated) {
         return launch(raw, job, channel);
     }
+
     TOKEN_LINKED_TOKEN linked{};
     if (!GetTokenInformation(raw, TokenLinkedToken, &linked, sizeof(linked), &bytes)) {
         return Handle();
     }
+
     Handle limited(linked.LinkedToken);
     HANDLE primary = nullptr;
     if (!DuplicateTokenEx(limited.get(), MAXIMUM_ALLOWED, nullptr, SecurityImpersonation, TokenPrimary,
@@ -97,6 +103,7 @@ bool ProcessMonitors::open_channel() {
                                                               SDDL_REVISION_1, &descriptor, nullptr)) {
         return false;
     }
+
     SECURITY_ATTRIBUTES security{sizeof(security), descriptor, FALSE};
     Handle mapping(CreateFileMappingW(INVALID_HANDLE_VALUE, &security, PAGE_READWRITE, 0,
                                       sizeof(bb::PolicySnapshot), name.c_str()));
@@ -105,6 +112,7 @@ bool ProcessMonitors::open_channel() {
     if (!mapping || error == ERROR_ALREADY_EXISTS || !view_.open(mapping.get(), FILE_MAP_WRITE)) {
         return false;
     }
+
     mapping_.emplace(std::move(mapping));
     channel_ = std::move(name);
     return true;
@@ -120,6 +128,7 @@ bool ProcessMonitors::publish(std::string_view payload) {
     if (!view_.get()->publish(payload)) {
         return false;
     }
+
     last_payload_ = payload;
     if (payload.empty()) {
         children_.clear();
@@ -131,19 +140,23 @@ void ProcessMonitors::refresh() {
     if (last_payload_.empty()) {
         return;
     }
+
     std::erase_if(children_, [](const auto& child) {
         return WaitForSingleObject(child.second.process.get(), 0) != WAIT_TIMEOUT;
     });
+
     WTS_SESSION_INFOW* sessions = nullptr;
     DWORD count = 0;
     if (!WTSEnumerateSessionsW(WTS_CURRENT_SERVER_HANDLE, 0, 1, &sessions, &count)) {
         return;
     }
+
     for (DWORD i = 0; i < count; ++i) {
         DWORD id = sessions[i].SessionId;
         if (!id || sessions[i].State != WTSActive || children_.contains(id)) {
             continue;
         }
+
         Handle job(CreateJobObjectW(nullptr, nullptr));
         JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
         limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
@@ -152,6 +165,7 @@ void ProcessMonitors::refresh() {
             LOGF("[Process Monitor] Could not configure supervisor job: %lu", GetLastError());
             continue;
         }
+
         auto process = start_session(id, job.get(), channel_);
         if (process) {
             children_.emplace(id, Worker{std::move(process), std::move(job)});

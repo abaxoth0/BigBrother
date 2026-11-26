@@ -1,9 +1,10 @@
 package whitelistapplication
 
 import (
+	"fmt"
+
 	"bigbrother_server_backend/packages/application/rules"
 	"bigbrother_server_backend/packages/domain/entity"
-	"fmt"
 )
 
 func NormalizePriorities(entries []*entity.WhitelistEntry) ([]*entity.WhitelistEntry, error) {

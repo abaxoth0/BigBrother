@@ -1,14 +1,15 @@
 package whitelistapplication
 
 import (
-	policyrules "bigbrother_server_backend/packages/application/rules"
-	"bigbrother_server_backend/packages/domain/entity"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"slices"
 	"sort"
 	"strings"
+
+	policyrules "bigbrother_server_backend/packages/application/rules"
+	"bigbrother_server_backend/packages/domain/entity"
 )
 
 func Revision(entries []*entity.WhitelistEntry) string {

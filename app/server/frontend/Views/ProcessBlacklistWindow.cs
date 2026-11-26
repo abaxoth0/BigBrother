@@ -10,22 +10,43 @@ public sealed class ProcessBlacklistWindow : DialogWindow
     {
         Title = "Чёрный список приложений";
         Width = 620;
+
         var panel = new StackPanel { Margin = new Thickness(16) };
-        panel.Children.Add(new TextBlock {
-            Text = "По одному имени .exe в строке. Например, game*.exe завершает подходящие процессы, а !game-editor.exe разрешает редактор. Выигрывает правило с большим приоритетом [N], при равенстве — исключение. Пустой список отключает блокировку.",
-            TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8)
+        panel.Children.Add(new TextBlock
+        {
+            Text =
+                "По одному имени .exe в строке. Например, game*.exe завершает подходящие процессы, " +
+                "а !game-editor.exe разрешает редактор. " +
+                "Выигрывает правило с большим приоритетом [N], при равенстве — исключение. " +
+                "Пустой список отключает блокировку.",
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 8)
         });
-        var editor = new TextBox {
-            AcceptsReturn = true, MinLines = 5, Height = Math.Min(280, MaxHeight / 2),
+
+        var editor = new TextBox
+        {
+            AcceptsReturn = true,
+            MinLines = 5,
+            Height = Math.Min(280, MaxHeight / 2),
             HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             Text = string.Join(Environment.NewLine, source)
         };
         editor.SetResourceReference(FontSizeProperty, "TextFontSize14");
         panel.Children.Add(editor);
-        var status = new TextBlock { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0) };
+
+        var status = new TextBlock
+        {
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 6, 0, 0)
+        };
         panel.Children.Add(status);
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+
+        var buttons = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right
+        };
         var cancel = new Button { Content = "Отмена", IsCancel = true, Margin = new Thickness(4) };
         var save = new Button { Content = "Сохранить", Margin = new Thickness(4) };
         save.SetResourceReference(StyleProperty, "PrimaryButton");
@@ -33,6 +54,7 @@ public sealed class ProcessBlacklistWindow : DialogWindow
         buttons.Children.Add(save);
         panel.Children.Add(buttons);
         DialogContent = panel;
+
         bool saving = false;
         Closing += (_, e) => e.Cancel = saving;
         save.Click += async (_, _) =>
@@ -53,6 +75,7 @@ public sealed class ProcessBlacklistWindow : DialogWindow
                 saving = false;
                 panel.IsEnabled = true;
             }
+
             DialogResult = true;
         };
         Loaded += (_, _) => editor.Focus();

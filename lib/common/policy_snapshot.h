@@ -22,6 +22,7 @@ struct PolicySnapshot {
         if (bytes.size() > capacity) {
             return false;
         }
+
         std::atomic_ref sequence(revision);
         sequence.fetch_add(1);
         std::atomic_ref(length).store(static_cast<std::uint32_t>(bytes.size()));
@@ -39,14 +40,17 @@ struct PolicySnapshot {
         if ((current & 1) || current == previous) {
             return false;
         }
+
         auto size = std::atomic_ref(length).load();
         if (size > capacity) {
             return false;
         }
+
         std::string value(size, '\0');
         for (size_t i = 0; i < size; ++i) {
             value[i] = std::atomic_ref(payload[i]).load();
         }
+
         if (sequence.load() != current) {
             return false;
         }

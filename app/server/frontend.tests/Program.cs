@@ -106,19 +106,32 @@ static async Task<T> WhitelistReply<T>(string name, Func<IpcService, Task<T>> ac
 }
 
 var processSource = new[] { "[10]", "Игра*.exe", "!Игра Editor.exe" };
-var processLines = await WhitelistReply(name, service => service.GetProcessBlacklistAsync(), ["GET_PROCESS_BLACKLIST"], processSource);
+var processLines = await WhitelistReply(name, service => service.GetProcessBlacklistAsync(),
+    ["GET_PROCESS_BLACKLIST"], processSource);
 Check(processLines.SequenceEqual(processSource), "Process blacklist source changed in transit");
-var saveProcessLines = new[] { "SAVE_PROCESS_BLACKLIST" }.Concat(processSource.SelectMany(
-    line => new[] { Encoding.UTF8.GetByteCount(line).ToString(), line })).ToArray();
-await WhitelistReply(name, async service => { await service.SaveProcessBlacklistAsync(processSource); return true; },
-    saveProcessLines, []);
+
+var saveProcessLines = new[] { "SAVE_PROCESS_BLACKLIST" }
+    .Concat(processSource.SelectMany(line => new[] { Encoding.UTF8.GetByteCount(line).ToString(), line }))
+    .ToArray();
+await WhitelistReply(name, async service =>
+{
+    await service.SaveProcessBlacklistAsync(processSource);
+    return true;
+}, saveProcessLines, []);
+
 try
 {
-    await WhitelistReply(name, async service => { await service.SaveProcessBlacklistAsync(["*.exe"]); return true; },
-        ["SAVE_PROCESS_BLACKLIST", "5", "*.exe"], ["line 1: invalid rule"], "ERROR");
+    await WhitelistReply(name, async service =>
+    {
+        await service.SaveProcessBlacklistAsync(["*.exe"]);
+        return true;
+    }, ["SAVE_PROCESS_BLACKLIST", "5", "*.exe"], ["line 1: invalid rule"], "ERROR");
     throw new Exception("Process blacklist save failure ignored");
 }
-catch (IOException ex) { Check(ex.Message.Contains("line 1"), "Process rule validation message lost"); }
+catch (IOException ex)
+{
+    Check(ex.Message.Contains("line 1"), "Process rule validation message lost");
+}
 
 var whitelists = await WhitelistReply(name, service => service.GetWhitelistsAsync(),
     ["GET_WHITELISTS_DETAILS"], ["""[{"Name":"Работа:основной","IsActive":true},{"Name":"Второй","IsActive":false}]"""], followupReplies:

@@ -17,6 +17,7 @@ func Compile(text string) ([]string, error) {
 	if len(text) > maxBytes || !utf8.ValidString(text) {
 		return nil, fmt.Errorf("expected at most %d bytes of UTF-8 text", maxBytes)
 	}
+
 	var source rules.Source
 	var result []string
 	size := 0
@@ -28,12 +29,15 @@ func Compile(text string) ([]string, error) {
 		if body == "" {
 			continue
 		}
+
 		name := strings.TrimPrefix(body, "!")
 		stem, exe := strings.CutSuffix(name, ".exe")
 		prefix := strings.TrimSuffix(stem, "*")
-		if !exe || prefix == "" || len(name) > 255 || strings.ContainsAny(prefix, `<>:"/\|?*!`) || strings.IndexFunc(prefix, unicode.IsControl) >= 0 {
+		if !exe || prefix == "" || len(name) > 255 ||
+			strings.ContainsAny(prefix, `<>:"/\|?*!`) || strings.IndexFunc(prefix, unicode.IsControl) >= 0 {
 			return nil, fmt.Errorf("line %d: expected an executable name such as game.exe or game*.exe", i+1)
 		}
+
 		value := rules.FormatPriority(priority, body)
 		size += len(value) + 1
 		if size > maxBytes {

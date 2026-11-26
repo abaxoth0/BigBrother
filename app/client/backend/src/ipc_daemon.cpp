@@ -761,8 +761,7 @@ static int tls_connect_socket(SOCKET sock, bb_tls_t* tls);
 static void get_client_token(char* buf, size_t size);
 
 /** @brief Join complete TLV fields with newlines. Reject partial replies and fields that do not fit. */
-template<typename Read>
-static bool read_server_fields(Read read, char* output, size_t capacity) {
+template <typename Read> static bool read_server_fields(Read read, char* output, size_t capacity) {
     size_t used = 0;
     bool first = true;
     while (capacity > 0) {
@@ -770,29 +769,47 @@ static bool read_server_fields(Read read, char* output, size_t capacity) {
         size_t digits = 0;
         char c = 0;
         while (read(&c, 1) == 1 && c != '\n') {
-            if (digits == sizeof(length)) return false;
+            if (digits == sizeof(length)) {
+                return false;
+            }
             length[digits++] = c;
         }
-        if (c != '\n') return false;
+        if (c != '\n') {
+            return false;
+        }
         if (digits == 0) {
             output[used] = '\0';
             return true;
         }
+
         size_t bytes = 0;
         auto parsed = std::from_chars(length, length + digits, bytes);
-        if (parsed.ec != std::errc{} || parsed.ptr != length + digits) return false;
+        if (parsed.ec != std::errc{} || parsed.ptr != length + digits) {
+            return false;
+        }
+
         if (!first) {
-            if (used >= capacity - 1) return false;
+            if (used >= capacity - 1) {
+                return false;
+            }
             output[used++] = '\n';
         }
-        if (bytes > capacity - 1 - used) return false;
+
+        if (bytes > capacity - 1 - used) {
+            return false;
+        }
         size_t end = used + bytes;
         while (used < end) {
             int n = read(output + used, end - used);
-            if (n <= 0 || memchr(output + used, 0, static_cast<size_t>(n))) return false;
+            if (n <= 0 || memchr(output + used, 0, static_cast<size_t>(n))) {
+                return false;
+            }
             used += static_cast<size_t>(n);
         }
-        if (read(&c, 1) != 1 || c != '\n') return false;
+
+        if (read(&c, 1) != 1 || c != '\n') {
+            return false;
+        }
         first = false;
     }
     return false;
@@ -951,9 +968,14 @@ static int send_to_server_tlv(const char* command, const char** args, size_t arg
     int result = -1;
 
     if (strcmp(status_buf, "OK") == 0) {
-        result = read_server_fields([&tls](char* buffer, size_t count) { return bb_tls_read(&tls, buffer, count); },
-                                    out_buffer, buffer_size) ? 0 : -1;
-        if (result != 0) out_buffer[0] = '\0';
+        result = read_server_fields(
+                     [&tls](char* buffer, size_t count) { return bb_tls_read(&tls, buffer, count); },
+                     out_buffer, buffer_size)
+                     ? 0
+                     : -1;
+        if (result != 0) {
+            out_buffer[0] = '\0';
+        }
     } else if (strcmp(status_buf, "ERROR") == 0) {
         char len_line[32] = {};
         size_t len_pos = 0;
@@ -1475,8 +1497,9 @@ static int srv_read_tlv(SrvLineReader* r, char* out, size_t out_size) {
 static bool sync_process_blacklist(const char* username, client::ProcessMonitors& monitors) {
     char response[bb::PolicySnapshot::capacity + 1];
     const char* args[] = {username, nullptr};
-    return send_authenticated_request("GET_PROCESS_BLACKLIST", username, args, 2, 1,
-                                      response, sizeof(response)) == 0 && monitors.publish(response);
+    return send_authenticated_request("GET_PROCESS_BLACKLIST", username, args, 2, 1, response,
+                                      sizeof(response)) == 0 &&
+           monitors.publish(response);
 }
 
 /**
@@ -1801,7 +1824,9 @@ static int handle_server_event(const char* event_type, SrvLineReader* reader, co
         return 2;
     }
 
-    if (strcmp(event_type, "PROCESS_BLACKLIST_CHANGED") == 0) return 3;
+    if (strcmp(event_type, "PROCESS_BLACKLIST_CHANGED") == 0) {
+        return 3;
+    }
 
     if (strcmp(event_type, "WHITELIST_CHANGED") == 0) {
         sync_whitelist_from_server(username);
